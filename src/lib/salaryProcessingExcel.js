@@ -39,6 +39,8 @@ const HEADERS = [
   "Total Ded.",
   "Net salary",
   "bank",
+  "CTC",
+  "Status",
 ];
 
 function num(v) {
@@ -59,9 +61,31 @@ function esicEligible(salaryRate) {
   return r > 0 && r <= 21000;
 }
 
+function lineCtcLabel(line) {
+  return line?.hasCtc || line?.declared ? "Saved" : "Missing";
+}
+
+function lineStatusLabel(line) {
+  if (line?.onHold || String(line?.processStatus || "").toLowerCase() === "held") return "Held";
+  if (line?.alreadyProcessed || String(line?.processStatus || "").toLowerCase() === "processed") {
+    return "Processed";
+  }
+  if (line?.hasCtc === false || String(line?.processStatus || "").toLowerCase() === "ctc_required") {
+    return "CTC required";
+  }
+  if (line?.hasCtc || line?.declared) return "Pending processing";
+  return "CTC required";
+}
+
+const TAB_FILE = {
+  all: "All-Employees",
+  processed: "Processed",
+  held: "Held",
+};
+
 /**
  * @param {{ run: object, lines: object[] }} params
- * @param {{ companyTitle?: string }} [opts]
+ * @param {{ companyTitle?: string, tabLabel?: string, tabId?: string }} [opts]
  */
 export async function exportSalaryProcessingWorkbook({ run, lines }, opts = {}) {
   if (!run) throw new Error("No salary run to export.");
@@ -79,13 +103,14 @@ export async function exportSalaryProcessingWorkbook({ run, lines }, opts = {}) 
   });
 
   // Row 1 — company
-  ws.mergeCells("A1", "AB1");
+  ws.mergeCells("A1", "AD1");
   ws.getCell("A1").value = companyTitle;
   ws.getCell("A1").font = { bold: true, size: 14 };
 
   // Row 2 — month label
   ws.mergeCells("A2", "P2");
-  ws.getCell("A2").value = `Salary for the month of ${label}`;
+  const tabNote = opts.tabLabel ? ` — ${opts.tabLabel}` : "";
+  ws.getCell("A2").value = `Salary for the month of ${label}${tabNote}`;
   ws.getCell("A2").font = { bold: true, size: 12 };
 
   // Row 3 — Days (Q3 in sample)
@@ -155,13 +180,15 @@ export async function exportSalaryProcessingWorkbook({ run, lines }, opts = {}) 
     ws.getCell(r, 26).value = { formula: `SUM(S${r}:Y${r})` }; // Z
     ws.getCell(r, 27).value = { formula: `R${r}-Z${r}` }; // AA
     ws.getCell(r, 28).value = { formula: `ROUND(AA${r},0)` }; // AB
+    ws.getCell(r, 29).value = lineCtcLabel(line); // AC CTC
+    ws.getCell(r, 30).value = lineStatusLabel(line); // AD Status
 
     for (const col of [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]) {
       ws.getCell(r, col).numFmt = "#,##0";
     }
   });
 
-  const widths = [6, 12, 22, 3, 16, 12, 14, 11, 12, 12, 8, 10, 12, 10, 11, 10, 12, 11, 9, 10, 8, 8, 8, 10, 8, 10, 11, 10];
+  const widths = [6, 12, 22, 3, 16, 12, 14, 11, 12, 12, 8, 10, 12, 10, 11, 10, 12, 11, 9, 10, 8, 8, 8, 10, 8, 10, 11, 10, 10, 18];
   widths.forEach((w, i) => {
     ws.getColumn(i + 1).width = w;
   });
@@ -169,7 +196,10 @@ export async function exportSalaryProcessingWorkbook({ run, lines }, opts = {}) 
   const monNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const mon = monNames[Number(month) - 1] || String(month);
   const yy = String(year).slice(-2);
-  const filename = `Salary-${mon}-${yy}-rev${revision}.xlsx`;
+  const tabSlug = TAB_FILE[opts.tabId] || (opts.tabId ? String(opts.tabId) : "");
+  const filename = tabSlug
+    ? `Salary-${mon}-${yy}-${tabSlug}.xlsx`
+    : `Salary-${mon}-${yy}-rev${revision}.xlsx`;
 
   const buffer = await wb.xlsx.writeBuffer();
   const blob = new Blob([buffer], {

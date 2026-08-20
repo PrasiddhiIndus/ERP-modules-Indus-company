@@ -8,6 +8,7 @@ import AppToaster from "./components/AppToaster";
 import { AuditConsoleProvider } from "./contexts/AuditConsoleContext";
 import { AppAccessConfigProvider } from "./contexts/AppAccessConfigContext";
 import SalaryAdminGuard from "./pages/adminOperations/salaryAdmin/SalaryAdminGuard";
+import ComplianceGuard from "./pages/compliance/payroll/ComplianceGuard";
 import { checkSupabaseConnection } from "./lib/supabase";
 import { runBackendDiagnostics } from "./lib/backendDiagnostics";
 import {
@@ -142,6 +143,9 @@ import {
   SalaryProcessingPage,
   SalaryProcessReportPage,
   SalaryComponentsMasterPage,
+  CompliancePayrollLayoutPage,
+  ComplianceDashboardPage,
+  CompliancePayrollProcessPage,
   // NAV_HIDDEN misc admin pages
   // MiscEventsPage,
   // MiscTravelPage,
@@ -457,6 +461,19 @@ function App() {
             {/* Compliance */}
             <Route path="ifsp-employee-compliance" element={<IfspEmployeeCompliance />} />
             <Route path="general-compliance" element={<GeneralCompliance />} />
+            <Route
+              path="compliance"
+              element={
+                <ComplianceGuard>
+                  <CompliancePayrollLayoutPage />
+                </ComplianceGuard>
+              }
+            >
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<ComplianceDashboardPage />} />
+              <Route path="payroll-process" element={<CompliancePayrollProcessPage />} />
+            </Route>
+            <Route path="admin/compliance/*" element={<Navigate to="/app/compliance/dashboard" replace />} />
             
             {/* Admin */}
             <Route path="ifsp-employee-master" element={<IfspEmployeeMaster />} />

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, RefreshCw, Search, Upload } from "lucide-react";
+import { Download, RefreshCw, Search, Upload, CheckCircle2, AlertTriangle, Lock, Clock, ArrowLeft } from "lucide-react";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import FormDateInput from "../../../components/FormDateInput";
 import {
@@ -11,6 +11,7 @@ import {
 } from "../components/AdminUi";
 import { formatINRPlain } from "./salaryData";
 import { departmentInSelection } from "../../../lib/employeeMasterDepartments";
+import { RegisterDepartmentFilter } from "../employee/RegisterDepartmentFilter";
 import {
   DEFAULT_MONTH_DAYS,
   getMonthRunByKey,
@@ -23,6 +24,7 @@ import {
   PROCESS_MODES,
   fetchSalaryProcessCandidates,
   buildSalaryScopePreviewLines,
+  emptyPreviewLineFromEmployee,
   getRunSheetNo,
   getMonthHoldIds,
   setMonthHoldIds,
@@ -91,6 +93,8 @@ const SCOPE_HEADERS = [
   "Account",
   "IFSC",
   "Desig.",
+  "CTC",
+  "Status",
   "P.Days",
   "Gross W",
   "PF 12%",
@@ -106,22 +110,221 @@ const SCOPE_HEADERS = [
   "Bank",
 ];
 
-const DETAIL_FIELD_CLASS =
-  "rounded border border-slate-200 bg-white px-2.5 py-2 min-h-[3.25rem] flex flex-col justify-center gap-0.5";
-const DETAIL_LABEL_CLASS = "text-[9px] font-semibold uppercase tracking-wide text-slate-500";
+function resolveLineProcessStatus(line) {
+  if (line?.onHold || line?.processStatus === "held") return "held";
+  if (line?.alreadyProcessed || line?.processStatus === "processed") return "processed";
+  if (line?.hasCtc === false || line?.processStatus === "ctc_required") return "ctc_required";
+  if (line?.processStatus === "pending") return "pending";
+  if (line?.hasCtc) return "pending";
+  return "ctc_required";
+}
 
-function DetailField({ label, children, className = "" }) {
+const DETAIL_INPUT =
+  "h-8 w-full max-w-[9.5rem] border border-slate-200 rounded-md bg-white px-2 text-[12px] tabular-nums text-right focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent";
+const DETAIL_TEXT_INPUT =
+  "h-8 w-full border border-slate-200 rounded-md bg-white px-2 text-[12px] focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent";
+
+function nameInitials(name) {
+  const parts = String(name || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+  const letters = parts.map((p) => p[0]?.toUpperCase() || "").join("");
+  return letters || "—";
+}
+
+function ProfileFact({ label, children }) {
   return (
-    <div className={`${DETAIL_FIELD_CLASS} ${className}`}>
-      <span className={DETAIL_LABEL_CLASS}>{label}</span>
-      <div className="text-[12px] text-slate-800 min-w-0">{children}</div>
+    <div className="min-w-0">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <div className="mt-1 text-[13px] text-slate-900 min-w-0">{children}</div>
     </div>
   );
 }
 
-/**
- * Full employee salary detail page — all sheet columns, same manual + formula fields.
- */
+function StatementRow({ label, hint, children, strong = false, total = false }) {
+  return (
+    <div
+      className={`grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(0,1fr)_7.5rem_7.5rem] items-center gap-x-3 gap-y-0.5 py-2.5 ${
+        total
+          ? "border-t border-slate-200 mt-1 pt-3"
+          : "border-b border-slate-100"
+      }`}
+    >
+      <div className="min-w-0">
+        <p className={`text-[13px] ${strong || total ? "font-semibold text-slate-900" : "text-slate-700"}`}>
+          {label}
+        </p>
+        {hint ? <p className="text-[10px] text-slate-400 mt-0.5">{hint}</p> : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function StatementAmt({ children, strong = false, className = "" }) {
+  return (
+    <div className={`text-right tabular-nums text-[13px] ${strong ? "font-semibold text-slate-900" : "text-slate-800"} ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+/** Overview list tabs — all staff / already processed / held. */
+const VIEW_TABS = [
+  { id: "all", label: "All Employees" },
+  { id: "processed", label: "Processed" },
+  { id: "held", label: "Held" },
+];
+
+function ProcessStatusBadge({ status }) {
+  if (status === "processed") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        Processed
+      </span>
+    );
+  }
+  if (status === "held") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700">
+        <Lock className="h-3.5 w-3.5" />
+        Held
+      </span>
+    );
+  }
+  if (status === "ctc_required") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600">
+        <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+        CTC required
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700">
+      <Clock className="h-3.5 w-3.5 text-slate-500" />
+      Pending processing
+    </span>
+  );
+}
+
+function CtcStatusCell({ hasCtc }) {
+  if (hasCtc) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-800">
+        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+        Saved
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700">
+      <AlertTriangle className="h-3.5 w-3.5" />
+      Missing
+    </span>
+  );
+}
+
+function OverviewProcessTable({
+  rows,
+  loading,
+  emptyHint,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
+  onOpenEmployee,
+}) {
+  const selectedSet = useMemo(() => new Set((selectedIds || []).map(String)), [selectedIds]);
+  const allSelected =
+    rows.length > 0 && rows.every((r) => selectedSet.has(String(r.id)));
+
+  if (loading) {
+    return <p className="text-xs text-slate-500 py-8 text-center">Loading employees…</p>;
+  }
+  if (!rows.length) {
+    return <p className="text-xs text-slate-500 py-8 text-center">{emptyHint}</p>;
+  }
+
+  return (
+    <div className="w-full overflow-x-auto rounded-lg border border-slate-200">
+      <table className="w-full min-w-[720px] text-[12px]">
+        <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
+          <tr>
+            <th className="w-10 px-3 py-2.5 text-left">
+              <input
+                type="checkbox"
+                className="rounded border-slate-300"
+                checked={allSelected}
+                onChange={(e) => onToggleSelectAll?.(e.target.checked)}
+                aria-label="Select all visible"
+              />
+            </th>
+            <th className="text-left font-semibold px-3 py-2.5">Employee</th>
+            <th className="text-left font-semibold px-3 py-2.5">Department</th>
+            <th className="text-left font-semibold px-3 py-2.5">Site</th>
+            <th className="text-left font-semibold px-3 py-2.5">CTC</th>
+            <th className="text-right font-semibold px-3 py-2.5">Salary</th>
+            <th className="text-left font-semibold px-3 py-2.5">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100 bg-white">
+          {rows.map((emp) => {
+            const id = String(emp.id);
+            const checked = selectedSet.has(id);
+            return (
+              <tr
+                key={id}
+                className={`hover:bg-slate-50/80 ${checked ? "bg-accent-soft/30" : ""}`}
+              >
+                <td className="px-3 py-2.5 align-middle">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300"
+                    checked={checked}
+                    onChange={() => onToggleSelect?.(emp.id)}
+                    aria-label={`Select ${emp.full_name || emp.employee_code}`}
+                  />
+                </td>
+                <td className="px-3 py-2.5 align-middle min-w-[12rem]">
+                  <button
+                    type="button"
+                    className="text-left group"
+                    onClick={() => onOpenEmployee?.(emp)}
+                  >
+                    <span className="block font-medium text-slate-900 group-hover:text-accent">
+                      {emp.full_name || "—"}
+                    </span>
+                    <span className="block font-mono text-[10px] text-slate-500 mt-0.5">
+                      {emp.employee_code || "—"}
+                    </span>
+                  </button>
+                </td>
+                <td className="px-3 py-2.5 align-middle text-slate-700">{emp.department || "—"}</td>
+                <td className="px-3 py-2.5 align-middle text-slate-600">{emp.location || "—"}</td>
+                <td className="px-3 py-2.5 align-middle">
+                  <CtcStatusCell hasCtc={emp.hasCtc} />
+                </td>
+                <td className="px-3 py-2.5 align-middle text-right tabular-nums text-slate-800">
+                  {emp.hasCtc && emp.ctc_monthly != null ? (
+                    <span>₹{formatINRPlain(emp.ctc_monthly)}</span>
+                  ) : (
+                    <span className="text-slate-300">—</span>
+                  )}
+                </td>
+                <td className="px-3 py-2.5 align-middle">
+                  <ProcessStatusBadge status={emp.processStatus} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function EmployeeSalaryDetailPage({
   line,
   monthLabelText,
@@ -136,6 +339,7 @@ function EmployeeSalaryDetailPage({
 }) {
   if (!line) return null;
   const patch = (p) => onUpdate(line.id, p);
+  const status = resolveLineProcessStatus(line);
   const customEarnTitle = Array.isArray(line.computed_json?.custom_components)
     ? line.computed_json.custom_components
         .filter((c) => c.kind === "earning")
@@ -150,254 +354,364 @@ function EmployeeSalaryDetailPage({
     : "Person components (deduct)";
 
   return (
-    <div className="space-y-3 max-w-[1100px] w-full mx-auto">
-      <PageTaskHeader
-        className="mb-0"
-        title={line.employee_name || "Employee"}
-        subtitle={
-          <>
-            <span className="font-mono text-[11px] text-slate-600">{line.employee_code || "—"}</span>
-            <span className="mx-1.5 text-slate-300">·</span>
-            {line.designation || "—"}
-            <span className="mx-1.5 text-slate-300">·</span>
-            {monthLabelText}
-            <span className="mx-1.5 text-slate-300">·</span>
-            {monthDays} days
-          </>
-        }
-      >
-        {line.alreadyProcessed ? <StatusChip label="On sheet" severity="info" /> : null}
-        {dirty ? <StatusChip label="Unsaved" severity="warning" /> : null}
+    <div className="space-y-4 max-w-[1120px] w-full mx-auto">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <button
           type="button"
-          className={btnGhost}
+          className={`${btnGhost} inline-flex items-center gap-1.5`}
           onClick={() => {
             if (dirty && !window.confirm("Discard unsaved changes?")) return;
             onBack();
           }}
         >
-          Back
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to list
         </button>
-        <button
-          type="button"
-          className={btnPrimary}
-          disabled={saving || !dirty}
-          onClick={() => onSave?.(line)}
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
-      </PageTaskHeader>
+        <div className="flex flex-wrap items-center gap-2">
+          {dirty ? <StatusChip label="Unsaved" severity="warning" /> : null}
+          <button
+            type="button"
+            className={btnPrimary}
+            disabled={saving || !dirty}
+            onClick={() => onSave?.(line)}
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
 
       {saveError ? (
-        <p className="text-xs text-red-600 rounded border border-red-100 bg-red-50 px-2.5 py-1.5">{saveError}</p>
+        <p className="text-xs text-red-600 rounded-lg border border-red-100 bg-red-50 px-3 py-2">{saveError}</p>
       ) : null}
       {saveMsg ? (
-        <p className="text-xs text-emerald-800 rounded border border-emerald-100 bg-emerald-50 px-2.5 py-1.5">
+        <p className="text-xs text-emerald-800 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
           {saveMsg}
         </p>
       ) : null}
 
-      <SectionCard
-        title="Employee & bank"
-        className="[&_.erp-card-header]:min-h-0 [&_.erp-card-header]:py-2 [&_.erp-card-body]:p-2.5"
-      >
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-          <DetailField label="Code">
-            <span className="font-mono font-medium" title={line.employee_code || undefined}>
-              {line.employee_code || "—"}
-            </span>
-          </DetailField>
-          <DetailField label="Name" className="sm:col-span-2">
-            <span className="font-medium" title={line.employee_name || undefined}>
-              {line.employee_name || "—"}
-            </span>
-          </DetailField>
-          <DetailField label="Desig.">
-            <span title={line.designation || undefined}>{line.designation || "—"}</span>
-          </DetailField>
-          <DetailField label="Account">
-            <input
-              className={`${textIn} w-full`}
-              value={line.account_no || ""}
-              title={line.account_no || undefined}
-              onChange={(e) => patch({ account_no: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="IFSC">
-            <input
-              className={`${textIn} w-full`}
-              value={line.ifsc || ""}
-              title={line.ifsc || undefined}
-              onChange={(e) => patch({ ifsc: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="UAN">
-            <span className="font-mono text-[11px]" title={line.uan_no || undefined}>
-              {line.uan_no || "—"}
-            </span>
-          </DetailField>
-          <DetailField label="ESIC no.">
-            <span className="text-[11px]" title={line.esic_no || undefined}>
-              {line.esic_no || "—"}
-            </span>
-          </DetailField>
-          <DetailField label="DOJ">
-            {line.date_of_joining ? formatDateDdMmYyyy(line.date_of_joining) : "—"}
-          </DetailField>
-          <DetailField label="Conf.">
-            <FormDateInput
-              compact
-              className="h-7 text-[11px] w-full"
-              value={line.confirmation_date ? String(line.confirmation_date).slice(0, 10) : ""}
-              onChange={(e) => patch({ confirmation_date: e?.target?.value || null })}
-            />
-          </DetailField>
+      <section className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+        <div className="px-4 sm:px-5 py-4 flex flex-wrap items-center gap-4 bg-slate-50/80 border-b border-slate-200">
+          <div
+            className="h-14 w-14 rounded-full bg-accent/15 text-accent flex items-center justify-center text-[15px] font-semibold shrink-0"
+            aria-hidden
+          >
+            {nameInitials(line.employee_name)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-[18px] font-semibold text-slate-900 leading-tight truncate">
+              {line.employee_name || "Employee"}
+            </h1>
+            <p className="text-[12px] text-slate-500 mt-0.5">
+              <span className="font-mono text-slate-700">{line.employee_code || "—"}</span>
+              <span className="mx-1.5 text-slate-300">·</span>
+              {line.designation || "—"}
+              {line.department ? (
+                <>
+                  <span className="mx-1.5 text-slate-300">·</span>
+                  {line.department}
+                </>
+              ) : null}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Salary for {monthLabelText} · {monthDays} days
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <CtcStatusCell hasCtc={Boolean(line.hasCtc ?? line.declared)} />
+            <ProcessStatusBadge status={status} />
+          </div>
         </div>
-      </SectionCard>
+        <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-slate-100">
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Gross wages</p>
+            <p className="mt-1 text-[16px] font-semibold tabular-nums text-slate-900">
+              <Money value={line.gross_wages} strong />
+            </p>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Deductions</p>
+            <p className="mt-1 text-[16px] font-semibold tabular-nums text-slate-900">
+              <Money value={line.total_ded} strong />
+            </p>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Net salary</p>
+            <p className="mt-1 text-[16px] font-semibold tabular-nums text-emerald-800">
+              <Money value={line.net_salary} strong />
+            </p>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Credit to bank</p>
+            <p className="mt-1 text-[16px] font-semibold tabular-nums text-slate-900">
+              <Money value={line.bank_amount} strong />
+            </p>
+          </div>
+        </div>
+      </section>
 
-      <SectionCard
-        title="Earnings"
-        className="[&_.erp-card-header]:min-h-0 [&_.erp-card-header]:py-2 [&_.erp-card-body]:p-2.5"
-      >
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-          <DetailField label="Gross">
-            <Money value={line.salary_rate} strong />
-          </DetailField>
-          <DetailField label="P.Days">
-            <input
-              type="number"
-              step="0.5"
-              className={`${numIn} w-full`}
-              value={line.present_days ?? ""}
-              onChange={(e) => patch({ present_days: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="PF Basic">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.pf_basic ?? ""}
-              onChange={(e) => patch({ pf_basic: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="PF earn">
-            <Money value={line.pf_earned_basic} />
-          </DetailField>
-          <DetailField label="Basic">
-            <Money value={line.basic_full} />
-          </DetailField>
-          <DetailField label="B.earn">
-            <Money value={line.basic_earned} />
-          </DetailField>
-          <DetailField label="HRA">
-            <Money value={line.hra_earned} />
-          </DetailField>
-          <DetailField label="Special">
-            <Money value={line.special_allowance} />
-          </DetailField>
-          <DetailField label="Custom+">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              title={customEarnTitle}
-              value={line.custom_earn_full ?? line.computed_json?.custom_earn_full ?? 0}
-              onChange={(e) =>
-                patch({
-                  custom_earn_full: e.target.value,
-                  computed_json: {
-                    ...(line.computed_json || {}),
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+          <h2 className="text-[13px] font-semibold text-slate-900 mb-3">Identity &amp; bank</h2>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <ProfileFact label="Employee code">
+              <span className="font-mono text-[12px]">{line.employee_code || "—"}</span>
+            </ProfileFact>
+            <ProfileFact label="Designation">{line.designation || "—"}</ProfileFact>
+            <ProfileFact label="Date of joining">
+              {line.date_of_joining ? formatDateDdMmYyyy(line.date_of_joining) : "—"}
+            </ProfileFact>
+            <ProfileFact label="Confirmation">
+              <FormDateInput
+                compact
+                className="h-8 text-[12px] w-full"
+                value={line.confirmation_date ? String(line.confirmation_date).slice(0, 10) : ""}
+                onChange={(e) => patch({ confirmation_date: e?.target?.value || null })}
+              />
+            </ProfileFact>
+            <ProfileFact label="Account number">
+              <input
+                className={DETAIL_TEXT_INPUT}
+                value={line.account_no || ""}
+                onChange={(e) => patch({ account_no: e.target.value })}
+              />
+            </ProfileFact>
+            <ProfileFact label="IFSC">
+              <input
+                className={DETAIL_TEXT_INPUT}
+                value={line.ifsc || ""}
+                onChange={(e) => patch({ ifsc: e.target.value })}
+              />
+            </ProfileFact>
+            <ProfileFact label="UAN">
+              <span className="font-mono text-[12px]">{line.uan_no || "—"}</span>
+            </ProfileFact>
+            <ProfileFact label="ESIC number">
+              <span className="text-[12px]">{line.esic_no || "—"}</span>
+            </ProfileFact>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+          <h2 className="text-[13px] font-semibold text-slate-900 mb-3">This month</h2>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <ProfileFact label="Salary rate (gross)">
+              <Money value={line.salary_rate} strong />
+            </ProfileFact>
+            <ProfileFact label="Present days">
+              <input
+                type="number"
+                step="0.5"
+                className={`${DETAIL_INPUT} max-w-none`}
+                value={line.present_days ?? ""}
+                onChange={(e) => patch({ present_days: e.target.value })}
+              />
+            </ProfileFact>
+            <ProfileFact label="PF basic">
+              <input
+                type="number"
+                className={`${DETAIL_INPUT} max-w-none`}
+                value={line.pf_basic ?? ""}
+                onChange={(e) => patch({ pf_basic: e.target.value })}
+              />
+            </ProfileFact>
+            <ProfileFact label="Month days">
+              <span className="tabular-nums">{monthDays}</span>
+            </ProfileFact>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-4">
+            Present days come from the attendance register. Change them only if this month needs a
+            correction before processing.
+          </p>
+        </section>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+          <div className="flex items-end justify-between gap-2 mb-1">
+            <h2 className="text-[13px] font-semibold text-slate-900">Earnings</h2>
+            <p className="hidden sm:block text-[10px] uppercase tracking-wide text-slate-400">
+              Full rate · This month
+            </p>
+          </div>
+          <StatementRow label="Basic" hint="Monthly basic">
+            <StatementAmt className="hidden sm:block">
+              <Money value={line.basic_full} />
+            </StatementAmt>
+            <StatementAmt>
+              <Money value={line.basic_earned} />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="HRA">
+            <StatementAmt className="hidden sm:block">
+              <Money value={line.hra_full} />
+            </StatementAmt>
+            <StatementAmt>
+              <Money value={line.hra_earned} />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Special allowance">
+            <StatementAmt className="hidden sm:block">
+              <Money value={line.special_full} />
+            </StatementAmt>
+            <StatementAmt>
+              <Money value={line.special_allowance} />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="PF earned basic" hint="From PF basic × days">
+            <StatementAmt className="hidden sm:block">
+              <Money value={line.pf_basic} />
+            </StatementAmt>
+            <StatementAmt>
+              <Money value={line.pf_earned_basic} />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Custom earnings" hint={customEarnTitle}>
+            <StatementAmt className="hidden sm:block">
+              <input
+                type="number"
+                className={DETAIL_INPUT}
+                title={customEarnTitle}
+                value={line.custom_earn_full ?? line.computed_json?.custom_earn_full ?? 0}
+                onChange={(e) =>
+                  patch({
                     custom_earn_full: e.target.value,
-                  },
-                })
-              }
-            />
-          </DetailField>
-          <DetailField label="Gross W">
-            <Money value={line.gross_wages} strong />
-          </DetailField>
-        </div>
-      </SectionCard>
+                    computed_json: {
+                      ...(line.computed_json || {}),
+                      custom_earn_full: e.target.value,
+                    },
+                  })
+                }
+              />
+            </StatementAmt>
+            <StatementAmt>
+              <Money value={line.custom_earn} />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Gross wages" total strong>
+            <StatementAmt className="hidden sm:block">
+              <Money value={line.salary_rate} />
+            </StatementAmt>
+            <StatementAmt strong>
+              <Money value={line.gross_wages} strong />
+            </StatementAmt>
+          </StatementRow>
+        </section>
 
-      <SectionCard
-        title="Deductions & net"
-        className="[&_.erp-card-header]:min-h-0 [&_.erp-card-header]:py-2 [&_.erp-card-body]:p-2.5"
-      >
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-          <DetailField label="PF 12%">
-            <Money value={line.emp_pf} />
-          </DetailField>
-          <DetailField label="ESIC">
-            <Money value={line.emp_esic} />
-          </DetailField>
-          <DetailField label="PT">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.pt_amount ?? ""}
-              onChange={(e) => patch({ pt_amount: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="Loan">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.loan ?? 0}
-              onChange={(e) => patch({ loan: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="Sal Adv">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.sal_adv ?? 0}
-              onChange={(e) => patch({ sal_adv: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="U/P">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              placeholder="—"
-              value={unpaidInputValue(line.unpaid_paid)}
-              onChange={(e) => patch({ unpaid_paid: e.target.value === "" ? 0 : e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="TDS">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.tds ?? 0}
-              onChange={(e) => patch({ tds: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="Custom−">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              title={customDedTitle}
-              value={line.custom_ded_full ?? line.computed_json?.custom_ded_full ?? 0}
-              onChange={(e) =>
-                patch({
-                  custom_ded_full: e.target.value,
-                  computed_json: {
-                    ...(line.computed_json || {}),
+        <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+          <div className="flex items-end justify-between gap-2 mb-1">
+            <h2 className="text-[13px] font-semibold text-slate-900">Deductions &amp; net</h2>
+            <p className="hidden sm:block text-[10px] uppercase tracking-wide text-slate-400">
+              This month
+            </p>
+          </div>
+          <StatementRow label="PF 12%">
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <Money value={line.emp_pf} />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="ESIC">
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <Money value={line.emp_esic} />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Professional tax">
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <input
+                type="number"
+                className={DETAIL_INPUT}
+                value={line.pt_amount ?? ""}
+                onChange={(e) => patch({ pt_amount: e.target.value })}
+              />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Loan">
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <input
+                type="number"
+                className={DETAIL_INPUT}
+                value={line.loan ?? 0}
+                onChange={(e) => patch({ loan: e.target.value })}
+              />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Salary advance">
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <input
+                type="number"
+                className={DETAIL_INPUT}
+                value={line.sal_adv ?? 0}
+                onChange={(e) => patch({ sal_adv: e.target.value })}
+              />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Unpaid / paid" hint="Leave unpaid or extra paid days">
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <input
+                type="number"
+                className={DETAIL_INPUT}
+                placeholder="—"
+                value={unpaidInputValue(line.unpaid_paid)}
+                onChange={(e) => patch({ unpaid_paid: e.target.value === "" ? 0 : e.target.value })}
+              />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="TDS">
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <input
+                type="number"
+                className={DETAIL_INPUT}
+                value={line.tds ?? 0}
+                onChange={(e) => patch({ tds: e.target.value })}
+              />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Custom deductions" hint={customDedTitle}>
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <input
+                type="number"
+                className={DETAIL_INPUT}
+                title={customDedTitle}
+                value={line.custom_ded_full ?? line.computed_json?.custom_ded_full ?? 0}
+                onChange={(e) =>
+                  patch({
                     custom_ded_full: e.target.value,
-                  },
-                })
-              }
-            />
-          </DetailField>
-          <DetailField label="Tot Ded">
-            <Money value={line.total_ded} />
-          </DetailField>
-          <DetailField label="Net">
-            <Money value={line.net_salary} strong />
-          </DetailField>
-          <DetailField label="Bank">
-            <Money value={line.bank_amount} strong />
-          </DetailField>
-        </div>
-      </SectionCard>
+                    computed_json: {
+                      ...(line.computed_json || {}),
+                      custom_ded_full: e.target.value,
+                    },
+                  })
+                }
+              />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Total deductions" total>
+            <span className="hidden sm:block" />
+            <StatementAmt strong>
+              <Money value={line.total_ded} strong />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Net salary" strong>
+            <span className="hidden sm:block" />
+            <StatementAmt strong>
+              <Money value={line.net_salary} strong />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Credit to bank" strong>
+            <span className="hidden sm:block" />
+            <StatementAmt strong>
+              <Money value={line.bank_amount} strong />
+            </StatementAmt>
+          </StatementRow>
+        </section>
+      </div>
     </div>
   );
 }
@@ -421,12 +735,12 @@ function ScopeSalarySheetTable({
   const colCount = SCOPE_HEADERS.length + (showSelect ? 1 : 0);
 
   return (
-    <div className="overflow-auto rounded border border-slate-200 max-h-[min(28rem,50vh)]">
-      <table className="min-w-[1180px] w-full border-collapse">
-        <thead className="sticky top-0 z-10 bg-slate-50">
+    <div className="overflow-auto rounded-lg border border-slate-200 max-h-[min(42rem,70vh)] shadow-sm">
+      <table className="min-w-[1420px] w-full border-collapse text-[11px]">
+        <thead className="sticky top-0 z-10 bg-slate-100">
           <tr>
             {showSelect ? (
-              <th className="w-9 px-1.5 py-1.5 border-b border-slate-200">
+              <th className="w-9 px-2 py-2.5 border-b border-slate-200 bg-slate-100">
                 <input
                   type="checkbox"
                   className="rounded border-slate-300"
@@ -441,7 +755,13 @@ function ScopeSalarySheetTable({
             {SCOPE_HEADERS.map((h) => (
               <th
                 key={h}
-                className="px-1.5 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500 border-b border-slate-200 whitespace-nowrap"
+                className={`px-2 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-700 border-b border-slate-200 whitespace-nowrap bg-slate-100 ${
+                  ["Gross W", "PF 12%", "ESIC", "PT", "Loan", "Sal Adv", "U/P", "TDS", "Custom−", "Tot Ded", "Net", "Bank"].includes(
+                    h
+                  )
+                    ? "text-right"
+                    : "text-left"
+                }`}
               >
                 {h}
               </th>
@@ -449,7 +769,7 @@ function ScopeSalarySheetTable({
           </tr>
         </thead>
         <tbody>
-          {loading ? (
+          {loading && !lines.length ? (
             <tr>
               <td colSpan={colCount} className="px-3 py-6 text-center text-xs text-slate-500">
                 Building sheet preview…
@@ -542,6 +862,12 @@ function ScopeSalarySheetTable({
                 </td>
                 <td className="px-1.5 py-1 text-[11px] border-b border-slate-100 max-w-[6rem]">
                   <TruncateTip text={line.designation} />
+                </td>
+                <td className="px-1.5 py-1 border-b border-slate-100 whitespace-nowrap">
+                  <CtcStatusCell hasCtc={Boolean(line.hasCtc ?? line.declared)} />
+                </td>
+                <td className="px-1.5 py-1 border-b border-slate-100 whitespace-nowrap">
+                  <ProcessStatusBadge status={resolveLineProcessStatus(line)} />
                 </td>
                 <td
                   className="px-0.5 py-0.5 border-b border-slate-100"
@@ -692,8 +1018,12 @@ function ScopeSalarySheetTable({
   );
 }
 
-function currentYearMonth() {
+function previousPayYearMonth() {
   const d = new Date();
+  // Salary for a month is normally run at the start of the next month
+  // (Aug processing → July pay month / July register P.Days).
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1);
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
 }
 
@@ -717,18 +1047,22 @@ const api = {
 };
 
 export default function SalaryProcessing() {
-  const now = currentYearMonth();
+  const now = previousPayYearMonth();
   const [year, setYear] = useState(now.year);
   const [month, setMonth] = useState(now.month);
   const [monthDays, setMonthDays] = useState(DEFAULT_MONTH_DAYS);
-  const [includeWithoutCtc, setIncludeWithoutCtc] = useState(false);
   const [tableSearch, setTableSearch] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [viewTab, setViewTab] = useState("all");
+  const [listView, setListView] = useState("sheet"); // sheet | overview
+  const [filterCtc, setFilterCtc] = useState("all"); // all | ready | missing
   const [processMode, setProcessMode] = useState(PROCESS_MODES.BULK);
   const [selectedDepartments, setSelectedDepartments] = useState([]);
   const [holdIds, setHoldIds] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
   const [scopeLines, setScopeLines] = useState([]);
   const [scopeLinesLoading, setScopeLinesLoading] = useState(false);
+  const [savedMonthLines, setSavedMonthLines] = useState([]);
   const [detailLineId, setDetailLineId] = useState(null);
   const [detailDirty, setDetailDirty] = useState(false);
   const [detailSaving, setDetailSaving] = useState(false);
@@ -765,7 +1099,7 @@ export default function SalaryProcessing() {
   const loadCandidates = useCallback(async () => {
     setCandidatesLoading(true);
     try {
-      const data = await api.fetchCandidates({ year, month, includeWithoutCtc });
+      const data = await api.fetchCandidates({ year, month });
       setCandidates(data);
       const holds = Array.isArray(data.holdIds)
         ? data.holdIds.map(String)
@@ -783,11 +1117,32 @@ export default function SalaryProcessing() {
     } finally {
       setCandidatesLoading(false);
     }
-  }, [year, month, includeWithoutCtc]);
+  }, [year, month]);
 
   useEffect(() => {
     loadCandidates();
   }, [loadCandidates]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const runId = candidates.existingRun?.id;
+    if (!runId) {
+      setSavedMonthLines([]);
+      return undefined;
+    }
+    (async () => {
+      try {
+        const { lines } = await api.getWithLines(runId);
+        if (!cancelled) setSavedMonthLines(lines || []);
+      } catch (err) {
+        console.warn("Salary processed lines load failed", err);
+        if (!cancelled) setSavedMonthLines([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [candidates.existingRun?.id]);
 
   const handleBankImported = useCallback(
     async ({ message, rows } = {}) => {
@@ -819,17 +1174,121 @@ export default function SalaryProcessing() {
     };
   }, [loadCandidates]);
 
+  // Sync process mode with list tab (Hold tab → hold workflow)
+  useEffect(() => {
+    if (viewTab === "held") setProcessMode(PROCESS_MODES.HOLD);
+    else setProcessMode(PROCESS_MODES.BULK);
+  }, [viewTab]);
+
+  const rosterKpis = useMemo(() => {
+    const rows = candidates.employees || [];
+    const holdSet = new Set(holdIds.map(String));
+    let ctcReady = 0;
+    let pending = 0;
+    let processed = 0;
+    let held = 0;
+    for (const e of rows) {
+      const onHold = holdSet.has(String(e.id)) || e.onHold;
+      if (onHold) held += 1;
+      else if (e.alreadyProcessed) processed += 1;
+      else if (e.hasCtc) pending += 1;
+      if (e.hasCtc) ctcReady += 1;
+    }
+    return {
+      total: rows.length,
+      ctcReady,
+      ctcMissing: Math.max(0, rows.length - ctcReady),
+      pending,
+      processed,
+      held,
+    };
+  }, [candidates.employees, holdIds]);
+
+  /** Shared tab + filter list — All shows every employee name even without CTC. */
+  const tabEmployees = useMemo(() => {
+    const holdSet = new Set(holdIds.map(String));
+
+    return (candidates.employees || []).filter((e) => {
+      const onHold = holdSet.has(String(e.id)) || Boolean(e.onHold);
+      const status = onHold
+        ? "held"
+        : e.alreadyProcessed
+          ? "processed"
+          : e.hasCtc
+            ? "pending"
+            : "ctc_required";
+
+      if (viewTab === "processed" && status !== "processed") return false;
+      if (viewTab === "held" && status !== "held") return false;
+
+      if (selectedDepartments.length > 0 && !departmentInSelection(e.department, selectedDepartments)) {
+        return false;
+      }
+      // All Employees always lists everyone (with or without CTC).
+      // CTC Saved / Missing is only an optional extra filter on that tab.
+      if (viewTab === "all" && filterCtc === "ready" && !e.hasCtc) return false;
+      if (viewTab === "all" && filterCtc === "missing" && e.hasCtc) return false;
+
+      return true;
+    });
+  }, [
+    candidates.employees,
+    holdIds,
+    viewTab,
+    filterCtc,
+    selectedDepartments,
+  ]);
+
+  const overviewRows = useMemo(() => {
+    const holdSet = new Set(holdIds.map(String));
+    const needle = tableSearch.trim().toLowerCase();
+    const enriched = tabEmployees.map((e) => {
+      const onHold = holdSet.has(String(e.id)) || Boolean(e.onHold);
+      const processStatus = onHold
+        ? "held"
+        : e.alreadyProcessed
+          ? "processed"
+          : e.hasCtc
+            ? "pending"
+            : "ctc_required";
+      return { ...e, onHold, processStatus };
+    });
+    if (!needle) return enriched;
+    return enriched.filter((e) => {
+      const hay = [e.employee_code, e.full_name, e.department, e.location, e.designation]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [tabEmployees, holdIds, tableSearch]);
+
+  const overviewTotals = useMemo(() => {
+    let totalCtc = 0;
+    let totalNet = 0;
+    for (const e of overviewRows) {
+      if (e.hasCtc) {
+        totalCtc += Number(e.ctc_monthly) || 0;
+        totalNet += Number(e.take_home_monthly) || 0;
+      }
+    }
+    return { totalCtc, totalNet };
+  }, [overviewRows]);
+
   const processPreview = useMemo(() => {
     const rows = candidates.employees || [];
     const holdSet = new Set(holdIds.map(String));
     const selectedSet = new Set(selectedIds.map(String));
-    let pool = rows.filter((e) => e.eligible && !holdSet.has(String(e.id)));
-    if (processMode === PROCESS_MODES.DEPT) {
+    let pool = rows.filter((e) => {
+      if (holdSet.has(String(e.id)) || e.onHold) return false;
+      return Boolean(e.hasCtc);
+    });
+    if (selectedDepartments.length > 0) {
       pool = pool.filter((e) => departmentInSelection(e.department, selectedDepartments));
-    } else if (processMode === PROCESS_MODES.HOLD) {
+    }
+    if (processMode === PROCESS_MODES.HOLD) {
       pool = [];
     }
-    // If user ticked employees, process only those (still not held)
     if (
       (processMode === PROCESS_MODES.BULK || processMode === PROCESS_MODES.DEPT) &&
       selectedSet.size
@@ -840,11 +1299,8 @@ export default function SalaryProcessing() {
     const skipped = pool.filter((e) => e.alreadyProcessed);
     const inScope = rows.filter((e) => {
       if (processMode === PROCESS_MODES.HOLD) return holdSet.has(String(e.id));
-      if (processMode === PROCESS_MODES.DEPT) {
-        return (
-          departmentInSelection(e.department, selectedDepartments) &&
-          !holdSet.has(String(e.id))
-        );
+      if (selectedDepartments.length > 0) {
+        return departmentInSelection(e.department, selectedDepartments) && !holdSet.has(String(e.id));
       }
       return !holdSet.has(String(e.id));
     });
@@ -853,32 +1309,8 @@ export default function SalaryProcessing() {
     return { pool, toProcess, skipped, inScope, withoutCtc, onHoldCount };
   }, [candidates.employees, processMode, selectedDepartments, holdIds, selectedIds]);
 
-  const toggleDepartment = useCallback((dept) => {
-    setSelectedDepartments((prev) => {
-      const already = prev.some((d) => departmentInSelection(dept, [d]));
-      if (already) {
-        return prev.filter((d) => !departmentInSelection(dept, [d]));
-      }
-      return [...prev, dept];
-    });
-    setSelectedIds([]);
-  }, []);
-
-  const scopeEmployees = useMemo(() => {
-    const holdSet = new Set(holdIds.map(String));
-    if (processMode === PROCESS_MODES.HOLD) {
-      // Hold tab: everyone marked hold for this month
-      return (candidates.employees || []).filter((e) => holdSet.has(String(e.id)));
-    }
-    let rows = (candidates.employees || []).filter(
-      (e) => e.eligible && !holdSet.has(String(e.id))
-    );
-    if (processMode === PROCESS_MODES.DEPT) {
-      if (!selectedDepartments.length) return [];
-      rows = rows.filter((e) => departmentInSelection(e.department, selectedDepartments));
-    }
-    return rows;
-  }, [candidates.employees, processMode, selectedDepartments, holdIds]);
+  /** Salary sheet uses the same tab list so All / Processed / Held stay in sync. */
+  const scopeEmployees = tabEmployees;
 
   const visibleScopeLines = useMemo(() => {
     const needle = tableSearch.trim().toLowerCase();
@@ -908,7 +1340,10 @@ export default function SalaryProcessing() {
 
   const toggleSelectAllVisible = useCallback(
     (selectAll) => {
-      const visible = visibleScopeLines.map((l) => String(l.employee_master_id)).filter(Boolean);
+      const visible =
+        listView === "overview"
+          ? overviewRows.map((e) => String(e.id)).filter(Boolean)
+          : visibleScopeLines.map((l) => String(l.employee_master_id)).filter(Boolean);
       if (!selectAll) {
         const drop = new Set(visible);
         setSelectedIds((prev) => prev.filter((id) => !drop.has(String(id))));
@@ -920,7 +1355,7 @@ export default function SalaryProcessing() {
         return [...merged];
       });
     },
-    [visibleScopeLines]
+    [listView, overviewRows, visibleScopeLines]
   );
 
   const holdSelectedEmployees = useCallback(() => {
@@ -959,11 +1394,12 @@ export default function SalaryProcessing() {
   // Clear row selection / search when month / tab / CTC filter changes
   useEffect(() => {
     setSelectedIds([]);
-  }, [year, month, processMode, includeWithoutCtc]);
+  }, [year, month, viewTab, selectedDepartments, filterCtc]);
 
   useEffect(() => {
     setTableSearch("");
-  }, [year, month, processMode, includeWithoutCtc]);
+    setFilterCtc("all");
+  }, [year, month, viewTab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -976,27 +1412,39 @@ export default function SalaryProcessing() {
       setScopeLinesLoading(false);
       return undefined;
     }
-    setScopeLinesLoading(true);
+    const holdSet = new Set(holdIds.map(String));
+    const employeesForSheet = scopeEmployees.map((e) => {
+      const onHold = holdSet.has(String(e.id)) || Boolean(e.onHold);
+      const processStatus = onHold
+        ? "held"
+        : e.alreadyProcessed
+          ? "processed"
+          : e.hasCtc
+            ? "pending"
+            : "ctc_required";
+      return { ...e, onHold, processStatus };
+    });
+    // Show every employee immediately (All Employees includes missing CTC).
+    setScopeLines(employeesForSheet.map((e) => emptyPreviewLineFromEmployee(e, monthDays)));
+    setScopeLinesLoading(false);
     (async () => {
       try {
         const built = await buildSalaryScopePreviewLines({
-          employees: scopeEmployees,
+          employees: employeesForSheet,
           year,
           month,
           monthDays,
+          savedLines: savedMonthLines,
         });
         if (!cancelled) setScopeLines(built);
       } catch (err) {
         console.warn("Salary scope preview failed", err);
-        if (!cancelled) setScopeLines([]);
-      } finally {
-        if (!cancelled) setScopeLinesLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [scopeEmployees, year, month, monthDays, processMode, detailLineId]);
+  }, [scopeEmployees, holdIds, year, month, monthDays, processMode, detailLineId, savedMonthLines]);
 
   useEffect(() => {
     if (detailLineId && !scopeLines.some((l) => l.id === detailLineId)) {
@@ -1035,6 +1483,42 @@ export default function SalaryProcessing() {
       setDetailSaveError("");
     }
   }, []);
+
+  const openOverviewEmployee = useCallback(
+    async (emp) => {
+      if (!emp?.id) return;
+      const existing = scopeLines.find(
+        (l) => String(l.employee_master_id) === String(emp.id)
+      );
+      if (existing?.id) {
+        openEmployeeDetail(existing);
+        return;
+      }
+      setScopeLinesLoading(true);
+      try {
+        const built = await buildSalaryScopePreviewLines({
+          employees: [emp],
+          year,
+          month,
+          monthDays,
+        });
+        const line = built?.[0];
+        if (line) {
+          setScopeLines((prev) => {
+            if (prev.some((l) => String(l.employee_master_id) === String(emp.id))) return prev;
+            return [...prev, line];
+          });
+          openEmployeeDetail(line);
+        }
+      } catch (err) {
+        console.warn("Open employee salary detail failed", err);
+        setError("Could not open employee salary detail.");
+      } finally {
+        setScopeLinesLoading(false);
+      }
+    },
+    [scopeLines, year, month, monthDays, openEmployeeDetail]
+  );
 
   const saveEmployeeDetail = useCallback(
     async (line) => {
@@ -1120,7 +1604,7 @@ export default function SalaryProcessing() {
     async ({ forceFullReprocess = false } = {}) => {
       if (processMode === PROCESS_MODES.HOLD) {
         setError(
-          "Hold employees are excluded from processing. Release them first, or process from All / By department."
+          "Hold employees are excluded from processing. Release them first, or process from All Employees."
         );
         return;
       }
@@ -1176,7 +1660,6 @@ export default function SalaryProcessing() {
           year,
           month,
           monthDays,
-          includeWithoutCtc,
           processMode:
             forceFullReprocess && isBulk
               ? PROCESS_MODES.BULK
@@ -1185,7 +1668,7 @@ export default function SalaryProcessing() {
           departments:
             forceFullReprocess && isBulk
               ? []
-              : processMode === PROCESS_MODES.DEPT
+              : selectedDepartments.length
                 ? selectedDepartments
                 : [],
           forceFullReprocess: Boolean(forceFullReprocess && isBulk),
@@ -1222,7 +1705,6 @@ export default function SalaryProcessing() {
       year,
       month,
       monthDays,
-      includeWithoutCtc,
       processMode,
       selectedDepartments,
       selectedIds,
@@ -1275,6 +1757,38 @@ export default function SalaryProcessing() {
       setError(err?.message || "Excel export failed.");
     }
   }, [run, lines]);
+
+  const handleTabExport = useCallback(async () => {
+    const rows = visibleScopeLines;
+    if (!rows.length) {
+      setError("No employees on this tab to download.");
+      return;
+    }
+    setExporting(true);
+    setError("");
+    try {
+      const tabMeta = VIEW_TABS.find((t) => t.id === viewTab) || VIEW_TABS[0];
+      await exportSalaryProcessingWorkbook(
+        {
+          run: {
+            pay_year: year,
+            pay_month: month,
+            month_days: monthDays,
+            revision_no: candidates.existingRun?.revision_no || 1,
+          },
+          lines: rows,
+        },
+        { tabLabel: tabMeta.label, tabId: viewTab }
+      );
+      setNotice(`Downloaded ${rows.length} employee(s) from ${tabMeta.label}.`);
+      window.setTimeout(() => setNotice(""), 2500);
+    } catch (err) {
+      console.error(err);
+      setError(err?.message || "Excel download failed.");
+    } finally {
+      setExporting(false);
+    }
+  }, [visibleScopeLines, year, month, monthDays, candidates.existingRun, viewTab]);
 
   const filteredLines = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -1630,7 +2144,7 @@ export default function SalaryProcessing() {
       <PageTaskHeader
         className="mb-0"
         title="Salary Processing"
-        subtitle="Build monthly salary sheets from Employee Master."
+        subtitle="Build monthly salary sheets from Employee Master. P.Days = Daily Register Total Present for the selected pay month."
       >
         <button
           type="button"
@@ -1654,10 +2168,11 @@ export default function SalaryProcessing() {
       </PageTaskHeader>
 
       <CollapsibleHelp label="how this works">
-        Import bank details (or use Employee Master Excel) to save Account / IFSC / UAN / ESIC by employee
-        code. Tick employees on All or By department, then Hold selected or Process salary. CTC from
-        Employee Master drives Gross / PF / ESIC; imported account details fill Account and IFSC on the
-        sheet. Manual cells recompute with the same sheet formulas.
+        Select the pay month you are closing (usually last month — e.g. in September process
+        August). P.Days are taken from that month’s Attendance Daily Register Total Present.
+        Use All Employees / Processed / Held. All Employees lists every staff member, with or
+        without CTC. Processed shows the salary rows saved for this month. Filter by department
+        or CTC. Download Excel for the open tab.
       </CollapsibleHelp>
 
       {error ? (
@@ -1670,37 +2185,134 @@ export default function SalaryProcessing() {
       ) : null}
 
       <SectionCard
-        title="Process month"
-        className="[&_.erp-card-header]:min-h-0 [&_.erp-card-header]:py-2 [&_.erp-card-body]:p-2.5"
+        title="Salary Processing"
+        className="[&_.erp-card-header]:min-h-0 [&_.erp-card-header]:py-2.5 [&_.erp-card-body]:p-3"
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className={selectIn}
+              value={month}
+              onChange={(e) => setMonth(Number(e.target.value))}
+              aria-label="Pay month"
+              title="Pay month — P.Days from this month’s attendance register (usually last month)"
+            >
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m}>
+                  {new Date(2000, m - 1, 1).toLocaleString("en-IN", { month: "long" })}
+                </option>
+              ))}
+            </select>
+            <select
+              className={selectIn}
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+              aria-label="Pay year"
+            >
+              {years.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </div>
+        }
       >
         <div className="space-y-3">
-          <div className="flex flex-wrap items-end gap-2.5">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-slate-600">
+            <span>
+              <span className="font-semibold text-slate-900 tabular-nums">{rosterKpis.total}</span>{" "}
+              Employees
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              <span className="font-semibold text-emerald-700 tabular-nums">
+                {rosterKpis.ctcReady}
+              </span>{" "}
+              CTC saved
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              <span className="font-semibold text-amber-700 tabular-nums">
+                {rosterKpis.ctcMissing}
+              </span>{" "}
+              CTC missing
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              <span className="font-semibold text-slate-700 tabular-nums">
+                {rosterKpis.pending}
+              </span>{" "}
+              Pending processing
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              <span className="font-semibold text-slate-800 tabular-nums">
+                {rosterKpis.processed}
+              </span>{" "}
+              Processed
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              <span className="font-semibold text-amber-800 tabular-nums">{rosterKpis.held}</span>{" "}
+              Held
+            </span>
+          </div>
+
+          <div role="tablist" aria-label="Process status" className="flex flex-wrap gap-1">
+            {VIEW_TABS.map((opt) => {
+              const active = viewTab === opt.id;
+              const count =
+                opt.id === "all"
+                  ? rosterKpis.total
+                  : opt.id === "processed"
+                    ? rosterKpis.processed
+                    : rosterKpis.held;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => {
+                    setViewTab(opt.id);
+                    if (opt.id === "all") setFilterCtc("all");
+                  }}
+                  className={`h-8 px-3 text-[11px] font-semibold rounded-md border transition-colors ${
+                    active
+                      ? "bg-ink-strong text-white border-ink-strong"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900"
+                  }`}
+                >
+                  {opt.label}
+                  <span
+                    className={`ml-1.5 tabular-nums ${active ? "text-white/70" : "text-slate-400"}`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-end gap-2">
             <label className="text-[10px] uppercase tracking-wide text-slate-500 space-y-0.5">
-              <span className="block">Month</span>
-              <select
-                className={selectIn}
-                value={month}
-                onChange={(e) => setMonth(Number(e.target.value))}
-              >
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                  <option key={m} value={m}>
-                    {new Date(2000, m - 1, 1).toLocaleString("en-IN", { month: "short" })}
-                  </option>
-                ))}
-              </select>
+              <span className="block">Department</span>
+              <RegisterDepartmentFilter
+                options={candidates.departments || []}
+                selected={selectedDepartments}
+                onChange={setSelectedDepartments}
+              />
             </label>
             <label className="text-[10px] uppercase tracking-wide text-slate-500 space-y-0.5">
-              <span className="block">Year</span>
+              <span className="block">CTC status</span>
               <select
-                className={selectIn}
-                value={year}
-                onChange={(e) => setYear(Number(e.target.value))}
+                className={`${selectIn} min-w-[8rem]`}
+                value={filterCtc}
+                onChange={(e) => setFilterCtc(e.target.value)}
               >
-                {years.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
+                <option value="all">All</option>
+                <option value="ready">Saved</option>
+                <option value="missing">Missing</option>
               </select>
             </label>
             <label className="text-[10px] uppercase tracking-wide text-slate-500 space-y-0.5">
@@ -1714,140 +2326,66 @@ export default function SalaryProcessing() {
                 onChange={(e) => setMonthDays(Number(e.target.value) || DEFAULT_MONTH_DAYS)}
               />
             </label>
-            <label className="flex items-center gap-1.5 text-[11px] text-slate-600 pb-1">
-              <input
-                type="checkbox"
-                className="rounded border-slate-300"
-                checked={includeWithoutCtc}
-                onChange={(e) => setIncludeWithoutCtc(e.target.checked)}
-              />
-              Without CTC only
-            </label>
-          </div>
-
-          <div
-            role="tablist"
-            aria-label="Process scope"
-            className="flex flex-wrap gap-0 border-b border-slate-200"
-          >
-            {[
-              { id: PROCESS_MODES.BULK, label: "All" },
-              { id: PROCESS_MODES.DEPT, label: "By department" },
-              { id: PROCESS_MODES.HOLD, label: "Hold" },
-            ].map((opt) => {
-              const active = processMode === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setProcessMode(opt.id)}
-                  className={`h-8 px-3 text-[11px] font-semibold border-b-2 -mb-px transition-colors ${
-                    active
-                      ? "border-accent text-accent"
-                      : "border-transparent text-slate-500 hover:text-slate-800"
-                  }`}
-                >
-                  {opt.label}
-                  {opt.id === PROCESS_MODES.HOLD && holdIds.length > 0 ? (
-                    <span className={`ml-1 tabular-nums ${active ? "text-accent/80" : "text-slate-400"}`}>
-                      ({holdIds.length})
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-
-          {processMode === PROCESS_MODES.DEPT ? (
-            <div className="rounded border border-slate-200 bg-slate-50/80 p-2.5 space-y-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                Departments from Employee Master
-              </p>
-              {candidatesLoading ? (
-                <p className="text-xs text-slate-500">Loading…</p>
-              ) : !(candidates.departments || []).length ? (
-                <p className="text-xs text-slate-500">No departments found on active employees.</p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {(candidates.departments || []).map((dept) => {
-                    const stats = candidates.departmentStats?.[dept] || {
-                      total: 0,
-                      pending: 0,
-                      eligible: 0,
-                      processed: 0,
-                    };
-                    const selected = selectedDepartments.some((d) =>
-                      departmentInSelection(dept, [d])
-                    );
-                    return (
-                      <button
-                        key={dept}
-                        type="button"
-                        onClick={() => toggleDepartment(dept)}
-                        className={`h-7 px-2 text-[11px] rounded border ${
-                          selected
-                            ? "bg-indigo-600 text-white border-indigo-600"
-                            : "bg-white text-slate-700 border-slate-200"
-                        }`}
-                        title={`${stats.pending} ready · ${stats.eligible} ${includeWithoutCtc ? "without CTC" : "with CTC"} · ${stats.total} active in this department`}
-                      >
-                        {dept}
-                        <span className={`ml-1 ${selected ? "text-indigo-100" : "text-slate-400"}`}>
-                          ({stats.pending}/{stats.total})
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              {selectedDepartments.length ? (
-                <p className="text-[11px] text-slate-600">
-                  Showing employees in:{" "}
-                  <span className="font-medium text-slate-800">
-                    {selectedDepartments.join(", ")}
-                  </span>
-                </p>
-              ) : (
-                <p className="text-[11px] text-slate-500">
-                  Click a department to list its employees from Employee Master.
-                </p>
-              )}
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
+            <div className="relative pb-0.5">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
               <input
                 value={tableSearch}
                 onChange={(e) => setTableSearch(e.target.value)}
-                className={`${textIn} pl-6 w-56`}
-                placeholder="Search code / name / dept"
-                aria-label="Search employees in table"
+                className={`${textIn} pl-6 w-52`}
+                placeholder="Search employee"
+                aria-label="Search employees"
               />
             </div>
-            <span className="text-[11px] text-slate-500">
-              {visibleScopeLines.length}
-              {tableSearch.trim() ? ` of ${scopeLines.length}` : ""} row
-              {visibleScopeLines.length === 1 ? "" : "s"}
-            </span>
+            <div className="flex items-center gap-1 ml-auto pb-0.5">
+              <button
+                type="button"
+                className={btnGhost}
+                onClick={handleTabExport}
+                disabled={exporting || candidatesLoading || scopeLinesLoading || !visibleScopeLines.length}
+                title={`Download ${VIEW_TABS.find((t) => t.id === viewTab)?.label || "this tab"} as Excel`}
+              >
+                <Download className="h-3 w-3 inline mr-1 -mt-0.5" />
+                {exporting ? "Downloading…" : "Download Excel"}
+              </button>
+              <button
+                type="button"
+                className={`h-7 px-2.5 text-[11px] font-medium rounded border ${
+                  listView === "sheet"
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white text-slate-600 border-slate-200"
+                }`}
+                onClick={() => setListView("sheet")}
+              >
+                Salary sheet
+              </button>
+              <button
+                type="button"
+                className={`h-7 px-2.5 text-[11px] font-medium rounded border ${
+                  listView === "overview"
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white text-slate-600 border-slate-200"
+                }`}
+                onClick={() => setListView("overview")}
+              >
+                Overview
+              </button>
+            </div>
           </div>
 
-          <ScopeSalarySheetTable
+          {listView === "sheet" ? (
+            <ScopeSalarySheetTable
               lines={visibleScopeLines}
               loading={candidatesLoading || scopeLinesLoading}
               emptyHint={
-                processMode === PROCESS_MODES.HOLD
-                  ? "No employees on hold. Select staff on All / By department and click Hold selected."
-                  : processMode === PROCESS_MODES.DEPT && !selectedDepartments.length
-                    ? "Select one or more departments to preview employees."
+                viewTab === "held"
+                  ? "No employees on hold. Select staff and click Hold selected."
+                  : viewTab === "processed"
+                    ? "No processed employees for this month yet."
                     : tableSearch.trim()
                       ? "No employees match this search."
-                      : includeWithoutCtc
-                        ? "No employees without CTC in this scope."
-                        : "No employees with CTC in this scope."
+                      : selectedDepartments.length || filterCtc !== "all"
+                        ? "No employees match the current filters."
+                        : "No active employees found."
               }
               onUpdateLine={updateScopeLine}
               onOpenEmployee={openEmployeeDetail}
@@ -1857,66 +2395,77 @@ export default function SalaryProcessing() {
               readOnly={false}
               showSelect
             />
+          ) : (
+            <OverviewProcessTable
+              rows={overviewRows}
+              loading={candidatesLoading}
+              emptyHint={
+                viewTab === "held"
+                  ? "No employees on hold. Select staff and click Hold selected."
+                  : viewTab === "processed"
+                    ? "No processed employees for this month yet."
+                    : tableSearch.trim()
+                      ? "No employees match this search."
+                      : selectedDepartments.length || filterCtc !== "all"
+                        ? "No employees match the current filters."
+                        : "No active employees found."
+              }
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelectEmployee}
+              onToggleSelectAll={toggleSelectAllVisible}
+              onOpenEmployee={openOverviewEmployee}
+            />
+          )}
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
             <p className="text-[11px] text-slate-600">
-              {candidatesLoading || scopeLinesLoading ? (
-                "Checking eligibility…"
-              ) : processMode === PROCESS_MODES.HOLD ? (
+              Showing{" "}
+              <span className="font-semibold text-slate-800">
+                {listView === "overview" ? overviewRows.length : visibleScopeLines.length}
+              </span>{" "}
+              employee
+              {(listView === "overview" ? overviewRows.length : visibleScopeLines.length) === 1
+                ? ""
+                : "s"}
+              {selectedIds.length ? (
                 <>
-                  <span className="font-semibold text-slate-800">{holdIds.length}</span> on hold
-                  {selectedIds.length ? (
-                    <>
-                      {" "}
-                      · <span className="text-amber-800">{selectedIds.length} selected</span>
-                    </>
-                  ) : null}
-                  <span className="text-slate-500"> · not included in Process salary</span>
+                  {" "}
+                  · <span className="text-amber-800">{selectedIds.length} selected</span>
                 </>
-              ) : (
+              ) : null}
+              {listView === "overview" && overviewTotals.totalCtc > 0 ? (
                 <>
-                  <span className="font-semibold text-slate-800">{scopeLines.length}</span> in sheet
+                  {" "}
+                  · Total CTC{" "}
+                  <span className="font-semibold text-slate-800">
+                    ₹{formatINRPlain(overviewTotals.totalCtc)}
+                  </span>
                   {" · "}
-                  <span className="font-semibold text-slate-800">{processPreview.toProcess.length}</span> to
-                  process
-                  {selectedIds.length ? (
-                    <>
-                      {" "}
-                      · <span className="text-amber-800">{selectedIds.length} selected</span>
-                    </>
-                  ) : null}
-                  {holdIds.length ? (
-                    <>
-                      {" "}
-                      · <span className="text-amber-800">{holdIds.length} on hold</span>
-                    </>
-                  ) : null}
-                  {processPreview.skipped.length ? (
-                    <>
-                      {" "}
-                      · <span className="text-amber-700">{processPreview.skipped.length} already on sheet</span>
-                    </>
-                  ) : null}
-                  {processPreview.withoutCtc > 0 && !includeWithoutCtc ? (
-                    <>
-                      {" "}
-                      ·{" "}
-                      <span className="text-slate-500">
-                        {processPreview.withoutCtc} without CTC (use Without CTC only)
-                      </span>
-                    </>
-                  ) : null}
-                  {candidates.existingRun ? (
-                    <>
-                      {" "}
-                      · sheet rev {candidates.existingRun.revision_no}
-                    </>
-                  ) : null}
+                  Net{" "}
+                  <span className="font-semibold text-slate-800">
+                    ₹{formatINRPlain(overviewTotals.totalNet)}
+                  </span>
                 </>
-              )}
+              ) : null}
+              {processPreview.toProcess.length && viewTab !== "held" ? (
+                <>
+                  {" "}
+                  ·{" "}
+                  <span className="font-semibold text-slate-800">
+                    {processPreview.toProcess.length}
+                  </span>{" "}
+                  to process
+                </>
+              ) : null}
+              {candidates.existingRun ? (
+                <>
+                  {" "}
+                  · sheet rev {candidates.existingRun.revision_no}
+                </>
+              ) : null}
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              {processMode === PROCESS_MODES.HOLD ? (
+              {viewTab === "held" || processMode === PROCESS_MODES.HOLD ? (
                 <button
                   type="button"
                   className={btnGhost}
@@ -2009,7 +2558,7 @@ export default function SalaryProcessing() {
               : monthLabel(year, month)}
           </span>
           {existingRun ? ` (rev ${existingRun.revision_no})` : ""}. Open the sheet, process by
-          department for remaining staff, or run a full reprocess from All.
+          department for remaining staff, or run a full reprocess from All Employees.
         </p>
       </Modal>
 

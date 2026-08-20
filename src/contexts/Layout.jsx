@@ -5,6 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
 import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath } from "../config/roles";
 import { canAccessSalaryAdmin } from "../pages/adminOperations/salaryAdmin/salaryAccess";
+import { canAccessCompliance } from "../pages/compliance/payroll/complianceAccess";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import { SALARY_SUB_NAV, HR_SALARY_BASE, HR_SALARY_DASHBOARD, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
@@ -56,6 +57,7 @@ import {
   ClipboardList,
   PhoneCall,
   Layers,
+  FileSpreadsheet,
 } from "lucide-react";
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
@@ -85,7 +87,7 @@ function resolveWorkspaceContext(pathname) {
   }
   const rules = [
     [/\/app\/hr|\/app\/attendance|\/app\/salary|\/app\/people-management/, "People", "HR & workforce"],
-    [/\/app\/ifsp-employee-compliance|\/app\/general-compliance/, "Compliance", "Statutory & registers"],
+    [/\/app\/ifsp-employee-compliance|\/app\/general-compliance|\/app\/compliance(\/|$)/, "Compliance", "Statutory & registers"],
     [/\/app\/admin|\/app\/ifsp-employee|\/app\/store-inventory|\/app\/gate-pass/, "Admin", "Assets & stores"],
     [/\/app\/commercial\/rm-mm-amc-iev/, "Commercial", "R&M / AMC / IEV"],
     [/\/app\/commercial|\/app\/manpower/, "Commercial", "Manpower & training"],
@@ -211,7 +213,7 @@ const Layout = () => {
   useEffect(() => {
     if (pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/salary") || pathname.startsWith("/app/people-management") || pathname.startsWith("/app/hr/payroll/salary")) setHrAdminOpen(true);
     if (pathname.startsWith("/app/hr/payroll/salary")) setHrSalaryOpen(true);
-    if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance")) setComplianceOpen(true);
+    if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance") || pathname === "/app/compliance" || pathname.startsWith("/app/compliance/")) setComplianceOpen(true);
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
     if (pathname.startsWith("/app/marketing")) setMarketingOpen(true);
     if (pathname.startsWith("/app/maintenance")) setMaintenanceOpen(true);
@@ -444,11 +446,11 @@ const Layout = () => {
             )}
 
             {/* Compliance */}
-            {can("compliance") && (
+            {(can("compliance") || canAccessCompliance(userProfile, user)) && (
             <div>
               <button
                 onClick={() => setComplianceOpen(!complianceOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance") || pathname === "/app/compliance" || pathname.startsWith("/app/compliance/") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <Shield className="w-4 h-4 shrink-0" />
@@ -463,6 +465,38 @@ const Layout = () => {
 
               {complianceOpen && (
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                  {canSub("compliance.payroll") && (
+                  <>
+                  <NavLink
+                    to="compliance/dashboard"
+                    className={() =>
+                      `${subLinkBase} ${
+                        pathname === "/app/compliance" ||
+                        pathname === "/app/compliance/" ||
+                        pathname === "/app/compliance/dashboard"
+                          ? activeClass
+                          : "text-ink-strong"
+                      }`
+                    }
+                  >
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-accent" />
+                    <span className="type-meta type-truncate">Dashboard</span>
+                  </NavLink>
+                  <NavLink
+                    to="compliance/payroll-process"
+                    className={() =>
+                      `${subLinkBase} ${
+                        pathname.startsWith("/app/compliance/payroll-process")
+                          ? activeClass
+                          : "text-ink-strong"
+                      }`
+                    }
+                  >
+                    <FileSpreadsheet className="w-4 h-4 shrink-0 text-ink-muted" />
+                    <span className="type-meta type-truncate">Payroll Compliance</span>
+                  </NavLink>
+                  </>
+                  )}
                   <NavLink to="ifsp-employee-compliance" className={subNavClass}>
                     <CheckCircle className="w-4 h-4 shrink-0 text-green-600" />
                     <span className="type-meta type-truncate">IFSPL Employee Compliance</span>
