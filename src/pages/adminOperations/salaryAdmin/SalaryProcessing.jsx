@@ -25,6 +25,9 @@ import {
   fetchSalaryProcessCandidates,
   buildSalaryScopePreviewLines,
   emptyPreviewLineFromEmployee,
+  findSavedMonthLine,
+  decorateScopeLine,
+  workingDaysMonToSat,
   getRunSheetNo,
   getMonthHoldIds,
   setMonthHoldIds,
@@ -503,6 +506,7 @@ function EmployeeSalaryDetailPage({
                 step="0.5"
                 className={`${DETAIL_INPUT} max-w-none`}
                 value={line.present_days ?? ""}
+                placeholder="—"
                 onChange={(e) => patch({ present_days: e.target.value })}
               />
             </ProfileFact>
@@ -881,6 +885,7 @@ function ScopeSalarySheetTable({
                       step="0.5"
                       className={numIn}
                       value={line.present_days ?? ""}
+                      placeholder="—"
                       onChange={(e) => onUpdateLine(line.id, { present_days: e.target.value })}
                     />
                   )}
@@ -1027,6 +1032,67 @@ function previousPayYearMonth() {
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
 }
 
+function hasLoadedPresentDays(line) {
+  return line?.present_days != null && line.present_days !== "";
+}
+
+function overlayLoadedPresentDays(built, prev, payKey) {
+  const prevById = new Map();
+  for (const row of prev || []) {
+    const id = String(row.employee_master_id || "");
+    if (id) prevById.set(id, row);
+  }
+  return (built || []).map((line) => {
+    if (hasLoadedPresentDays(line)) return line;
+    const prevRow = prevById.get(String(line.employee_master_id));
+    if (prevRow?.pay_month_key === payKey && hasLoadedPresentDays(prevRow)) {
+      return { ...line, present_days: prevRow.present_days };
+    }
+    return line;
+  });
+}
+
+/** Keep existing P.Days for the same month so the grid does not flash 0 then refill. */
+function mergeScopePlaceholders(employeesForSheet, { prev, savedMonthLines, monthDays, payKey }) {
+  const prevById = new Map();
+  for (const row of prev || []) {
+    const id = String(row.employee_master_id || "");
+    if (id) prevById.set(id, row);
+  }
+  return employeesForSheet.map((e) => {
+    const prevRow = prevById.get(String(e.id));
+    const sameMonth = Boolean(prevRow && prevRow.pay_month_key === payKey);
+    if (sameMonth && hasLoadedPresentDays(prevRow)) {
+      return decorateScopeLine(
+        { ...prevRow, total_days: monthDays, pay_month_key: payKey },
+        e,
+        { pay_month_key: payKey }
+      );
+    }
+    const saved = findSavedMonthLine(savedMonthLines, e);
+    if (saved) {
+      return decorateScopeLine(
+        {
+          ...saved,
+          id: saved.id || `preview_${e.id}`,
+          pay_month_key: payKey,
+        },
+        e,
+        {
+          alreadyProcessed: true,
+          hasCtc: Boolean(e.hasCtc) || Number(saved.salary_rate) > 0,
+          pay_month_key: payKey,
+        }
+      );
+    }
+    return {
+      ...emptyPreviewLineFromEmployee(e, monthDays),
+      pay_month_key: payKey,
+      present_days: sameMonth ? prevRow.present_days : null,
+    };
+  });
+}
+
 const api = {
   getByKey: (key) =>
     USE_MOCK_SALARY_PROCESSING ? Promise.resolve(mockGetMonthRunByKey(key)) : getMonthRunByKey(key),
@@ -1050,7 +1116,7 @@ export default function SalaryProcessing() {
   const now = previousPayYearMonth();
   const [year, setYear] = useState(now.year);
   const [month, setMonth] = useState(now.month);
-  const [monthDays, setMonthDays] = useState(DEFAULT_MONTH_DAYS);
+  const [monthDays, setMonthDays] = useState(() => workingDaysMonToSat(now.year, now.month));
   const [tableSearch, setTableSearch] = useState("");
   const [exporting, setExporting] = useState(false);
   const [viewTab, setViewTab] = useState("all");
@@ -1402,6 +1468,11 @@ export default function SalaryProcessing() {
   }, [year, month, viewTab]);
 
   useEffect(() => {
+    const next = workingDaysMonToSat(year, month);
+    setMonthDays((prev) => (Number(prev) === next ? prev : next));
+  }, [year, month]);
+
+  useEffect(() => {
     let cancelled = false;
     if (detailLineId) {
       // Keep in-memory edits while the detail page is open
@@ -1424,8 +1495,16 @@ export default function SalaryProcessing() {
             : "ctc_required";
       return { ...e, onHold, processStatus };
     });
-    // Show every employee immediately (All Employees includes missing CTC).
-    setScopeLines(employeesForSheet.map((e) => emptyPreviewLineFromEmployee(e, monthDays)));
+    // Keep existing P.Days for this month so hits do not flash to 0 then refill.
+    const payKey = monthKey(year, month);
+    setScopeLines((prev) =>
+      mergeScopePlaceholders(employeesForSheet, {
+        prev,
+        savedMonthLines,
+        monthDays,
+        payKey,
+      })
+    );
     setScopeLinesLoading(false);
     (async () => {
       try {
@@ -1436,7 +1515,12 @@ export default function SalaryProcessing() {
           monthDays,
           savedLines: savedMonthLines,
         });
-        if (!cancelled) setScopeLines(built);
+        if (!cancelled) {
+          const payKey = monthKey(year, month);
+          setScopeLines((prev) =>
+            overlayLoadedPresentDays(built, prev, payKey)
+          );
+        }
       } catch (err) {
         console.warn("Salary scope preview failed", err);
       }
@@ -1444,7 +1528,7 @@ export default function SalaryProcessing() {
     return () => {
       cancelled = true;
     };
-  }, [scopeEmployees, holdIds, year, month, monthDays, processMode, detailLineId, savedMonthLines]);
+  }, [scopeEmployees, holdIds, year, month, monthDays, detailLineId, savedMonthLines]);
 
   useEffect(() => {
     if (detailLineId && !scopeLines.some((l) => l.id === detailLineId)) {
@@ -1990,6 +2074,7 @@ export default function SalaryProcessing() {
                       step="0.5"
                       className={numIn}
                       value={line.present_days ?? ""}
+                      placeholder="—"
                       onChange={(e) => updateLine(line.id, { present_days: e.target.value })}
                     />
                   </td>
@@ -2323,7 +2408,13 @@ export default function SalaryProcessing() {
                 max={31}
                 className={`${selectIn} w-14`}
                 value={monthDays}
-                onChange={(e) => setMonthDays(Number(e.target.value) || DEFAULT_MONTH_DAYS)}
+                title="Monday to Saturday working days in the selected month (Sundays excluded)"
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  setMonthDays(
+                    Number.isFinite(n) && n > 0 ? n : workingDaysMonToSat(year, month)
+                  );
+                }}
               />
             </label>
             <div className="relative pb-0.5">
