@@ -256,12 +256,13 @@ export function registerSummaryLeaveCredit(mark) {
 
 /**
  * Present-day credit for one register cell (0, 0.5, or 1).
- * P / P(OD) / T / CO / WFH, and paid leave types (PL, CL, SL, SPLA, SPLB, SBEL, PTL, ML, …)
- * count as present; full LWP does not. HD / P/* / LWP/* composites = 0.5; WO / NH/PH do not.
+ * P / P(OD) / T / CO / WFH / NH/PH, and paid leave types (PL, CL, SL, SPLA, SPLB, SBEL, PTL, ML, …)
+ * count as present; full LWP does not. HD / P/* / LWP/* composites = 0.5; WO does not.
  */
 export function registerPresentDayCredit(mark) {
   const raw = String(mark ?? "").trim();
   if (!raw) return 0;
+  if (isRegisterNhphMark(raw)) return 1;
   if (raw === "P(OD)") return 1;
   if (REGISTER_PRESENT_CREDIT_MARKS.has(raw)) return 1;
   const canonical = normalizeRegisterMarkForDb(raw);
