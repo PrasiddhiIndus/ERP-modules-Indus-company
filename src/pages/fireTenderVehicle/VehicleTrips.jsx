@@ -181,6 +181,15 @@ const passengerEntriesFromTrip = (trip) => {
   return [];
 };
 
+const formatTripPassengersDisplay = (trip) => {
+  if (Array.isArray(trip?.passenger_names) && trip.passenger_names.length) {
+    return trip.passenger_names.map((n) => String(n || '').trim()).filter(Boolean).join(', ');
+  }
+  const count = trip?.number_of_passengers;
+  if (count != null && Number(count) > 0) return String(count);
+  return '';
+};
+
 /** Free-text passenger name with People Master suggestions (full name + department). */
 const PassengerNameSuggestInput = ({ value, onChange, people, placeholder, className }) => {
   const rootRef = useRef(null);
@@ -1149,6 +1158,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
         Type: trip.operations_fire_tender_vehicle_master?.vehicle_type || '',
         Purpose: trip.trip_purpose || '',
         'Assigned To': trip.issued_to_name || '',
+        Passenger: formatTripPassengersDisplay(trip) || '',
         Department: trip.issued_to_department || '',
         From: trip.origin_location || '',
         To: trip.destination_location || '',
@@ -1377,6 +1387,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">S.No</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Purpose</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Assigned To</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Passenger</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Route</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Out</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">In</th>
@@ -1388,7 +1399,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                   <tbody className="divide-y divide-gray-200 bg-white">
                     {paginatedReportVehicleTrips.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="px-4 py-10 text-center text-gray-500">
+                        <td colSpan={10} className="px-4 py-10 text-center text-gray-500">
                           No trips for this vehicle in the selected month.
                         </td>
                       </tr>
@@ -1400,6 +1411,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                           </td>
                           <td className="px-4 py-3 text-gray-900">{trip.trip_purpose || '—'}</td>
                           <td className="px-4 py-3 text-gray-900">{trip.issued_to_name || '—'}</td>
+                          <td className="px-4 py-3 text-gray-700">{formatTripPassengersDisplay(trip) || '—'}</td>
                           <td className="px-4 py-3 text-gray-700">
                             {trip.origin_location || '—'} → {trip.destination_location || '—'}
                           </td>
@@ -2118,6 +2130,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
               <col className="w-[7.5rem]" />
               <col className="w-[8.5rem]" />
               <col className="w-[9.5rem]" />
+              <col className="w-[8.5rem]" />
               <col className="w-[8rem]" />
               <col className="w-[10rem]" />
               <col className="w-[10rem]" />
@@ -2143,6 +2156,9 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                 </th>
                 <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
                   {renderSortableHeader('Assigned To', 'assignedTo')}
+                </th>
+                <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Passenger
                 </th>
                 <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
                   {renderSortableHeader('Route', 'route')}
@@ -2214,6 +2230,11 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                           {trip.issued_to_contact}
                         </div>
                       )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 align-middle">
+                    <div className="line-clamp-3 text-xs leading-snug text-gray-900">
+                      {formatTripPassengersDisplay(trip) || '—'}
                     </div>
                   </td>
                   <td className="px-3 py-3 align-middle">
