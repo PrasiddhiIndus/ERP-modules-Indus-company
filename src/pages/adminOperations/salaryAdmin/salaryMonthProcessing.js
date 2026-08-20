@@ -6,8 +6,8 @@
 import { supabase } from "../../../lib/supabase";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import {
+  attendanceEmpCodeLookupVariants,
   fetchMonthlyRegisterPayrollTotals,
-  normalizeAttendanceEmpCode,
 } from "../../../lib/attendanceDaily";
 import {
   canonicalDepartmentLabel,
@@ -97,6 +97,21 @@ export function monthDateRange(year, month) {
 }
 
 /**
+ * Payable working days in a calendar month: Monday–Saturday only (Sundays excluded).
+ */
+export function workingDaysMonToSat(year, month) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isFinite(y) || m < 1 || m > 12) return DEFAULT_MONTH_DAYS;
+  const last = new Date(y, m, 0).getDate();
+  let count = 0;
+  for (let d = 1; d <= last; d += 1) {
+    if (new Date(y, m - 1, d).getDay() !== 0) count += 1;
+  }
+  return count;
+}
+
+/**
  * P.Days by employee_code for the selected pay month.
  * Same Total Present as Attendance → Daily Register (punches + marks +
  * auto weekoff / 3rd-Saturday rules). Use the month being paid
@@ -111,25 +126,45 @@ export async function fetchPresentDaysByEmployeeCode(year, month) {
     const monthValue = `${y}-${String(m).padStart(2, "0")}`;
     const result = await fetchMonthlyRegisterPayrollTotals(supabase, monthValue);
     for (const row of result.rows || []) {
-      const code = normalizeAttendanceEmpCode(row.empCode);
-      if (!code) continue;
       const total = Number(row.summary?.totalPresent);
-      map[code] = Number.isFinite(total) ? Math.round(total * 10) / 10 : 0;
+      const value = Number.isFinite(total) ? Math.round(total * 10) / 10 : 0;
+      const variants = attendanceEmpCodeLookupVariants(row.empCode);
+      if (!variants.length) continue;
+      for (const variant of variants) {
+        map[variant] = value;
+      }
     }
   } catch (err) {
     console.warn("Salary processing: present days from register unavailable", err);
+    return null;
   }
   return map;
 }
 
-/** Resolve P.Days from register map; fall back only when code has no register row. */
-export function presentDaysFromRegisterMap(presentMap, empCode, fallbackDays) {
-  const code = normalizeAttendanceEmpCode(empCode);
-  const days = Number(fallbackDays) > 0 ? Number(fallbackDays) : DEFAULT_MONTH_DAYS;
-  if (!code || !presentMap || typeof presentMap !== "object") return days;
-  if (!Object.prototype.hasOwnProperty.call(presentMap, code)) return days;
-  const v = Number(presentMap[code]);
-  return Number.isFinite(v) ? v : days;
+/** Resolve P.Days from register map. Missing register row is 0, not full month days. */
+export function presentDaysFromRegisterMap(presentMap, empCode, fallbackDays = 0) {
+  const fallback = Number(fallbackDays);
+  const fallbackVal = Number.isFinite(fallback) ? fallback : 0;
+  if (!presentMap || typeof presentMap !== "object") return fallbackVal;
+  const codes = Array.isArray(empCode) ? empCode : [empCode];
+  for (const raw of codes) {
+    for (const variant of attendanceEmpCodeLookupVariants(raw)) {
+      if (Object.prototype.hasOwnProperty.call(presentMap, variant)) {
+        const v = Number(presentMap[variant]);
+        return Number.isFinite(v) ? v : fallbackVal;
+      }
+    }
+  }
+  return fallbackVal;
+}
+
+function lookupPresentDays(presentMap, emp) {
+  if (!presentMap || typeof presentMap !== "object") return null;
+  return presentDaysFromRegisterMap(
+    presentMap,
+    [emp?.employee_code, emp?.employee_id],
+    0
+  );
 }
 
 const LINE_DB_COLUMNS = [
@@ -338,7 +373,9 @@ export function buildSheetLineFromSources({
 /** Recompute earned / deduction totals from editable inputs (sample sheet formulas). */
 export function recomputeLineFromEdits(line, monthDays) {
   const td = num(monthDays, DEFAULT_MONTH_DAYS) || DEFAULT_MONTH_DAYS;
-  const K = num(line.present_days, td);
+  const rawPresent = line.present_days;
+  const presentUnknown = rawPresent === "" || rawPresent == null;
+  const K = presentUnknown ? 0 : num(rawPresent, 0);
   const pfBasic = num(line.pf_basic);
   const basicFull = num(line.basic_full);
   const hraFull = num(line.hra_full);
@@ -375,7 +412,7 @@ export function recomputeLineFromEdits(line, monthDays) {
   const bank = round0(net);
   return {
     ...line,
-    present_days: K,
+    present_days: presentUnknown ? rawPresent : K,
     total_days: td,
     pf_earned_basic: pfEarned,
     basic_earned: basicEarned,
@@ -742,7 +779,7 @@ export function employeeAlreadyProcessed(emp, processedIndex) {
   return Boolean(code && processedIndex.codes.has(code));
 }
 
-function findSavedMonthLine(savedLines, emp) {
+export function findSavedMonthLine(savedLines, emp) {
   const id = emp?.id != null ? String(emp.id) : "";
   if (id) {
     const byId = (savedLines || []).find((l) => String(l.employee_master_id) === id);
@@ -770,7 +807,7 @@ export function emptyPreviewLineFromEmployee(emp, monthDays = DEFAULT_MONTH_DAYS
     ifsc: emp.ifsc_code || emp.ifsc || "",
     designation: emp.designation || "",
     department: emp.department || "—",
-    present_days: 0,
+    present_days: null,
     total_days: monthDays,
     salary_rate: 0,
     pf_basic: 0,
@@ -796,7 +833,7 @@ export function emptyPreviewLineFromEmployee(emp, monthDays = DEFAULT_MONTH_DAYS
   };
 }
 
-function decorateScopeLine(line, emp, extras = {}) {
+export function decorateScopeLine(line, emp, extras = {}) {
   const hasCtc = extras.hasCtc != null ? extras.hasCtc : Boolean(emp.hasCtc ?? emp.declared);
   const onHold = Boolean(emp.onHold);
   const alreadyProcessed =
@@ -812,6 +849,7 @@ function decorateScopeLine(line, emp, extras = {}) {
       emp.processStatus ||
       (onHold ? "held" : alreadyProcessed ? "processed" : hasCtc ? "pending" : "ctc_required"),
     declared: hasCtc,
+    pay_month_key: extras.pay_month_key || line.pay_month_key || "",
   };
 }
 
@@ -867,11 +905,7 @@ async function buildLinesForEmployees(employees, { salaryMap, presentMap, monthD
   const lines = [];
   for (const emp of employees || []) {
     const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
-    const present = presentDaysFromRegisterMap(
-      presentMap,
-      emp.employee_code || emp.employee_id,
-      days
-    );
+    const present = lookupPresentDays(presentMap, emp) ?? 0;
     lines.push(
       buildSheetLineFromSources({
         employee: emp,
@@ -989,32 +1023,43 @@ export async function buildSalaryScopePreviewLines({
           {
             ...saved,
             id: saved.id || `preview_${emp.id}`,
+            pay_month_key: key,
           },
           emp,
-          { alreadyProcessed: true, hasCtc: Boolean(emp.hasCtc) || Number(saved.salary_rate) > 0 }
+          {
+            alreadyProcessed: true,
+            hasCtc: Boolean(emp.hasCtc) || Number(saved.salary_rate) > 0,
+            pay_month_key: key,
+          }
         ),
       };
     }
     const hasCtc = Boolean(emp.hasCtc ?? emp._structure?.declared);
     if (!hasCtc) {
-      return { kind: "empty", emp, line: emptyPreviewLineFromEmployee(emp, days) };
+      return {
+        kind: "empty",
+        emp,
+        line: { ...emptyPreviewLineFromEmployee(emp, days), pay_month_key: key },
+      };
     }
     toCompute.push(emp);
     return { kind: "compute", emp, line: null };
   });
+
+  const needPresent = planned.some((item) => item.kind === "empty" || item.kind === "compute");
+  const presentMap = needPresent ? await fetchPresentDaysByEmployeeCode(year, month) : {};
+  const computedById = new Map();
 
   if (toCompute.length) {
     let map = salaryMap instanceof Map && salaryMap.size > 0 ? salaryMap : null;
     if (!map) {
       map = await fetchSalaryStructureMap();
     }
-    const presentMap = await fetchPresentDaysByEmployeeCode(year, month);
     const bankMap = await fetchMasterPayrollFieldsByIds(toCompute.map((e) => e.id));
     const dedMap = await seedSalaryDeductionsMapFromDb(
       toCompute.map((e) => e.id),
       key
     );
-    const computedById = new Map();
     for (const emp of toCompute) {
       const structure =
         map.get(String(emp.id)) ||
@@ -1029,11 +1074,7 @@ export async function buildSalaryScopePreviewLines({
         uan_no: fresh.uan_no ?? emp.uan_no,
         esic_no: fresh.esic_no ?? emp.esic_no,
       };
-      const present = presentDaysFromRegisterMap(
-        presentMap,
-        emp.employee_code || emp.employee_id,
-        days
-      );
+      const present = lookupPresentDays(presentMap, emp) ?? 0;
       let line = buildSheetLineFromSources({
         employee: {
           id: emp.id,
@@ -1058,18 +1099,38 @@ export async function buildSalaryScopePreviewLines({
         line = applyScopeLineDraft(line, draft, days);
       }
       line = overlayMasterBankOnLine(line, bankEmp);
-      computedById.set(String(emp.id), decorateScopeLine(
-        { ...line, id: `preview_${emp.id}` },
-        emp,
-        { hasCtc: Boolean(structure?.declared || emp.hasCtc) }
-      ));
+      computedById.set(
+        String(emp.id),
+        decorateScopeLine(
+          { ...line, id: `preview_${emp.id}`, pay_month_key: key },
+          emp,
+          { hasCtc: Boolean(structure?.declared || emp.hasCtc), pay_month_key: key }
+        )
+      );
     }
-    planned.forEach((item) => {
-      if (item.kind === "compute") {
-        item.line = computedById.get(String(item.emp.id)) || emptyPreviewLineFromEmployee(item.emp, days);
-      }
-    });
   }
+
+  planned.forEach((item) => {
+    if (item.kind === "compute") {
+      item.line =
+        computedById.get(String(item.emp.id)) ||
+        decorateScopeLine(
+          {
+            ...emptyPreviewLineFromEmployee(item.emp, days),
+            present_days: lookupPresentDays(presentMap, item.emp) ?? item.line?.present_days ?? null,
+            pay_month_key: key,
+          },
+          item.emp,
+          { pay_month_key: key }
+        );
+    } else if (item.kind === "empty") {
+      item.line = {
+        ...item.line,
+        present_days: lookupPresentDays(presentMap, item.emp) ?? item.line.present_days,
+        pay_month_key: key,
+      };
+    }
+  });
 
   return planned.map((item) => {
     if (item.kind !== "saved") return item.line;
@@ -1078,6 +1139,7 @@ export async function buildSalaryScopePreviewLines({
     return decorateScopeLine(applyScopeLineDraft(item.line, draft, days), item.emp, {
       alreadyProcessed: true,
       hasCtc: item.line.hasCtc,
+      pay_month_key: key,
     });
   });
 }
@@ -1117,7 +1179,7 @@ export async function processSalaryMonth({
   }
 
   const key = monthKey(y, m);
-  const days = Number(monthDays) > 0 ? Number(monthDays) : DEFAULT_MONTH_DAYS;
+  const days = Number(monthDays) > 0 ? Number(monthDays) : workingDaysMonToSat(y, m);
   const user = await currentUserMeta();
   const holdIds = getMonthHoldIds(key);
   const processDay =
@@ -1128,7 +1190,7 @@ export async function processSalaryMonth({
 
   const [salaryMap, presentMap, existing, employees] = await Promise.all([
     fetchSalaryStructureMap(),
-    fetchPresentDaysByEmployeeCode(y, m),
+    fetchPresentDaysByEmployeeCode(y, m).then((map) => map || {}),
     getMonthRunByKey(key),
     fetchAllActiveEmployeesForSalary(),
   ]);
