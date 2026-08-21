@@ -318,7 +318,7 @@ function loadLegacyStructureMap() {
  * Prefer DB CTC when present; always fill gaps from local CTC saves
  * (Employee Master Save CTC → Salary Processing tables).
  */
-export async function fetchSalaryStructureMap() {
+export async function fetchSalaryStructureMap({ withRevisions = false } = {}) {
   const map = loadLegacyStructureMap();
 
   try {
@@ -328,15 +328,100 @@ export async function fetchSalaryStructureMap() {
   }
 
   try {
-    const dbMap = await dbFetchSalaryStructureMap();
+    const dbMap = await dbFetchSalaryStructureMap({ withRevisions });
     for (const [id, row] of dbMap.entries()) {
-      if (row && typeof row === "object") map.set(String(id), row);
+      if (!row || typeof row !== "object") continue;
+      if (!withRevisions) {
+        map.set(String(id), row);
+        continue;
+      }
+      const local = map.get(String(id));
+      const dbRevs = Array.isArray(row.revisions) ? row.revisions : [];
+      const localRevs = Array.isArray(local?.revisions) ? local.revisions : [];
+      map.set(String(id), {
+        ...row,
+        revisions: dbRevs.length ? dbRevs : localRevs,
+      });
     }
   } catch (err) {
     console.warn("Salary Admin: DB map failed, using local CTC store", err);
   }
 
   return map;
+}
+
+function yyyyMmFromDate(value) {
+  if (value == null || value === "") return null;
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}/.test(s)) return s.slice(0, 7);
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function stripStructureRevisions(structure) {
+  if (!structure || typeof structure !== "object") return structure;
+  const { revisions: _revs, ...rest } = structure;
+  return rest;
+}
+
+/**
+ * CTC in force for a pay month: latest version whose W.E.F. is on or before that month.
+ * A September revision must not change July processing.
+ */
+export function resolveStructureForPayMonth(structure, year, month) {
+  if (!structure || structure.declared === false) return null;
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isFinite(y) || m < 1 || m > 12) return structure;
+  const payYm = `${y}-${String(m).padStart(2, "0")}`;
+
+  const entries = [
+    {
+      start: yyyyMmFromDate(structure.wef_date) || "0000-00",
+      rank: 1,
+      row: stripStructureRevisions(structure),
+    },
+  ];
+  for (const rev of Array.isArray(structure.revisions) ? structure.revisions : []) {
+    if (!rev) continue;
+    const start =
+      yyyyMmFromDate(rev.wef_date) || yyyyMmFromDate(rev.superseded_wef) || "0000-00";
+    entries.push({
+      start,
+      rank: 0,
+      row: {
+        ...stripStructureRevisions(structure),
+        ...rev,
+        declared: rev.declared !== false,
+        employee_master_id: structure.employee_master_id,
+      },
+    });
+  }
+
+  const eligible = entries.filter((e) => e.start <= payYm && e.row?.declared !== false);
+  if (!eligible.length) return null;
+  eligible.sort((a, b) => {
+    if (a.start !== b.start) return a.start < b.start ? -1 : 1;
+    return (a.rank || 0) - (b.rank || 0);
+  });
+  const picked = eligible[eligible.length - 1].row;
+  return {
+    ...picked,
+    declared: true,
+    employee_master_id: structure.employee_master_id,
+  };
+}
+
+/** Declared CTC map resolved to the version that applied in this pay month. */
+export async function fetchSalaryStructureMapForMonth(year, month) {
+  const map = await fetchSalaryStructureMap({ withRevisions: true });
+  const resolved = new Map();
+  for (const [id, structure] of map.entries()) {
+    const asOf = resolveStructureForPayMonth(structure, year, month);
+    if (asOf?.declared) resolved.set(String(id), asOf);
+  }
+  return resolved;
 }
 
 export async function getSalaryStructure(employeeMasterId) {
@@ -787,7 +872,7 @@ export function computeCtcStructure({
   const pt =
     ptMonthly != null && ptMonthly !== ""
       ? round0(ptMonthly)
-      : gross > PT_GROSS_MIN
+      : gross >= PT_GROSS_MIN
         ? PT_AMOUNT
         : 0;
 
@@ -938,8 +1023,9 @@ function sheetProrate(amount, presentDays, totalDays = DEFAULT_MONTH_DAYS) {
   return round0((base * k) / td);
 }
 
+/** Professional tax on Gross W: ₹200 when Gross W ≥ ₹12,000, else ₹0. */
 export function defaultPtForGross(grossWages) {
-  return Number(grossWages) > PT_GROSS_MIN ? PT_AMOUNT : 0;
+  return Number(grossWages) >= PT_GROSS_MIN ? PT_AMOUNT : 0;
 }
 
 /**
@@ -1045,9 +1131,7 @@ export function computeProcessingRow({
   const ptU =
     ptOverride != null && ptOverride !== ""
       ? round0(ptOverride)
-      : structure.pt_monthly != null && structure.pt_monthly !== ""
-        ? round0(structure.pt_monthly)
-        : defaultPtForGross(grossWagesR);
+      : defaultPtForGross(grossWagesR);
 
   const loanV = round0(loan);
   const salAdvW = round0(salAdv);

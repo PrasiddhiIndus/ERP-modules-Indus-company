@@ -1,10 +1,11 @@
 import React, { useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Download } from "lucide-react";
 import { Modal } from "../../adminOperations/components/AdminUi";
 import { downloadBlob, exportNodeToPdfBlob } from "../../../lib/exportNodeToPdf";
 import PayslipTemplate from "./PayslipTemplate";
 
-export default function PayslipPreviewModal({ payslip, onClose }) {
+export default function PayslipPreviewModal({ payslip, onClose, profileHref }) {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
 
@@ -31,6 +32,15 @@ export default function PayslipPreviewModal({ payslip, onClose }) {
       widthClass="max-w-4xl"
       footer={
         <div className="flex items-center justify-end gap-2">
+          {profileHref ? (
+            <Link
+              to={profileHref}
+              className="h-9 px-3 rounded-lg border border-slate-200 text-sm text-slate-700 hover:bg-slate-50 inline-flex items-center"
+              onClick={onClose}
+            >
+              Open employee profile
+            </Link>
+          ) : null}
           <button
             type="button"
             className="h-9 px-3 rounded-lg border border-slate-200 text-sm text-slate-700 hover:bg-slate-50"

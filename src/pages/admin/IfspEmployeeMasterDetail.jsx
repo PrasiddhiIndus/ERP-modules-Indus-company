@@ -507,7 +507,13 @@ export default function IfspEmployeeMasterDetail() {
 
             {activeTab === "salary-history" ? <EmployeeSalaryHistoryTab employee={employee} /> : null}
 
-            {activeTab === "payslips" ? <EmployeePayslipsTab employee={employee} /> : null}
+            {activeTab === "payslips" ? (
+              <EmployeePayslipsTab
+                employee={employee}
+                openSlipId={searchParams.get("slip") || ""}
+                openMonth={searchParams.get("month") || ""}
+              />
+            ) : null}
 
             {!CONTENT_TABS.has(activeTab) ? <PlaceholderPanel tabId={activeTab} /> : null}
           </div>

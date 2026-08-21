@@ -126,8 +126,10 @@ export function ChartPanel({ title, subtitle, right, children, className = "", h
           </div>
         </div>
       )}
-      <div className="p-3 sm:p-4 overflow-visible" style={{ height: typeof height === "number" ? height + 28 : undefined }}>
-        <div style={{ width: "100%", height: typeof height === "number" ? height : height }}>{children}</div>
+      <div className="p-3 sm:p-4 overflow-visible min-w-0" style={{ height: typeof height === "number" ? height + 28 : undefined }}>
+        <div className="min-w-0 w-full" style={{ height: typeof height === "number" ? height : height }}>
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -166,7 +168,7 @@ export function SparkKpi({
         </div>
         {data.length > 1 ? (
           <div className="w-[88px] h-10 shrink-0 opacity-90">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width={88} height={40} minWidth={0}>
               <AreaChart data={data} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id={`spk-${gid}`} x1="0" y1="0" x2="0" y2="1">
@@ -195,7 +197,7 @@ export function AreaTrendChart({
 }) {
   const gid = useId().replace(/:/g, "");
   return (
-    <ResponsiveContainer width="100%" height={height}>
+    <ResponsiveContainer width="100%" height={height} minWidth={0}>
       <AreaChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
         <defs>
           {series.map((s, i) => (
@@ -262,7 +264,7 @@ export function BarCompareChart({
   const catTick = (v) => truncateLabel(v, horizontal ? 16 : 12);
 
   return (
-    <ResponsiveContainer width="100%" height={height}>
+    <ResponsiveContainer width="100%" height={height} minWidth={0}>
       <BarChart
         data={data}
         layout={horizontal ? "vertical" : "horizontal"}
@@ -348,8 +350,8 @@ export function DonutChart({
   const rows = (data || []).filter((d) => (Number(d[valueKey]) || 0) > 0);
   const total = rows.reduce((a, d) => a + (Number(d[valueKey]) || 0), 0);
   return (
-    <div className="relative w-full h-full" style={{ height }}>
-      <ResponsiveContainer width="100%" height="100%">
+    <div className="relative w-full min-w-0" style={{ height }}>
+      <ResponsiveContainer width="100%" height={height} minWidth={0}>
         <PieChart margin={{ top: 4, right: 4, left: 4, bottom: 4 }}>
           <Pie
             data={rows}
@@ -399,10 +401,10 @@ export function RadialScoreChart({
       type="button"
       onClick={onClick}
       disabled={!onClick}
-      className={`relative w-full block text-left bg-transparent border-0 p-0 ${onClick ? "cursor-pointer" : "cursor-default"}`}
+      className={`relative w-full min-w-0 block text-left bg-transparent border-0 p-0 ${onClick ? "cursor-pointer" : "cursor-default"}`}
       style={{ height }}
     >
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height={height} minWidth={0}>
         <RadialBarChart cx="50%" cy="50%" innerRadius="68%" outerRadius="100%" data={data} startAngle={90} endAngle={-270}>
           <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
           <RadialBar background={{ fill: TOKENS.surfaceSunken }} dataKey="value" cornerRadius={8} isAnimationActive animationDuration={900} />
@@ -430,7 +432,7 @@ export function ComposedTrendChart({
 }) {
   const gid = useId().replace(/:/g, "");
   return (
-    <ResponsiveContainer width="100%" height={height}>
+    <ResponsiveContainer width="100%" height={height} minWidth={0}>
       <ComposedChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
         <defs>
           {areas.map((s, i) => (

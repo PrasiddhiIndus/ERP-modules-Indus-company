@@ -679,6 +679,7 @@ const FIRE_TENDER_MODULE_KEY = "fireTender";
 const TEAM_VALUE_ALIASES = {
   commercial: "commercialMt",
   firetender: FIRE_TENDER_MODULE_KEY,
+  production: FIRE_TENDER_MODULE_KEY,
   itis: "itIs",
   it_is: "itIs",
   "it/is": "itIs",

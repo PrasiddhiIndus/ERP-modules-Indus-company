@@ -77,6 +77,8 @@ export function appendProcessBatch(existingSummary, {
   departments,
   companyCode = "IFSPL",
   sequence,
+  processedOn,
+  employeeIds,
 }) {
   const sj = existingSummary && typeof existingSummary === "object" ? { ...existingSummary } : {};
   const seq = sequence ?? nextSheetSequenceForRun({ summary_json: sj });
@@ -87,12 +89,18 @@ export function appendProcessBatch(existingSummary, {
     sequence: seq,
     revision: revisionNo,
   });
+  const processDay =
+    processedOn && /^\d{4}-\d{2}-\d{2}$/.test(String(processedOn))
+      ? String(processedOn).slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
   const batch = {
     sequence: seq,
     sheet_no: sheetNo,
     process_mode: processMode,
     employee_count: employeeCount,
     departments: departments?.filter(Boolean)?.length ? departments.filter(Boolean) : undefined,
+    employee_ids: Array.isArray(employeeIds) ? employeeIds.map(String) : undefined,
+    processed_on: processDay,
     processed_at: new Date().toISOString(),
     revision_no: revisionNo,
   };
@@ -103,6 +111,7 @@ export function appendProcessBatch(existingSummary, {
     salary_sheet_no: sheetNo,
     process_mode: processMode,
     departments: batch.departments,
+    processed_on: processDay,
     batches,
   };
 }

@@ -32,7 +32,7 @@ import {
   DEFAULT_MONTH_DAYS,
   computeProcessingRow,
   defaultPtForGross,
-  fetchSalaryStructureMap,
+  fetchSalaryStructureMapForMonth,
   formatINRPlain,
   resolveHraMonthly,
 } from "./salaryData";
@@ -43,8 +43,10 @@ export const MONTH_RUNS_TABLE = "admin_salary_month_runs";
 export const MONTH_LINES_TABLE = "admin_salary_month_lines";
 export const RUN_REVISIONS_TABLE = "admin_salary_run_revisions";
 export const VARIANCE_TABLE = "admin_employee_salary_variances";
+export const PAYSLIPS_TABLE = "admin_salary_payslips";
 
 const MASTER_COMPARE_FIELDS = [
+  { key: "employee_code", master: "employee_code", label: "Employee ID" },
   { key: "account_no", master: "bank_account_no", label: "Account Number" },
   { key: "ifsc", master: "ifsc_code", label: "IFSC" },
   { key: "confirmation_date", master: "confirmation_date", label: "Confirmation date" },
@@ -84,6 +86,99 @@ function round0(v) {
 
 function str(v) {
   return v == null ? "" : String(v).trim();
+}
+
+/** YYYY-MM from a date-like value (joining / W.E.F.). */
+export function yearMonthFromDate(value) {
+  if (value == null || value === "") return null;
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}/.test(s)) return s.slice(0, 7);
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** On roll for this pay month: joined in this month or earlier. Missing date stays listed (with a warning). */
+export function isEmployeeOnRollForPayMonth(dateOfJoining, year, month) {
+  const doj = yearMonthFromDate(dateOfJoining);
+  if (!doj) return true;
+  return doj <= monthKey(year, month);
+}
+
+function digitsOnly(v) {
+  return str(v).replace(/\s+/g, "");
+}
+
+export function collectRosterIdentityStats(employees) {
+  const codeCounts = new Map();
+  const acctCounts = new Map();
+  for (const emp of employees || []) {
+    const code = str(emp.employee_code || emp.employee_id).toUpperCase();
+    const acct = digitsOnly(emp.bank_account_no);
+    if (code) codeCounts.set(code, (codeCounts.get(code) || 0) + 1);
+    if (acct) acctCounts.set(acct, (acctCounts.get(acct) || 0) + 1);
+  }
+  return { codeCounts, acctCounts };
+}
+
+export function payrollIdentityErrors(emp, stats = {}) {
+  const errors = [];
+  const code = str(emp?.employee_code || emp?.employee_id);
+  const acct = digitsOnly(emp?.bank_account_no);
+  const ifsc = str(emp?.ifsc_code);
+  if (!code) errors.push("Employee ID is missing.");
+  if (!acct) errors.push("Bank account is missing.");
+  if (acct && !ifsc) errors.push("IFSC is missing for this bank account.");
+  if (!yearMonthFromDate(emp?.date_of_joining)) errors.push("Date of joining is missing.");
+  if (code && stats.codeCounts?.get(code.toUpperCase()) > 1) {
+    errors.push("This employee ID is on more than one record.");
+  }
+  if (acct && stats.acctCounts?.get(acct) > 1) {
+    errors.push("This bank account is on more than one employee.");
+  }
+  return errors;
+}
+
+export function lineIdentityErrors(line, employee, stats) {
+  const errors = payrollIdentityErrors(employee || {}, stats);
+  if (!employee) {
+    errors.push("Employee record was not found for this salary row.");
+    return [...new Set(errors)];
+  }
+  if (
+    line?.employee_master_id != null &&
+    employee.id != null &&
+    String(line.employee_master_id) !== String(employee.id)
+  ) {
+    errors.push("Salary row is linked to a different employee.");
+  }
+  const masterCode = str(employee.employee_code || employee.employee_id).toUpperCase();
+  const lineCode = str(line?.employee_code).toUpperCase();
+  if (masterCode && lineCode && masterCode !== lineCode) {
+    errors.push("Employee ID on this row does not match the employee record.");
+  }
+  if (!line?.alreadyProcessed) {
+    const masterAcct = digitsOnly(employee.bank_account_no);
+    const lineAcct = digitsOnly(line?.account_no);
+    if (masterAcct && lineAcct && masterAcct !== lineAcct) {
+      errors.push("Bank account does not match this employee.");
+    }
+    const masterIfsc = str(employee.ifsc_code).toUpperCase();
+    const lineIfsc = str(line?.ifsc).toUpperCase();
+    if (masterIfsc && lineIfsc && masterIfsc !== lineIfsc) {
+      errors.push("IFSC does not match this employee.");
+    }
+  }
+  return [...new Set(errors)];
+}
+
+function withIdentityOnLine(line, employee, stats) {
+  const identityErrors = lineIdentityErrors(line, employee, stats);
+  return {
+    ...line,
+    identityErrors,
+    has_identity_error: identityErrors.length > 0,
+  };
 }
 
 /** Inclusive YYYY-MM-DD range for a calendar month. */
@@ -209,12 +304,32 @@ const LINE_DB_COLUMNS = [
 ];
 
 function toDbLinePayload(line, { includeRunId = false } = {}) {
+  const prevCj =
+    line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
+  const prevSnap =
+    line.source_snapshot_json && typeof line.source_snapshot_json === "object"
+      ? line.source_snapshot_json
+      : {};
   const cj = {
-    ...(line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {}),
+    ...prevCj,
     custom_earn_full: line.custom_earn_full,
     custom_ded_full: line.custom_ded_full,
     custom_earn: line.custom_earn,
     custom_ded: line.custom_ded,
+    department: line.department || prevCj.department || prevSnap.department || "",
+    employee_id: line.employee_id || prevCj.employee_id || prevSnap.employee_id || "",
+    uan_no: line.uan_no || prevCj.uan_no || prevSnap.uan_no || "",
+    esic_no: line.esic_no || prevCj.esic_no || prevSnap.esic_no || "",
+    ctc_monthly: line.ctc_monthly ?? prevCj.ctc_monthly ?? prevSnap.ctc_monthly ?? null,
+    pay_month_key: line.pay_month_key || prevCj.pay_month_key || "",
+  };
+  const snap = {
+    ...prevSnap,
+    department: cj.department,
+    employee_id: cj.employee_id,
+    uan_no: cj.uan_no,
+    esic_no: cj.esic_no,
+    ctc_monthly: cj.ctc_monthly,
   };
   const out = {};
   for (const key of LINE_DB_COLUMNS) {
@@ -222,7 +337,38 @@ function toDbLinePayload(line, { includeRunId = false } = {}) {
     if (line[key] !== undefined) out[key] = line[key];
   }
   out.computed_json = cj;
+  out.source_snapshot_json = snap;
   return out;
+}
+
+function hydrateMonthLine(line) {
+  if (!line) return line;
+  const cj = line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
+  const snap =
+    line.source_snapshot_json && typeof line.source_snapshot_json === "object"
+      ? line.source_snapshot_json
+      : {};
+  const lockedOn = salaryLockedOn(line);
+  const salaryLocked = salaryLineLocked(line);
+  return {
+    ...line,
+    custom_earn_full: cj.custom_earn_full ?? 0,
+    custom_ded_full: cj.custom_ded_full ?? 0,
+    custom_earn: cj.custom_earn,
+    custom_ded: cj.custom_ded,
+    department: line.department || cj.department || snap.department || "",
+    employee_id: line.employee_id || cj.employee_id || snap.employee_id || "",
+    uan_no: line.uan_no || cj.uan_no || snap.uan_no || "",
+    esic_no: line.esic_no || cj.esic_no || snap.esic_no || "",
+    ctc_monthly: line.ctc_monthly ?? cj.ctc_monthly ?? snap.ctc_monthly ?? null,
+    pay_month_key: line.pay_month_key || cj.pay_month_key || "",
+    salaryLocked,
+    lockedOn,
+    alreadyProcessed: true,
+    hasCtc: line.declared || Number(line.salary_rate) > 0,
+    declared: Boolean(line.declared || Number(line.salary_rate) > 0),
+    processStatus: salaryLocked ? "locked" : "processed",
+  };
 }
 
 function emptyDedSeed() {
@@ -292,13 +438,17 @@ export function buildSheetLineFromSources({
     employee_code: employee.employee_code || employee.employee_id || "",
     employee_name: employee.full_name || "",
     designation: employee.designation || "",
+    department: normalizeDeptName(employee.department) || employee.department || "",
     date_of_joining: employee.date_of_joining || null,
     account_no: employee.bank_account_no || "",
     ifsc: employee.ifsc_code || "",
     uan_no: employee.uan_no || "",
     esic_no: employee.esic_no || "",
+    employee_id: employee.employee_id || "",
     confirmation_date: employee.confirmation_date || null,
     salary_rate: computed.salary_rate,
+    ctc_monthly: structure?.ctc_monthly ?? null,
+    wef_date: structure?.wef_date || null,
     basic_full: basicFull,
     hra_full: hraFull,
     special_full: specialFull,
@@ -325,8 +475,11 @@ export function buildSheetLineFromSources({
     uan_no: snapshot.uan_no || "",
     esic_no: snapshot.esic_no || "",
     confirmation_date: snapshot.confirmation_date,
+    employee_id: employee.employee_id || "",
+    department: snapshot.department || "",
     declared: Boolean(computed.declared),
     salary_rate: computed.salary_rate,
+    ctc_monthly: structure?.ctc_monthly ?? null,
     present_days: presentDays,
     total_days: monthDays,
     pf_basic: computed.pf_basic,
@@ -371,7 +524,8 @@ export function buildSheetLineFromSources({
 }
 
 /** Recompute earned / deduction totals from editable inputs (sample sheet formulas). */
-export function recomputeLineFromEdits(line, monthDays) {
+export function recomputeLineFromEdits(line, monthDays, opts) {
+  const options = opts || {};
   const td = num(monthDays, DEFAULT_MONTH_DAYS) || DEFAULT_MONTH_DAYS;
   const rawPresent = line.present_days;
   const presentUnknown = rawPresent === "" || rawPresent == null;
@@ -400,7 +554,7 @@ export function recomputeLineFromEdits(line, monthDays) {
   const esicEligible = salaryRate > 0 && salaryRate <= 21000;
   const empEsic = esicEligible ? round0((gross * 0.75) / 100) : 0;
   const pt =
-    line.pt_amount != null && line.pt_amount !== ""
+    options.keepPt && line.pt_amount != null && line.pt_amount !== ""
       ? round0(line.pt_amount)
       : defaultPtForGross(gross);
   const loan = round0(line.loan);
@@ -489,16 +643,7 @@ export async function getMonthRunWithLines(runId) {
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
-  const lines = raw.map((line) => {
-    const cj = line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
-    return {
-      ...line,
-      custom_earn_full: cj.custom_earn_full ?? 0,
-      custom_ded_full: cj.custom_ded_full ?? 0,
-      custom_earn: cj.custom_earn,
-      custom_ded: cj.custom_ded,
-    };
-  });
+  const lines = raw.map((line) => hydrateMonthLine(line));
   return { run: runRes.data || null, lines };
 }
 
@@ -698,19 +843,29 @@ export function syncScopeDraftBankFromMaster(employeeMasterId, { account_no, ifs
   if (changed) writeScopeDraftStore(store);
 }
 
-/** Prefer live Employee Master bank fields on a process/preview line. */
+/** Prefer live Employee Master bank fields on a process/preview line. Never copy another employee's account. */
 export function overlayMasterBankOnLine(line, employee) {
   if (!line) return line;
-  const acct = String(employee?.bank_account_no ?? "").trim();
-  const ifsc = String(employee?.ifsc_code ?? "").trim();
-  const uan = String(employee?.uan_no ?? "").trim();
-  const esic = String(employee?.esic_no ?? "").trim();
+  if (!employee) return line;
+  if (line.alreadyProcessed) return line;
+  if (
+    line.employee_master_id != null &&
+    employee.id != null &&
+    String(line.employee_master_id) !== String(employee.id)
+  ) {
+    return withIdentityOnLine(line, employee);
+  }
+  const code = str(employee.employee_code) || str(employee.employee_id);
   return {
     ...line,
-    account_no: acct || line.account_no || "",
-    ifsc: ifsc || line.ifsc || "",
-    uan_no: uan || line.uan_no || "",
-    esic_no: esic || line.esic_no || "",
+    employee_code: code || line.employee_code || "",
+    employee_id: str(employee.employee_id) || line.employee_id || "",
+    employee_name: str(employee.full_name) || line.employee_name || "",
+    date_of_joining: employee.date_of_joining || line.date_of_joining || null,
+    account_no: str(employee.bank_account_no),
+    ifsc: str(employee.ifsc_code),
+    uan_no: str(employee.uan_no),
+    esic_no: str(employee.esic_no),
   };
 }
 
@@ -723,7 +878,7 @@ async function fetchMasterPayrollFieldsByIds(ids = []) {
     const chunk = unique.slice(i, i + 200);
     const { data, error } = await supabase
       .from(EMPLOYEE_MASTER_TABLE)
-      .select("id, bank_account_no, ifsc_code, uan_no, esic_no")
+      .select("id, employee_id, employee_code, full_name, date_of_joining, bank_account_no, ifsc_code, uan_no, esic_no")
       .in("id", chunk);
     if (error) throw error;
     for (const row of data || []) {
@@ -774,20 +929,51 @@ export function buildProcessedEmployeeIndex(lines) {
 }
 
 export function employeeAlreadyProcessed(emp, processedIndex) {
-  if (processedIndex.ids.has(String(emp.id))) return true;
-  const code = str(emp.employee_code || emp.employee_id).toUpperCase();
-  return Boolean(code && processedIndex.codes.has(code));
+  if (!processedIndex?.ids) return false;
+  return processedIndex.ids.has(String(emp.id));
 }
 
 export function findSavedMonthLine(savedLines, emp) {
   const id = emp?.id != null ? String(emp.id) : "";
-  if (id) {
-    const byId = (savedLines || []).find((l) => String(l.employee_master_id) === id);
-    if (byId) return byId;
+  if (!id) return null;
+  return (savedLines || []).find((l) => String(l.employee_master_id) === id) || null;
+}
+
+export function salaryLineLocked(line) {
+  const cj = line?.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
+  const snap =
+    line?.source_snapshot_json && typeof line.source_snapshot_json === "object"
+      ? line.source_snapshot_json
+      : {};
+  return Boolean(cj.slip_generated_on || snap.slip_generated_on || line?.salaryLocked);
+}
+
+export function salaryLockedOn(line) {
+  const cj = line?.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
+  const snap =
+    line?.source_snapshot_json && typeof line.source_snapshot_json === "object"
+      ? line.source_snapshot_json
+      : {};
+  const raw = cj.slip_generated_on || snap.slip_generated_on || line?.lockedOn || "";
+  return String(raw).slice(0, 10);
+}
+
+export function lockedEmployeeIndex(lines) {
+  const byId = new Map();
+  for (const line of lines || []) {
+    if (!salaryLineLocked(line)) continue;
+    const id = line.employee_master_id != null ? String(line.employee_master_id) : "";
+    if (id) byId.set(id, salaryLockedOn(line));
   }
-  const code = str(emp?.employee_code || emp?.employee_id).toUpperCase();
-  if (!code) return null;
-  return (savedLines || []).find((l) => str(l.employee_code).toUpperCase() === code) || null;
+  return byId;
+}
+
+function processStatusFromFlags({ onHold, salaryLocked, alreadyProcessed, hasCtc }) {
+  if (onHold) return "held";
+  if (salaryLocked) return "locked";
+  if (alreadyProcessed) return "processed";
+  if (hasCtc) return "pending";
+  return "ctc_required";
 }
 
 /** Instant roster row — name / bank / CTC status without waiting on formula preview. */
@@ -795,18 +981,22 @@ export function emptyPreviewLineFromEmployee(emp, monthDays = DEFAULT_MONTH_DAYS
   const hasCtc = Boolean(emp?.hasCtc ?? emp?.declared);
   const onHold = Boolean(emp?.onHold);
   const alreadyProcessed = Boolean(emp?.alreadyProcessed);
+  const salaryLocked = Boolean(emp?.salaryLocked);
+  const lockedOn = emp?.lockedOn || "";
   const processStatus =
     emp?.processStatus ||
-    (onHold ? "held" : alreadyProcessed ? "processed" : hasCtc ? "pending" : "ctc_required");
+    processStatusFromFlags({ onHold, salaryLocked, alreadyProcessed, hasCtc });
   return {
     id: `preview_${emp.id}`,
     employee_master_id: emp.id,
     employee_code: emp.employee_code || emp.employee_id || "",
+    employee_id: emp.employee_id || "",
     employee_name: emp.full_name || emp.employee_name || "",
-    account_no: emp.bank_account_no || emp.account_no || "",
+    account_no: emp.bank_account_no || "",
     ifsc: emp.ifsc_code || emp.ifsc || "",
     designation: emp.designation || "",
     department: emp.department || "—",
+    date_of_joining: emp.date_of_joining || null,
     present_days: null,
     total_days: monthDays,
     salary_rate: 0,
@@ -828,6 +1018,8 @@ export function emptyPreviewLineFromEmployee(emp, monthDays = DEFAULT_MONTH_DAYS
     hasCtc,
     declared: hasCtc,
     alreadyProcessed,
+    salaryLocked,
+    lockedOn,
     onHold,
     processStatus,
   };
@@ -838,19 +1030,43 @@ export function decorateScopeLine(line, emp, extras = {}) {
   const onHold = Boolean(emp.onHold);
   const alreadyProcessed =
     extras.alreadyProcessed != null ? extras.alreadyProcessed : Boolean(emp.alreadyProcessed);
-  return {
+  const salaryLocked =
+    extras.salaryLocked != null
+      ? Boolean(extras.salaryLocked)
+      : Boolean(emp.salaryLocked) || salaryLineLocked(line);
+  const lockedOn = extras.lockedOn || emp.lockedOn || salaryLockedOn(line) || "";
+  const snap =
+    line?.source_snapshot_json && typeof line.source_snapshot_json === "object"
+      ? line.source_snapshot_json
+      : {};
+  const decorated = {
     ...line,
     employee_master_id: emp.id,
+    employee_code: emp.employee_code || emp.employee_id || line.employee_code || "",
+    employee_id: emp.employee_id || line.employee_id || "",
     department: emp.department || line.department || "—",
+    date_of_joining: emp.date_of_joining || line.date_of_joining || null,
     alreadyProcessed,
+    salaryLocked,
+    lockedOn,
     hasCtc,
     onHold,
-    processStatus:
-      emp.processStatus ||
-      (onHold ? "held" : alreadyProcessed ? "processed" : hasCtc ? "pending" : "ctc_required"),
+    processStatus: processStatusFromFlags({
+      onHold,
+      salaryLocked,
+      alreadyProcessed,
+      hasCtc,
+    }),
     declared: hasCtc,
+    ctc_monthly:
+      extras.ctc_monthly ??
+      line.ctc_monthly ??
+      snap.ctc_monthly ??
+      emp.ctc_monthly ??
+      null,
     pay_month_key: extras.pay_month_key || line.pay_month_key || "",
   };
+  return withIdentityOnLine(decorated, emp, extras.identityStats);
 }
 
 export function departmentStatsForEmployees(employees) {
@@ -919,7 +1135,7 @@ async function buildLinesForEmployees(employees, { salaryMap, presentMap, monthD
   return lines;
 }
 
-/** Active employees eligible for processing, with duplicate flags for the month. */
+/** Active employees on roll for this pay month, with duplicate flags for the month. */
 export async function fetchSalaryProcessCandidates({
   year,
   month,
@@ -927,20 +1143,27 @@ export async function fetchSalaryProcessCandidates({
   const key = monthKey(year, month);
   const existing = await getMonthRunByKey(key);
   let processedIndex = { ids: new Set(), codes: new Set() };
+  let lockedById = new Map();
   if (existing?.id) {
     const { lines } = await getMonthRunWithLines(existing.id);
     processedIndex = buildProcessedEmployeeIndex(lines);
+    lockedById = lockedEmployeeIndex(lines);
   }
 
-  const [salaryMap, employees] = await Promise.all([
-    fetchSalaryStructureMap(),
+  const [salaryMap, allEmployees] = await Promise.all([
+    fetchSalaryStructureMapForMonth(year, month),
     fetchAllActiveEmployeesForSalary(),
   ]);
+
+  const employees = (allEmployees || []).filter((emp) =>
+    isEmployeeOnRollForPayMonth(emp.date_of_joining, year, month)
+  );
+  const identityStats = collectRosterIdentityStats(employees);
 
   const holdIdSet = new Set(getMonthHoldIds(key));
   const deptSet = new Set();
   const siteSet = new Set();
-  const rows = (employees || []).map((emp) => {
+  const rows = employees.map((emp) => {
     const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
     const hasCtc = Boolean(structure?.declared);
     const eligible = hasCtc;
@@ -949,7 +1172,10 @@ export async function fetchSalaryProcessCandidates({
     const site = String(emp.location || "").trim();
     if (site) siteSet.add(site);
     const alreadyProcessed = employeeAlreadyProcessed(emp, processedIndex);
+    const salaryLocked = lockedById.has(String(emp.id));
+    const lockedOn = lockedById.get(String(emp.id)) || "";
     const onHold = holdIdSet.has(String(emp.id));
+    const identityErrors = payrollIdentityErrors(emp, identityStats);
     return {
       id: emp.id,
       employee_code: emp.employee_code || emp.employee_id || "",
@@ -967,17 +1193,20 @@ export async function fetchSalaryProcessCandidates({
       hasCtc,
       eligible,
       alreadyProcessed,
+      salaryLocked,
+      lockedOn,
       onHold,
+      identityErrors,
+      has_identity_error: identityErrors.length > 0,
       ctc_monthly: hasCtc ? Number(structure?.ctc_monthly) || 0 : null,
       take_home_monthly: hasCtc ? Number(structure?.take_home_monthly) || 0 : null,
       gross_monthly: hasCtc ? Number(structure?.gross_monthly) || 0 : null,
-      processStatus: onHold
-        ? "held"
-        : alreadyProcessed
-          ? "processed"
-          : hasCtc
-            ? "pending"
-            : "ctc_required",
+      processStatus: processStatusFromFlags({
+        onHold,
+        salaryLocked,
+        alreadyProcessed,
+        hasCtc,
+      }),
       _structure: structure,
     };
   });
@@ -1011,10 +1240,15 @@ export async function buildSalaryScopePreviewLines({
 } = {}) {
   const days = Number(monthDays) > 0 ? Number(monthDays) : DEFAULT_MONTH_DAYS;
   const key = monthKey(year, month);
+  const identityStats = collectRosterIdentityStats(employees);
+  const monthSaved = (savedLines || []).filter((l) => {
+    const lineKey = l.pay_month_key;
+    return !lineKey || lineKey === key;
+  });
 
   const toCompute = [];
   const planned = (employees || []).map((emp) => {
-    const saved = findSavedMonthLine(savedLines, emp);
+    const saved = findSavedMonthLine(monthSaved, emp);
     if (saved) {
       return {
         kind: "saved",
@@ -1030,6 +1264,7 @@ export async function buildSalaryScopePreviewLines({
             alreadyProcessed: true,
             hasCtc: Boolean(emp.hasCtc) || Number(saved.salary_rate) > 0,
             pay_month_key: key,
+            identityStats,
           }
         ),
       };
@@ -1039,7 +1274,11 @@ export async function buildSalaryScopePreviewLines({
       return {
         kind: "empty",
         emp,
-        line: { ...emptyPreviewLineFromEmployee(emp, days), pay_month_key: key },
+        line: decorateScopeLine(
+          { ...emptyPreviewLineFromEmployee(emp, days), pay_month_key: key },
+          emp,
+          { pay_month_key: key, identityStats }
+        ),
       };
     }
     toCompute.push(emp);
@@ -1053,7 +1292,7 @@ export async function buildSalaryScopePreviewLines({
   if (toCompute.length) {
     let map = salaryMap instanceof Map && salaryMap.size > 0 ? salaryMap : null;
     if (!map) {
-      map = await fetchSalaryStructureMap();
+      map = await fetchSalaryStructureMapForMonth(year, month);
     }
     const bankMap = await fetchMasterPayrollFieldsByIds(toCompute.map((e) => e.id));
     const dedMap = await seedSalaryDeductionsMapFromDb(
@@ -1069,6 +1308,11 @@ export async function buildSalaryScopePreviewLines({
       const fresh = bankMap.get(String(emp.id)) || {};
       const bankEmp = {
         ...emp,
+        id: emp.id,
+        employee_id: fresh.employee_id ?? emp.employee_id,
+        employee_code: fresh.employee_code ?? emp.employee_code,
+        full_name: fresh.full_name ?? emp.full_name,
+        date_of_joining: fresh.date_of_joining ?? emp.date_of_joining,
         bank_account_no: fresh.bank_account_no ?? emp.bank_account_no,
         ifsc_code: fresh.ifsc_code ?? emp.ifsc_code,
         uan_no: fresh.uan_no ?? emp.uan_no,
@@ -1078,11 +1322,11 @@ export async function buildSalaryScopePreviewLines({
       let line = buildSheetLineFromSources({
         employee: {
           id: emp.id,
-          employee_id: emp.employee_id || emp.employee_code,
-          employee_code: emp.employee_code,
-          full_name: emp.full_name,
+          employee_id: bankEmp.employee_id,
+          employee_code: bankEmp.employee_code,
+          full_name: bankEmp.full_name,
           designation: emp.designation,
-          date_of_joining: emp.date_of_joining,
+          date_of_joining: bankEmp.date_of_joining,
           confirmation_date: emp.confirmation_date,
           bank_account_no: bankEmp.bank_account_no,
           ifsc_code: bankEmp.ifsc_code,
@@ -1104,7 +1348,7 @@ export async function buildSalaryScopePreviewLines({
         decorateScopeLine(
           { ...line, id: `preview_${emp.id}`, pay_month_key: key },
           emp,
-          { hasCtc: Boolean(structure?.declared || emp.hasCtc), pay_month_key: key }
+          { hasCtc: Boolean(structure?.declared || emp.hasCtc), pay_month_key: key, identityStats }
         )
       );
     }
@@ -1121,7 +1365,7 @@ export async function buildSalaryScopePreviewLines({
             pay_month_key: key,
           },
           item.emp,
-          { pay_month_key: key }
+          { pay_month_key: key, identityStats }
         );
     } else if (item.kind === "empty") {
       item.line = {
@@ -1140,6 +1384,7 @@ export async function buildSalaryScopePreviewLines({
       alreadyProcessed: true,
       hasCtc: item.line.hasCtc,
       pay_month_key: key,
+      identityStats,
     });
   });
 }
@@ -1188,12 +1433,15 @@ export async function processSalaryMonth({
       : new Date().toISOString().slice(0, 10);
   const processAt = new Date().toISOString();
 
-  const [salaryMap, presentMap, existing, employees] = await Promise.all([
-    fetchSalaryStructureMap(),
+  const [salaryMap, presentMap, existing, allEmployees] = await Promise.all([
+    fetchSalaryStructureMapForMonth(y, m),
     fetchPresentDaysByEmployeeCode(y, m).then((map) => map || {}),
     getMonthRunByKey(key),
     fetchAllActiveEmployeesForSalary(),
   ]);
+  const employees = (allEmployees || []).filter((emp) =>
+    isEmployeeOnRollForPayMonth(emp.date_of_joining, y, m)
+  );
 
   let existingLines = [];
   const processedIndex = { ids: new Set(), codes: new Set() };
@@ -1226,8 +1474,8 @@ export async function processSalaryMonth({
             ? "No employees without CTC in the selected department(s)."
             : "No eligible employees in the selected department(s)."
           : includeWithoutCtc
-            ? "No active employees without CTC (or all are on hold)."
-            : "No active employees with declared CTC (or all are on hold).";
+            ? "No employees without CTC for this month (or all are on hold)."
+            : "No employees on roll for this month with saved CTC (or all are on hold).";
     throw new Error(hint);
   }
 
@@ -1265,12 +1513,33 @@ export async function processSalaryMonth({
     const fresh = bankMap.get(String(line.employee_master_id)) || {};
     return overlayMasterBankOnLine(next, {
       ...(emp || {}),
+      id: emp?.id ?? line.employee_master_id,
+      employee_id: fresh.employee_id ?? emp?.employee_id,
+      employee_code: fresh.employee_code ?? emp?.employee_code,
+      full_name: fresh.full_name ?? emp?.full_name,
+      date_of_joining: fresh.date_of_joining ?? emp?.date_of_joining,
       bank_account_no: fresh.bank_account_no ?? emp?.bank_account_no,
       ifsc_code: fresh.ifsc_code ?? emp?.ifsc_code,
       uan_no: fresh.uan_no ?? emp?.uan_no,
       esic_no: fresh.esic_no ?? emp?.esic_no,
     });
-  });
+  }).map((line) => ({
+    ...line,
+    pay_month_key: key,
+    computed_json: {
+      ...(line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {}),
+      pay_month_key: key,
+      processed_on: processDay,
+      processed_at: processAt,
+    },
+    source_snapshot_json: {
+      ...(line.source_snapshot_json && typeof line.source_snapshot_json === "object"
+        ? line.source_snapshot_json
+        : {}),
+      pay_month_key: key,
+      processed_on: processDay,
+    },
+  }));
 
   let runId;
   let revisionNo = 1;
@@ -1286,6 +1555,8 @@ export async function processSalaryMonth({
         employeeCount: newLines.length,
         departments: mode === PROCESS_MODES.DEPT ? departments : undefined,
         sequence: 1,
+        processedOn: processDay,
+        employeeIds: toProcess.map((e) => e.id),
       });
       return applyRevisionToRunSheet(base, { year: y, month: m, revisionNo: rev });
     }
@@ -1298,6 +1569,8 @@ export async function processSalaryMonth({
       employeeCount: newLines.length,
       departments: mode === PROCESS_MODES.DEPT ? departments : undefined,
       sequence,
+      processedOn: processDay,
+      employeeIds: toProcess.map((e) => e.id),
     });
   };
 
@@ -1433,33 +1706,13 @@ export async function processSalaryMonth({
   }
 
   const bundle = await getMonthRunWithLines(runId);
-  let payslipCount = 0;
-  try {
-    const { generatePayslipsForRun } = await import("../../../lib/salaryPayslips");
-    const slips = generatePayslipsForRun(
-      {
-        ...bundle.run,
-        processed_on: processDay,
-        summary_json: {
-          ...(bundle.run?.summary_json || {}),
-          processed_on: processDay,
-          processed_at: processAt,
-        },
-      },
-      newLines,
-      { processedOn: processDay, generatedAt: processAt }
-    );
-    payslipCount = slips.length;
-  } catch (psErr) {
-    console.warn("Salary process: payslip generation skipped", psErr);
-  }
 
   return {
     ...bundle,
     processMeta: {
       processMode: mode,
       processedCount: newLines.length,
-      payslipCount,
+      payslipCount: 0,
       processedOn: processDay,
       processedAt: processAt,
       skippedDuplicateCount: skippedDuplicates.length,
@@ -1470,6 +1723,152 @@ export async function processSalaryMonth({
       })),
       fullReprocess,
     },
+  };
+}
+
+/**
+ * Processed tab action: write salary slips onto employee profiles and publish this month’s report.
+ * Does not open slips on the processing screen.
+ */
+export async function publishSalarySlipsForMonth({ year, month, employeeIds = [] } = {}) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isFinite(y) || m < 1 || m > 12) {
+    throw new Error("Select a valid month and year.");
+  }
+  const key = monthKey(y, m);
+  const existing = await getMonthRunByKey(key);
+  if (!existing?.id) {
+    throw new Error("Process salary from All Employees first, then lock from Processed.");
+  }
+  const bundle = await getMonthRunWithLines(existing.id);
+  const allLines = bundle.lines || [];
+  const idSet = new Set((employeeIds || []).map(String).filter(Boolean));
+  const selected = idSet.size
+    ? allLines.filter((l) => idSet.has(String(l.employee_master_id)))
+    : allLines;
+  if (!selected.length) {
+    throw new Error("Select processed employees, then click Processed.");
+  }
+  const skippedLocked = selected.filter((l) => salaryLineLocked(l));
+  const target = selected.filter((l) => !salaryLineLocked(l));
+  if (!target.length) {
+    throw new Error(
+      "These employees are already processed and locked for this month. Their salary will not be updated."
+    );
+  }
+
+  const user = await currentUserMeta();
+  const processDay = new Date();
+  const processedOn = `${processDay.getFullYear()}-${String(processDay.getMonth() + 1).padStart(2, "0")}-${String(processDay.getDate()).padStart(2, "0")}`;
+  const processAt = new Date().toISOString();
+  const runMeta = {
+    ...bundle.run,
+    processed_on: processedOn,
+    summary_json: {
+      ...(bundle.run?.summary_json || {}),
+      processed_on: processedOn,
+      processed_at: processAt,
+    },
+  };
+
+  const { buildPayslipFromLine, generatePayslipsForRun, upsertPayslipsToDb } = await import(
+    "../../../lib/salaryPayslips"
+  );
+
+  const stamped = target.map((line) => {
+    const cj =
+      line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
+    const snap =
+      line.source_snapshot_json && typeof line.source_snapshot_json === "object"
+        ? line.source_snapshot_json
+        : {};
+    const slip = buildPayslipFromLine(runMeta, line, { processedOn, generatedAt: processAt });
+    return {
+      ...line,
+      computed_json: {
+        ...cj,
+        pay_month_key: key,
+        processed_on: cj.processed_on || processedOn,
+        slip_generated_on: processedOn,
+        slip_generated_at: processAt,
+        payslip: slip,
+      },
+      source_snapshot_json: {
+        ...snap,
+        pay_month_key: key,
+        processed_on: snap.processed_on || processedOn,
+        slip_generated_on: processedOn,
+      },
+    };
+  });
+
+  for (const line of stamped) {
+    if (!line.id) continue;
+    const { error } = await supabase
+      .from(MONTH_LINES_TABLE)
+      .update({
+        computed_json: line.computed_json,
+        source_snapshot_json: line.source_snapshot_json,
+        updated_at: processAt,
+      })
+      .eq("id", line.id);
+    if (error) throw error;
+  }
+
+  let slipCount = 0;
+  try {
+    const slips = stamped.map((l) => l.computed_json?.payslip).filter(Boolean);
+    if (slips.length) {
+      generatePayslipsForRun(runMeta, stamped, {
+        processedOn,
+        generatedAt: processAt,
+        skipExisting: true,
+      });
+      await upsertPayslipsToDb(slips);
+    }
+    slipCount = slips.length || stamped.length;
+  } catch (psErr) {
+    console.warn("Salary slips: generation skipped", psErr);
+    throw new Error("Could not save salary slips.");
+  }
+
+  const prevSummary =
+    bundle.run?.summary_json && typeof bundle.run.summary_json === "object"
+      ? bundle.run.summary_json
+      : {};
+  const reportBatches = Array.isArray(prevSummary.report_batches)
+    ? [...prevSummary.report_batches]
+    : [];
+  reportBatches.push({
+    processed_on: processedOn,
+    processed_at: processAt,
+    employee_count: stamped.length,
+    employee_ids: stamped.map((l) => String(l.employee_master_id)),
+  });
+
+  const { error: runErr } = await supabase
+    .from(MONTH_RUNS_TABLE)
+    .update({
+      updated_by: user.id,
+      summary_json: {
+        ...prevSummary,
+        report_published: true,
+        slips_generated_on: processedOn,
+        slips_generated_at: processAt,
+        last_slip_count: slipCount,
+        report_batches: reportBatches,
+      },
+    })
+    .eq("id", existing.id);
+  if (runErr) throw runErr;
+
+  return {
+    run: bundle.run,
+    slipCount,
+    processedOn,
+    processedCount: stamped.length,
+    skippedLocked: skippedLocked.length,
   };
 }
 
@@ -1504,7 +1903,10 @@ function detectMasterVariances(line, masterRow, revisionNo, monthKeyStr, runId) 
   if (!masterRow) return flags;
   for (const f of MASTER_COMPARE_FIELDS) {
     const sheetVal = str(line[f.key]);
-    const masterVal = str(masterRow[f.master]);
+    const masterVal =
+      f.master === "employee_code"
+        ? str(masterRow.employee_code || masterRow.employee_id)
+        : str(masterRow[f.master]);
     if (sheetVal !== masterVal) {
       flags.push({
         employee_master_id: line.employee_master_id,
@@ -1536,7 +1938,7 @@ export async function saveMonthRunEdits(runId, editedLines) {
   if (masterIds.length) {
     const { data } = await supabase
       .from(EMPLOYEE_MASTER_TABLE)
-      .select("id, bank_account_no, ifsc_code, confirmation_date, designation")
+      .select("id, employee_id, employee_code, designation, bank_account_no, ifsc_code, confirmation_date")
       .in("id", masterIds);
     masters = data || [];
   }
@@ -1544,6 +1946,9 @@ export async function saveMonthRunEdits(runId, editedLines) {
 
   const recomputed = editedLines.map((raw) => {
     const prev = byId[raw.id] || raw;
+    if (salaryLineLocked(prev) || salaryLineLocked(raw)) {
+      return { line: prev, variances: [] };
+    }
     const next = recomputeLineFromEdits(
       {
         ...prev,
@@ -1598,9 +2003,9 @@ export async function saveMonthRunEdits(runId, editedLines) {
   if (runErr) throw runErr;
 
   for (const { line } of recomputed) {
-    const { id } = line;
+    if (!line?.id || salaryLineLocked(line)) continue;
     const rest = toDbLinePayload(line, { includeRunId: false });
-    const { error } = await supabase.from(MONTH_LINES_TABLE).update(rest).eq("id", id);
+    const { error } = await supabase.from(MONTH_LINES_TABLE).update(rest).eq("id", line.id);
     if (error) throw error;
   }
 
@@ -1643,8 +2048,17 @@ export async function saveMonthRunEdits(runId, editedLines) {
 
   const bundle = await getMonthRunWithLines(runId);
   try {
-    const { generatePayslipsForRun } = await import("../../../lib/salaryPayslips");
-    generatePayslipsForRun(bundle.run, bundle.lines || []);
+    const published = (bundle.lines || []).filter((l) => {
+      const cj = l.computed_json && typeof l.computed_json === "object" ? l.computed_json : {};
+      return Boolean(cj.slip_generated_on);
+    });
+    if (published.length) {
+      const { generateAndSavePayslipsForRun } = await import("../../../lib/salaryPayslips");
+      await generateAndSavePayslipsForRun(bundle.run, published, {
+        processedOn: published[0].computed_json?.slip_generated_on,
+        skipExisting: true,
+      });
+    }
   } catch (psErr) {
     console.warn("Salary save: payslip generation skipped", psErr);
   }
@@ -1711,8 +2125,8 @@ export async function buildSalaryProcessReport({ year, month } = {}) {
 
   let slipsByEmp = new Map();
   try {
-    const { listPayslipsForMonth } = await import("../../../lib/salaryPayslips");
-    for (const slip of listPayslipsForMonth(key) || []) {
+    const { listPayslipsForMonthAsync } = await import("../../../lib/salaryPayslips");
+    for (const slip of (await listPayslipsForMonthAsync(key)) || []) {
       slipsByEmp.set(String(slip.employee_master_id), slip);
     }
   } catch {
@@ -1725,15 +2139,48 @@ export async function buildSalaryProcessReport({ year, month } = {}) {
     (run?.created_at ? String(run.created_at).slice(0, 10) : "") ||
     "";
 
+  const batchDayByEmp = new Map();
+  const batches = [
+    ...(Array.isArray(run?.summary_json?.report_batches) ? run.summary_json.report_batches : []),
+    ...(Array.isArray(run?.summary_json?.batches) ? run.summary_json.batches : []),
+  ];
+  for (const batch of batches) {
+    const day = String(batch.processed_on || batch.processed_at || "").slice(0, 10);
+    for (const id of batch.employee_ids || []) {
+      if (day) batchDayByEmp.set(String(id), day);
+    }
+  }
+
   const byDay = new Map();
+  let totalGross = 0;
+  let totalDed = 0;
+  let totalNet = 0;
+  let publishedCount = 0;
   for (const line of lines) {
     const empId = line.employee_master_id;
-    const slip = slipsByEmp.get(String(empId));
+    const cj = line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
+    const snap =
+      line.source_snapshot_json && typeof line.source_snapshot_json === "object"
+        ? line.source_snapshot_json
+        : {};
+    const slip = cj.payslip || slipsByEmp.get(String(empId));
+    if (!cj.slip_generated_on && !snap.slip_generated_on && !cj.payslip) continue;
+    publishedCount += 1;
+
     const processDay =
+      (cj.slip_generated_on && String(cj.slip_generated_on).slice(0, 10)) ||
+      (snap.slip_generated_on && String(snap.slip_generated_on).slice(0, 10)) ||
       (slip?.processed_on && String(slip.processed_on).slice(0, 10)) ||
-      (slip?.generated_at ? String(slip.generated_at).slice(0, 10) : "") ||
+      batchDayByEmp.get(String(empId)) ||
       runDay ||
       "—";
+
+    const gross = num(line.gross_wages);
+    const ded = num(line.total_ded);
+    const net = num(line.net_salary);
+    totalGross += gross;
+    totalDed += ded;
+    totalNet += net;
 
     if (!byDay.has(processDay)) byDay.set(processDay, []);
     byDay.get(processDay).push({
@@ -1749,6 +2196,7 @@ export async function buildSalaryProcessReport({ year, month } = {}) {
       bank_amount: line.bank_amount,
       process_day: processDay,
       payslip_id: slip?.id || null,
+      line,
     });
   }
 
@@ -1760,10 +2208,14 @@ export async function buildSalaryProcessReport({ year, month } = {}) {
         sensitivity: "base",
       })
     );
+    const groupGross = employees.reduce((s, e) => s + num(e.gross_wages), 0);
+    const groupNet = employees.reduce((s, e) => s + num(e.net_salary), 0);
     return {
       process_day: day,
       process_day_label: formatProcessDayLabel(day),
       employee_count: employees.length,
+      total_gross: round0(groupGross),
+      total_net: round0(groupNet),
       employees,
     };
   });
@@ -1773,7 +2225,11 @@ export async function buildSalaryProcessReport({ year, month } = {}) {
     month_label: label,
     run,
     has_sheet: Boolean(run?.id),
-    total_employees: lines.length,
+    total_employees: publishedCount,
+    total_gross: round0(totalGross),
+    total_ded: round0(totalDed),
+    total_net: round0(totalNet),
+    process_days: dayKeys.filter((d) => d && d !== "—"),
     groups,
   };
 }
