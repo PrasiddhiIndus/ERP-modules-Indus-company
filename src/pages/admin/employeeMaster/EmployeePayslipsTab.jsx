@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Eye, FileText, Search } from "lucide-react";
-import { listPayslipsForEmployee, formatPayslipMoney, getPayslipById } from "../../../lib/salaryPayslips";
+import { listPayslipsForEmployeeAsync, formatPayslipMoney, getPayslipById } from "../../../lib/salaryPayslips";
 import PayslipPreviewModal from "./PayslipPreviewModal";
 
 /** Display-only samples when this employee has no generated payslips yet. */
@@ -116,14 +116,14 @@ function buildMockPayslips(employee) {
 /**
  * Employee Master → Payslips (preview + download).
  */
-export default function EmployeePayslipsTab({ employee }) {
+export default function EmployeePayslipsTab({ employee, openSlipId, openMonth }) {
   const [rows, setRows] = useState([]);
   const [usingMock, setUsingMock] = useState(false);
   const [q, setQ] = useState("");
   const [preview, setPreview] = useState(null);
 
-  function reload() {
-    const real = listPayslipsForEmployee(employee?.id);
+  async function reload() {
+    const real = await listPayslipsForEmployeeAsync(employee?.id);
     if (real.length) {
       setRows(real);
       setUsingMock(false);
@@ -141,6 +141,19 @@ export default function EmployeePayslipsTab({ employee }) {
   useEffect(() => {
     reload();
   }, [employee?.id]);
+
+  useEffect(() => {
+    if (!rows.length) return;
+    if (openSlipId) {
+      const found = rows.find((r) => r.id === openSlipId) || getPayslipById(openSlipId);
+      if (found) setPreview(found);
+      return;
+    }
+    if (openMonth) {
+      const found = rows.find((r) => String(r.month_key) === String(openMonth));
+      if (found) setPreview(found);
+    }
+  }, [rows, openSlipId, openMonth]);
 
   const filtered = rows.filter((r) => {
     if (!q.trim()) return true;

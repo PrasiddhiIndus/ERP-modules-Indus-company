@@ -10,7 +10,6 @@ import {
   currentYm,
   feedsSalaryProcessing,
   formatINR,
-  normalizeUnpaidKind,
   parseMoney,
   round2,
   suggestEmi,
@@ -29,9 +28,10 @@ import {
   StatusBadge,
 } from "./deductionsUi";
 
-function blankForm(kind = "company_owes") {
+function blankForm() {
   return {
-    kind,
+    kind: "employee_owes",
+    typeLabel: "",
     amount: "",
     months: "1",
     monthly: "",
@@ -43,9 +43,8 @@ function blankForm(kind = "company_owes") {
 
 /**
  * Unpaid / Paid (DB-backed), same pattern as Salary advances:
- * - Type: Unpaid (company owes employee) → credit on salary
- * - Type: Unpaid (employee owes company) → deduct on salary
- * Hits Salary Processing by start month + tenure only (no entry date).
+ * Type is entered manually. New entries are Unpaid (employee owes company)
+ * and deduct on salary. Hits Salary Processing by start month + tenure only.
  * Set months / monthly / amount to 0 → no hit (blank/null on processing).
  */
 export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload }) {
@@ -81,7 +80,7 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
 
   const openCreate = () => {
     setEditingId(null);
-    setForm(blankForm("company_owes"));
+    setForm(blankForm());
     setError("");
     setShowForm(true);
   };
@@ -93,7 +92,8 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
     }
     setEditingId(row.id);
     setForm({
-      kind: normalizeUnpaidKind(row.kind),
+      kind: "employee_owes",
+      typeLabel: unpaidKindLabel("employee_owes"),
       amount: String(row.balance_outstanding ?? row.amount ?? ""),
       months: String(row.months_remaining ?? row.months ?? "1"),
       monthly: String(row.monthly_amount ?? ""),
@@ -156,7 +156,7 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
         const bal = amount == null ? 0 : amount;
         const stopHit = months <= 0 || monthly <= 0 || bal <= 0;
         await updateUnpaidPaid(editingId, {
-          kind: form.kind,
+          kind: "employee_owes",
           amount: bal,
           months_remaining: stopHit ? 0 : months,
           months: stopHit ? 0 : months,
@@ -167,7 +167,7 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
         });
       } else {
         await createUnpaidPaid(employeeId, {
-          kind: form.kind,
+          kind: "employee_owes",
           amount,
           months,
           monthly_amount: monthly,
@@ -282,15 +282,15 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
               <Field label="Type">
-                <select
-                  value={normalizeUnpaidKind(form.kind)}
+                <input
+                  type="text"
+                  value={form.typeLabel}
                   disabled={busy}
-                  onChange={(e) => setForm((prev) => ({ ...prev, kind: e.target.value }))}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, typeLabel: e.target.value }))
+                  }
                   className={inputClass}
-                >
-                  <option value="company_owes">Unpaid (company owes employee)</option>
-                  <option value="employee_owes">Unpaid (employee owes company)</option>
-                </select>
+                />
               </Field>
               <Field
                 label="Amount (₹)"
@@ -394,7 +394,7 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
         {!rows.length && !showForm ? (
           <EmptyState
             title="No unpaid / paid entries"
-            body="Choose Unpaid (company owes employee) or Unpaid (employee owes company), set amount, months, monthly, and month. It hits Salary Processing for that month window. Set amount/months/monthly to 0 after paid to clear processing."
+            body="Enter type (Unpaid — employee owes company), amount, months, monthly, and month. It deducts on Salary Processing for that month window. Set amount/months/monthly to 0 after paid to clear processing."
             action={<PrimaryButton onClick={openCreate}>New entry</PrimaryButton>}
           />
         ) : null}
