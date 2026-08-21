@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Download, RefreshCw, Search, Upload, CheckCircle2, AlertTriangle, Lock, Clock, ArrowLeft } from "lucide-react";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import FormDateInput from "../../../components/FormDateInput";
@@ -19,6 +20,7 @@ import {
   monthKey,
   monthLabel,
   processSalaryMonth,
+  publishSalarySlipsForMonth,
   recomputeLineFromEdits,
   saveMonthRunEdits,
   PROCESS_MODES,
@@ -33,6 +35,7 @@ import {
   setMonthHoldIds,
   saveScopeLineDraft,
   syncScopeDraftBankFromMaster,
+  collectRosterIdentityStats,
 } from "./salaryMonthProcessing";
 import {
   USE_MOCK_SALARY_PROCESSING,
@@ -113,8 +116,23 @@ const SCOPE_HEADERS = [
   "Bank",
 ];
 
+function formatProcessDay(ymd) {
+  const raw = String(ymd || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return "";
+  return new Date(`${raw}T12:00:00`).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function lineIsSalaryLocked(line) {
+  return Boolean(line?.salaryLocked || line?.processStatus === "locked");
+}
+
 function resolveLineProcessStatus(line) {
   if (line?.onHold || line?.processStatus === "held") return "held";
+  if (lineIsSalaryLocked(line)) return "locked";
   if (line?.alreadyProcessed || line?.processStatus === "processed") return "processed";
   if (line?.hasCtc === false || line?.processStatus === "ctc_required") return "ctc_required";
   if (line?.processStatus === "pending") return "pending";
@@ -180,7 +198,27 @@ const VIEW_TABS = [
   { id: "held", label: "Held" },
 ];
 
-function ProcessStatusBadge({ status }) {
+function IdentityErrorNote({ errors }) {
+  const list = Array.isArray(errors) ? errors.filter(Boolean) : [];
+  if (!list.length) return null;
+  return (
+    <p className="mt-0.5 text-[10px] font-medium text-red-700 leading-snug" title={list.join(" ")}>
+      {list[0]}
+      {list.length > 1 ? ` · +${list.length - 1}` : ""}
+    </p>
+  );
+}
+
+function ProcessStatusBadge({ status, lockedOn }) {
+  if (status === "locked") {
+    const day = formatProcessDay(lockedOn);
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-800">
+        <Lock className="h-3.5 w-3.5" />
+        Locked{day ? ` · ${day}` : ""}
+      </span>
+    );
+  }
   if (status === "processed") {
     return (
       <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
@@ -239,9 +277,14 @@ function OverviewProcessTable({
   onToggleSelectAll,
   onOpenEmployee,
 }) {
+  const selectableIds = rows
+    .filter((r) => !(r.salaryLocked || r.processStatus === "locked"))
+    .map((r) => String(r.id));
   const selectedSet = useMemo(() => new Set((selectedIds || []).map(String)), [selectedIds]);
   const allSelected =
-    rows.length > 0 && rows.every((r) => selectedSet.has(String(r.id)));
+    selectableIds.length > 0 && selectableIds.every((id) => selectedSet.has(id));
+  const someSelected =
+    !allSelected && selectableIds.some((id) => selectedSet.has(id));
 
   if (loading) {
     return <p className="text-xs text-slate-500 py-8 text-center">Loading employees…</p>;
@@ -260,8 +303,13 @@ function OverviewProcessTable({
                 type="checkbox"
                 className="rounded border-slate-300"
                 checked={allSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = someSelected;
+                }}
+                disabled={!selectableIds.length}
                 onChange={(e) => onToggleSelectAll?.(e.target.checked)}
-                aria-label="Select all visible"
+                aria-label="Select all employees on this list"
+                title="Select all employees on this list"
               />
             </th>
             <th className="text-left font-semibold px-3 py-2.5">Employee</th>
@@ -279,13 +327,20 @@ function OverviewProcessTable({
             return (
               <tr
                 key={id}
-                className={`hover:bg-slate-50/80 ${checked ? "bg-accent-soft/30" : ""}`}
+                className={`hover:bg-slate-50/80 ${checked ? "bg-accent-soft/30" : ""} ${
+                  emp.has_identity_error
+                    ? "bg-red-50/70"
+                    : emp.salaryLocked || emp.processStatus === "locked"
+                      ? "bg-emerald-50"
+                      : ""
+                }`}
               >
                 <td className="px-3 py-2.5 align-middle">
                   <input
                     type="checkbox"
                     className="rounded border-slate-300"
                     checked={checked}
+                    disabled={emp.salaryLocked || emp.processStatus === "locked"}
                     onChange={() => onToggleSelect?.(emp.id)}
                     aria-label={`Select ${emp.full_name || emp.employee_code}`}
                   />
@@ -300,8 +355,9 @@ function OverviewProcessTable({
                       {emp.full_name || "—"}
                     </span>
                     <span className="block font-mono text-[10px] text-slate-500 mt-0.5">
-                      {emp.employee_code || "—"}
+                      {emp.employee_code || emp.employee_id || "—"}
                     </span>
+                    <IdentityErrorNote errors={emp.identityErrors} />
                   </button>
                 </td>
                 <td className="px-3 py-2.5 align-middle text-slate-700">{emp.department || "—"}</td>
@@ -317,7 +373,7 @@ function OverviewProcessTable({
                   )}
                 </td>
                 <td className="px-3 py-2.5 align-middle">
-                  <ProcessStatusBadge status={emp.processStatus} />
+                  <ProcessStatusBadge status={emp.processStatus} lockedOn={emp.lockedOn} />
                 </td>
               </tr>
             );
@@ -339,10 +395,22 @@ function EmployeeSalaryDetailPage({
   saving = false,
   saveMsg = "",
   saveError = "",
+  readOnly = false,
 }) {
   if (!line) return null;
-  const patch = (p) => onUpdate(line.id, p);
+  const locked = Boolean(readOnly || lineIsSalaryLocked(line));
+  const patch = (p) => {
+    if (locked) return;
+    onUpdate(line.id, p);
+  };
   const status = resolveLineProcessStatus(line);
+  const lockedDay = formatProcessDay(line.lockedOn);
+  const detailInput = locked
+    ? `${DETAIL_INPUT} bg-slate-50 text-slate-700 cursor-default`
+    : DETAIL_INPUT;
+  const detailText = locked
+    ? `${DETAIL_TEXT_INPUT} bg-slate-50 text-slate-700 cursor-default`
+    : DETAIL_TEXT_INPUT;
   const customEarnTitle = Array.isArray(line.computed_json?.custom_components)
     ? line.computed_json.custom_components
         .filter((c) => c.kind === "earning")
@@ -371,15 +439,24 @@ function EmployeeSalaryDetailPage({
           Back to list
         </button>
         <div className="flex flex-wrap items-center gap-2">
-          {dirty ? <StatusChip label="Unsaved" severity="warning" /> : null}
-          <button
-            type="button"
-            className={btnPrimary}
-            disabled={saving || !dirty}
-            onClick={() => onSave?.(line)}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
+          {locked ? (
+            <StatusChip
+              label={lockedDay ? `Locked · ${lockedDay}` : "Locked · view only"}
+              severity="info"
+            />
+          ) : dirty ? (
+            <StatusChip label="Unsaved" severity="warning" />
+          ) : null}
+          {locked ? null : (
+            <button
+              type="button"
+              className={btnPrimary}
+              disabled={saving || !dirty}
+              onClick={() => onSave?.(line)}
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -418,10 +495,18 @@ function EmployeeSalaryDetailPage({
             <p className="text-[11px] text-slate-500 mt-1">
               Salary for {monthLabelText} · {monthDays} days
             </p>
+            {locked ? (
+              <p className="text-[11px] text-emerald-800 mt-1">
+                Locked for this month{lockedDay ? ` on ${lockedDay}` : ""}. View only — no changes.
+              </p>
+            ) : null}
+            {Array.isArray(line.identityErrors) && line.identityErrors.length ? (
+              <p className="text-[11px] text-red-700 mt-1">{line.identityErrors.join(" ")}</p>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <CtcStatusCell hasCtc={Boolean(line.hasCtc ?? line.declared)} />
-            <ProcessStatusBadge status={status} />
+            <ProcessStatusBadge status={status} lockedOn={line.lockedOn} />
           </div>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-slate-100">
@@ -459,6 +544,9 @@ function EmployeeSalaryDetailPage({
             <ProfileFact label="Employee code">
               <span className="font-mono text-[12px]">{line.employee_code || "—"}</span>
             </ProfileFact>
+            <ProfileFact label="Employee ID">
+              <span className="font-mono text-[12px]">{line.employee_id || "—"}</span>
+            </ProfileFact>
             <ProfileFact label="Designation">{line.designation || "—"}</ProfileFact>
             <ProfileFact label="Date of joining">
               {line.date_of_joining ? formatDateDdMmYyyy(line.date_of_joining) : "—"}
@@ -469,20 +557,26 @@ function EmployeeSalaryDetailPage({
                 className="h-8 text-[12px] w-full"
                 value={line.confirmation_date ? String(line.confirmation_date).slice(0, 10) : ""}
                 onChange={(e) => patch({ confirmation_date: e?.target?.value || null })}
+                disabled={locked}
+                readOnly={locked}
               />
             </ProfileFact>
             <ProfileFact label="Account number">
               <input
-                className={DETAIL_TEXT_INPUT}
+                className={detailText}
                 value={line.account_no || ""}
                 onChange={(e) => patch({ account_no: e.target.value })}
+                disabled={locked}
+                readOnly={locked}
               />
             </ProfileFact>
             <ProfileFact label="IFSC">
               <input
-                className={DETAIL_TEXT_INPUT}
+                className={detailText}
                 value={line.ifsc || ""}
                 onChange={(e) => patch({ ifsc: e.target.value })}
+                disabled={locked}
+                readOnly={locked}
               />
             </ProfileFact>
             <ProfileFact label="UAN">
@@ -504,18 +598,22 @@ function EmployeeSalaryDetailPage({
               <input
                 type="number"
                 step="0.5"
-                className={`${DETAIL_INPUT} max-w-none`}
+                className={`${detailInput} max-w-none`}
                 value={line.present_days ?? ""}
                 placeholder="—"
                 onChange={(e) => patch({ present_days: e.target.value })}
+                disabled={locked}
+                readOnly={locked}
               />
             </ProfileFact>
             <ProfileFact label="PF basic">
               <input
                 type="number"
-                className={`${DETAIL_INPUT} max-w-none`}
+                className={`${detailInput} max-w-none`}
                 value={line.pf_basic ?? ""}
                 onChange={(e) => patch({ pf_basic: e.target.value })}
+                disabled={locked}
+                readOnly={locked}
               />
             </ProfileFact>
             <ProfileFact label="Month days">
@@ -523,8 +621,9 @@ function EmployeeSalaryDetailPage({
             </ProfileFact>
           </div>
           <p className="text-[11px] text-slate-500 mt-4">
-            Present days come from the attendance register. Change them only if this month needs a
-            correction before processing.
+            {locked
+              ? "This salary is locked for the month. Amounts cannot be changed."
+              : "Present days come from the attendance register. Change them only if this month needs a correction before processing."}
           </p>
         </section>
       </div>
@@ -573,7 +672,7 @@ function EmployeeSalaryDetailPage({
             <StatementAmt className="hidden sm:block">
               <input
                 type="number"
-                className={DETAIL_INPUT}
+                className={detailInput}
                 title={customEarnTitle}
                 value={line.custom_earn_full ?? line.computed_json?.custom_earn_full ?? 0}
                 onChange={(e) =>
@@ -585,6 +684,8 @@ function EmployeeSalaryDetailPage({
                     },
                   })
                 }
+                disabled={locked}
+                readOnly={locked}
               />
             </StatementAmt>
             <StatementAmt>
@@ -625,9 +726,11 @@ function EmployeeSalaryDetailPage({
             <StatementAmt>
               <input
                 type="number"
-                className={DETAIL_INPUT}
+                className={detailInput}
                 value={line.pt_amount ?? ""}
                 onChange={(e) => patch({ pt_amount: e.target.value })}
+                disabled={locked}
+                readOnly={locked}
               />
             </StatementAmt>
           </StatementRow>
@@ -636,9 +739,11 @@ function EmployeeSalaryDetailPage({
             <StatementAmt>
               <input
                 type="number"
-                className={DETAIL_INPUT}
+                className={detailInput}
                 value={line.loan ?? 0}
                 onChange={(e) => patch({ loan: e.target.value })}
+                disabled={locked}
+                readOnly={locked}
               />
             </StatementAmt>
           </StatementRow>
@@ -647,9 +752,11 @@ function EmployeeSalaryDetailPage({
             <StatementAmt>
               <input
                 type="number"
-                className={DETAIL_INPUT}
+                className={detailInput}
                 value={line.sal_adv ?? 0}
                 onChange={(e) => patch({ sal_adv: e.target.value })}
+                disabled={locked}
+                readOnly={locked}
               />
             </StatementAmt>
           </StatementRow>
@@ -658,10 +765,12 @@ function EmployeeSalaryDetailPage({
             <StatementAmt>
               <input
                 type="number"
-                className={DETAIL_INPUT}
+                className={detailInput}
                 placeholder="—"
                 value={unpaidInputValue(line.unpaid_paid)}
                 onChange={(e) => patch({ unpaid_paid: e.target.value === "" ? 0 : e.target.value })}
+                disabled={locked}
+                readOnly={locked}
               />
             </StatementAmt>
           </StatementRow>
@@ -670,9 +779,11 @@ function EmployeeSalaryDetailPage({
             <StatementAmt>
               <input
                 type="number"
-                className={DETAIL_INPUT}
+                className={detailInput}
                 value={line.tds ?? 0}
                 onChange={(e) => patch({ tds: e.target.value })}
+                disabled={locked}
+                readOnly={locked}
               />
             </StatementAmt>
           </StatementRow>
@@ -681,7 +792,7 @@ function EmployeeSalaryDetailPage({
             <StatementAmt>
               <input
                 type="number"
-                className={DETAIL_INPUT}
+                className={detailInput}
                 title={customDedTitle}
                 value={line.custom_ded_full ?? line.computed_json?.custom_ded_full ?? 0}
                 onChange={(e) =>
@@ -693,6 +804,8 @@ function EmployeeSalaryDetailPage({
                     },
                   })
                 }
+                disabled={locked}
+                readOnly={locked}
               />
             </StatementAmt>
           </StatementRow>
@@ -732,10 +845,15 @@ function ScopeSalarySheetTable({
   readOnly = false,
   showSelect = true,
 }) {
-  const selectable = lines.filter((l) => !l.alreadyProcessed);
+  const selectableIds = lines
+    .filter((l) => !lineIsSalaryLocked(l))
+    .map((l) => String(l.employee_master_id || ""))
+    .filter(Boolean);
+  const selectedSet = new Set((selectedIds || []).map(String));
   const allSelected =
-    selectable.length > 0 &&
-    selectable.every((l) => selectedIds.some((id) => String(id) === String(l.employee_master_id)));
+    selectableIds.length > 0 && selectableIds.every((id) => selectedSet.has(id));
+  const someSelected =
+    !allSelected && selectableIds.some((id) => selectedSet.has(id));
   const colCount = SCOPE_HEADERS.length + (showSelect ? 1 : 0);
 
   return (
@@ -749,9 +867,13 @@ function ScopeSalarySheetTable({
                   type="checkbox"
                   className="rounded border-slate-300"
                   checked={allSelected}
-                  disabled={!selectable.length}
+                  ref={(el) => {
+                    if (el) el.indeterminate = someSelected;
+                  }}
+                  disabled={!selectableIds.length}
                   onChange={() => onToggleSelectAll?.(!allSelected)}
-                  aria-label="Select all visible employees"
+                  aria-label="Select all employees on this list"
+                  title="Select all employees on this list"
                   onClick={(e) => e.stopPropagation()}
                 />
               </th>
@@ -789,6 +911,8 @@ function ScopeSalarySheetTable({
             lines.map((line, idx) => {
               const empKey = String(line.employee_master_id);
               const checked = selectedIds.some((id) => String(id) === empKey);
+              const rowLocked = lineIsSalaryLocked(line);
+              const rowReadOnly = readOnly || rowLocked;
               return (
               <tr
                 key={line.id}
@@ -803,8 +927,12 @@ function ScopeSalarySheetTable({
                   }
                 }}
                 className={[
-                  line.alreadyProcessed ? "bg-slate-50/80 opacity-70" : "bg-white hover:bg-slate-50/80",
-                  checked ? "bg-amber-50/50" : "",
+                  line.has_identity_error
+                    ? "bg-red-50/80"
+                    : rowLocked
+                      ? "bg-emerald-50"
+                      : "bg-white hover:bg-slate-50/80",
+                  checked && !rowLocked ? "bg-amber-50/50" : "",
                   onOpenEmployee ? "cursor-pointer" : "",
                 ].join(" ")}
               >
@@ -817,7 +945,7 @@ function ScopeSalarySheetTable({
                       type="checkbox"
                       className="rounded border-slate-300"
                       checked={checked}
-                      disabled={line.alreadyProcessed && false}
+                      disabled={rowLocked}
                       onChange={() => onToggleSelect?.(empKey)}
                       aria-label={`Select ${line.employee_name || empKey}`}
                     />
@@ -829,12 +957,13 @@ function ScopeSalarySheetTable({
                 </td>
                 <td className="px-1.5 py-1 text-[11px] border-b border-slate-100 max-w-[8.5rem]">
                   <TruncateTip text={line.employee_name} />
+                  <IdentityErrorNote errors={line.identityErrors} />
                 </td>
                 <td
                   className="px-0.5 py-0.5 border-b border-slate-100"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {readOnly ? (
+                  {rowReadOnly ? (
                     <span className="px-1.5 text-[11px] font-mono block truncate max-w-[7.5rem]" title={line.account_no || undefined}>
                       {line.account_no || "—"}
                     </span>
@@ -851,7 +980,7 @@ function ScopeSalarySheetTable({
                   className="px-0.5 py-0.5 border-b border-slate-100"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {readOnly ? (
+                  {rowReadOnly ? (
                     <span className="px-1.5 text-[11px] font-mono block truncate max-w-[5.75rem]" title={line.ifsc || undefined}>
                       {line.ifsc || "—"}
                     </span>
@@ -871,13 +1000,13 @@ function ScopeSalarySheetTable({
                   <CtcStatusCell hasCtc={Boolean(line.hasCtc ?? line.declared)} />
                 </td>
                 <td className="px-1.5 py-1 border-b border-slate-100 whitespace-nowrap">
-                  <ProcessStatusBadge status={resolveLineProcessStatus(line)} />
+                  <ProcessStatusBadge status={resolveLineProcessStatus(line)} lockedOn={line.lockedOn} />
                 </td>
                 <td
                   className="px-0.5 py-0.5 border-b border-slate-100"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {readOnly ? (
+                  {rowReadOnly ? (
                     <span className="px-1.5 text-[11px] tabular-nums">{line.present_days ?? "—"}</span>
                   ) : (
                     <input
@@ -903,7 +1032,7 @@ function ScopeSalarySheetTable({
                   className="px-0.5 py-0.5 border-b border-slate-100"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {readOnly ? (
+                  {rowReadOnly ? (
                     <span className="px-1.5 text-[11px] tabular-nums">
                       <Money value={line.pt_amount} />
                     </span>
@@ -920,7 +1049,7 @@ function ScopeSalarySheetTable({
                   className="px-0.5 py-0.5 border-b border-slate-100"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {readOnly ? (
+                  {rowReadOnly ? (
                     <Money value={line.loan} />
                   ) : (
                     <input
@@ -935,7 +1064,7 @@ function ScopeSalarySheetTable({
                   className="px-0.5 py-0.5 border-b border-slate-100"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {readOnly ? (
+                  {rowReadOnly ? (
                     <Money value={line.sal_adv} />
                   ) : (
                     <input
@@ -950,7 +1079,7 @@ function ScopeSalarySheetTable({
                   className="px-0.5 py-0.5 border-b border-slate-100"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {readOnly ? (
+                  {rowReadOnly ? (
                     <Money value={unpaidCellValue(line.unpaid_paid)} />
                   ) : (
                     <input
@@ -970,7 +1099,7 @@ function ScopeSalarySheetTable({
                   className="px-0.5 py-0.5 border-b border-slate-100"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {readOnly ? (
+                  {rowReadOnly ? (
                     <Money value={line.tds} />
                   ) : (
                     <input
@@ -985,7 +1114,7 @@ function ScopeSalarySheetTable({
                   className="px-0.5 py-0.5 border-b border-slate-100"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {readOnly ? (
+                  {rowReadOnly ? (
                     <Money value={line.custom_ded_full ?? line.computed_json?.custom_ded_full} />
                   ) : (
                     <input
@@ -1054,6 +1183,7 @@ function overlayLoadedPresentDays(built, prev, payKey) {
 
 /** Keep existing P.Days for the same month so the grid does not flash 0 then refill. */
 function mergeScopePlaceholders(employeesForSheet, { prev, savedMonthLines, monthDays, payKey }) {
+  const identityStats = collectRosterIdentityStats(employeesForSheet);
   const prevById = new Map();
   for (const row of prev || []) {
     const id = String(row.employee_master_id || "");
@@ -1066,11 +1196,11 @@ function mergeScopePlaceholders(employeesForSheet, { prev, savedMonthLines, mont
       return decorateScopeLine(
         { ...prevRow, total_days: monthDays, pay_month_key: payKey },
         e,
-        { pay_month_key: payKey }
+        { pay_month_key: payKey, identityStats }
       );
     }
     const saved = findSavedMonthLine(savedMonthLines, e);
-    if (saved) {
+    if (saved && (!saved.pay_month_key || saved.pay_month_key === payKey)) {
       return decorateScopeLine(
         {
           ...saved,
@@ -1082,14 +1212,19 @@ function mergeScopePlaceholders(employeesForSheet, { prev, savedMonthLines, mont
           alreadyProcessed: true,
           hasCtc: Boolean(e.hasCtc) || Number(saved.salary_rate) > 0,
           pay_month_key: payKey,
+          identityStats,
         }
       );
     }
-    return {
-      ...emptyPreviewLineFromEmployee(e, monthDays),
-      pay_month_key: payKey,
-      present_days: sameMonth ? prevRow.present_days : null,
-    };
+    return decorateScopeLine(
+      {
+        ...emptyPreviewLineFromEmployee(e, monthDays),
+        pay_month_key: payKey,
+        present_days: sameMonth ? prevRow.present_days : null,
+      },
+      e,
+      { pay_month_key: payKey, identityStats }
+    );
   });
 }
 
@@ -1104,6 +1239,10 @@ const api = {
     USE_MOCK_SALARY_PROCESSING
       ? Promise.resolve(mockProcessSalaryMonth(args))
       : processSalaryMonth(args),
+  publishSlips: (args) =>
+    USE_MOCK_SALARY_PROCESSING
+      ? Promise.resolve(publishSalarySlipsForMonth(args))
+      : publishSalarySlipsForMonth(args),
   save: (id, lines) =>
     USE_MOCK_SALARY_PROCESSING ? mockSaveMonthRunEdits(id, lines) : saveMonthRunEdits(id, lines),
   fetchCandidates: (args) =>
@@ -1129,6 +1268,7 @@ export default function SalaryProcessing() {
   const [scopeLines, setScopeLines] = useState([]);
   const [scopeLinesLoading, setScopeLinesLoading] = useState(false);
   const [savedMonthLines, setSavedMonthLines] = useState([]);
+  const [sheetRefreshAt, setSheetRefreshAt] = useState(0);
   const [detailLineId, setDetailLineId] = useState(null);
   const [detailDirty, setDetailDirty] = useState(false);
   const [detailSaving, setDetailSaving] = useState(false);
@@ -1162,14 +1302,20 @@ export default function SalaryProcessing() {
     return [y, y - 1, y - 2, y - 3];
   }, [now.year]);
 
+  const loadGenRef = useRef(0);
+
   const loadCandidates = useCallback(async () => {
+    const gen = ++loadGenRef.current;
+    const payKey = monthKey(year, month);
     setCandidatesLoading(true);
     try {
       const data = await api.fetchCandidates({ year, month });
+      if (gen !== loadGenRef.current) return;
+      if (data?.monthKey && data.monthKey !== payKey) return;
       setCandidates(data);
       const holds = Array.isArray(data.holdIds)
         ? data.holdIds.map(String)
-        : getMonthHoldIds(monthKey(year, month));
+        : getMonthHoldIds(payKey);
       setHoldIds(holds);
       setSelectedDepartments((prev) =>
         prev.filter((d) =>
@@ -1178,10 +1324,20 @@ export default function SalaryProcessing() {
       );
     } catch (err) {
       console.warn("Salary process candidates load failed", err);
-      setCandidates({ employees: [], departments: [], departmentStats: {}, existingRun: null });
-      setHoldIds(getMonthHoldIds(monthKey(year, month)));
+      if (gen !== loadGenRef.current) return;
+      setCandidates({
+        employees: [],
+        departments: [],
+        departmentStats: {},
+        existingRun: null,
+        monthKey: payKey,
+      });
+      setHoldIds(getMonthHoldIds(payKey));
     } finally {
-      setCandidatesLoading(false);
+      if (gen === loadGenRef.current) {
+        setCandidatesLoading(false);
+        setSheetRefreshAt(Date.now());
+      }
     }
   }, [year, month]);
 
@@ -1191,15 +1347,23 @@ export default function SalaryProcessing() {
 
   useEffect(() => {
     let cancelled = false;
-    const runId = candidates.existingRun?.id;
-    if (!runId) {
+    const payKey = monthKey(year, month);
+    const run = candidates.existingRun;
+    const runKey =
+      run?.month_key ||
+      (run?.pay_year != null && run?.pay_month != null ? monthKey(run.pay_year, run.pay_month) : "");
+    if (!run?.id || runKey !== payKey) {
       setSavedMonthLines([]);
       return undefined;
     }
     (async () => {
       try {
-        const { lines } = await api.getWithLines(runId);
-        if (!cancelled) setSavedMonthLines(lines || []);
+        const { lines } = await api.getWithLines(run.id);
+        if (!cancelled) {
+          setSavedMonthLines(
+            (lines || []).map((line) => ({ ...line, pay_month_key: payKey }))
+          );
+        }
       } catch (err) {
         console.warn("Salary processed lines load failed", err);
         if (!cancelled) setSavedMonthLines([]);
@@ -1208,7 +1372,15 @@ export default function SalaryProcessing() {
     return () => {
       cancelled = true;
     };
-  }, [candidates.existingRun?.id]);
+  }, [
+    year,
+    month,
+    candidates.existingRun?.id,
+    candidates.existingRun?.month_key,
+    candidates.existingRun?.pay_year,
+    candidates.existingRun?.pay_month,
+    sheetRefreshAt,
+  ]);
 
   const handleBankImported = useCallback(
     async ({ message, rows } = {}) => {
@@ -1246,8 +1418,14 @@ export default function SalaryProcessing() {
     else setProcessMode(PROCESS_MODES.BULK);
   }, [viewTab]);
 
+  const rosterEmployees = useMemo(() => {
+    const payKey = monthKey(year, month);
+    if (candidates.monthKey && candidates.monthKey !== payKey) return [];
+    return candidates.employees || [];
+  }, [candidates.employees, candidates.monthKey, year, month]);
+
   const rosterKpis = useMemo(() => {
-    const rows = candidates.employees || [];
+    const rows = rosterEmployees;
     const holdSet = new Set(holdIds.map(String));
     let ctcReady = 0;
     let pending = 0;
@@ -1268,13 +1446,13 @@ export default function SalaryProcessing() {
       processed,
       held,
     };
-  }, [candidates.employees, holdIds]);
+  }, [rosterEmployees, holdIds]);
 
   /** Shared tab + filter list — All shows every employee name even without CTC. */
   const tabEmployees = useMemo(() => {
     const holdSet = new Set(holdIds.map(String));
 
-    return (candidates.employees || []).filter((e) => {
+    return (rosterEmployees || []).filter((e) => {
       const onHold = holdSet.has(String(e.id)) || Boolean(e.onHold);
       const status = onHold
         ? "held"
@@ -1298,7 +1476,7 @@ export default function SalaryProcessing() {
       return true;
     });
   }, [
-    candidates.employees,
+    rosterEmployees,
     holdIds,
     viewTab,
     filterCtc,
@@ -1342,7 +1520,7 @@ export default function SalaryProcessing() {
   }, [overviewRows]);
 
   const processPreview = useMemo(() => {
-    const rows = candidates.employees || [];
+    const rows = rosterEmployees;
     const holdSet = new Set(holdIds.map(String));
     const selectedSet = new Set(selectedIds.map(String));
     let pool = rows.filter((e) => {
@@ -1373,7 +1551,7 @@ export default function SalaryProcessing() {
     const withoutCtc = inScope.filter((e) => !e.hasCtc).length;
     const onHoldCount = rows.filter((e) => holdSet.has(String(e.id))).length;
     return { pool, toProcess, skipped, inScope, withoutCtc, onHoldCount };
-  }, [candidates.employees, processMode, selectedDepartments, holdIds, selectedIds]);
+  }, [rosterEmployees, processMode, selectedDepartments, holdIds, selectedIds]);
 
   /** Salary sheet uses the same tab list so All / Processed / Held stay in sync. */
   const scopeEmployees = tabEmployees;
@@ -1408,8 +1586,14 @@ export default function SalaryProcessing() {
     (selectAll) => {
       const visible =
         listView === "overview"
-          ? overviewRows.map((e) => String(e.id)).filter(Boolean)
-          : visibleScopeLines.map((l) => String(l.employee_master_id)).filter(Boolean);
+          ? overviewRows
+              .filter((e) => !(e.salaryLocked || e.processStatus === "locked"))
+              .map((e) => String(e.id))
+              .filter(Boolean)
+          : visibleScopeLines
+              .filter((l) => !lineIsSalaryLocked(l))
+              .map((l) => String(l.employee_master_id))
+              .filter(Boolean);
       if (!selectAll) {
         const drop = new Set(visible);
         setSelectedIds((prev) => prev.filter((id) => !drop.has(String(id))));
@@ -1514,6 +1698,7 @@ export default function SalaryProcessing() {
           month,
           monthDays,
           savedLines: savedMonthLines,
+          salaryMap: candidates.salaryMap,
         });
         if (!cancelled) {
           const payKey = monthKey(year, month);
@@ -1528,7 +1713,7 @@ export default function SalaryProcessing() {
     return () => {
       cancelled = true;
     };
-  }, [scopeEmployees, holdIds, year, month, monthDays, detailLineId, savedMonthLines]);
+  }, [scopeEmployees, holdIds, year, month, monthDays, detailLineId, savedMonthLines, candidates.salaryMap]);
 
   useEffect(() => {
     if (detailLineId && !scopeLines.some((l) => l.id === detailLineId)) {
@@ -1542,7 +1727,10 @@ export default function SalaryProcessing() {
       setScopeLines((prev) =>
         prev.map((row) => {
           if (row.id !== id) return row;
-          return recomputeLineFromEdits({ ...row, ...patch }, monthDays);
+          if (lineIsSalaryLocked(row)) return row;
+          return recomputeLineFromEdits({ ...row, ...patch }, monthDays, {
+            keepPt: Object.prototype.hasOwnProperty.call(patch, "pt_amount"),
+          });
         })
       );
       if (detailLineId && id === detailLineId) {
@@ -1568,6 +1756,54 @@ export default function SalaryProcessing() {
     }
   }, []);
 
+  const handleOpenScopeEmployee = useCallback((line) => {
+    openEmployeeDetail(line);
+  }, [openEmployeeDetail]);
+
+  const doPublishProcessedSlips = useCallback(async () => {
+    const pool = visibleScopeLines.filter((l) => l.alreadyProcessed);
+    const selectedSet = new Set(selectedIds.map(String));
+    const chosen = selectedSet.size
+      ? pool.filter((l) => selectedSet.has(String(l.employee_master_id)))
+      : pool;
+    const lockedChosen = chosen.filter((l) => lineIsSalaryLocked(l));
+    const toPublish = chosen.filter((l) => !lineIsSalaryLocked(l));
+    if (!toPublish.length) {
+      setError(
+        lockedChosen.length
+          ? "These employees are already processed and locked for this month. Their salary will not be updated."
+          : "Select employees, then click Processed to lock salary for this month."
+      );
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await api.publishSlips({
+        year,
+        month,
+        employeeIds: toPublish.map((l) => l.employee_master_id),
+      });
+      const dayLabel = result.processedOn ? formatProcessDay(result.processedOn) : "";
+      const skipped = result.skippedLocked || lockedChosen.length;
+      let msg = `${result.slipCount || toPublish.length} employee(s) locked for ${monthLabel(year, month)}${
+        dayLabel ? ` on ${dayLabel}` : ""
+      }.`;
+      if (skipped) {
+        msg += ` ${skipped} already locked — left unchanged.`;
+      }
+      setNotice(msg);
+      setSelectedIds([]);
+      await loadCandidates();
+    } catch (err) {
+      console.error(err);
+      setError(err?.message || "Could not lock processed salary.");
+    } finally {
+      setBusy(false);
+    }
+  }, [visibleScopeLines, selectedIds, year, month, loadCandidates]);
+
   const openOverviewEmployee = useCallback(
     async (emp) => {
       if (!emp?.id) return;
@@ -1575,6 +1811,10 @@ export default function SalaryProcessing() {
         (l) => String(l.employee_master_id) === String(emp.id)
       );
       if (existing?.id) {
+        if (viewTab === "processed" || existing.alreadyProcessed) {
+          handleOpenScopeEmployee(existing);
+          return;
+        }
         openEmployeeDetail(existing);
         return;
       }
@@ -1592,7 +1832,11 @@ export default function SalaryProcessing() {
             if (prev.some((l) => String(l.employee_master_id) === String(emp.id))) return prev;
             return [...prev, line];
           });
-          openEmployeeDetail(line);
+          if (viewTab === "processed" || line.alreadyProcessed || emp.alreadyProcessed) {
+            handleOpenScopeEmployee(line);
+          } else {
+            openEmployeeDetail(line);
+          }
         }
       } catch (err) {
         console.warn("Open employee salary detail failed", err);
@@ -1601,12 +1845,16 @@ export default function SalaryProcessing() {
         setScopeLinesLoading(false);
       }
     },
-    [scopeLines, year, month, monthDays, openEmployeeDetail]
+    [scopeLines, year, month, monthDays, viewTab, openEmployeeDetail, handleOpenScopeEmployee]
   );
 
   const saveEmployeeDetail = useCallback(
     async (line) => {
       if (!line?.employee_master_id) return;
+      if (lineIsSalaryLocked(line)) {
+        setDetailSaveError("This salary is locked for the month and cannot be changed.");
+        return;
+      }
       setDetailSaving(true);
       setDetailSaveError("");
       setDetailSaveMsg("");
@@ -1734,11 +1982,6 @@ export default function SalaryProcessing() {
 
         const processDay = new Date();
         const processedOn = `${processDay.getFullYear()}-${String(processDay.getMonth() + 1).padStart(2, "0")}-${String(processDay.getDate()).padStart(2, "0")}`;
-        const dayLabel = processDay.toLocaleDateString("en-IN", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        });
 
         const result = await api.process({
           year,
@@ -1760,22 +2003,22 @@ export default function SalaryProcessing() {
         });
         const meta = result.processMeta || {};
         const count = meta.processedCount ?? result.run?.employee_count ?? pageIds.length;
-        const slips = meta.payslipCount ?? count;
-        let msg = `Processed ${count} employee(s) for ${monthLabel(year, month)} on ${dayLabel}`;
+        let msg = `${count} employee(s) moved to Processed for ${monthLabel(year, month)}`;
         if (meta.skippedDuplicateCount > 0) {
           msg += ` · skipped ${meta.skippedDuplicateCount} already on sheet`;
         }
         if (result.run?.revision_no) {
           msg += ` (rev ${result.run.revision_no})`;
         }
-        msg += `. ${slips} salary slip(s) created — open each employee → Payslips.`;
+        msg += ". On Processed, click Processed to lock those employees for this month.";
         setNotice(msg);
         setSelectedIds([]);
+        setViewTab("processed");
         await loadCandidates();
         setRun(result.run);
         setLines(result.lines || []);
         setDirty(false);
-        setEditorOpen(true);
+        setEditorOpen(false);
         setConfirmOpen(false);
         setExistingRun(null);
       } catch (err) {
@@ -1804,7 +2047,9 @@ export default function SalaryProcessing() {
       setLines((prev) =>
         prev.map((row) => {
           if (row.id !== id) return row;
-          return recomputeLineFromEdits({ ...row, ...patch }, run?.month_days || monthDays);
+          return recomputeLineFromEdits({ ...row, ...patch }, run?.month_days || monthDays, {
+            keepPt: Object.prototype.hasOwnProperty.call(patch, "pt_amount"),
+          });
         })
       );
       setDirty(true);
@@ -1933,6 +2178,7 @@ export default function SalaryProcessing() {
         saving={detailSaving}
         saveMsg={detailSaveMsg}
         saveError={detailSaveError}
+        readOnly={lineIsSalaryLocked(detailLine)}
       />
     );
   }
@@ -2253,11 +2499,10 @@ export default function SalaryProcessing() {
       </PageTaskHeader>
 
       <CollapsibleHelp label="how this works">
-        Select the pay month you are closing (usually last month — e.g. in September process
-        August). P.Days are taken from that month’s Attendance Daily Register Total Present.
-        Use All Employees / Processed / Held. All Employees lists every staff member, with or
-        without CTC. Processed shows the salary rows saved for this month. Filter by department
-        or CTC. Download Excel for the open tab.
+        On All Employees, click Process salary — those staff move to the Processed tab.
+        On Processed, select employees and click Processed to lock them for this month
+        (green rows). Locked staff stay on the day they were processed and cannot be changed.
+        Open a row to view the salary form — locked records are view only.
       </CollapsibleHelp>
 
       {error ? (
@@ -2266,6 +2511,17 @@ export default function SalaryProcessing() {
       {notice ? (
         <p className="text-xs text-emerald-800 rounded border border-emerald-100 bg-emerald-50 px-2.5 py-1.5">
           {notice}
+          {/locked for/i.test(notice) ? (
+            <>
+              {" "}
+              <Link
+                to={`/app/admin/salary-admin/reports?year=${year}&month=${month}`}
+                className="font-medium underline underline-offset-2"
+              >
+                Open report
+              </Link>
+            </>
+          ) : null}
         </p>
       ) : null}
 
@@ -2479,7 +2735,7 @@ export default function SalaryProcessing() {
                         : "No active employees found."
               }
               onUpdateLine={updateScopeLine}
-              onOpenEmployee={openEmployeeDetail}
+              onOpenEmployee={handleOpenScopeEmployee}
               selectedIds={selectedIds}
               onToggleSelect={toggleSelectEmployee}
               onToggleSelectAll={toggleSelectAllVisible}
@@ -2538,7 +2794,7 @@ export default function SalaryProcessing() {
                   </span>
                 </>
               ) : null}
-              {processPreview.toProcess.length && viewTab !== "held" ? (
+              {processPreview.toProcess.length && viewTab !== "held" && viewTab !== "processed" ? (
                 <>
                   {" "}
                   ·{" "}
@@ -2567,6 +2823,15 @@ export default function SalaryProcessing() {
                   }}
                 >
                   Release selected
+                </button>
+              ) : viewTab === "processed" ? (
+                <button
+                  type="button"
+                  className={btnPrimary}
+                  disabled={busy || candidatesLoading || !visibleScopeLines.length}
+                  onClick={doPublishProcessedSlips}
+                >
+                  {busy ? "Locking…" : "Processed"}
                 </button>
               ) : (
                 <>

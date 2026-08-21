@@ -24,12 +24,15 @@ import {
   excludeHeldEmployees,
   buildProcessedEmployeeIndex,
   employeeAlreadyProcessed,
+  lockedEmployeeIndex,
+  salaryLineLocked,
   departmentStatsForEmployees,
+  isEmployeeOnRollForPayMonth,
   getMonthHoldIds,
   getScopeLineDraft,
   applyScopeLineDraft,
 } from "./salaryMonthProcessing";
-import { fetchSalaryStructureMap } from "./salaryData";
+import { fetchSalaryStructureMapForMonth } from "./salaryData";
 import { applySalarySheetToEmployeeMasters, seedSalaryDeductionsForMonth } from "../../admin/employeeMaster/deductions/deductionsStore";
 import { applySalarySheetLinesToDb, seedSalaryDeductionsMapFromDb } from "../../admin/employeeMaster/deductions/deductionsDb";
 import { resolvePersonComponentsForPayroll } from "./salaryComponentsCatalog";
@@ -382,10 +385,9 @@ export async function mockFetchSalaryProcessCandidates({
 } = {}) {
   const key = `${year}-${String(month).padStart(2, "0")}`;
   const existing = mockGetMonthRunByKey(key);
-  let processedIndex = { ids: new Set(), codes: new Set() };
-  if (existing?.id) {
-    processedIndex = buildProcessedEmployeeIndex(mockGetMonthRunWithLines(existing.id).lines || []);
-  }
+  const existingLines = existing?.id ? mockGetMonthRunWithLines(existing.id).lines || [] : [];
+  const processedIndex = buildProcessedEmployeeIndex(existingLines);
+  const lockedById = lockedEmployeeIndex(existingLines);
 
   try {
     const [{ data: employees, error: empErr }, salaryMap] = await Promise.all([
@@ -396,18 +398,24 @@ export async function mockFetchSalaryProcessCandidates({
         )
         .eq("status", "Active")
         .order("employee_code", { ascending: true }),
-      fetchSalaryStructureMap(),
+      fetchSalaryStructureMapForMonth(year, month),
     ]);
     if (empErr) throw empErr;
 
     const holdIdSet = new Set(getMonthHoldIds(key));
     const deptSet = new Set();
-    const rows = (employees || []).map((emp) => {
+    const rows = (employees || [])
+      .filter((emp) => isEmployeeOnRollForPayMonth(emp.date_of_joining, year, month))
+      .map((emp) => {
       const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
       const hasCtc = Boolean(structure?.declared);
       const eligible = hasCtc;
       const dept = emp.department ? canonicalDepartmentLabel(emp.department) : "";
       if (dept) deptSet.add(dept);
+      const alreadyProcessed = employeeAlreadyProcessed(emp, processedIndex);
+      const salaryLocked = lockedById.has(String(emp.id));
+      const lockedOn = lockedById.get(String(emp.id)) || "";
+      const onHold = holdIdSet.has(String(emp.id));
       return {
         id: emp.id,
         employee_code: emp.employee_code || emp.employee_id || "",
@@ -423,8 +431,19 @@ export async function mockFetchSalaryProcessCandidates({
         employee_id: emp.employee_id || "",
         hasCtc,
         eligible,
-        alreadyProcessed: employeeAlreadyProcessed(emp, processedIndex),
-        onHold: holdIdSet.has(String(emp.id)),
+        alreadyProcessed,
+        salaryLocked,
+        lockedOn,
+        onHold,
+        processStatus: onHold
+          ? "held"
+          : salaryLocked
+            ? "locked"
+            : alreadyProcessed
+              ? "processed"
+              : hasCtc
+                ? "pending"
+                : "ctc_required",
         _structure: structure,
       };
     });
@@ -445,12 +464,20 @@ export async function mockFetchSalaryProcessCandidates({
     const runForMonth = store.runs.find((r) => r.month_key === key);
     const lines = runForMonth ? store.linesByRun[runForMonth.id] || [] : [];
     const processedFromMock = buildProcessedEmployeeIndex(lines);
+    const lockedFromMock = lockedEmployeeIndex(lines);
     const holdIdSet = new Set(getMonthHoldIds(key));
     const deptSet = new Set();
     const rows = MOCK_PEOPLE.map((p, i) => {
       const dept = p.designation?.includes("HR") ? "HR" : "Operations";
       deptSet.add(dept);
       const id = `mock_emp_${i}`;
+      const alreadyProcessed = employeeAlreadyProcessed(
+        { id, employee_code: p.code },
+        processedFromMock
+      );
+      const salaryLocked = lockedFromMock.has(String(id));
+      const lockedOn = lockedFromMock.get(String(id)) || "";
+      const onHold = holdIdSet.has(String(id));
       return {
         id,
         employee_code: p.code,
@@ -464,11 +491,17 @@ export async function mockFetchSalaryProcessCandidates({
         employee_id: p.code,
         hasCtc: true,
         eligible: true,
-        alreadyProcessed: employeeAlreadyProcessed(
-          { id, employee_code: p.code },
-          processedFromMock
-        ),
-        onHold: holdIdSet.has(String(id)),
+        alreadyProcessed,
+        salaryLocked,
+        lockedOn,
+        onHold,
+        processStatus: onHold
+          ? "held"
+          : salaryLocked
+            ? "locked"
+            : alreadyProcessed
+              ? "processed"
+              : "pending",
       };
     });
     const departmentStats = departmentStatsForEmployees(rows);
@@ -526,11 +559,13 @@ export async function mockProcessSalaryMonth({
         )
         .eq("status", "Active")
         .order("employee_code", { ascending: true }),
-      fetchSalaryStructureMap(),
+      fetchSalaryStructureMapForMonth(year, month),
       fetchPresentDaysByEmployeeCode(year, month),
     ]);
     if (empErr) throw empErr;
-    sourceEmployees = employees || [];
+    sourceEmployees = (employees || []).filter((emp) =>
+      isEmployeeOnRollForPayMonth(emp.date_of_joining, year, month)
+    );
     const days = Number(monthDays) > 0 ? Number(monthDays) : DEFAULT_MONTH_DAYS;
     const scopedRaw = filterEmployeesByMode(sourceEmployees, {
       processMode: mode,
@@ -732,32 +767,12 @@ export async function mockProcessSalaryMonth({
   } catch (err) {
     console.warn("Mock process: master sync skipped", err);
   }
-  let payslipCount = 0;
-  try {
-    const { generatePayslipsForRun } = await import("../../../lib/salaryPayslips");
-    const slips = generatePayslipsForRun(
-      {
-        ...built.run,
-        processed_on: processDay,
-        summary_json: {
-          ...(built.run.summary_json || {}),
-          processed_on: processDay,
-          processed_at: processAt,
-        },
-      },
-      newLinesForSync,
-      { processedOn: processDay, generatedAt: processAt }
-    );
-    payslipCount = slips.length;
-  } catch (psErr) {
-    console.warn("Mock process: payslip generation skipped", psErr);
-  }
   return {
     run: built.run,
     lines: [...built.lines],
     processMeta: {
       ...(built.processMeta || {}),
-      payslipCount,
+      payslipCount: 0,
       processedOn: processDay,
       processedAt: processAt,
     },
@@ -769,7 +784,10 @@ export async function mockSaveMonthRunEdits(runId, editedLines) {
   const run = store.runs.find((r) => r.id === runId);
   if (!run) throw new Error("Mock salary sheet not found.");
   const revisionNo = Number(run.revision_no || 1) + 1;
+  const existingById = Object.fromEntries((store.linesByRun[runId] || []).map((l) => [l.id, l]));
   const lines = editedLines.map((raw) => {
+    const prev = existingById[raw.id] || raw;
+    if (salaryLineLocked(prev) || salaryLineLocked(raw)) return prev;
     const next = recomputeLineFromEdits(raw, run.month_days);
     return {
       ...next,
@@ -797,8 +815,11 @@ export async function mockSaveMonthRunEdits(runId, editedLines) {
     console.warn("Mock save: master sync skipped", err);
   }
   try {
-    const { generatePayslipsForRun } = await import("../../../lib/salaryPayslips");
-    generatePayslipsForRun(run, lines);
+    const published = (lines || []).filter((l) => l?.computed_json?.slip_generated_on);
+    if (published.length) {
+      const { generateAndSavePayslipsForRun } = await import("../../../lib/salaryPayslips");
+      await generateAndSavePayslipsForRun(run, published, { skipExisting: true });
+    }
   } catch (psErr) {
     console.warn("Mock save: payslip generation skipped", psErr);
   }

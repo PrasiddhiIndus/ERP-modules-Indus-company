@@ -1,9 +1,12 @@
 /**
  * Admin Salary payslips — generated from processed month lines.
- * Stored locally until salary payslip tables are wired.
+ * Written to admin_salary_payslips (and month-line JSON). localStorage is a cache.
  */
 
+import { supabase } from "./supabase";
+
 const PAYSLIP_KEY = "admin_salary_payslips_v1";
+export const PAYSLIPS_TABLE = "admin_salary_payslips";
 
 const MONTH_NAMES = [
   "",
@@ -102,6 +105,8 @@ export function buildPayslipFromLine(run, line, opts = {}) {
     run_id: run.id,
     account_no: line.account_no || "",
     ifsc: line.ifsc || "",
+    uan_no: line.uan_no || "",
+    esic_no: line.esic_no || "",
     date_of_joining: line.date_of_joining || null,
     present_days: num(line.present_days),
     salary_rate: num(line.salary_rate),
@@ -143,6 +148,9 @@ export function generatePayslipsForRun(run, lines, opts = {}) {
   const byId = new Map(all.map((p) => [p.id, p]));
   const created = [];
   for (const line of lines) {
+    const monthKey = run.month_key || `${run.pay_year}-${String(run.pay_month).padStart(2, "0")}`;
+    const existingId = payslipId(monthKey, line.employee_master_id);
+    if (opts.skipExisting && byId.has(existingId)) continue;
     const slip = buildPayslipFromLine(run, line, { processedOn, generatedAt });
     if (!slip) continue;
     byId.set(slip.id, slip);
@@ -150,6 +158,183 @@ export function generatePayslipsForRun(run, lines, opts = {}) {
   }
   writeAll([...byId.values()].sort((a, b) => String(b.month_key).localeCompare(String(a.month_key))));
   return created;
+}
+
+function slipToDbRow(slip) {
+  return {
+    id: slip.id,
+    run_id: slip.run_id || null,
+    employee_master_id: slip.employee_master_id,
+    month_key: String(slip.month_key || "").slice(0, 7),
+    pay_year: Number(slip.pay_year) || Number(String(slip.month_key || "").slice(0, 4)) || null,
+    pay_month: Number(slip.pay_month) || Number(String(slip.month_key || "").slice(5, 7)) || null,
+    processed_on: slip.processed_on ? String(slip.processed_on).slice(0, 10) : null,
+    slip_json: slip,
+  };
+}
+
+function slipFromDbRow(row) {
+  if (!row) return null;
+  const json = row.slip_json && typeof row.slip_json === "object" ? row.slip_json : {};
+  return {
+    ...json,
+    id: row.id || json.id,
+    employee_master_id: row.employee_master_id ?? json.employee_master_id,
+    month_key: row.month_key || json.month_key,
+    pay_year: row.pay_year ?? json.pay_year,
+    pay_month: row.pay_month ?? json.pay_month,
+    processed_on: row.processed_on || json.processed_on,
+    run_id: row.run_id || json.run_id,
+    generated_at: json.generated_at || row.updated_at || row.created_at,
+  };
+}
+
+function mergePayslips(...lists) {
+  const byId = new Map();
+  for (const list of lists) {
+    for (const slip of list || []) {
+      if (!slip) continue;
+      const id = slip.id || payslipId(slip.month_key, slip.employee_master_id);
+      if (!id) continue;
+      const prev = byId.get(id);
+      if (!prev) {
+        byId.set(id, { ...slip, id });
+        continue;
+      }
+      const newer =
+        String(slip.generated_at || slip.processed_on || "") >=
+        String(prev.generated_at || prev.processed_on || "");
+      byId.set(id, newer ? { ...prev, ...slip, id } : { ...slip, ...prev, id });
+    }
+  }
+  return [...byId.values()].sort((a, b) =>
+    String(b.month_key || "").localeCompare(String(a.month_key || ""))
+  );
+}
+
+/** Save slips to the salary payslip table. Returns saved count; does not throw on missing table. */
+export async function upsertPayslipsToDb(slips = []) {
+  const rows = (slips || []).filter((s) => s?.employee_master_id && s?.month_key).map(slipToDbRow);
+  if (!rows.length) return 0;
+  let saved = 0;
+  const chunk = 80;
+  for (let i = 0; i < rows.length; i += chunk) {
+    const { error } = await supabase
+      .from(PAYSLIPS_TABLE)
+      .upsert(rows.slice(i, i + chunk), { onConflict: "month_key,employee_master_id" });
+    if (error) {
+      console.warn("Salary slips: database save skipped", error);
+      return saved;
+    }
+    saved += rows.slice(i, i + chunk).length;
+  }
+  return saved;
+}
+
+export async function fetchPayslipsForEmployeeFromDb(employeeMasterId) {
+  if (employeeMasterId == null || employeeMasterId === "") return [];
+  const { data, error } = await supabase
+    .from(PAYSLIPS_TABLE)
+    .select("*")
+    .eq("employee_master_id", employeeMasterId)
+    .order("month_key", { ascending: false });
+  if (error) {
+    console.warn("Salary slips: employee load skipped", error);
+    return [];
+  }
+  return (data || []).map(slipFromDbRow).filter(Boolean);
+}
+
+export async function fetchPayslipsForMonthFromDb(monthKeyValue) {
+  const mk = String(monthKeyValue || "").slice(0, 7);
+  if (!mk) return [];
+  const { data, error } = await supabase
+    .from(PAYSLIPS_TABLE)
+    .select("*")
+    .eq("month_key", mk)
+    .order("processed_on", { ascending: false });
+  if (error) {
+    console.warn("Salary slips: month load skipped", error);
+    return [];
+  }
+  return (data || []).map(slipFromDbRow).filter(Boolean);
+}
+
+export async function generateAndSavePayslipsForRun(run, lines, opts = {}) {
+  const created = generatePayslipsForRun(run, lines, opts);
+  if (created.length) {
+    await upsertPayslipsToDb(created);
+  }
+  return created;
+}
+
+export async function fetchPayslipsFromMonthLines(employeeMasterId) {
+  if (employeeMasterId == null || employeeMasterId === "") return [];
+  const { data, error } = await supabase
+    .from("admin_salary_month_lines")
+    .select(
+      "employee_master_id, employee_code, employee_name, designation, computed_json, source_snapshot_json, present_days, gross_wages, total_ded, net_salary, bank_amount, run_id"
+    )
+    .eq("employee_master_id", employeeMasterId);
+  if (error) {
+    console.warn("Salary slips: sheet load skipped", error);
+    return [];
+  }
+  const out = [];
+  for (const line of data || []) {
+    const cj = line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
+    const snap =
+      line.source_snapshot_json && typeof line.source_snapshot_json === "object"
+        ? line.source_snapshot_json
+        : {};
+    if (!cj.slip_generated_on && !snap.slip_generated_on && !cj.payslip) continue;
+    if (cj.payslip && typeof cj.payslip === "object") {
+      out.push(cj.payslip);
+      continue;
+    }
+    const monthKey = cj.pay_month_key || snap.pay_month_key || "";
+    if (!monthKey) continue;
+    out.push({
+      id: payslipId(monthKey, line.employee_master_id),
+      employee_master_id: line.employee_master_id,
+      employee_code: line.employee_code || "",
+      employee_name: line.employee_name || "",
+      designation: line.designation || "",
+      month_key: monthKey,
+      processed_on: String(cj.slip_generated_on || snap.slip_generated_on || "").slice(0, 10),
+      present_days: line.present_days,
+      gross_wages: line.gross_wages,
+      total_ded: line.total_ded,
+      net_salary: line.net_salary,
+      bank_amount: line.bank_amount,
+      run_id: line.run_id,
+      status: "generated",
+    });
+  }
+  return out;
+}
+
+export async function listPayslipsForEmployeeAsync(employeeMasterId) {
+  const [fromTable, fromLines] = await Promise.all([
+    fetchPayslipsForEmployeeFromDb(employeeMasterId),
+    fetchPayslipsFromMonthLines(employeeMasterId),
+  ]);
+  const merged = mergePayslips(fromTable, fromLines, listPayslipsForEmployee(employeeMasterId));
+  if (merged.length) {
+    const all = readAll();
+    const byId = new Map(all.map((p) => [p.id, p]));
+    for (const slip of merged) {
+      if (slip?.id) byId.set(slip.id, slip);
+    }
+    writeAll([...byId.values()]);
+  }
+  return merged;
+}
+
+export async function listPayslipsForMonthAsync(monthKeyValue) {
+  const mk = String(monthKeyValue || "").slice(0, 7);
+  const fromTable = await fetchPayslipsForMonthFromDb(mk);
+  return mergePayslips(fromTable, listPayslipsForMonth(mk));
 }
 
 export function listPayslipsForEmployee(employeeMasterId) {
@@ -183,7 +368,7 @@ export async function fetchSalaryHistoryForEmployee(employeeMasterId) {
   const id = employeeMasterId;
   if (id == null || id === "") return [];
 
-  const slips = listPayslipsForEmployee(id);
+  const slips = await listPayslipsForEmployeeAsync(id);
   if (slips.length) {
     return slips.map((p) => ({
       id: p.id,

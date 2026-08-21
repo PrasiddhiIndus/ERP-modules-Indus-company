@@ -31,7 +31,6 @@ import { fetchAllLeaveInboxTables } from './adminLeaveRequestsApi.js';
 import { fetchAllTourInboxTables } from './adminTourRequestsApi.js';
 import { createAuthMiddleware } from './authMiddleware.js';
 import { listUsbDscCertificatesFromWindows } from './dscUsbCertificates.js';
-import { signPdfWithWindowsDsc } from './dscSignPdf.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -1446,6 +1445,17 @@ app.post('/api/billing/dsc/sign-pdf', einvoiceRateLimit, requireBillingAccess, a
     const pdfBytes = Buffer.from(pdfBase64, 'base64');
     if (!pdfBytes.length) {
       return res.status(400).json({ message: 'The invoice PDF could not be read for signing.' });
+    }
+    let signPdfWithWindowsDsc;
+    try {
+      ({ signPdfWithWindowsDsc } = await import('./dscSignPdf.js'));
+    } catch (importErr) {
+      const err = new Error(
+        'PDF signing is not available on this server. Install pdf-lib and @signpdf packages, then restart the API.'
+      );
+      err.status = 503;
+      err.cause = importErr;
+      throw err;
     }
     const signed = await signPdfWithWindowsDsc(pdfBytes, {
       thumbprint,

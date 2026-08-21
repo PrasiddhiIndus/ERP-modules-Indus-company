@@ -23,99 +23,85 @@ const SALARY_TABLES = Object.freeze({
   unpaid_paid_settlements: "admin_salary_unpaid_paid_settlements",
 });
 
-const STRUCTURE_COLUMNS = [
-  "id",
-  "employee_master_id",
-  "employee_level",
-  "basic_mode",
-  "hra_mode",
-  "emp_esic_mode",
-  "er_esic_mode",
-  "leave_encash_mode",
-  "gross_monthly",
-  "basic_monthly",
-  "hra_monthly",
-  "special_allowance_monthly",
-  "emp_pf_monthly",
-  "pt_monthly",
-  "emp_esic_monthly",
-  "emp_esic_applicable",
-  "take_home_monthly",
-  "esic_enabled",
-  "esic_ceiling",
-  "esic_emp_rate_pct",
-  "esic_er_rate_pct",
-  "esic_eligible",
-  "er_pf_monthly",
-  "er_esic_monthly",
-  "er_esic_applicable",
-  "gratuity_mode",
-  "gratuity_monthly",
-  "leave_encash_monthly",
-  "mediclaim_enabled",
-  "mediclaim_monthly",
-  "lic_enabled",
-  "lic_monthly",
-  "special_perf_bonus_enabled",
-  "special_perf_bonus_monthly",
-  "bonus_monthly",
-  "total_b_monthly",
-  "ctc_monthly",
-  "ctc_annual",
-  "pa_overrides_json",
-  "custom_component_amounts_json",
-  "declared",
-  "wef_date",
-  "revision_reason",
-  "revision_count",
-  "date_of_birth",
-  "date_of_joining",
-  "created_at",
-  "updated_at",
-].join(", ");
+/** Newer columns — omit from writes when the live DB has not been migrated yet. */
+const OPTIONAL_STRUCTURE_COLUMNS = ["pa_overrides_json", "custom_component_amounts_json"];
 
-/** Same columns without newer JSON columns (pre-migration fallback). */
-const STRUCTURE_COLUMNS_NO_CUSTOM_AMTS = STRUCTURE_COLUMNS.replace(
-  /,\s*custom_component_amounts_json\b/,
-  ""
-);
-const STRUCTURE_COLUMNS_LEGACY = STRUCTURE_COLUMNS_NO_CUSTOM_AMTS.replace(
-  /,\s*pa_overrides_json\b/,
-  ""
-);
+const omittedStructureColumns = new Set();
+let structureColumnProbe = null;
 
-function isMissingPaOverridesColumn(err) {
-  const msg = `${err?.message || ""} ${err?.details || ""} ${err?.hint || ""}`;
-  return /pa_overrides_json/i.test(msg);
+function errorText(err) {
+  return `${err?.message || ""} ${err?.details || ""} ${err?.hint || ""} ${err?.code || ""}`;
 }
 
-function isMissingCustomAmountsColumn(err) {
-  const msg = `${err?.message || ""} ${err?.details || ""} ${err?.hint || ""}`;
-  return /custom_component_amounts_json/i.test(msg);
+function isUnknownColumnError(err) {
+  const code = String(err?.code || "");
+  const msg = errorText(err);
+  return (
+    code === "42703" ||
+    code === "PGRST204" ||
+    /does not exist|schema cache|Could not find the/i.test(msg)
+  );
 }
 
-function omitPaOverridesColumn(cols) {
-  if (!cols || typeof cols !== "object") return cols;
-  const { pa_overrides_json: _drop, ...rest } = cols;
-  return rest;
-}
-
-function omitCustomAmountsColumn(cols) {
-  if (!cols || typeof cols !== "object") return cols;
-  const { custom_component_amounts_json: _drop, ...rest } = cols;
-  return rest;
-}
-
-/** Retry select/update when newer JSON columns are not migrated yet. */
-async function withStructureColumnFallback(run) {
-  let { data, error } = await run(STRUCTURE_COLUMNS, (cols) => cols);
-  if (error && isMissingCustomAmountsColumn(error)) {
-    ({ data, error } = await run(STRUCTURE_COLUMNS_NO_CUSTOM_AMTS, omitCustomAmountsColumn));
+function columnNameFromError(err) {
+  const msg = errorText(err);
+  const match =
+    msg.match(/Could not find the ['"]?(\w+)['"]? column/i) ||
+    msg.match(/column (?:[\w]+\.)?(\w+) does not exist/i);
+  if (match?.[1]) return match[1];
+  for (const col of OPTIONAL_STRUCTURE_COLUMNS) {
+    if (new RegExp(`\\b${col}\\b`, "i").test(msg)) return col;
   }
-  if (error && isMissingPaOverridesColumn(error)) {
-    ({ data, error } = await run(STRUCTURE_COLUMNS_LEGACY, (cols) =>
-      omitPaOverridesColumn(omitCustomAmountsColumn(cols))
-    ));
+  return null;
+}
+
+function omitKnownMissingColumns(cols) {
+  if (!cols || typeof cols !== "object") return cols;
+  if (!omittedStructureColumns.size) return cols;
+  const out = { ...cols };
+  for (const col of omittedStructureColumns) delete out[col];
+  return out;
+}
+
+/** One lightweight probe so writes do not 400 on every employee. */
+async function probeOptionalStructureColumns() {
+  if (structureColumnProbe) return structureColumnProbe;
+  structureColumnProbe = (async () => {
+    let remaining = OPTIONAL_STRUCTURE_COLUMNS.filter((c) => !omittedStructureColumns.has(c));
+    while (remaining.length) {
+      const { error } = await salaryTable("structures")
+        .select(`id, ${remaining.join(", ")}`)
+        .limit(1);
+      if (!error) break;
+      if (!isUnknownColumnError(error)) break;
+      const named = columnNameFromError(error);
+      if (named && remaining.includes(named)) {
+        omittedStructureColumns.add(named);
+        remaining = remaining.filter((c) => c !== named);
+        continue;
+      }
+      remaining.forEach((c) => omittedStructureColumns.add(c));
+      break;
+    }
+    return omittedStructureColumns;
+  })();
+  try {
+    return await structureColumnProbe;
+  } catch {
+    OPTIONAL_STRUCTURE_COLUMNS.forEach((c) => omittedStructureColumns.add(c));
+    return omittedStructureColumns;
+  }
+}
+
+/** Retry writes after dropping columns the live schema does not have. */
+async function withStructureColumnFallback(run) {
+  await probeOptionalStructureColumns();
+  let { data, error } = await run("*", omitKnownMissingColumns);
+  for (let i = 0; i < 6 && error && isUnknownColumnError(error); i += 1) {
+    const col = columnNameFromError(error);
+    if (!col || omittedStructureColumns.has(col)) break;
+    omittedStructureColumns.add(col);
+    ({ data, error } = await run("*", omitKnownMissingColumns));
   }
   return { data, error };
 }
@@ -304,14 +290,41 @@ function structureSnapshotForRevision(row) {
   };
 }
 
-export async function dbFetchSalaryStructureMap() {
-  const { data, error } = await withStructureColumnFallback((selectCols) =>
-    salaryTable("structures").select(selectCols).eq("declared", true)
-  );
+export async function dbFetchSalaryStructureMap({ withRevisions = false } = {}) {
+  const { data, error } = await salaryTable("structures").select("*").eq("declared", true);
   if (error) throw error;
+
+  const revsByEmp = new Map();
+  if (withRevisions) {
+    try {
+      const pageSize = 1000;
+      let from = 0;
+      for (;;) {
+        const { data: revs, error: revErr } = await salaryTable("structure_revisions")
+          .select("*")
+          .order("employee_master_id", { ascending: true })
+          .range(from, from + pageSize - 1);
+        if (revErr) throw revErr;
+        const chunk = revs || [];
+        for (const row of chunk) {
+          const key = String(row.employee_master_id);
+          if (!revsByEmp.has(key)) revsByEmp.set(key, []);
+          revsByEmp.get(key).push(row);
+        }
+        if (chunk.length < pageSize) break;
+        from += pageSize;
+      }
+    } catch (err) {
+      console.warn("Salary Admin: CTC history unavailable", err);
+    }
+  }
+
   const map = new Map();
   for (const row of data || []) {
-    map.set(String(row.employee_master_id), structureRowToUi(row, []));
+    const key = String(row.employee_master_id);
+    const revRows = revsByEmp.get(key) || [];
+    revRows.sort((a, b) => (Number(b.revision_no) || 0) - (Number(a.revision_no) || 0));
+    map.set(key, structureRowToUi(row, revRows.map(revisionRowToUi)));
   }
   return map;
 }
@@ -320,9 +333,10 @@ export async function dbGetSalaryStructure(employeeMasterId, { withRevisions = t
   const id = toMasterId(employeeMasterId);
   if (id == null) return null;
 
-  const { data, error } = await withStructureColumnFallback((selectCols) =>
-    salaryTable("structures").select(selectCols).eq("employee_master_id", id).maybeSingle()
-  );
+  const { data, error } = await salaryTable("structures")
+    .select("*")
+    .eq("employee_master_id", id)
+    .maybeSingle();
   if (error) throw error;
   if (!data) return null;
 
@@ -353,10 +367,12 @@ export async function dbGetRevisionCount(employeeMasterId) {
 
 function isUniqueEmployeeStructureConflict(err) {
   const code = String(err?.code || "");
-  const msg = `${err?.message || ""} ${err?.details || ""} ${err?.hint || ""}`;
+  const status = Number(err?.status);
+  const msg = errorText(err);
   return (
     code === "23505" ||
-    /admin_salary_structures_pub_employee_unique|duplicate key value.*employee/i.test(msg)
+    status === 409 ||
+    /admin_salary_structures_pub_employee_unique|duplicate key|already exists/i.test(msg)
   );
 }
 
@@ -429,12 +445,15 @@ export async function dbSaveSalaryStructure(employeeMasterId, payload) {
 
   const { data, error } = await withStructureColumnFallback((selectCols, shapeCols) =>
     salaryTable("structures")
-      .insert({
-        ...shapeCols(cols),
-        revision_count: 0,
-        created_by: userId,
-        updated_by: userId,
-      })
+      .upsert(
+        {
+          ...shapeCols(cols),
+          revision_count: 0,
+          created_by: userId,
+          updated_by: userId,
+        },
+        { onConflict: "employee_master_id" }
+      )
       .select(selectCols)
       .single()
   );
