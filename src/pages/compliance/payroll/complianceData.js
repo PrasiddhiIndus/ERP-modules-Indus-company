@@ -11,6 +11,7 @@ import {
   monthLabel,
 } from "../../adminOperations/salaryAdmin/salaryMonthProcessing";
 import { ageFromDob, applyEpfDerived } from "./complianceEpf";
+import { overlayFilingOnRows, loadComplianceFiling } from "./complianceDb";
 import { sanitizeIpName } from "./complianceEsic";
 
 function num(v) {
@@ -23,7 +24,7 @@ async function fetchMasterByIds(ids = []) {
   if (!unique.length) return new Map();
   const { data, error } = await supabase
     .from(EMPLOYEE_MASTER_TABLE)
-    .select("id, full_name, employee_code, uan_no, esic_no, date_of_birth, date_of_leaving, status")
+    .select("id, full_name, employee_code, employee_id, uan_no, esic_no, date_of_birth, date_of_leaving, status")
     .in("id", unique);
   if (error) throw error;
   return new Map((data || []).map((r) => [String(r.id), r]));
@@ -75,6 +76,7 @@ export async function loadComplianceMonthEmployees({ year, month } = {}) {
     const master = masterMap.get(String(empId)) || {};
     const name = line.employee_name || master.full_name || "";
     const code = line.employee_code || master.employee_code || "";
+    const employeeId = line.employee_id || master.employee_id || "";
     const uan = String(line.uan_no || master.uan_no || "").replace(/\D/g, "");
     const esicNo = String(line.esic_no || master.esic_no || "").replace(/\D/g, "");
     const dob = master.date_of_birth || null;
@@ -89,9 +91,12 @@ export async function loadComplianceMonthEmployees({ year, month } = {}) {
     let epfRow = {
       id: `epf_${empId}`,
       employeeMasterId: empId,
+      lineId: line.id || null,
       employeeCode: code,
+      employeeId,
       uan,
       name,
+      presentDays,
       grossWages,
       epfWages,
       epsWages: age58Plus ? 0 : null,
@@ -115,7 +120,9 @@ export async function loadComplianceMonthEmployees({ year, month } = {}) {
       esicRows.push({
         id: `esic_${empId}`,
         employeeMasterId: empId,
+        lineId: line.id || null,
         employeeCode: code,
+        employeeId,
         ipNumber: esicNo,
         ipName: sanitizeIpName(name) || name,
         daysPaid: presentDays,
@@ -134,6 +141,9 @@ export async function loadComplianceMonthEmployees({ year, month } = {}) {
     String(a.employeeCode).localeCompare(String(b.employeeCode), undefined, { numeric: true })
   );
 
+  const filing = await loadComplianceFiling(key);
+  const overlaid = overlayFilingOnRows({ epfRows, esicRows, filing });
+
   return {
     year: y,
     month: m,
@@ -141,7 +151,8 @@ export async function loadComplianceMonthEmployees({ year, month } = {}) {
     monthLabel: label,
     hasSheet: true,
     run,
-    epfRows,
-    esicRows,
+    filing,
+    epfRows: overlaid.epfRows.map((row) => applyEpfDerived(row)),
+    esicRows: overlaid.esicRows,
   };
 }
