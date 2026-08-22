@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
@@ -8,6 +8,7 @@ import {
   Download,
   Loader2,
   Search,
+  Upload,
 } from "lucide-react";
 import {
   CollapsibleHelp,
@@ -17,11 +18,19 @@ import {
   TinyInput,
   TinySelect,
 } from "../../adminOperations/components/AdminUi";
-import { monthLabel } from "../../adminOperations/salaryAdmin/salaryMonthProcessing";
+import { monthKey, monthLabel } from "../../adminOperations/salaryAdmin/salaryMonthProcessing";
+import { persistComplianceMonth } from "./complianceDb";
 import { loadComplianceMonthEmployees } from "./complianceData";
 import { applyEpfDerived, validateEpfRows } from "./complianceEpf";
 import { validateEsicRows } from "./complianceEsic";
 import { downloadEpfChallanWorkbook, downloadEsicReturnWorkbook } from "./complianceExcel";
+import {
+  applyComplianceWorkbookToRows,
+  digitsOnly,
+  formatImportSummary,
+  mergeParsedWorkbooks,
+  parseComplianceWorkbooks,
+} from "./complianceImport";
 
 const STEPS = [
   { id: "month", label: "Month" },
@@ -165,7 +174,10 @@ export default function CompliancePayrollProcess() {
   const [q, setQ] = useState("");
   const [validation, setValidation] = useState(null);
   const [downloading, setDownloading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [banner, setBanner] = useState("");
+  const fileInputRef = useRef(null);
+  const parsedRef = useRef(null);
 
   const setTab = (next) => {
     const p = new URLSearchParams(searchParams);
@@ -189,6 +201,7 @@ export default function CompliancePayrollProcess() {
     setLoadError("");
     setBanner("");
     setValidation(null);
+    parsedRef.current = null;
     try {
       const data = await loadComplianceMonthEmployees({ year, month });
       setMeta(data);
@@ -283,6 +296,91 @@ export default function CompliancePayrollProcess() {
     }
   };
 
+  const persistRows = useCallback(
+    async (nextEpf, nextEsic, sourceFileName = "", parsed = null) => {
+      try {
+        await persistComplianceMonth({
+          year,
+          month,
+          monthKey: meta?.monthKey || monthKey(year, month),
+          runId: meta?.run?.id,
+          epfRows: nextEpf,
+          esicRows: nextEsic,
+          sourceFileName,
+          parsed,
+        });
+      } catch (err) {
+        console.warn("Compliance: could not save statutory IDs", err);
+      }
+    },
+    [year, month, meta?.monthKey, meta?.run?.id]
+  );
+
+  const handleWorkbookUpload = async (event) => {
+    const files = [...(event.target.files || [])];
+    event.target.value = "";
+    if (!files.length) return;
+    if (!meta?.hasSheet) {
+      setLoadError("Load a processed salary month first, then upload the workbook.");
+      return;
+    }
+    setUploading(true);
+    setLoadError("");
+    setBanner("");
+    setValidation(null);
+    try {
+      const incoming = await parseComplianceWorkbooks(files);
+      const parsed = mergeParsedWorkbooks([parsedRef.current, incoming].filter(Boolean));
+      parsedRef.current = parsed;
+      if (!parsed?.entries?.length) {
+        const skipped = (parsed?.sheetReports || incoming?.sheetReports || [])
+          .filter((s) => s.skipped)
+          .map((s) => `${s.name} (${s.skipped})`)
+          .join("; ");
+        setLoadError(
+          skipped
+            ? `No UAN or ESIC IP rows were found. ${skipped}.`
+            : "No UAN or ESIC IP numbers were found. Select the PF file and the ESIC file together (all sheets)."
+        );
+        return;
+      }
+      const applied = applyComplianceWorkbookToRows({
+        epfRows,
+        esicRows,
+        parsed,
+      });
+      setEpfRows(applied.epfRows);
+      setEsicRows(applied.esicRows);
+      const sheetLabel = (parsed.sheetNames || []).filter(Boolean).join(", ");
+      const sourceLabel = sheetLabel ? `${parsed.fileName} (${sheetLabel})` : parsed.fileName;
+      await persistRows(applied.epfRows, applied.esicRows, sourceLabel, parsed);
+      setMeta((prev) =>
+        prev
+          ? {
+              ...prev,
+              filing: {
+                ...(prev.filing || {}),
+                source_file_name: sourceLabel,
+                uploaded_at: new Date().toISOString(),
+              },
+            }
+          : prev
+      );
+      setBanner(
+        formatImportSummary(applied.summary, {
+          epfCount: applied.epfRows.length,
+          esicCount: applied.esicRows.length,
+        })
+      );
+      if (step === "month") goStep("review");
+    } catch (err) {
+      console.error(err);
+      setLoadError("Could not read that Excel file. Use .xls / .xlsx — PF challan and ESIC return can be two files.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleDownload = async () => {
     const result =
       tab === "epf" ? validateEpfRows(epfRows) : validateEsicRows(esicRows);
@@ -304,8 +402,9 @@ export default function CompliancePayrollProcess() {
       } else {
         await downloadEsicReturnWorkbook(esicRows, opts);
       }
+      await persistRows(epfRows, esicRows);
       goStep("download");
-      setBanner("File downloaded.");
+      setBanner("File downloaded. UAN and ESIC IP numbers are saved for this month.");
     } catch (err) {
       console.error(err);
       setBanner("");
@@ -315,6 +414,12 @@ export default function CompliancePayrollProcess() {
     }
   };
 
+  const missingIds = useMemo(() => {
+    if (tab === "epf") {
+      return epfRows.filter((r) => digitsOnly(r.uan).length !== 12).length;
+    }
+    return esicRows.filter((r) => digitsOnly(r.ipNumber).length !== 10).length;
+  }, [tab, epfRows, esicRows]);
   const canAdvanceFromMonth = Boolean(meta?.hasSheet) && !loading && activeRows.length > 0;
   const validatedOk = Boolean(validation?.ok);
 
@@ -322,8 +427,30 @@ export default function CompliancePayrollProcess() {
     <div className="space-y-4">
       <PageTaskHeader
         title="Payroll Compliance"
-        subtitle="Prepare PF / EPF and ESIC filing files from processed salary months."
-      />
+        subtitle="Prepare PF / EPF and ESIC filing files from processed salary months. Upload one workbook (two sheets is fine) to fill UAN and ESIC IP numbers by employee code."
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          className="hidden"
+          multiple
+          onChange={handleWorkbookUpload}
+        />
+        <button
+          type="button"
+          disabled={uploading || loading || !meta?.hasSheet}
+          onClick={() => fileInputRef.current?.click()}
+          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border bg-surface text-xs font-medium text-ink hover:bg-surface-sunken disabled:opacity-40"
+        >
+          {uploading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Upload className="h-3.5 w-3.5" />
+          )}
+          {uploading ? "Reading sheets…" : "Upload Excel"}
+        </button>
+      </PageTaskHeader>
 
       <div className="flex flex-wrap gap-1 border-b border-divider">
         {TABS.map((t) => (
@@ -347,21 +474,20 @@ export default function CompliancePayrollProcess() {
         right={<Stepper step={step} maxReached={maxReached} />}
       >
         <CollapsibleHelp label="process steps">
-          {tab === "epf" ? (
-            <ol className="list-decimal pl-4 space-y-1">
-              <li>Choose the salary month that was already processed.</li>
+          <ol className="list-decimal pl-4 space-y-1">
+            <li>Choose the salary month that was already processed. The list comes from that sheet.</li>
+            <li>
+              Upload Excel at the top — select both files together if needed (PF challan with UAN
+              details, plus ESIC return). All sheets are read. Match is by employee code, or by name
+              when the ESIC sheet uses site labels instead of codes.
+            </li>
+            {tab === "epf" ? (
               <li>Review UAN, name, gross and EPF wages. Age 58+ keeps EPS wages at 0.</li>
-              <li>Check errors for missing/duplicate UAN and invalid amounts.</li>
-              <li>Download the challan workbook with live contribution formulas.</li>
-            </ol>
-          ) : (
-            <ol className="list-decimal pl-4 space-y-1">
-              <li>Choose the processed salary month.</li>
-              <li>Review IP number (10 digits), IP name (letters & spaces), days and wages.</li>
-              <li>Check errors for duplicates and portal format rules.</li>
-              <li>Download the ESIC return sheet for upload.</li>
-            </ol>
-          )}
+            ) : (
+              <li>Review IP number, name (letters & spaces), days paid and monthly wages.</li>
+            )}
+            <li>Check errors, then download the filing file. IDs stay saved for later months.</li>
+          </ol>
         </CollapsibleHelp>
 
         {loadError ? (
@@ -429,12 +555,24 @@ export default function CompliancePayrollProcess() {
                   <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading processed employees…
                 </p>
               ) : meta?.hasSheet ? (
-                <p>
-                  {tab === "epf" ? epfRows.length : esicRows.length} employee
-                  {(tab === "epf" ? epfRows.length : esicRows.length) === 1 ? "" : "s"} on the
-                  processed sheet
-                  {tab === "esic" ? " (ESIC-eligible)" : ""}.
-                </p>
+                <>
+                  <p>
+                    {tab === "epf" ? epfRows.length : esicRows.length} employee
+                    {(tab === "epf" ? epfRows.length : esicRows.length) === 1 ? "" : "s"} on the
+                    processed sheet
+                    {tab === "esic" ? " (ESIC-eligible)" : ""}.
+                  </p>
+                  <p>
+                    Upload Excel at the top. You can select the PF file and the ESIC file together —
+                    every sheet is read. Employee code fills UAN and ESIC IP; if ESIC uses site names
+                    in the code column, name is used instead.
+                  </p>
+                  {meta?.filing?.source_file_name ? (
+                    <p className="text-ink">
+                      Last uploaded: {meta.filing.source_file_name}
+                    </p>
+                  ) : null}
+                </>
               ) : (
                 <p>No processed sheet for this month yet.</p>
               )}
@@ -467,10 +605,15 @@ export default function CompliancePayrollProcess() {
                   onChange={(e) => setQ(e.target.value)}
                 />
               </div>
-              <StatusChip
-                label={`${filteredRows.length} shown`}
-                severity="neutral"
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                {missingIds > 0 ? (
+                  <StatusChip
+                    label={`${missingIds} missing ${tab === "epf" ? "UAN" : "IP"}`}
+                    severity="warning"
+                  />
+                ) : null}
+                <StatusChip label={`${filteredRows.length} shown`} severity="neutral" />
+              </div>
             </div>
 
             {tab === "epf" ? (
@@ -667,6 +810,11 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
                       value={row.name || ""}
                       onChange={(e) => onChange(row.id, { name: e.target.value })}
                     />
+                    {row.employeeCode ? (
+                      <span className="block text-[9px] text-ink-muted mt-0.5">
+                        {row.employeeCode}
+                      </span>
+                    ) : null}
                     {row.age58Plus ? (
                       <span className="block text-[9px] text-amber-700 mt-0.5">Age 58+ · EPS = 0</span>
                     ) : null}
@@ -747,9 +895,9 @@ function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
           <tr>
             <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap">Employee</th>
             <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap">
-              ESIC ID number
+              ESIC IP number
               <span className="ml-1 text-ink-muted font-normal" title="Must be exactly 10 digits">
-                (?)
+                (10 digits)
               </span>
             </th>
             <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap">Days paid</th>
