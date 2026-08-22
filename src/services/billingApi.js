@@ -400,6 +400,12 @@ const OPTIONAL_INVOICE_ENHANCEMENT_KEYS = [
   'pre_gst_addition',
   'pre_gst_supplementary_rows',
 ];
+const OPTIONAL_INVOICE_DSC_KEYS = [
+  'dsc_signed_version',
+  'dsc_signed_at',
+  'dsc_thumbprint',
+  'dsc_region',
+];
 const OPTIONAL_LINE_ENHANCEMENT_KEYS = ['material_code', 'uom'];
 
 function stripOptionalBuyerInvoiceColumns(payload) {
@@ -426,10 +432,23 @@ function stripOptionalEnhancementInvoiceColumns(payload) {
   return next;
 }
 
+function stripOptionalDscInvoiceColumns(payload) {
+  const next = { ...payload };
+  for (const k of OPTIONAL_INVOICE_DSC_KEYS) delete next[k];
+  return next;
+}
+
 function isEnhancementInvoiceColumnsMissingError(err) {
   const s = supabaseErrBlob(err);
   if (!s) return false;
   if (!/po_date|pre_gst_deduction|pre_gst_addition|pre_gst_supplementary_rows/i.test(s)) return false;
+  return /could not find|schema cache|column of 'invoice'|PGRST204|undefined column/i.test(s);
+}
+
+function isDscInvoiceColumnsMissingError(err) {
+  const s = supabaseErrBlob(err);
+  if (!s) return false;
+  if (!/dsc_signed_version|dsc_signed_at|dsc_thumbprint|dsc_region/i.test(s)) return false;
   return /could not find|schema cache|column of 'invoice'|PGRST204|undefined column/i.test(s);
 }
 
@@ -1331,6 +1350,17 @@ export async function fetchInvoices() {
     c.igstRate = inv.igst_rate != null ? Number(inv.igst_rate) : 0;
     c.igstAmt = inv.igst_amt != null ? Number(inv.igst_amt) : 0;
     c.digitalSignatureDataUrl = inv.digital_signature_data_url;
+    c.dscSignedVersion =
+      inv.dsc_signed_version != null && inv.dsc_signed_version !== ''
+        ? Number(inv.dsc_signed_version)
+        : 1;
+    c.dsc_signed_version = c.dscSignedVersion;
+    c.dscSignedAt = inv.dsc_signed_at || null;
+    c.dsc_signed_at = c.dscSignedAt;
+    c.dscThumbprint = inv.dsc_thumbprint || null;
+    c.dsc_thumbprint = c.dscThumbprint;
+    c.dscRegion = inv.dsc_region || null;
+    c.dsc_region = c.dscRegion;
     c.isCancelled = !!inv.is_cancelled;
     c.cancelledAt = inv.cancelled_at || null;
     c.cancelReason = inv.cancel_reason || null;
@@ -1468,6 +1498,18 @@ export async function saveInvoice(inv) {
     igst_rate: Number(inv.igstRate) || 0,
     igst_amt: Number(inv.igstAmt) || 0,
     digital_signature_data_url: inv.digitalSignatureDataUrl || inv.digital_signature_data_url || null,
+    dsc_signed_version: Math.max(
+      1,
+      Number(inv.dscSignedVersion ?? inv.dsc_signed_version) || 1
+    ),
+    dsc_signed_at: normalizeTimestamptzOrNull(inv.dscSignedAt ?? inv.dsc_signed_at),
+    dsc_thumbprint: textColumnOrNull(inv.dscThumbprint ?? inv.dsc_thumbprint),
+    dsc_region:
+      inv.dscRegion && typeof inv.dscRegion === 'object'
+        ? inv.dscRegion
+        : inv.dsc_region && typeof inv.dsc_region === 'object'
+          ? inv.dsc_region
+          : null,
     is_cancelled: !!(inv.isCancelled ?? inv.is_cancelled),
     cancelled_at: normalizeTimestamptzOrNull(inv.cancelledAt ?? inv.cancelled_at),
     cancel_reason: inv.cancelReason ?? inv.cancel_reason ?? null,
@@ -1513,6 +1555,10 @@ export async function saveInvoice(inv) {
   }
   if (invError && isEnhancementInvoiceColumnsMissingError(invError)) {
     invoicePayload = stripOptionalEnhancementInvoiceColumns(invoicePayload);
+    ({ data: saved, error: invError } = await persistInvoiceRow(invoicePayload));
+  }
+  if (invError && isDscInvoiceColumnsMissingError(invError)) {
+    invoicePayload = stripOptionalDscInvoiceColumns(invoicePayload);
     ({ data: saved, error: invError } = await persistInvoiceRow(invoicePayload));
   }
   if (invError) throw invError;

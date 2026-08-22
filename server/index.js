@@ -1438,10 +1438,13 @@ app.post('/api/billing/dsc/usb-certificates', einvoiceRateLimit, requireBillingA
 app.post('/api/billing/dsc/sign-pdf', einvoiceRateLimit, requireBillingAccess, async (req, res) => {
   try {
     const pdfBase64 = String(req.body?.pdfBase64 || '').replace(/^data:application\/pdf;base64,/i, '');
-    const thumbprint = String(req.body?.thumbprint || '').trim();
+    const thumbprint = String(req.body?.thumbprint || '')
+      .replace(/[^0-9a-fA-F]/g, '')
+      .toUpperCase();
     if (!pdfBase64 || !thumbprint) {
       return res.status(400).json({ message: 'PDF and USB DSC certificate are required to sign.' });
     }
+    console.info('[dsc] sign-pdf start', { thumbprint, pinProvided: typeof req.body?.pin === 'string' && !!req.body.pin });
     const pdfBytes = Buffer.from(pdfBase64, 'base64');
     if (!pdfBytes.length) {
       return res.status(400).json({ message: 'The invoice PDF could not be read for signing.' });
@@ -1472,12 +1475,42 @@ app.post('/api/billing/dsc/sign-pdf', einvoiceRateLimit, requireBillingAccess, a
     console.error('[dsc] sign-pdf failed', err);
     const status = Number(err?.status) || 500;
     const raw = String(err?.message || 'Could not cryptographically sign the PDF with the USB DSC.');
-    const message = raw
-      .replace(/D:\\[^:]+:\d+\s*:/gi, '')
+    let message = raw
+      .replace(/D:\\[^\r\n]*/gi, '')
+      .replace(/CategoryInfo[\s\S]*$/i, '')
+      .replace(/FullyQualifiedErrorId[\s\S]*$/i, '')
+      .replace(/\+\s*CategoryInfo[\s\S]*$/i, '')
       .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 500);
-    res.status(status).json({ message: message || 'Could not cryptographically sign the PDF with the USB DSC.' });
+      .trim();
+    const keyMsg = message.match(
+      /Windows could not open the USB DSC private key[^.]*\.(?:\s*[^.]+)?\./i
+    );
+    if (keyMsg) message = keyMsg[0].trim();
+    if (/HyperPKI HYP2003 CSP India v3\.0|India v3\.0.*not available|Installed HyperPKI V1\.0 alone/i.test(raw)) {
+      message =
+        'This DSC needs HyperPKI HYP2003 CSP India v3.0 (eMudhra). Only HyperPKI V1.0 is installed on this PC, so Windows cannot open the token private key. Install/repair HyperPKI India v3.0, open HyperPKI Manager, enter the PIN, then try Download again.';
+    } else if (/\[stale_thumbprint\]/i.test(raw)) {
+      message =
+        'Saved DSC certificate thumbprint is stale or does not match the Windows personal store. Open Edit DSC, Sign with the certificate on the plugged-in token, Save, then Download again.';
+    } else if (/\[stale_or_token_only_thumbprint\]/i.test(raw)) {
+      message =
+        'That DSC thumbprint is not in the Windows personal store for this login. Enter the token PIN, Sign again (so the live USB certificate is used), Save, then Download.';
+    } else if (/\[store_path_or_session\]/i.test(raw)) {
+      message =
+        'No DSC certificate is available for this Windows login (store empty or token key not linked). Plug in the token, open HyperPKI Manager and log in with the PIN. If Windows says “smart card requires drivers that are not present”, repair HyperPKI India v3.0 drivers, then Edit DSC → Refresh → Sign → Save → Download.';
+    } else if (/\[cert_not_found\]|Certificate not found in the Windows personal store/i.test(raw)) {
+      message =
+        'DSC certificate was not found for signing. Plug the token in, unlock it in HyperPKI Manager. If Windows reports missing smart-card drivers for HYPERSECU, repair HyperPKI — then Edit DSC → Sign → Save → Download.';
+    } else if (/drivers that are not present|smart card requires drivers/i.test(raw)) {
+      message =
+        'Windows reports Hypersecu smart-card drivers are not present. Repair/reinstall HyperPKI HYP2003 CSP India v3.0, open HyperPKI Manager, then try again.';
+    } else if (/NTE_KEYSET_NOT_DEF|-2146893799|keyset is not defined/i.test(raw)) {
+      message =
+        'Windows could not open the USB DSC private key (keyset not defined). Plug the token in, start HyperPKI Certd/Manager, enter the PIN, and try Download again. If the certificate uses HyperPKI India v3.0, install that CSP — V1.0 alone is not enough.';
+    }
+    res.status(status).json({
+      message: (message || 'Could not cryptographically sign the PDF with the USB DSC.').slice(0, 500),
+    });
   }
 });
 

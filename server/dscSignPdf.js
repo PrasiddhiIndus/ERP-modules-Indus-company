@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { PDFDocument } from 'pdf-lib';
 import { pdflibAddPlaceholder } from '@signpdf/placeholder-pdf-lib';
 import { SignPdf, Signer } from '@signpdf/signpdf';
+import { withDscLock } from './dscLock.js';
 
 const thisDir = path.dirname(fileURLToPath(import.meta.url));
 const MM_TO_PT = 72 / 25.4;
@@ -21,16 +22,24 @@ class UsbTokenSigner extends Signer {
   }
 }
 
-function runPowershell(scriptPath, namedArgs, timeoutMs) {
+function runPowershell(scriptPath, namedArgs, timeoutMs, extraEnv) {
   const argv = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath];
   for (const [key, value] of Object.entries(namedArgs)) {
     argv.push(`-${key}`, String(value));
   }
+  const env = extraEnv ? { ...process.env, ...extraEnv } : process.env;
+  const hasPin = Boolean(extraEnv?.INDUS_DSC_PIN);
   return new Promise((resolve, reject) => {
     execFile(
       'powershell.exe',
       argv,
-      { timeout: timeoutMs, windowsHide: false, maxBuffer: 8 * 1024 * 1024 },
+      {
+        timeout: timeoutMs,
+        // Allow HyperPKI / Windows Security PIN UI when signing with a PIN.
+        windowsHide: !hasPin,
+        maxBuffer: 8 * 1024 * 1024,
+        env,
+      },
       (err, stdout, stderr) => {
         const detail = [stderr, stdout, err?.message].map((s) => String(s || '').trim()).filter(Boolean).join('\n');
         if (err) {
@@ -62,10 +71,13 @@ async function cmsSignBytes(thumbprint, bytesToSign, pin) {
   try {
     fs.writeFileSync(inPath, bytesToSign);
     if (pin) fs.writeFileSync(pinPath, String(pin), 'utf8');
-    await runPowershell(
-      scriptPath,
-      { Thumbprint: String(thumbprint), InputPath: inPath, OutputPath: outPath },
-      120000
+    await withDscLock(() =>
+      runPowershell(
+        scriptPath,
+        { Thumbprint: String(thumbprint), InputPath: inPath, OutputPath: outPath },
+        120000,
+        pin ? { INDUS_DSC_PIN: String(pin) } : undefined
+      )
     );
     if (!fs.existsSync(outPath) || fs.statSync(outPath).size < 64) {
       throw new Error('The USB token did not return a PKCS#7 signature.');
@@ -86,10 +98,13 @@ export async function signPdfWithWindowsDsc(pdfBytes, meta) {
     err.status = 501;
     throw err;
   }
-  const thumbprint = String(meta?.thumbprint || '').replace(/\s+/g, '');
+  const thumbprint = String(meta?.thumbprint || '')
+    .replace(/[^0-9a-fA-F]/g, '')
+    .toUpperCase();
   if (!thumbprint) {
     throw new Error('Select a USB DSC certificate before downloading the signed PDF.');
   }
+  console.info('[dsc] sign-pdf requested thumbprint', thumbprint, 'pinProvided=', Boolean(meta?.pin));
 
   const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
   pdflibAddPlaceholder({

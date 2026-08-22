@@ -61,8 +61,41 @@ function invoiceSignatureUrl(inv) {
   return typeof sig === 'string' && sig.startsWith('data:image/') ? sig : '';
 }
 
+function isValidDscRegion(region) {
+  return (
+    region &&
+    Number.isFinite(region.left) &&
+    Number.isFinite(region.top) &&
+    Number.isFinite(region.width) &&
+    Number.isFinite(region.height)
+  );
+}
+
+function invoiceDscSignedVersion(inv) {
+  const n = Number(inv?.dscSignedVersion ?? inv?.dsc_signed_version);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
+}
+
+function invoiceDscThumbprint(inv) {
+  return String(inv?.dscThumbprint || inv?.dsc_thumbprint || '').trim();
+}
+
+function resolveDscRegion(inv) {
+  const fromDb = inv?.dscRegion || inv?.dsc_region;
+  if (isValidDscRegion(fromDb)) return fromDb;
+  return loadDscRegion(inv?.id);
+}
+
+function resolveDscCert(inv) {
+  const stored = loadDscCert(inv?.id);
+  if (stored?.thumbprint) return stored;
+  const thumb = invoiceDscThumbprint(inv);
+  return thumb ? { thumbprint: thumb } : null;
+}
+
 function hasDigitalSignature(inv) {
   if (invoiceSignatureUrl(inv)) return true;
+  if (invoiceDscThumbprint(inv)) return true;
   return !!loadDscCert(inv?.id)?.thumbprint;
 }
 
@@ -108,15 +141,7 @@ function loadDscRegion(invoiceId) {
   if (!invoiceId) return null;
   try {
     const parsed = JSON.parse(window.localStorage.getItem(dscRegionStorageKey(invoiceId)) || 'null');
-    if (
-      parsed &&
-      Number.isFinite(parsed.left) &&
-      Number.isFinite(parsed.top) &&
-      Number.isFinite(parsed.width) &&
-      Number.isFinite(parsed.height)
-    ) {
-      return parsed;
-    }
+    if (isValidDscRegion(parsed)) return parsed;
   } catch {
     /* ignore */
   }
@@ -128,6 +153,26 @@ function persistDscRegion(invoiceId, region) {
   try {
     if (!region) window.localStorage.removeItem(dscRegionStorageKey(invoiceId));
     else window.localStorage.setItem(dscRegionStorageKey(invoiceId), JSON.stringify(region));
+  } catch {
+    /* ignore */
+  }
+}
+
+const DSC_PIN_SESSION_KEY = 'billing_dsc_usb_pin';
+
+function loadDscSessionPin() {
+  try {
+    return String(window.sessionStorage.getItem(DSC_PIN_SESSION_KEY) || '');
+  } catch {
+    return '';
+  }
+}
+
+function persistDscSessionPin(pin) {
+  try {
+    const value = String(pin || '').trim();
+    if (!value) window.sessionStorage.removeItem(DSC_PIN_SESSION_KEY);
+    else window.sessionStorage.setItem(DSC_PIN_SESSION_KEY, value);
   } catch {
     /* ignore */
   }
@@ -250,6 +295,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
     billingVerticalFilter,
     useBillingDb,
     refreshBilling,
+    upsertInvoice,
   } = useBilling();
   const [searchTerm, setSearchTerm] = useState('');
   const [billingTypeFilter, setBillingTypeFilter] = useState('All');
@@ -269,7 +315,12 @@ const ManageInvoices = ({ onNavigateTab }) => {
   const [usbCertsLoading, setUsbCertsLoading] = useState(false);
   const [usbSelectedThumb, setUsbSelectedThumb] = useState('');
   const [viewDscCert, setViewDscCert] = useState(null);
+  const [usbStatusNote, setUsbStatusNote] = useState('');
   const invoiceWrapRef = useRef(null);
+  const pendingOpenUsbForEditRef = useRef(false);
+  const dscSignedThisSessionRef = useRef(false);
+  const usbListRequestIdRef = useRef(0);
+  const usbRefreshCooldownRef = useRef(null);
   const [managePAInvoiceId, setManagePAInvoiceId] = useState(null);
   const [generatingEInvoiceId, setGeneratingEInvoiceId] = useState(null);
   const [generateEInvoiceModalId, setGenerateEInvoiceModalId] = useState(null);
@@ -316,20 +367,36 @@ const ManageInvoices = ({ onNavigateTab }) => {
   );
 
   const downloadManageInvoicePdf = React.useCallback(
-    async (inv) => {
+    async (inv, { requireCryptoDsc = false } = {}) => {
       if (!inv) return;
       const po = getPoByInvoice(inv);
-      const cert = loadDscCert(inv.id);
+      const cert =
+        (viewDscCert?.thumbprint && String(viewId) === String(inv.id) ? viewDscCert : null) ||
+        resolveDscCert(inv);
+      const wantsDsc =
+        requireCryptoDsc ||
+        Boolean(cert?.thumbprint) ||
+        Boolean(invoiceDscThumbprint(inv)) ||
+        Boolean(invoiceSignatureUrl(inv));
+
       if (cert?.thumbprint) {
         try {
+          setUsbStatusNote('Cryptographically signing PDF with the USB DSC…');
           const appearance = buildFoxitDscAppearance(cert);
           const pdfBytes = await getTaxInvoicePdfBytes(inv, {
             po,
             skipSignatureImage: true,
             dscAppearance: appearance,
           });
-          if (!pdfBytes) return;
-          const signed = await signInvoicePdfWithUsbToken({ pdfBytes, certificate: cert, pin: usbPin });
+          if (!pdfBytes) {
+            throw new Error('Could not build the invoice PDF for DSC signing.');
+          }
+          const pinForSign = String(usbPin || loadDscSessionPin() || '').trim();
+          const signed = await signInvoicePdfWithUsbToken({
+            pdfBytes,
+            certificate: cert,
+            pin: pinForSign,
+          });
           const blob = new Blob([signed], { type: 'application/pdf' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -339,12 +406,38 @@ const ManageInvoices = ({ onNavigateTab }) => {
           a.click();
           a.remove();
           URL.revokeObjectURL(url);
+          setUsbModalOpen(false);
+          setUsbError('');
+          setUsbStatusNote('');
+          setViewId(null);
+          setViewSigDraft('');
+          setViewSigError('');
+          setViewSigSaving(false);
+          setViewDscRegion(null);
+          setDscDrag(null);
+          setUsbCerts([]);
+          setUsbReaders([]);
+          setUsbIssues([]);
+          setUsbSelectedThumb('');
+          setViewDscCert(null);
           toast.success('Cryptographically signed PDF downloaded. Adobe/Foxit can validate the DSC.');
         } catch (err) {
-          toast.error(err?.message || 'Could not sign the PDF with the USB DSC. Keep the token plugged in and try again.');
+          const msg = err?.message || 'Could not sign the PDF with the USB DSC. Keep the token plugged in and try again.';
+          setUsbError(msg);
+          setUsbStatusNote('');
+          toast.error(msg);
         }
         return;
       }
+
+      if (wantsDsc || requireCryptoDsc) {
+        const msg =
+          'DSC thumbprint is missing. Open Edit DSC, select the certificate, click Sign, then Save before Download — otherwise only an unsigned invoice would be produced.';
+        setUsbError(msg);
+        toast.error(msg);
+        return;
+      }
+
       const url = await getTaxInvoicePdfBlobUrl(inv, {
         po,
         ...(hasDigitalSignature(inv) ? { signatureWidthMm: 52, signatureHeightMm: 24 } : {}),
@@ -358,7 +451,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
       a.remove();
       URL.revokeObjectURL(url);
     },
-    [getPoByInvoice, usbPin]
+    [getPoByInvoice, usbPin, viewDscCert, viewId]
   );
 
   const withLatestBuyerDetails = React.useCallback(
@@ -720,8 +813,19 @@ const ManageInvoices = ({ onNavigateTab }) => {
 
   const selectedInv = viewId ? hydratedInvoices.find((i) => i.id === viewId) : null;
   const savedViewSig = invoiceSignatureUrl(selectedInv);
-  const viewSigDirty = String(viewSigDraft || '') !== String(savedViewSig || '');
+  const savedViewRegion = selectedInv ? resolveDscRegion(selectedInv) : null;
+  const viewSigDirty =
+    String(viewSigDraft || '') !== String(savedViewSig || '') ||
+    JSON.stringify(viewDscRegion || null) !== JSON.stringify(savedViewRegion || null) ||
+    Boolean(viewDscCert?.thumbprint && viewDscRegion && !savedViewSig);
   const canEditViewDsc = !!selectedInv && !selectedInv.isCancelled && !getRealIrn(selectedInv);
+  const canDownloadUsbDsc = Boolean(
+    String(
+      invoiceDscThumbprint(selectedInv) ||
+        (viewDscCert?.thumbprint && viewSigDraft ? viewDscCert.thumbprint : '') ||
+        ''
+    ).trim()
+  );
 
   React.useEffect(() => {
     if (!selectedInv) {
@@ -740,23 +844,37 @@ const ManageInvoices = ({ onNavigateTab }) => {
       setUsbCertsLoading(false);
       setUsbSelectedThumb('');
       setViewDscCert(null);
+      setUsbStatusNote('');
+      pendingOpenUsbForEditRef.current = false;
+      dscSignedThisSessionRef.current = false;
       return;
     }
+    const region = resolveDscRegion(selectedInv);
+    const cert = resolveDscCert(selectedInv);
     setViewSigDraft(invoiceSignatureUrl(selectedInv));
-    setViewDscRegion(loadDscRegion(selectedInv.id));
-    setViewDscCert(loadDscCert(selectedInv.id));
+    setViewDscRegion(region);
+    setViewDscCert(cert?.thumbprint ? cert : null);
     setViewSigError('');
     setDscDrag(null);
-    setUsbModalOpen(false);
-    setUsbPin('');
+    setUsbPin(loadDscSessionPin());
     setUsbError('');
     setUsbCerts([]);
     setUsbReaders([]);
     setUsbIssues([]);
-    setUsbSelectedThumb('');
-  }, [viewId, selectedInv?.id, savedViewSig]);
+    setUsbSelectedThumb(cert?.thumbprint ? String(cert.thumbprint) : '');
+    dscSignedThisSessionRef.current = false;
+    if (pendingOpenUsbForEditRef.current && region) {
+      pendingOpenUsbForEditRef.current = false;
+      setUsbModalOpen(true);
+    } else {
+      pendingOpenUsbForEditRef.current = false;
+      setUsbModalOpen(false);
+    }
+  }, [viewId, selectedInv?.id]);
 
   const closeInvoiceViewer = () => {
+    pendingOpenUsbForEditRef.current = false;
+    dscSignedThisSessionRef.current = false;
     setViewId(null);
     setViewSigDraft('');
     setViewSigError('');
@@ -764,13 +882,43 @@ const ManageInvoices = ({ onNavigateTab }) => {
     setViewDscRegion(null);
     setDscDrag(null);
     setUsbModalOpen(false);
-    setUsbPin('');
+    setUsbPin(loadDscSessionPin());
     setUsbError('');
     setUsbCerts([]);
     setUsbReaders([]);
     setUsbIssues([]);
     setUsbSelectedThumb('');
     setViewDscCert(null);
+  };
+
+  const openEditDsc = (inv) => {
+    if (!inv) return;
+    if (inv.isCancelled || inv.is_cancelled) {
+      toast.error('Cancelled invoices cannot edit DSC.');
+      return;
+    }
+    if (getRealIrn(inv)) {
+      toast.error('E-invoice already filed — DSC cannot be changed.');
+      return;
+    }
+    const region = resolveDscRegion(inv);
+    if (String(viewId) === String(inv.id)) {
+      setViewDscRegion(region);
+      setViewDscCert(resolveDscCert(inv));
+      setUsbPin(loadDscSessionPin());
+      setUsbError('');
+      if (region) {
+        setUsbModalOpen(true);
+      } else {
+        toast.warning('Drag a box on the invoice where the USB DSC should appear.');
+      }
+      return;
+    }
+    pendingOpenUsbForEditRef.current = !!region;
+    setViewId(inv.id);
+    if (!region) {
+      toast.warning('Drag a box on the invoice where the USB DSC should appear.');
+    }
   };
 
   const pointerPct = (event) => {
@@ -810,7 +958,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
     }
     setViewDscRegion(region);
     setViewSigError('');
-    setUsbPin('');
+    setUsbPin(loadDscSessionPin());
     setUsbError('');
     setUsbCerts([]);
     setUsbSelectedThumb('');
@@ -819,14 +967,16 @@ const ManageInvoices = ({ onNavigateTab }) => {
     setUsbModalOpen(true);
   };
 
-  const applyUsbListResult = (result) => {
+  const applyUsbListResult = (result, preferredThumb = '') => {
     const list = Array.isArray(result.certificates) ? result.certificates : [];
     const readers = Array.isArray(result.readers) ? result.readers : [];
     const issues = Array.isArray(result.usbIssues) ? result.usbIssues : [];
     setUsbCerts(list);
     setUsbReaders(readers);
     setUsbIssues(issues);
+    const want = String(preferredThumb || '').trim();
     const preferred =
+      (want && list.find((c) => String(c.thumbprint) === want)) ||
       list.find((c) => c.onHardwareToken && c.hasPrivateKey) ||
       list.find((c) => c.onHardwareToken) ||
       list.find((c) => c.hasPrivateKey) ||
@@ -839,7 +989,9 @@ const ManageInvoices = ({ onNavigateTab }) => {
     const liveReaders = readers.filter((row) => row?.status === 'card_present' || row?.atr || /token|dsc|hyper/i.test(String(row?.name || '')));
     if (liveReaders.length) {
       setUsbError(
-        `Token detected (${liveReaders.map((row) => row.name).join(', ')}). Enter the token PIN and click Refresh to read certificates.`
+        `Token detected (${liveReaders.map((row) => row.name).join(', ')}), but no certificate was listed. ` +
+          'Open HyperPKI Manager, log in with the PIN, and confirm Windows does not show “smart card requires drivers that are not present”. ' +
+          'Then click Refresh here. If that Windows driver message appears, repair/reinstall HyperPKI HYP2003 (India v3.0) — the reader alone is not enough.'
       );
       return;
     }
@@ -856,57 +1008,84 @@ const ManageInvoices = ({ onNavigateTab }) => {
     setUsbError('The reader is connected but no certificate was on the token. Enter the token PIN and click Refresh.');
   };
 
-  const refreshUsbCerts = async (pin) => {
+  const preferredUsbThumb = () =>
+    String(
+      usbSelectedThumb ||
+        viewDscCert?.thumbprint ||
+        invoiceDscThumbprint(selectedInv) ||
+        loadDscCert(selectedInv?.id)?.thumbprint ||
+        ''
+    ).trim();
+
+  const refreshUsbCerts = async (pin, { debounceMs = 300 } = {}) => {
+    const requestId = ++usbListRequestIdRef.current;
     setUsbCertsLoading(true);
     setUsbError('');
+    setUsbStatusNote('Reading certificates from the USB token…');
     try {
-      const result = await listUsbDscCertificates(pin);
-      applyUsbListResult(result);
+      const pinValue = String(pin || '').trim();
+      if (pinValue) persistDscSessionPin(pinValue);
+      const result = await listUsbDscCertificates(pinValue, { debounceMs });
+      if (requestId !== usbListRequestIdRef.current) return;
+      applyUsbListResult(result, preferredUsbThumb());
+      if (result.warning) {
+        setUsbStatusNote(result.warning.slice(0, 180));
+      } else if ((result.certificates || []).length) {
+        setUsbStatusNote(`Found ${(result.certificates || []).length} certificate(s). Select one, then Sign.`);
+      } else {
+        setUsbStatusNote('No certificates returned. Enter the token PIN and click Refresh.');
+      }
     } catch (err) {
+      if (requestId !== usbListRequestIdRef.current) return;
       setUsbCerts([]);
       setUsbReaders([]);
       setUsbIssues([]);
       setUsbSelectedThumb('');
-      setUsbError(err?.message || 'Could not read certificates from the USB token.');
+      const msg = err?.message || 'Could not read certificates from the USB token.';
+      setUsbError(msg);
+      setUsbStatusNote('');
+      toast.error(msg);
     } finally {
-      setUsbCertsLoading(false);
+      if (requestId === usbListRequestIdRef.current) setUsbCertsLoading(false);
     }
   };
 
   React.useEffect(() => {
     if (!usbModalOpen) return undefined;
-    let cancelled = false;
-    setUsbCertsLoading(true);
-    setUsbError('');
-    void listUsbDscCertificates('')
-      .then((result) => {
-        if (!cancelled) applyUsbListResult(result);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setUsbCerts([]);
-        setUsbReaders([]);
-        setUsbIssues([]);
-        setUsbSelectedThumb('');
-        setUsbError(err?.message || 'Could not read certificates from the USB token.');
-      })
-      .finally(() => {
-        if (!cancelled) setUsbCertsLoading(false);
-      });
+    // One fetch on open (session PIN if known). Coalesced on client + queued on server.
+    // Do not re-run on pin keystrokes — Refresh is explicit.
+    const pinValue = loadDscSessionPin() || String(usbPin || '').trim();
+    if (pinValue && !usbPin) setUsbPin(pinValue);
+    void refreshUsbCerts(pinValue, { debounceMs: 150 });
     return () => {
-      cancelled = true;
+      usbListRequestIdRef.current += 1;
+      if (usbRefreshCooldownRef.current) {
+        clearTimeout(usbRefreshCooldownRef.current);
+        usbRefreshCooldownRef.current = null;
+      }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only when modal opens
   }, [usbModalOpen]);
 
-  const confirmUsbDsc = async () => {
-    if (!selectedInv || !viewDscRegion) return;
+  const signUsbDsc = async () => {
+    if (!selectedInv || !viewDscRegion) {
+      setUsbError('Select a signature area on the invoice first.');
+      return;
+    }
     const certificate = usbCerts.find((c) => String(c.thumbprint) === String(usbSelectedThumb));
     if (!certificate) {
       setUsbError('Select a certificate from the token list.');
       return;
     }
+    if (!certificate.thumbprint) {
+      const msg = 'Selected certificate has no thumbprint. Refresh the token list and try Sign again.';
+      setUsbError(msg);
+      toast.error(msg);
+      return;
+    }
     setUsbBusy(true);
     setUsbError('');
+    setUsbStatusNote('Building DSC appearance…');
     try {
       const wrap = invoiceWrapRef.current;
       const boxW = wrap ? (viewDscRegion.width / 100) * wrap.clientWidth : 220;
@@ -918,40 +1097,125 @@ const ManageInvoices = ({ onNavigateTab }) => {
         boxHeight: boxH,
         certificate,
       });
+      if (!result?.imageDataUrl) {
+        throw new Error('Sign did not return a DSC appearance. Try Refresh, then Sign again.');
+      }
       setViewSigDraft(result.imageDataUrl);
       setViewDscCert(certificate);
       persistDscCert(selectedInv.id, certificate);
-      setUsbModalOpen(false);
-      setUsbPin('');
-      toast.success('DSC certificate applied in the selected area. Save the invoice to keep it.');
+      persistDscRegion(selectedInv.id, viewDscRegion);
+      persistDscSessionPin(usbPin);
+      dscSignedThisSessionRef.current = true;
+      setUsbStatusNote('Appearance signed. Click Save to store thumbprint, then Download for the cryptographic PDF.');
+      toast.success('DSC appearance signed. Save to keep it, then Download for the cryptographic PDF.');
     } catch (err) {
-      setUsbError(err?.message || 'Could not apply the USB DSC certificate.');
+      const msg = err?.message || 'Could not apply the USB DSC certificate.';
+      setUsbError(msg);
+      setUsbStatusNote('');
+      toast.error(msg);
     } finally {
       setUsbBusy(false);
     }
   };
 
-  const saveViewDigitalSignature = () => {
+  const saveViewDigitalSignature = async ({ closeModal = false } = {}) => {
     if (!selectedInv || !canEditViewDsc) return;
     const nextSig = String(viewSigDraft || '').trim() || null;
+    const nextCert = viewDscCert?.thumbprint ? viewDscCert : null;
+    if (!nextSig && !nextCert?.thumbprint) {
+      const msg = 'Sign a USB DSC certificate before saving.';
+      setViewSigError(msg);
+      setUsbError(msg);
+      return;
+    }
+    if (!viewDscRegion && (nextSig || nextCert)) {
+      const msg = 'Select a signature area on the invoice before saving.';
+      setViewSigError(msg);
+      setUsbError(msg);
+      return;
+    }
     setViewSigSaving(true);
+    setViewSigError('');
+    setUsbError('');
     try {
-      persistDscRegion(selectedInv.id, nextSig ? viewDscRegion : null);
-      persistDscCert(selectedInv.id, nextSig ? viewDscCert : null);
-      setInvoices((prev) =>
-        prev.map((row) => {
-          if (String(row.id) !== String(selectedInv.id)) return row;
-          return {
-            ...row,
-            digitalSignatureDataUrl: nextSig,
-            digital_signature_data_url: nextSig,
-            updated_at: new Date().toISOString(),
-          };
-        })
+      const hadPersistedSig = !!(
+        invoiceSignatureUrl(selectedInv) ||
+        invoiceDscThumbprint(selectedInv) ||
+        selectedInv.dscSignedAt ||
+        selectedInv.dsc_signed_at
       );
-      toast.success(nextSig ? 'DSC-signed invoice saved. You can generate e-invoice next.' : 'Digital signature removed.');
+      const prevVersion = invoiceDscSignedVersion(selectedInv);
+      const nextVersion =
+        hadPersistedSig && dscSignedThisSessionRef.current
+          ? prevVersion + 1
+          : Math.max(1, prevVersion);
+      const signedAt = new Date().toISOString();
+      const nextThumb = nextCert?.thumbprint || invoiceDscThumbprint(selectedInv) || null;
+      persistDscRegion(selectedInv.id, nextSig || nextCert ? viewDscRegion : null);
+      persistDscCert(selectedInv.id, nextSig || nextCert ? nextCert : null);
+      const updated = {
+        ...selectedInv,
+        digitalSignatureDataUrl: nextSig,
+        digital_signature_data_url: nextSig,
+        dscRegion: nextSig || nextCert ? viewDscRegion : null,
+        dsc_region: nextSig || nextCert ? viewDscRegion : null,
+        dscThumbprint: nextSig || nextCert ? nextThumb : null,
+        dsc_thumbprint: nextSig || nextCert ? nextThumb : null,
+        dscSignedVersion: nextSig || nextCert ? nextVersion : 1,
+        dsc_signed_version: nextSig || nextCert ? nextVersion : 1,
+        dscSignedAt: nextSig || nextCert ? signedAt : null,
+        dsc_signed_at: nextSig || nextCert ? signedAt : null,
+        updated_at: signedAt,
+      };
+      if (typeof upsertInvoice === 'function') {
+        await upsertInvoice(updated);
+      } else {
+        setInvoices((prev) =>
+          prev.map((row) => (String(row.id) !== String(selectedInv.id) ? row : updated))
+        );
+      }
+      dscSignedThisSessionRef.current = false;
+      if (closeModal) setUsbModalOpen(false);
+      toast.success(
+        nextSig || nextCert
+          ? hadPersistedSig && nextVersion > prevVersion
+            ? `DSC re-signed (v${nextVersion}) and saved.`
+            : 'DSC-signed invoice saved. You can generate e-invoice next.'
+          : 'Digital signature removed.'
+      );
+    } catch (err) {
+      console.error(err);
+      const msg = err?.message || 'Could not save the DSC-signed invoice.';
+      setViewSigError(msg);
+      setUsbError(msg);
+      toast.error(msg);
     } finally {
       setViewSigSaving(false);
+    }
+  };
+
+  const downloadUsbSignedPdf = async () => {
+    if (!selectedInv) return;
+    if (!canDownloadUsbDsc) {
+      const msg = 'Sign and Save the DSC first so the certificate thumbprint is stored, then Download.';
+      setUsbError(msg);
+      toast.error(msg);
+      return;
+    }
+    if (!viewDscCert?.thumbprint && !invoiceDscThumbprint(selectedInv) && !loadDscCert(selectedInv.id)?.thumbprint) {
+      const msg = 'DSC thumbprint is missing. Click Sign, then Save, before Download.';
+      setUsbError(msg);
+      toast.error(msg);
+      return;
+    }
+    setUsbBusy(true);
+    setUsbError('');
+    setUsbStatusNote('Downloading cryptographically signed PDF…');
+    try {
+      await downloadManageInvoicePdf(selectedInv, { requireCryptoDsc: true });
+    } finally {
+      setUsbBusy(false);
+      setUsbStatusNote('');
     }
   };
 
@@ -973,6 +1237,19 @@ const ManageInvoices = ({ onNavigateTab }) => {
     );
   };
 
+  const renderDscVersionBadge = (inv) => {
+    const version = invoiceDscSignedVersion(inv);
+    if (version <= 1) return null;
+    return (
+      <span
+        className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-violet-100 text-violet-900 whitespace-nowrap"
+        title={`DSC re-signed ${version} times`}
+      >
+        DSC v{version}
+      </span>
+    );
+  };
+
   const renderDscAction = (inv) => {
     const signed = hasDigitalSignature(inv);
     return (
@@ -987,6 +1264,27 @@ const ManageInvoices = ({ onNavigateTab }) => {
         }`}
       >
         <PenLine className="w-4 h-4" />
+      </button>
+    );
+  };
+
+  const renderEditDscAction = (inv) => {
+    const locked = !!(inv.isCancelled || inv.is_cancelled || getRealIrn(inv));
+    return (
+      <button
+        type="button"
+        onClick={() => openEditDsc(inv)}
+        disabled={locked}
+        title={
+          inv.isCancelled || inv.is_cancelled
+            ? 'Cancelled invoices cannot edit DSC'
+            : getRealIrn(inv)
+              ? 'E-invoice already filed — DSC cannot be changed'
+              : 'Edit DSC'
+        }
+        className="inline-flex items-center justify-center h-8 px-2 rounded-full border border-violet-200 bg-violet-50 text-[10px] font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+      >
+        Edit DSC
       </button>
     );
   };
@@ -1182,6 +1480,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                           <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono overflow-hidden min-w-0" title={inv.taxInvoiceNumber || inv.bill_number || '–'}>
                             <div className="flex flex-col items-center gap-0.5 min-w-0">
                               <span className="truncate max-w-full">{renderTaxInvoiceOpener(inv)}</span>
+                              {renderDscVersionBadge(inv)}
                               {isProformaInvoiceKind(inv) ? (
                                 <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-sky-100 text-sky-900 whitespace-nowrap">Proforma</span>
                               ) : null}
@@ -1247,6 +1546,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                 );
                               })()}
                               {renderDscAction(inv)}
+                              {renderEditDscAction(inv)}
                               <button
                                 type="button"
                                 onClick={() => setViewId(inv.id)}
@@ -1354,6 +1654,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                 <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono" title={inv.taxInvoiceNumber || inv.bill_number || ''}>
                                   <div className="flex flex-col items-center gap-0.5 min-w-0">
                                     <span className="truncate max-w-full">{renderTaxInvoiceOpener(inv)}</span>
+                                    {renderDscVersionBadge(inv)}
                                     {isCancelled ? (
                                       <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-900 whitespace-nowrap">
                                         Cancelled
@@ -1446,6 +1747,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                       );
                                     })()}
                                     {renderDscAction(inv)}
+                                    {renderEditDscAction(inv)}
                                     <button
                                       type="button"
                                       onClick={() => setViewId(inv.id)}
@@ -1706,7 +2008,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                     <button
                       type="button"
                       onClick={() => {
-                        setUsbPin('');
+                        setUsbPin(loadDscSessionPin());
                         setUsbError('');
                         setUsbModalOpen(true);
                       }}
@@ -1732,7 +2034,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                   ) : null}
                   <button
                     type="button"
-                    onClick={saveViewDigitalSignature}
+                    onClick={() => void saveViewDigitalSignature()}
                     disabled={!viewSigDirty || viewSigSaving}
                     className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -1823,7 +2125,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
               <div className="min-w-0 flex-1">
                 <h3 className="text-base font-semibold text-gray-900">USB DSC token</h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Certificates from the plugged-in USB token. Choose one to place in the selected box.
+                  Certificates from the plugged-in USB token. Sign for appearance, Save to store, then Download for the cryptographic PDF.
                 </p>
               </div>
               <button
@@ -1831,7 +2133,6 @@ const ManageInvoices = ({ onNavigateTab }) => {
                 onClick={() => {
                   if (usbBusy) return;
                   setUsbModalOpen(false);
-                  setUsbPin('');
                   setUsbError('');
                 }}
                 className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
@@ -1844,7 +2145,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
               className="p-5 space-y-3"
               onSubmit={(e) => {
                 e.preventDefault();
-                void confirmUsbDsc();
+                void signUsbDsc();
               }}
             >
               {usbReaders.length ? (
@@ -1938,17 +2239,25 @@ const ManageInvoices = ({ onNavigateTab }) => {
                 />
               </label>
               {usbError ? <p className="text-xs text-rose-700">{usbError}</p> : null}
+              {usbStatusNote && !usbError ? (
+                <p className="text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+                  {usbCertsLoading || usbBusy ? `${usbStatusNote}` : usbStatusNote}
+                </p>
+              ) : null}
+              {(usbCertsLoading || usbBusy || viewSigSaving) && !usbStatusNote ? (
+                <p className="text-xs text-slate-600">Working with the USB DSC…</p>
+              ) : null}
               <p className="text-xs text-slate-500">
-                Keep the token plugged in. After Windows recognises it, click Refresh. Enter the token PIN if the list is empty.
+                Keep the token plugged in. Click Refresh after entering the PIN — typing the PIN alone does not re-scan the token.
               </p>
-              <div className="flex justify-end gap-2 pt-1">
+              <div className="flex flex-wrap justify-end gap-2 pt-1">
                 <button
                   type="button"
-                  disabled={usbBusy || usbCertsLoading}
+                  disabled={usbBusy || usbCertsLoading || viewSigSaving}
                   onClick={() => {
                     setUsbModalOpen(false);
-                    setUsbPin('');
                     setUsbError('');
+                    setUsbStatusNote('');
                   }}
                   className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
                 >
@@ -1956,18 +2265,45 @@ const ManageInvoices = ({ onNavigateTab }) => {
                 </button>
                 <button
                   type="button"
-                  disabled={usbBusy || usbCertsLoading}
-                  onClick={() => void refreshUsbCerts(usbPin)}
+                  disabled={usbBusy || usbCertsLoading || viewSigSaving}
+                  onClick={() => {
+                    if (usbRefreshCooldownRef.current) clearTimeout(usbRefreshCooldownRef.current);
+                    usbRefreshCooldownRef.current = setTimeout(() => {
+                      usbRefreshCooldownRef.current = null;
+                      void refreshUsbCerts(usbPin, { debounceMs: 0 });
+                    }, 250);
+                  }}
                   className="px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm font-medium text-emerald-800 hover:bg-emerald-50"
                 >
                   {usbCertsLoading ? 'Reading token…' : 'Refresh'}
                 </button>
                 <button
                   type="submit"
-                  disabled={usbBusy || usbCertsLoading || !usbSelectedThumb}
+                  disabled={usbBusy || usbCertsLoading || viewSigSaving || !usbSelectedThumb || !viewDscRegion}
+                  className="px-3 py-2 rounded-lg bg-slate-800 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-50"
+                >
+                  {usbBusy ? 'Signing…' : 'Sign'}
+                </button>
+                <button
+                  type="button"
+                  disabled={usbBusy || usbCertsLoading || viewSigSaving || (!viewSigDraft && !viewDscCert?.thumbprint)}
+                  onClick={() => void saveViewDigitalSignature({ closeModal: false })}
                   className="px-3 py-2 rounded-lg bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
-                  {usbBusy ? 'Applying certificate…' : 'Apply selected certificate'}
+                  {viewSigSaving ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  disabled={usbBusy || usbCertsLoading || viewSigSaving || !canDownloadUsbDsc}
+                  onClick={() => void downloadUsbSignedPdf()}
+                  title={
+                    canDownloadUsbDsc
+                      ? 'Download cryptographically signed PDF'
+                      : 'Sign and Save first so the certificate thumbprint is stored'
+                  }
+                  className="px-3 py-2 rounded-lg border border-violet-200 bg-violet-50 text-sm font-semibold text-violet-900 hover:bg-violet-100 disabled:opacity-50"
+                >
+                  Download
                 </button>
               </div>
             </form>
