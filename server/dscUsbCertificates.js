@@ -1,10 +1,12 @@
 import { execFile } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { withDscLock } from './dscLock.js';
 
 const thisDir = path.dirname(fileURLToPath(import.meta.url));
 
-let listQueue = Promise.resolve();
+/** Coalesce identical in-flight list requests (same pin) so React Strict Mode / double open does not spam CSP. */
+const inflightByPin = new Map();
 
 function unwrap(value) {
   if (Array.isArray(value)) return value;
@@ -45,12 +47,16 @@ function parsePayload(stdout) {
 
 function runPowershell(scriptPath, pin) {
   return new Promise((resolve) => {
-    const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath];
+    // With a PIN, allow an interactive desktop so HyperPKI / Windows Security can show UI.
+    // Always-hidden + -NonInteractive was regressing cert detection (driver/PIN dialogs blocked).
+    const args = pin
+      ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath]
+      : ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath];
     const child = execFile(
       'powershell.exe',
       args,
       {
-        timeout: pin ? 30000 : 12000,
+        timeout: pin ? 45000 : 20000,
         windowsHide: !pin,
         maxBuffer: 4 * 1024 * 1024,
         env: pin
@@ -73,6 +79,26 @@ function runPowershell(scriptPath, pin) {
   });
 }
 
+async function runListOnce(pin) {
+  const scriptPath = path.join(thisDir, 'dsc', 'listUsbCertificates.ps1');
+  return withDscLock(async () => {
+    const { stdout, stderr, error } = await runPowershell(scriptPath, pin);
+    const parsed = parsePayload(stdout);
+    const timedOut = /ETIMEDOUT|timed out/i.test(error);
+    return {
+      certificates: parsed.certificates,
+      readers: parsed.readers,
+      usbIssues: parsed.usbIssues,
+      pcscStatus: parsed.pcscStatus || (timedOut ? 'timeout' : error ? 'spawn_error' : ''),
+      warning: [stderr, error && !parsed.certificates.length && !parsed.readers.length ? error : '']
+        .map((s) => String(s || '').trim())
+        .filter(Boolean)
+        .join('\n')
+        .slice(0, 800),
+    };
+  });
+}
+
 export async function listUsbDscCertificatesFromWindows(options = {}) {
   if (process.platform !== 'win32') {
     return {
@@ -84,29 +110,15 @@ export async function listUsbDscCertificatesFromWindows(options = {}) {
     };
   }
 
-  const scriptPath = path.join(thisDir, 'dsc', 'listUsbCertificates.ps1');
   const pin = String(options.pin || '');
+  const key = pin || '__nopin__';
+  const existing = inflightByPin.get(key);
+  if (existing) return existing;
 
-  const run = listQueue.then(async () => {
-    const { stdout, stderr, error } = await runPowershell(scriptPath, pin);
-    const parsed = parsePayload(stdout);
-    return {
-      certificates: parsed.certificates,
-      readers: parsed.readers,
-      usbIssues: parsed.usbIssues,
-      pcscStatus: parsed.pcscStatus || (error ? 'spawn_error' : ''),
-      warning: [stderr, error && !parsed.certificates.length && !parsed.readers.length ? error : '']
-        .map((s) => String(s || '').trim())
-        .filter(Boolean)
-        .join('\n')
-        .slice(0, 800),
-    };
+  const run = runListOnce(pin).finally(() => {
+    if (inflightByPin.get(key) === run) inflightByPin.delete(key);
   });
-
-  listQueue = run.then(
-    () => undefined,
-    () => undefined
-  );
+  inflightByPin.set(key, run);
 
   try {
     return await run;
