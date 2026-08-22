@@ -258,7 +258,13 @@ namespace IndusDsc
 
         static void AddCapiCerts(Result result, string pin)
         {
-            var providers = new[] { "Microsoft Base Smart Card Crypto Provider" };
+            var providers = new[]
+            {
+                "HyperPKI HYP2003 CSP India v3.0",
+                "HyperPKI HYP2003 CSP V1.0"
+                // Do NOT use "Microsoft Base Smart Card Crypto Provider" for Hypersecu —
+                // it pops Windows Security: "smart card requires drivers that are not present".
+            };
             var seen = new Dictionary<string, CertInfo>(StringComparer.OrdinalIgnoreCase);
             foreach (var existing in result.certificates)
             {
@@ -268,9 +274,13 @@ namespace IndusDsc
             foreach (var provider in providers)
             {
                 IntPtr hProv;
-                uint flags = CRYPT_VERIFYCONTEXT | CRYPT_SILENT;
-                if (!CryptAcquireContext(out hProv, null, provider, PROV_RSA_FULL, flags))
-                    continue;
+                // Prefer non-silent when PIN is known so HyperPKI can unlock the token.
+                uint verifyFlags = string.IsNullOrEmpty(pin) ? (CRYPT_VERIFYCONTEXT | CRYPT_SILENT) : CRYPT_VERIFYCONTEXT;
+                if (!CryptAcquireContext(out hProv, null, provider, PROV_RSA_FULL, verifyFlags))
+                {
+                    if (!CryptAcquireContext(out hProv, null, provider, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT | CRYPT_SILENT))
+                        continue;
+                }
                 try
                 {
                     if (!string.IsNullOrEmpty(pin))
@@ -281,9 +291,12 @@ namespace IndusDsc
                     foreach (var container in EnumContainers(hProv))
                     {
                         IntPtr hCont;
-                        uint cflags = CRYPT_SILENT;
+                        uint cflags = string.IsNullOrEmpty(pin) ? CRYPT_SILENT : 0u;
                         if (!CryptAcquireContext(out hCont, container, provider, PROV_RSA_FULL, cflags))
-                            continue;
+                        {
+                            if (!CryptAcquireContext(out hCont, container, provider, PROV_RSA_FULL, CRYPT_SILENT))
+                                continue;
+                        }
                         try
                         {
                             if (!string.IsNullOrEmpty(pin))

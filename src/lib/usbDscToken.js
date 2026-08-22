@@ -153,7 +153,9 @@ export async function signInvoicePdfWithUsbToken({ pdfBytes, certificate, pin })
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       pdfBase64: btoa(binary),
-      thumbprint: certificate.thumbprint,
+      thumbprint: String(certificate.thumbprint || '')
+        .replace(/[^0-9a-fA-F]/g, '')
+        .toUpperCase(),
       pin: String(pin || ''),
       name: certificate.commonName || '',
       reason: 'I am the author of this document',
@@ -161,7 +163,13 @@ export async function signInvoicePdfWithUsbToken({ pdfBytes, certificate, pin })
     }),
   });
   if (!result.ok || !result.data?.pdfBase64) {
-    throw new Error(result.error || result.data?.message || 'Could not apply the USB DSC to the PDF.');
+    const detail = String(result.error || result.data?.message || '').trim();
+    if (!detail || /^Request failed \(\d+\)$/i.test(detail)) {
+      throw new Error(
+        'Could not sign the PDF with the USB DSC. This certificate needs HyperPKI HYP2003 CSP India v3.0 (eMudhra). If only HyperPKI V1.0 is installed, install/repair India v3.0, open HyperPKI Manager, enter the PIN, then try Download again.'
+      );
+    }
+    throw new Error(detail);
   }
   const raw = atob(result.data.pdfBase64);
   const out = new Uint8Array(raw.length);
@@ -169,22 +177,56 @@ export async function signInvoicePdfWithUsbToken({ pdfBytes, certificate, pin })
   return out;
 }
 
-export async function listUsbDscCertificates(pin) {
-  const result = await fetchApiWithAuth('/api/billing/dsc/usb-certificates', {
+/** In-flight coalescing + short debounce so modal open / Strict Mode / double Refresh do not spam the API. */
+let listInflight = null;
+let listInflightPin = null;
+let listDebounceTimer = null;
+let listDebounceWaiters = [];
+
+function fetchUsbCertList(pinValue) {
+  if (listInflight && listInflightPin === pinValue) return listInflight;
+  listInflightPin = pinValue;
+  listInflight = fetchApiWithAuth('/api/billing/dsc/usb-certificates', {
     timeoutMs: 45_000,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pin: String(pin || '') }),
+    body: JSON.stringify({ pin: pinValue }),
+  })
+    .then((result) => {
+      const certificates = Array.isArray(result.data?.certificates) ? result.data.certificates : [];
+      const readers = Array.isArray(result.data?.readers) ? result.data.readers : [];
+      const usbIssues = Array.isArray(result.data?.usbIssues) ? result.data.usbIssues : [];
+      const pcscStatus = String(result.data?.pcscStatus || '').trim();
+      const warning = String(result.data?.warning || '').trim();
+      if (!result.ok && !certificates.length && !readers.length) {
+        throw new Error(result.error || result.data?.message || 'Could not read USB DSC certificates.');
+      }
+      return { certificates, readers, usbIssues, pcscStatus, warning };
+    })
+    .finally(() => {
+      listInflight = null;
+      listInflightPin = null;
+    });
+  return listInflight;
+}
+
+export function listUsbDscCertificates(pin, { debounceMs = 0 } = {}) {
+  const pinValue = String(pin || '');
+  if (!debounceMs) return fetchUsbCertList(pinValue);
+
+  return new Promise((resolve, reject) => {
+    listDebounceWaiters.push({ resolve, reject });
+    if (listDebounceTimer) clearTimeout(listDebounceTimer);
+    listDebounceTimer = setTimeout(() => {
+      listDebounceTimer = null;
+      const waiters = listDebounceWaiters;
+      listDebounceWaiters = [];
+      fetchUsbCertList(pinValue).then(
+        (result) => waiters.forEach((w) => w.resolve(result)),
+        (err) => waiters.forEach((w) => w.reject(err))
+      );
+    }, debounceMs);
   });
-  const certificates = Array.isArray(result.data?.certificates) ? result.data.certificates : [];
-  const readers = Array.isArray(result.data?.readers) ? result.data.readers : [];
-  const usbIssues = Array.isArray(result.data?.usbIssues) ? result.data.usbIssues : [];
-  const pcscStatus = String(result.data?.pcscStatus || '').trim();
-  const warning = String(result.data?.warning || '').trim();
-  if (!result.ok && !certificates.length && !readers.length) {
-    throw new Error(result.error || result.data?.message || 'Could not read USB DSC certificates.');
-  }
-  return { certificates, readers, usbIssues, pcscStatus, warning };
 }
 
 async function tryHostHelper(pin, invoiceNumber) {
@@ -195,61 +237,30 @@ async function tryHostHelper(pin, invoiceNumber) {
   return null;
 }
 
-const LOCAL_SIGNER_URLS = [
-  'https://127.0.0.1:1620/sign',
-  'https://localhost:1620/sign',
-  'https://127.0.0.1:1645/sign',
-  'http://127.0.0.1:1620/sign',
-];
-
-async function tryLocalSigner(pin, invoiceNumber) {
-  const body = JSON.stringify({ pin, invoiceNumber, action: 'sign' });
-  for (const url of LOCAL_SIGNER_URLS) {
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-        signal: AbortSignal.timeout(2500),
-      });
-      if (!res.ok) continue;
-      const data = await res.json().catch(() => null);
-      const imageDataUrl = data?.imageDataUrl || data?.signatureImage || data?.dataUrl;
-      if (imageDataUrl) {
-        return { imageDataUrl, signerName: data?.signerName || data?.cn || '' };
-      }
-    } catch {
-      /* no local signer on this port */
-    }
-  }
-  return null;
-}
-
 /**
  * @param {{ pin?: string, invoiceNumber?: string, boxWidth: number, boxHeight: number, certificate: object }} opts
  */
 export async function fetchSignatureFromUsbToken({ pin, invoiceNumber, boxWidth, boxHeight, certificate }) {
   const cleanPin = String(pin || '').trim();
+  if (!certificate?.thumbprint && !certificate?.commonName && !certificate?.subject) {
+    throw new Error('Select a certificate from the USB token before signing.');
+  }
 
+  // Optional desktop helper only — do not probe localhost ports (those cause console ERR_CONNECTION_REFUSED).
   if (cleanPin) {
-    const helper = await tryHostHelper(cleanPin, invoiceNumber);
-    if (helper?.imageDataUrl) {
-      return {
-        imageDataUrl: helper.imageDataUrl,
-        signerName: helper.signerName || certificate?.commonName || '',
-        tokenLabel: 'USB DSC token',
-        certificate,
-      };
-    }
-
-    const local = await tryLocalSigner(cleanPin, invoiceNumber);
-    if (local?.imageDataUrl) {
-      return {
-        imageDataUrl: local.imageDataUrl,
-        signerName: local.signerName || certificate?.commonName || '',
-        tokenLabel: 'USB DSC token',
-        certificate,
-      };
+    try {
+      const helper = await tryHostHelper(cleanPin, invoiceNumber);
+      if (helper?.imageDataUrl) {
+        return {
+          imageDataUrl: helper.imageDataUrl,
+          signerName: helper.signerName || certificate?.commonName || '',
+          tokenLabel: 'USB DSC token',
+          certificate,
+        };
+      }
+    } catch (err) {
+      // Surface helper failures only when it was the intended path; otherwise fall through to appearance.
+      console.warn('[dsc] host helper sign failed', err);
     }
   }
 
@@ -260,7 +271,7 @@ export async function fetchSignatureFromUsbToken({ pin, invoiceNumber, boxWidth,
     signedAt: formatSignedAt(),
   });
   if (!imageDataUrl) {
-    throw new Error('Select a certificate from the USB token before applying it.');
+    throw new Error('Could not build the DSC appearance from the selected certificate. Select a certificate and try Sign again.');
   }
   return {
     imageDataUrl,

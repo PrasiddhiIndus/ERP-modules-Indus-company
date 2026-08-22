@@ -77,27 +77,42 @@ try {
 } catch {}
 
 # Certificates already registered in this Windows session.
+# Include DSC-looking personal certs even when HasPrivateKey flickers false
+# (common when Hypersecu minidriver is missing / token locked).
 function Add-StoreCert($cert, $storePath) {
-  if (-not $cert.HasPrivateKey) { return }
   $thumb = [string]$cert.Thumbprint
   if ([string]::IsNullOrWhiteSpace($thumb) -or $seen.ContainsKey($thumb)) { return }
+  $hasKey = $false
+  try { $hasKey = [bool]$cert.HasPrivateKey } catch { $hasKey = $false }
+  $subj = ''
+  $iss = ''
+  try { $subj = [string]$cert.Subject } catch {}
+  try { $iss = [string]$cert.Issuer } catch {}
+  $looksDsc = ($iss -match 'eMudhra|e-Mudhra|HyperPKI|Capricorn|SafeNet|eToken|Watchdata') -or ($subj -match 'eMudhra|e-Mudhra')
+  if (-not $hasKey -and -not $looksDsc) { return }
   $seen[$thumb] = $true
   $eku = @()
   try { $eku = @($cert.EnhancedKeyUsageList | ForEach-Object { $_.FriendlyName } | Where-Object { $_ }) } catch {}
+  $provider = ''
+  try {
+    if ($null -ne $cert.PrivateKey -and $null -ne $cert.PrivateKey.CspKeyContainerInfo) {
+      $provider = [string]$cert.PrivateKey.CspKeyContainerInfo.ProviderName
+    }
+  } catch {}
   [void]$items.Add([pscustomobject]@{
-    commonName       = Get-CommonName $cert.Subject
-    subject          = [string]$cert.Subject
-    issuer           = [string]$cert.Issuer
-    issuerCn         = Get-CommonName $cert.Issuer
+    commonName       = Get-CommonName $subj
+    subject          = $subj
+    issuer           = $iss
+    issuerCn         = Get-CommonName $iss
     serialNumber     = [string]$cert.SerialNumber
     thumbprint       = $thumb
     notBefore        = $cert.NotBefore.ToUniversalTime().ToString('o')
     notAfter         = $cert.NotAfter.ToUniversalTime().ToString('o')
     friendlyName     = [string]$cert.FriendlyName
     store            = $storePath
-    provider         = ''
-    hasPrivateKey    = [bool]$cert.HasPrivateKey
-    onHardwareToken  = $false
+    provider         = $provider
+    hasPrivateKey    = $hasKey
+    onHardwareToken  = $hasKey -or $looksDsc
     enhancedKeyUsage = $eku
   })
 }

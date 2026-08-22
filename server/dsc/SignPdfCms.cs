@@ -12,9 +12,11 @@ namespace IndusDsc
     {
         const uint CRYPT_ACQUIRE_ALLOW_NCRYPT_KEY_FLAG = 0x00010000;
         const uint CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG = 0x00020000;
+        const uint CRYPT_ACQUIRE_SILENT_FLAG = 0x00000040;
         const uint CERT_NCRYPT_KEY_SPEC = 0xFFFFFFFF;
         const uint CERT_KEY_PROV_INFO_PROP_ID = 2;
         const int BCRYPT_PAD_PKCS1 = 2;
+        const int NTE_KEYSET_NOT_DEF = unchecked((int)0x80090019);
 
         [DllImport("crypt32.dll", SetLastError = true)]
         static extern bool CryptAcquireCertificatePrivateKey(
@@ -55,6 +57,7 @@ namespace IndusDsc
 
         const uint PROV_RSA_FULL = 1;
         const uint CRYPT_VERIFYCONTEXT = 0xF0000000;
+        const uint CRYPT_SILENT = 0x00000040;
         const uint PP_ENUMCONTAINERS = 2;
         const uint PP_KEYEXCHANGE_PIN = 32;
         const uint PP_SIGNATURE_PIN = 33;
@@ -101,34 +104,234 @@ namespace IndusDsc
 
         public static void SignDetached(string thumbprint, string inputPath, string outputPath, string pin)
         {
-            var thumb = (thumbprint ?? "").Replace(" ", "").ToUpperInvariant();
+            var thumb = NormalizeThumbprint(thumbprint);
             if (thumb.Length == 0) throw new ArgumentException("Missing certificate thumbprint.");
             var data = File.ReadAllBytes(inputPath);
-            var cert = FindCertificate(thumb);
-            using (var token = OpenTokenSigner(cert, pin))
+            string storeDiag;
+            var cert = FindCertificateInStores(thumb, out storeDiag);
+            if (cert != null)
             {
-                File.WriteAllBytes(outputPath, BuildDetachedCms(cert, data, token));
+                using (var token = OpenTokenSigner(cert, pin))
+                {
+                    File.WriteAllBytes(outputPath, BuildDetachedCms(cert, data, token));
+                }
+                return;
             }
+
+            // Apply/list can show certs from the USB CSP that are not (yet) in Cert:\CurrentUser\My.
+            CspCertHit hit;
+            if (TryFindCertificateOnTokenCsp(thumb, pin, out hit))
+            {
+                using (var token = OpenCspTokenSigner(hit.Provider, hit.Container, pin))
+                {
+                    File.WriteAllBytes(outputPath, BuildDetachedCms(hit.Cert, data, token));
+                }
+                return;
+            }
+
+            throw new InvalidOperationException(BuildCertNotFoundMessage(thumb, storeDiag, pin));
         }
 
-        static X509Certificate2 FindCertificate(string thumb)
+        static string NormalizeThumbprint(string thumbprint)
         {
+            if (string.IsNullOrWhiteSpace(thumbprint)) return "";
+            var sb = new StringBuilder(thumbprint.Length);
+            foreach (var ch in thumbprint)
+            {
+                if ((ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f'))
+                    sb.Append(char.ToUpperInvariant(ch));
+            }
+            return sb.ToString();
+        }
+
+        static string ThumbOf(X509Certificate2 cert)
+        {
+            return NormalizeThumbprint(cert != null ? cert.Thumbprint : null);
+        }
+
+        struct CspCertHit
+        {
+            public X509Certificate2 Cert;
+            public string Provider;
+            public string Container;
+        }
+
+        static X509Certificate2 FindCertificateInStores(string thumb, out string diag)
+        {
+            var seen = new List<string>();
             foreach (StoreLocation loc in new[] { StoreLocation.CurrentUser, StoreLocation.LocalMachine })
             {
-                using (var store = new X509Store(StoreName.My, loc))
+                try
                 {
-                    store.Open(OpenFlags.ReadOnly);
-                    var matches = store.Certificates.Find(X509FindType.FindByThumbprint, thumb, false);
-                    if (matches.Count > 0) return matches[0];
-                    foreach (X509Certificate2 cert in store.Certificates)
+                    using (var store = new X509Store(StoreName.My, loc))
                     {
-                        if (string.Equals(cert.Thumbprint, thumb, StringComparison.OrdinalIgnoreCase))
-                            return cert;
+                        store.Open(OpenFlags.ReadOnly);
+                        foreach (X509Certificate2 cert in store.Certificates)
+                        {
+                            var t = ThumbOf(cert);
+                            if (t.Length == 0) continue;
+                            if (seen.Count < 12 && !seen.Contains(t)) seen.Add(t);
+                            if (string.Equals(t, thumb, StringComparison.Ordinal))
+                            {
+                                diag = loc == StoreLocation.CurrentUser ? "Cert:\\CurrentUser\\My" : "Cert:\\LocalMachine\\My";
+                                return cert;
+                            }
+                        }
+                        // Also try the framework finder (some stores need it).
+                        var matches = store.Certificates.Find(X509FindType.FindByThumbprint, thumb, false);
+                        if (matches.Count > 0)
+                        {
+                            diag = loc == StoreLocation.CurrentUser ? "Cert:\\CurrentUser\\My" : "Cert:\\LocalMachine\\My";
+                            return matches[0];
+                        }
                     }
                 }
+                catch (CryptographicException)
+                {
+                    /* LocalMachine may be restricted; continue */
+                }
             }
-            throw new InvalidOperationException("Certificate not found in the Windows personal store. Plug in the USB DSC token and apply the certificate again.");
+            diag = seen.Count == 0
+                ? "no_certs_in_CurrentUser_or_LocalMachine_My"
+                : ("store_thumbs=" + string.Join(",", seen.ToArray()));
+            return null;
         }
+
+        static bool TryFindCertificateOnTokenCsp(string thumb, string pin, out CspCertHit hit)
+        {
+            hit = default(CspCertHit);
+            var providers = new[]
+            {
+                "HyperPKI HYP2003 CSP India v3.0",
+                "HyperPKI HYP2003 CSP V1.0"
+                // Skip Microsoft Base Smart Card — triggers Hypersecu "drivers not present" UI.
+            };
+            foreach (var provider in providers)
+            {
+                foreach (var container in EnumProviderContainers(provider, pin))
+                {
+                    X509Certificate2 cert;
+                    if (!TryReadContainerCertificate(provider, container, pin, out cert) || cert == null)
+                        continue;
+                    if (!string.Equals(ThumbOf(cert), thumb, StringComparison.Ordinal))
+                        continue;
+                    hit = new CspCertHit { Cert = cert, Provider = provider, Container = container };
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        static List<string> EnumProviderContainers(string provider, string pin)
+        {
+            var names = new List<string>();
+            IntPtr hProv;
+            if (!CryptAcquireContext(out hProv, null, provider, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT))
+                return names;
+            try
+            {
+                if (!string.IsNullOrEmpty(pin))
+                {
+                    var pinBytes = Encoding.ASCII.GetBytes(pin + "\0");
+                    CryptSetProvParam(hProv, PP_KEYEXCHANGE_PIN, pinBytes, 0);
+                    CryptSetProvParam(hProv, PP_SIGNATURE_PIN, pinBytes, 0);
+                }
+                uint flag = CRYPT_FIRST;
+                while (true)
+                {
+                    int len = 1024;
+                    var buf = new byte[len];
+                    if (!CryptGetProvParam(hProv, PP_ENUMCONTAINERS, buf, ref len, flag)) break;
+                    int n = Array.IndexOf(buf, (byte)0);
+                    if (n < 0) n = Math.Max(0, len);
+                    var name = Encoding.ASCII.GetString(buf, 0, n).Trim('\0', ' ');
+                    if (!string.IsNullOrWhiteSpace(name)) names.Add(name);
+                    flag = CRYPT_NEXT;
+                }
+            }
+            finally { CryptReleaseContext(hProv, 0); }
+            return names;
+        }
+
+        static bool TryReadContainerCertificate(string provider, string container, string pin, out X509Certificate2 cert)
+        {
+            cert = null;
+            IntPtr hProv;
+            if (!CryptAcquireContext(out hProv, container, provider, PROV_RSA_FULL, 0)
+                && !CryptAcquireContext(out hProv, container, provider, PROV_RSA_FULL, CRYPT_SILENT))
+                return false;
+            try
+            {
+                if (!string.IsNullOrEmpty(pin))
+                {
+                    var pinBytes = Encoding.ASCII.GetBytes(pin + "\0");
+                    CryptSetProvParam(hProv, PP_KEYEXCHANGE_PIN, pinBytes, 0);
+                    CryptSetProvParam(hProv, PP_SIGNATURE_PIN, pinBytes, 0);
+                }
+                foreach (var spec in new uint[] { AT_SIGNATURE, AT_KEYEXCHANGE })
+                {
+                    IntPtr hKey;
+                    if (!CryptGetUserKey(hProv, spec, out hKey)) continue;
+                    try
+                    {
+                        int len = 0;
+                        CryptGetKeyParam(hKey, KP_CERTIFICATE, null, ref len, 0);
+                        if (len <= 0) continue;
+                        var der = new byte[len];
+                        if (!CryptGetKeyParam(hKey, KP_CERTIFICATE, der, ref len, 0)) continue;
+                        cert = new X509Certificate2(der);
+                        return true;
+                    }
+                    catch { }
+                    finally { CryptDestroyKey(hKey); }
+                }
+            }
+            finally { CryptReleaseContext(hProv, 0); }
+            return false;
+        }
+
+        static TokenSigner OpenCspTokenSigner(string provider, string container, string pin)
+        {
+            var got = TryOpenCspContainer(provider, container, pin, "", false);
+            if (got != null) return got;
+            throw new InvalidOperationException(
+                "Certificate was found on the USB token CSP (" + provider + ") but the private key could not be opened. "
+                + "Plug the token in, unlock it in HyperPKI Manager with the PIN, then try Download again.");
+        }
+
+        static string BuildCertNotFoundMessage(string thumb, string storeDiag, string pin)
+        {
+            var user = Environment.UserName ?? "";
+            var sessionHint = "Signer Windows user=" + user + ".";
+            if (string.IsNullOrEmpty(pin))
+            {
+                return "[stale_or_token_only_thumbprint] Requested thumbprint " + thumb
+                    + " was not in Cert:\\CurrentUser\\My or Cert:\\LocalMachine\\My (" + storeDiag + "). "
+                    + sessionHint
+                    + " Enter the token PIN and click Refresh/Sign again so the live USB certificate is used, then Download. "
+                    + "If Apply listed this cert from the token only, Save again after Sign so dsc_thumbprint matches the plugged-in token.";
+            }
+            if (storeDiag != null && storeDiag.StartsWith("store_thumbs=", StringComparison.Ordinal))
+            {
+                return "[stale_thumbprint] Requested thumbprint " + thumb
+                    + " is not among the certificates in the Windows personal store (" + storeDiag + "). "
+                    + sessionHint
+                    + " Open Edit DSC, Sign with the certificate currently on the token, Save, then Download.";
+            }
+            if (storeDiag == "no_certs_in_CurrentUser_or_LocalMachine_My")
+            {
+                return "[store_path_or_session] No certificates in Cert:\\CurrentUser\\My or Cert:\\LocalMachine\\My for Windows user "
+                    + user
+                    + ". Plug in the token and open HyperPKI Manager (log in with PIN). "
+                    + "If Windows says the smart card requires drivers that are not present, repair HyperPKI HYP2003 India v3.0, then Edit DSC → Refresh → Sign → Save → Download.";
+            }
+            return "[cert_not_found] Certificate thumbprint " + thumb
+                + " was not found in the Windows personal store or on the USB token CSP (" + storeDiag + "). "
+                + sessionHint
+                + " Plug the token in, unlock it, Sign again, then Download.";
+        }
+
+        // FindCertificate removed — SignDetached resolves Cert:\CurrentUser\My, Cert:\LocalMachine\My, then HyperPKI CSP.
 
         sealed class TokenSigner : IDisposable
         {
@@ -160,8 +363,45 @@ namespace IndusDsc
             }
         }
 
+        static string PrivateKeyOpenError(int err, X509Certificate2 cert)
+        {
+            var info = ReadKeyProvInfo(cert.Handle);
+            var provider = info.HasValue ? (info.Value.ProviderName ?? "") : "";
+            if (provider.IndexOf("HyperPKI", StringComparison.OrdinalIgnoreCase) >= 0
+                && provider.IndexOf("India", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "This DSC certificate needs HyperPKI HYP2003 CSP India v3.0, but that CSP is not available to Windows. "
+                    + "Install/repair the eMudhra HyperPKI (India v3.0) package, open HyperPKI Manager, plug in the token, enter the PIN, then try Download again. "
+                    + "Installed HyperPKI V1.0 alone cannot open this key.";
+            }
+            if (err == NTE_KEYSET_NOT_DEF || err == -2146893799)
+            {
+                return "Windows could not open the USB DSC private key (keyset not defined). "
+                    + "Plug the token in, start HyperPKI Certd/Manager, enter the PIN, and try Download again. "
+                    + "If this continues, install or repair the Hypersecu/eMudhra CSP that matches the certificate.";
+            }
+            return "Windows could not open the USB DSC private key (Win32 " + err + "). "
+                + "Plug the token in, start HyperPKI, enter the PIN, and try Download again.";
+        }
+
+        static TokenSigner TryAcquirePrivateKey(X509Certificate2 cert, string pin, bool silent)
+        {
+            IntPtr handle;
+            uint keySpec;
+            bool freeHandle;
+            uint flags = CRYPT_ACQUIRE_ALLOW_NCRYPT_KEY_FLAG | CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG;
+            if (silent) flags |= CRYPT_ACQUIRE_SILENT_FLAG;
+            if (!CryptAcquireCertificatePrivateKey(cert.Handle, flags, IntPtr.Zero, out handle, out keySpec, out freeHandle))
+                return null;
+            return FinishAcquiredKey(cert, pin, handle, keySpec, freeHandle);
+        }
+
         static TokenSigner OpenTokenSigner(X509Certificate2 cert, string pin)
         {
+            // Prefer opening through the certificate's own CSP/container (HyperPKI India, etc.).
+            var fromProv = OpenFromKeyProvInfo(cert, pin);
+            if (fromProv != null) return fromProv;
+
             try
             {
                 var rsa = RSACertificateExtensions.GetRSAPrivateKey(cert);
@@ -176,21 +416,68 @@ namespace IndusDsc
                 /* store cert often has HasPrivateKey=true with a dead container */
             }
 
-            IntPtr handle;
-            uint keySpec;
-            bool freeHandle;
-            uint flags = CRYPT_ACQUIRE_ALLOW_NCRYPT_KEY_FLAG | CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG;
-            if (CryptAcquireCertificatePrivateKey(cert.Handle, flags, IntPtr.Zero, out handle, out keySpec, out freeHandle))
-            {
-                return FinishAcquiredKey(cert, pin, handle, keySpec, freeHandle);
-            }
+            // Interactive first so Windows/HyperPKI can prompt for PIN when needed.
+            var acquired = TryAcquirePrivateKey(cert, pin, false);
+            if (acquired != null) return acquired;
 
             int err = Marshal.GetLastWin32Error();
+
+            // If the UI path failed and a PIN was supplied, retry silent with that PIN applied after acquire.
+            if (!string.IsNullOrWhiteSpace(pin))
+            {
+                acquired = TryAcquirePrivateKey(cert, pin, true);
+                if (acquired != null) return acquired;
+                err = Marshal.GetLastWin32Error();
+            }
+
             var smartCard = OpenSmartCardCsp(cert, pin);
             if (smartCard != null) return smartCard;
 
-            throw new InvalidOperationException(
-                "Windows could not open the USB DSC private key (Win32 " + err + "). Plug the token in, start the Windows Smart Card service, start Hypersecu, and enter the PIN.");
+            // Last resort: remap known HyperPKI India provider name to the installed V1.0 CSP.
+            var aliased = OpenHyperPkiAlias(cert, pin);
+            if (aliased != null) return aliased;
+
+            throw new InvalidOperationException(PrivateKeyOpenError(err, cert));
+        }
+
+        static TokenSigner OpenFromKeyProvInfo(X509Certificate2 cert, string pin)
+        {
+            var info = ReadKeyProvInfo(cert.Handle);
+            if (!info.HasValue || string.IsNullOrEmpty(info.Value.ContainerName))
+                return null;
+
+            var providers = new List<string>();
+            if (!string.IsNullOrEmpty(info.Value.ProviderName))
+                providers.Add(info.Value.ProviderName);
+            // eMudhra India DSC often stores "… India v3.0" while only "… V1.0" is registered.
+            if (info.Value.ProviderName != null
+                && info.Value.ProviderName.IndexOf("HyperPKI", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                providers.Add("HyperPKI HYP2003 CSP V1.0");
+                providers.Add("HyperPKI HYP2003 CSP India v3.0");
+            }
+
+            foreach (var provider in providers)
+            {
+                var got = TryOpenCspContainer(provider, info.Value.ContainerName, pin, (cert.Thumbprint ?? "").Replace(" ", "").ToUpperInvariant(), false);
+                if (got != null) return got;
+            }
+            return null;
+        }
+
+        static TokenSigner OpenHyperPkiAlias(X509Certificate2 cert, string pin)
+        {
+            var info = ReadKeyProvInfo(cert.Handle);
+            if (!info.HasValue || string.IsNullOrEmpty(info.Value.ContainerName)) return null;
+            if (info.Value.ProviderName == null
+                || info.Value.ProviderName.IndexOf("HyperPKI", StringComparison.OrdinalIgnoreCase) < 0)
+                return null;
+            return TryOpenCspContainer(
+                "HyperPKI HYP2003 CSP V1.0",
+                info.Value.ContainerName,
+                pin,
+                (cert.Thumbprint ?? "").Replace(" ", "").ToUpperInvariant(),
+                false);
         }
 
         static TokenSigner OpenSmartCardCsp(X509Certificate2 cert, string pin)
@@ -261,8 +548,13 @@ namespace IndusDsc
             try
             {
                 IntPtr hProv;
+                // Prefer interactive open so HyperPKI can show its PIN dialog when needed.
                 if (!CryptAcquireContext(out hProv, useDefault ? null : container, provider, PROV_RSA_FULL, 0))
-                    return null;
+                {
+                    uint silentFlags = CRYPT_SILENT;
+                    if (!CryptAcquireContext(out hProv, useDefault ? null : container, provider, PROV_RSA_FULL, silentFlags))
+                        return null;
+                }
                 try
                 {
                     if (!string.IsNullOrEmpty(pin))
@@ -271,8 +563,17 @@ namespace IndusDsc
                         CryptSetProvParam(hProv, PP_KEYEXCHANGE_PIN, pinBytes, 0);
                         CryptSetProvParam(hProv, PP_SIGNATURE_PIN, pinBytes, 0);
                     }
-                    if (!ContainerMatchesCert(hProv, thumb))
-                        return null;
+                    // When we already have the cert's exact container, still verify when possible,
+                    // but do not abort if KP_CERTIFICATE is unavailable on this CSP.
+                    if (!string.IsNullOrEmpty(thumb) && !ContainerMatchesCert(hProv, thumb))
+                    {
+                        IntPtr probe;
+                        bool hasSig = CryptGetUserKey(hProv, AT_SIGNATURE, out probe);
+                        if (hasSig) CryptDestroyKey(probe);
+                        bool hasEx = CryptGetUserKey(hProv, AT_KEYEXCHANGE, out probe);
+                        if (hasEx) CryptDestroyKey(probe);
+                        if (!hasSig && !hasEx) return null;
+                    }
                 }
                 finally { CryptReleaseContext(hProv, 0); }
 
