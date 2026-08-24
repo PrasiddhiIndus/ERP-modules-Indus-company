@@ -31,6 +31,7 @@ import {
   buildEmployeeMasterPayload,
 } from './employeeMasterFormShared';
 import { syncScopeDraftBankFromMaster } from '../../adminOperations/salaryAdmin/salaryMonthProcessing';
+import { toast } from '../../../lib/toast';
 
 const BANK_FIELD_KEYS = ['uan_no', 'esic_no', 'bank_name', 'bank_account_no', 'ifsc_code'];
 
@@ -204,15 +205,15 @@ export default function EmployeeMasterPersonalForm({
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (formData.designation === 'Other' && !String(formData.designation_other || '').trim()) {
-      alert('Please enter a designation when Other is selected.');
+      toast.warning('Enter a designation when Other is selected.');
       return;
     }
     if (formData.department === 'Other' && !String(formData.department_other || '').trim()) {
-      alert('Please enter a department when Other is selected.');
+      toast.warning('Enter a department when Other is selected.');
       return;
     }
     if (formData.status === 'Inactive' && !String(formData.date_of_leaving || '').trim()) {
-      alert('Date of Leaving is required when employee status is Inactive.');
+      toast.warning('Date of Leaving is required for Inactive status.');
       return;
     }
     try {
@@ -221,7 +222,7 @@ export default function EmployeeMasterPersonalForm({
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) {
-        alert('Session expired. Please log in again.');
+        toast.warning('Session expired. Please log in again.');
         return;
       }
       const userEmail = user.email || '';
@@ -235,7 +236,7 @@ export default function EmployeeMasterPersonalForm({
         hierarchy_sort_order: formData.hierarchy_sort_order,
       });
       if (!hierarchyCheck.ok) {
-        alert(hierarchyCheck.message);
+        toast.warning(hierarchyCheck.message);
         return;
       }
 
@@ -253,7 +254,7 @@ export default function EmployeeMasterPersonalForm({
           excludeDbId,
         });
         if (!idCheck.ok) {
-          alert(idCheck.message);
+          toast.warning(idCheck.message);
           return;
         }
 
@@ -291,7 +292,7 @@ export default function EmployeeMasterPersonalForm({
           account_no: saved.bank_account_no,
           ifsc: saved.ifsc_code,
         });
-        alert('Employee updated successfully!');
+        toast.success('Employee updated.');
         if (typeof onSaved === 'function') {
           onSaved(saved);
         }
@@ -307,7 +308,7 @@ export default function EmployeeMasterPersonalForm({
           employee_code: formData.employee_code,
         });
         if (!idCheck.ok) {
-          alert(idCheck.message);
+          toast.warning(idCheck.message);
           return;
         }
 
@@ -335,7 +336,7 @@ export default function EmployeeMasterPersonalForm({
           }
           throw error;
         }
-        alert('Employee added successfully!');
+        toast.success('Employee added.');
         if (insertedRow?.id) {
           syncScopeDraftBankFromMaster(insertedRow.id, {
             account_no: insertedRow.bank_account_no,
@@ -348,7 +349,7 @@ export default function EmployeeMasterPersonalForm({
       }
     } catch (error) {
       console.error('Error saving employee:', error);
-      alert(error?.message || 'Failed to save employee. Please try again.');
+      toast.error(error?.message || 'Failed to save employee.');
     } finally {
       setSaving(false);
     }
@@ -909,7 +910,7 @@ export default function EmployeeMasterPersonalForm({
               onChange={(e) => {
                 const nextStatus = e.target.value;
                 if (nextStatus === 'Inactive' && !String(formData.date_of_leaving || '').trim()) {
-                  alert('Date of Leaving is required when employee status is Inactive.');
+                  toast.warning('Date of Leaving is required for Inactive status.');
                   return;
                 }
                 setFormData({ ...formData, status: nextStatus });

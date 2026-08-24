@@ -9,6 +9,7 @@ import {
   StatusChip,
 } from "../components/AdminUi";
 import { supabase } from "../../../lib/supabase";
+import { toast } from "../../../lib/toast";
 import { fetchActiveEmployees, normalizeAttendanceEmpCode } from "../../../lib/attendanceDaily";
 import { downloadLeaveBalanceSampleSheet, ledgerDisplayRowToEditForm } from "../../../lib/leaveLedgerExcel";
 import { LeaveBalanceImportModal } from "./LeaveBalanceImportModal";
@@ -244,7 +245,6 @@ export function EmployeeLeaveManagementPage() {
   const ledgerEditDraftRef = useRef({});
   const [ledgerEditSaving, setLedgerEditSaving] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [importMessage, setImportMessage] = useState("");
   const [realtimeLive, setRealtimeLive] = useState(false);
 
   const loadBalances = useCallback(async ({ syncUsage = false, showLoading = syncUsage } = {}) => {
@@ -333,7 +333,6 @@ export function EmployeeLeaveManagementPage() {
 
   const saveRules = useCallback(async () => {
     setLoading(true);
-    setError("");
     try {
       await upsertLeaveCarryForwardRules(supabase, {
         pl_carry_forward_max: Number(rules.pl_carry_forward_max),
@@ -345,8 +344,9 @@ export function EmployeeLeaveManagementPage() {
         sl_carry_forward_max: Number(r.sl_carry_forward_max || 0),
         cl_carry_forward_max: Number(r.cl_carry_forward_max || 0),
       });
+      toast.success("Carry-forward rules saved.");
     } catch (e) {
-      setError(e?.message || "Could not save carry forward rules");
+      toast.error(e?.message || "Could not save carry forward rules");
     } finally {
       setLoading(false);
     }
@@ -354,11 +354,11 @@ export function EmployeeLeaveManagementPage() {
 
   const savePrefs = useCallback(async () => {
     setLoading(true);
-    setError("");
     try {
       await upsertPlEncashPrefs(supabase, plEncashPrefs);
+      toast.success("PL encash preferences saved.");
     } catch (e) {
-      setError(e?.message || "Could not save PL encash preferences");
+      toast.error(e?.message || "Could not save PL encash preferences");
     } finally {
       setLoading(false);
     }
@@ -560,7 +560,6 @@ export function EmployeeLeaveManagementPage() {
     ledgerEditDraftRef.current = draft;
     setLedgerEditingId(row.id);
     setLedgerEditDraft(draft);
-    setError("");
   }, [ledgerSubTab]);
 
   const cancelLedgerEdit = useCallback(() => {
@@ -580,7 +579,6 @@ export function EmployeeLeaveManagementPage() {
   const saveLedgerEdit = useCallback(
     async (row) => {
       setLedgerEditSaving(true);
-      setError("");
       try {
         const code = normalizeAttendanceEmpCode(row.empCode);
         const payload = ledgerSavePayloadFromDraft(
@@ -595,10 +593,9 @@ export function EmployeeLeaveManagementPage() {
         setLedgerEditingId(null);
         setLedgerEditDraft({});
         ledgerEditDraftRef.current = {};
-        setImportMessage("Ledger row saved.");
-        setTimeout(() => setImportMessage(""), 4000);
+        toast.success("Ledger row saved.");
       } catch (e) {
-        setError(e?.message || "Could not save ledger row.");
+        toast.error(e?.message || "Could not save ledger row.");
       } finally {
         setLedgerEditSaving(false);
       }
@@ -734,9 +731,7 @@ export function EmployeeLeaveManagementPage() {
   };
 
   const handleImportComplete = useCallback(
-    async (message) => {
-      setImportMessage(message);
-      setTimeout(() => setImportMessage(""), 6000);
+    async () => {
       await reloadBalances();
     },
     [reloadBalances]
@@ -1007,11 +1002,6 @@ export function EmployeeLeaveManagementPage() {
                   Sorted by {ledgerSort.key} ({ledgerSort.direction})
                 </span>
               </FilterBar>
-              {importMessage ? (
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-                  {importMessage}
-                </div>
-              ) : null}
               <p className="text-[11px] text-gray-500">{ledgerTabDescriptions[ledgerSubTab]}</p>
               <Pager
                 totalRows={ledgerRows.length}

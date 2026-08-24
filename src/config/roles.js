@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Role-based access: teams, roles, and module keys used for sidebar and route guards.
  * - Executive: team module + optional extra modules from profile; can view/edit within that scope (no approvals).
  * - Manager: team module + optional extra modules from profile; can view/edit and approve within that scope.
@@ -219,6 +219,8 @@ export function getPartialAccessModuleKeys(profile, userMetadata = null) {
 export function getNavVisibleModuleKeys(profile, accessibleModules, userMetadata = null) {
   const visible = new Set(accessibleModules || []);
   getPartialAccessModuleKeys(profile, userMetadata).forEach((k) => visible.add(k));
+  // Marketing and crmOutreach grants both expose this module in the sidebar.
+  if (visible.has("marketing")) visible.add("crmOutreach");
   return visible;
 }
 
@@ -592,6 +594,13 @@ export const NAV_MODULE_TREE = [
       { value: "itIs.api-health",    label: "API Health",              pathPrefix: "/app/api-health" },
     ],
   },
+  {
+    value: "crmOutreach",
+    label: "Client Master & Mail Outreach",
+    subModules: [
+      { value: "crmOutreach.home", label: "CRM & Outreach", pathPrefix: "/app/crm-outreach" },
+    ],
+  },
 ];
 
 /** Module keys that appear in the sidebar (for extra module checklist and access checks). Derived from NAV_MODULE_TREE. */
@@ -629,6 +638,7 @@ export const MODULE_PATH_PREFIXES = {
   ],
   fireTender: ["/app/fire-tender", "/app/fire-tender-manufacturing"],
   indusLms: ["/app/indus-lms-trainings"],
+  crmOutreach: ["/app/crm-outreach"],
   settings: ["/app/settings"],
   userManagement: ["/app/user-management", "/app/all-employees"],
   softwareSubscriptions: ["/app/software-subscriptions-reminders"],
@@ -660,6 +670,7 @@ export const MODULE_LANDING_PATHS = {
   finance: "/app/accounts-finance/reports/site-ledger",
   fireTender: "/app/fire-tender",
   indusLms: "/app/indus-lms-trainings",
+  crmOutreach: "/app/crm-outreach",
   itIs: "/app/software-subscriptions-reminders",
   userManagement: "/app/user-management",
   softwareSubscriptions: "/app/software-subscriptions-reminders",
@@ -1129,6 +1140,14 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
     for (const p of prefixes) {
       if (pathname.startsWith(p)) return true;
     }
+  }
+
+  // Phase 1 prototype: marketing module users can access CRM outreach routes.
+  if (
+    pathname.startsWith("/app/crm-outreach") &&
+    (accessibleModules.has("crmOutreach") || accessibleModules.has("marketing"))
+  ) {
+    return true;
   }
 
   return false;

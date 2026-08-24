@@ -27,6 +27,7 @@ import {
   SecondaryButton,
   StatusBadge,
 } from "./deductionsUi";
+import { toast } from "../../../../lib/toast";
 
 function blankForm() {
   return {
@@ -57,7 +58,6 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
   const [settleMonth, setSettleMonth] = useState(currentYm());
   const [settleDate, setSettleDate] = useState(new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
 
   const openRows = useMemo(
     () => rows.filter((r) => r.status !== "closed"),
@@ -81,13 +81,12 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
   const openCreate = () => {
     setEditingId(null);
     setForm(blankForm());
-    setError("");
     setShowForm(true);
   };
 
   const openEdit = (row) => {
     if (row.status === "closed") {
-      alert("Closed entries are frozen and will not update salary processing.");
+      toast.warning("Closed entries are frozen and will not update salary processing.");
       return;
     }
     setEditingId(row.id);
@@ -101,7 +100,6 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
       start_month: row.start_month || row.month || currentYm(),
       remarks: row.remarks || "",
     });
-    setError("");
     setShowForm(true);
   };
 
@@ -119,7 +117,7 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
     const monthly = parseMoney(form.monthly) ?? 0;
 
     if (!form.start_month) {
-      alert("Set the month this should hit on Salary Processing.");
+      toast.warning("Set the month this should hit on Salary Processing.");
       return;
     }
 
@@ -127,30 +125,30 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
       // Zero amount / months / monthly → stop salary feed (shows blank on processing)
       const bal = amount == null ? 0 : amount;
       if (bal < 0) {
-        alert("Amount cannot be negative.");
+        toast.warning("Amount cannot be negative.");
         return;
       }
       if (months > 0 && bal > 0 && monthly < 0) {
-        alert("Monthly amount cannot be negative.");
+        toast.warning("Monthly amount cannot be negative.");
         return;
       }
     } else {
       if (amount == null || amount <= 0) {
-        alert("Enter an amount greater than zero.");
+        toast.warning("Enter an amount greater than zero.");
         return;
       }
       if (months <= 0) {
-        alert("Enter how many salary months this should hit (e.g. 1).");
+        toast.warning("Enter how many salary months this should hit (e.g. 1).");
         return;
       }
       if (monthly <= 0) {
-        alert("Enter the monthly amount that hits Salary Processing.");
+        toast.warning("Enter the monthly amount that hits Salary Processing.");
         return;
       }
     }
 
     setBusy(true);
-    setError("");
+    const wasEditing = Boolean(editingId);
     try {
       if (editingId) {
         const bal = amount == null ? 0 : amount;
@@ -179,9 +177,10 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
       setEditingId(null);
       setForm(blankForm());
       await refresh();
+      toast.success(wasEditing ? "Entry updated." : "Entry saved.");
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Could not save.");
+      toast.error(err?.message || "Failed to save entry.");
     } finally {
       setBusy(false);
     }
@@ -197,13 +196,19 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
       if (!ok) return;
     }
     setBusy(true);
-    setError("");
     try {
       await setUnpaidPaidStatus(id, status);
       await refresh();
+      toast.success(
+        status === "closed"
+          ? "Entry closed."
+          : status === "hold"
+            ? "Entry on hold."
+            : "Entry resumed."
+      );
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Could not update status.");
+      toast.error(err?.message || "Failed to update status.");
     } finally {
       setBusy(false);
     }
@@ -212,11 +217,10 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
   const applySettlement = async (row) => {
     const amount = parseMoney(settleAmount);
     if (amount == null || amount <= 0) {
-      alert("Enter a settlement amount.");
+      toast.warning("Enter a settlement amount.");
       return;
     }
     setBusy(true);
-    setError("");
     try {
       await addUnpaidPaidSettlement(row.id, {
         amount,
@@ -228,11 +232,13 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
       await refresh();
       const nextBal = Math.max(0, round2(Number(row.balance_outstanding) - amount));
       if (nextBal <= 0) {
-        alert("Fully settled and closed — no further salary effect.");
+        toast.success("Fully settled and closed.");
+      } else {
+        toast.success("Settlement saved.");
       }
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Could not save settlement.");
+      toast.error(err?.message || "Failed to save settlement.");
     } finally {
       setBusy(false);
     }
@@ -252,12 +258,6 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
 
   return (
     <div className="space-y-4">
-      {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-          {error}
-        </div>
-      ) : null}
-
       <SectionCard
         title="Unpaid / Paid"
         right={

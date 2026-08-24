@@ -20,6 +20,7 @@ import {
   USE_MOCK_SALARY_PROCESSING,
   mockListRunsWithLines,
 } from "./salaryProcessingMock";
+import { toast } from "../../../lib/toast";
 
 function monthKeyToLabel(key) {
   if (!key || !/^\d{4}-\d{2}/.test(String(key))) return key || "—";
@@ -49,7 +50,6 @@ function monthsBack(ym, count) {
 export default function SalaryDashboard() {
   const [bundles, setBundles] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [fromYm, setFromYm] = useState(() => monthsBack(currentYm(), 5));
   const [toYm, setToYm] = useState(() => currentYm());
   const [q, setQ] = useState("");
@@ -57,7 +57,6 @@ export default function SalaryDashboard() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError("");
     try {
       if (USE_MOCK_SALARY_PROCESSING) {
         setBundles(mockListRunsWithLines());
@@ -67,12 +66,12 @@ export default function SalaryDashboard() {
         } catch (liveErr) {
           console.warn("Salary dashboard live load failed, using mock", liveErr);
           setBundles(mockListRunsWithLines());
-          setError("Live salary sheets unavailable — showing sample data.");
+          toast.warning("Live salary sheets unavailable — showing sample data.");
         }
       }
     } catch (err) {
       console.error(err);
-      setError("Could not load salary dashboard.");
+      toast.warning("Could not load salary dashboard.");
       setBundles([]);
     } finally {
       setLoading(false);
@@ -248,10 +247,6 @@ export default function SalaryDashboard() {
           <ArrowRight className="h-3.5 w-3.5" />
         </Link>
       </PageTaskHeader>
-
-      {error ? (
-        <p className="text-xs text-amber-800 rounded border border-amber-200 bg-amber-50 px-2.5 py-1.5">{error}</p>
-      ) : null}
 
       <SectionCard
         title="Filters"

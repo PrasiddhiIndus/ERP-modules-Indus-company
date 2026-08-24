@@ -10,6 +10,7 @@ import {
 } from "../components/AdminUi";
 import FormDateInput from "../../../components/FormDateInput";
 import { supabase } from "../../../lib/supabase";
+import { toast } from "../../../lib/toast";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import {
   deleteNationalPublicHoliday,
@@ -144,13 +145,11 @@ function HolidayFormModal({ open, row, saving, onClose, onSave }) {
 function HolidayImportModal({ open, year, existingRows = [], onClose, onImported }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const [parseErrors, setParseErrors] = useState([]);
   const [payloads, setPayloads] = useState([]);
   const [skipped, setSkipped] = useState(0);
 
   const reset = useCallback(() => {
-    setError("");
     setParseErrors([]);
     setPayloads([]);
     setSkipped(0);
@@ -171,9 +170,11 @@ function HolidayImportModal({ open, year, existingRows = [], onClose, onImported
       setParseErrors(errors);
       setPayloads(rows);
       setSkipped(skipCount);
-      if (!rows.length) setError(errors.join(" ") || "No valid rows to import.");
+      if (!rows.length) {
+        toast.warning(errors.join(" ") || "No valid rows to import.");
+      }
     } catch (e) {
-      setError(e?.message || "Could not read file.");
+      toast.error(e?.message || "Could not read file.");
     } finally {
       if (fileRef.current) fileRef.current.value = "";
     }
@@ -182,15 +183,16 @@ function HolidayImportModal({ open, year, existingRows = [], onClose, onImported
   const handleImport = async () => {
     if (!payloads.length || busy) return;
     setBusy(true);
-    setError("");
     try {
       const { count } = await upsertNationalPublicHolidaysBatch(supabase, payloads, existingRows);
       const warn = parseErrors.length ? ` Warnings: ${parseErrors.slice(0, 3).join(" ")}` : "";
-      onImported?.(`Imported ${count} holiday row(s).${skipped ? ` Skipped ${skipped}.` : ""}${warn}`);
+      const message = `Imported ${count} holiday row(s).${skipped ? ` Skipped ${skipped}.` : ""}${warn}`;
+      toast.success(message);
+      onImported?.();
       reset();
       onClose();
     } catch (e) {
-      setError(e?.message || "Import failed.");
+      toast.error(e?.message || "Import failed.");
     } finally {
       setBusy(false);
     }
@@ -250,7 +252,6 @@ function HolidayImportModal({ open, year, existingRows = [], onClose, onImported
             }}
           />
         </div>
-        {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800">{error}</div> : null}
         {payloads.length > 0 ? (
           <p className="text-emerald-800">{payloads.length} holiday row(s) ready to import.</p>
         ) : null}
@@ -263,7 +264,6 @@ export function NationalPublicHolidaysPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
   const [rows, setRows] = useState([]);
   const [year, setYear] = useState(YEAR_DEFAULT);
   const [search, setSearch] = useState("");
@@ -323,15 +323,14 @@ export function NationalPublicHolidaysPage() {
   const handleSave = useCallback(
     async (form) => {
       if (!form.holiday_date?.trim()) {
-        setError("Date is required.");
+        toast.warning("Date is required.");
         return;
       }
       if (!form.holiday_type?.trim()) {
-        setError("Please select a holiday type (NH or PH).");
+        toast.warning("Please select a holiday type (NH or PH).");
         return;
       }
       setSaving(true);
-      setError("");
       try {
         await upsertNationalPublicHoliday(supabase, form, {
           id: editRow?.id || null,
@@ -339,11 +338,10 @@ export function NationalPublicHolidaysPage() {
         });
         setFormOpen(false);
         setEditRow(null);
-        setMessage(editRow ? "Holiday updated." : "Holiday added.");
-        setTimeout(() => setMessage(""), 4000);
+        toast.success(editRow ? "Holiday updated." : "Holiday added.");
         await reload();
       } catch (e) {
-        setError(e?.message || "Could not save holiday");
+        toast.error(e?.message || "Could not save holiday");
       } finally {
         setSaving(false);
       }
@@ -355,14 +353,12 @@ export function NationalPublicHolidaysPage() {
     async (row) => {
       if (!row?.id) return;
       if (!window.confirm(`Delete holiday on ${formatDateDdMmYyyy(row.holiday_date)}?`)) return;
-      setError("");
       try {
         await deleteNationalPublicHoliday(supabase, row.id);
-        setMessage("Holiday deleted.");
-        setTimeout(() => setMessage(""), 4000);
+        toast.success("Holiday deleted.");
         await reload();
       } catch (e) {
-        setError(e?.message || "Could not delete holiday");
+        toast.error(e?.message || "Could not delete holiday");
       }
     },
     [reload]
@@ -516,11 +512,6 @@ export function NationalPublicHolidaysPage() {
         {error ? (
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</div>
         ) : null}
-        {message ? (
-          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-            {message}
-          </div>
-        ) : null}
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
           <span>
@@ -589,9 +580,7 @@ export function NationalPublicHolidaysPage() {
         year={year}
         existingRows={rows}
         onClose={() => setImportOpen(false)}
-        onImported={(msg) => {
-          setMessage(msg);
-          setTimeout(() => setMessage(""), 6000);
+        onImported={() => {
           void reload();
         }}
       />

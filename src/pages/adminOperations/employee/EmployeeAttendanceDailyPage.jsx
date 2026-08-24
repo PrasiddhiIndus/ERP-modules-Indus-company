@@ -13,6 +13,7 @@ import {
   CollapsibleHelp,
 } from "../components/AdminUi";
 import { supabase } from "../../../lib/supabase";
+import { toast } from "../../../lib/toast";
 import {
   REGISTER_BULK_BUTTON_CLASS,
   REGISTER_LEAVE_SUBMENU_OPTIONS,
@@ -304,11 +305,9 @@ export function EmployeeAttendanceDailyPage() {
   const [exporting, setExporting] = useState(false);
   const [exportingPunches, setExportingPunches] = useState(false);
   const [savingMark, setSavingMark] = useState(false);
-  const [registerCodeWarning, setRegisterCodeWarning] = useState("");
   const [yearRegisterRows, setYearRegisterRows] = useState([]);
   const [configuredHolidays, setConfiguredHolidays] = useState([]);
   const [leaveBalancesByCode, setLeaveBalancesByCode] = useState({});
-  const [leaveLimitWarning, setLeaveLimitWarning] = useState("");
   const [commentEditor, setCommentEditor] = useState({
     open: false,
     empCode: "",
@@ -342,7 +341,7 @@ export function EmployeeAttendanceDailyPage() {
 
   const loadData = useCallback(async () => {
     if (!monthMeta) {
-      setError("Select a valid month.");
+      toast.warning("Select a valid month.");
       return;
     }
     const loadGeneration = loadGenerationRef.current + 1;
@@ -451,15 +450,12 @@ export function EmployeeAttendanceDailyPage() {
       setActiveEmployees(registerEmployees);
       setManualMarks(mergedRegister.marks);
       setManualRemarks(mergedRegister.remarks);
-      setLeaveLimitWarning("");
 
-      const warnings = [];
       if (employees.length > employeesWithCode.length) {
-        warnings.push(
+        toast.warning(
           `${employees.length - employeesWithCode.length} active employee(s) hidden — add employee_code in Employee Master to include them in the register.`
         );
       }
-      setRegisterCodeWarning(warnings.join(" "));
 
       // Show the grid immediately; sync punch/WO marks in the background.
       setLoading(false);
@@ -549,17 +545,15 @@ export function EmployeeAttendanceDailyPage() {
           if (loadGeneration !== loadGenerationRef.current) return;
 
           if (woResult.failed > 0) {
-            setRegisterCodeWarning((prev) => {
-              const woMsg = `${woResult.failed} auto weekoff cell(s) could not be saved — set employee_code on Employee Master (must match eTimeOffice / raw attendance).`;
-              return prev ? `${prev} ${woMsg}` : woMsg;
-            });
+            toast.warning(
+              `${woResult.failed} auto weekoff cell(s) could not be saved — set employee_code on Employee Master (must match eTimeOffice / raw attendance).`
+            );
           }
 
           if (holidayResult.failed > 0) {
-            setRegisterCodeWarning((prev) => {
-              const nhMsg = `${holidayResult.failed} auto NH/PH cell(s) could not be saved — set employee_code on Employee Master.`;
-              return prev ? `${prev} ${nhMsg}` : nhMsg;
-            });
+            toast.warning(
+              `${holidayResult.failed} auto NH/PH cell(s) could not be saved — set employee_code on Employee Master.`
+            );
           }
 
           const freshTourData = await fetchApprovedTourMarksForMonth(
@@ -607,10 +601,7 @@ export function EmployeeAttendanceDailyPage() {
         } catch (syncErr) {
           if (loadGeneration !== loadGenerationRef.current) return;
           console.warn("Register background sync failed:", syncErr);
-          setRegisterCodeWarning((prev) => {
-            const msg = formatAttendanceSupabaseError(syncErr);
-            return prev ? `${prev} Background sync: ${msg}` : `Background sync: ${msg}`;
-          });
+          toast.warning(`Background sync: ${formatAttendanceSupabaseError(syncErr)}`);
         } finally {
           if (loadGeneration === loadGenerationRef.current) setSyncing(false);
         }
@@ -640,7 +631,6 @@ export function EmployeeAttendanceDailyPage() {
       setManualRemarks({});
       setYearRegisterRows([]);
       setConfiguredHolidays([]);
-      setRegisterCodeWarning("");
       setError(formatAttendanceSupabaseError(err));
       setLoading(false);
       setSyncing(false);
@@ -870,7 +860,7 @@ export function EmployeeAttendanceDailyPage() {
               null,
           });
           if (balanceMsg) {
-            setLeaveLimitWarning([balanceMsg, ...warnings].filter(Boolean).join(" "));
+            toast.warning([balanceMsg, ...warnings].filter(Boolean).join(" "));
             dispatchLeaveLimitAlertsChanged();
             return;
           }
@@ -878,10 +868,8 @@ export function EmployeeAttendanceDailyPage() {
       }
 
       if (warnings.length) {
-        setLeaveLimitWarning(warnings.join(" "));
+        toast.warning(warnings.join(" "));
         dispatchLeaveLimitAlertsChanged();
-      } else {
-        setLeaveLimitWarning("");
       }
 
       const isCommentMark = isRegisterCommentMark(value);
@@ -961,7 +949,7 @@ export function EmployeeAttendanceDailyPage() {
         });
         dispatchLeaveLimitAlertsChanged();
       } catch (err) {
-        setError(formatAttendanceSupabaseError(err));
+        toast.error(formatAttendanceSupabaseError(err));
         try {
           const registerData = await loadRegisterMarksForMonth(supabase, monthMeta, {
             masterCodeMap: masterRegisterCodeMap,
@@ -1038,7 +1026,7 @@ export function EmployeeAttendanceDailyPage() {
       });
       closePodCommentEditor();
     } catch (err) {
-      setError(formatAttendanceSupabaseError(err));
+      toast.error(formatAttendanceSupabaseError(err));
     } finally {
       setSavingMark(false);
     }
@@ -1378,7 +1366,7 @@ export function EmployeeAttendanceDailyPage() {
         }
         if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
       } catch (err) {
-        setError(formatAttendanceSupabaseError(err));
+        toast.error(formatAttendanceSupabaseError(err));
         try {
           const registerData = await loadRegisterMarksForMonth(supabase, monthMeta, {
             masterCodeMap: masterRegisterCodeMap,
@@ -1459,7 +1447,7 @@ export function EmployeeAttendanceDailyPage() {
       }
       if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
     } catch (err) {
-      setError(formatAttendanceSupabaseError(err));
+      toast.error(formatAttendanceSupabaseError(err));
       try {
         const registerData = await loadRegisterMarksForMonth(supabase, monthMeta, {
           masterCodeMap: masterRegisterCodeMap,
@@ -1999,18 +1987,6 @@ export function EmployeeAttendanceDailyPage() {
               Raw Attendance Data
             </Link>{" "}
             — Present (P) appears here when punch data exists for that day.
-          </div>
-        )}
-
-        {leaveLimitWarning && (
-          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900">
-            <strong>Leave alert:</strong> {leaveLimitWarning} Check the bell icon in the header for all exceeded limits.
-          </div>
-        )}
-
-        {registerCodeWarning && !error && (
-          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            {registerCodeWarning}
           </div>
         )}
 

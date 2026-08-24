@@ -27,6 +27,7 @@ import {
   SecondaryButton,
   StatusBadge,
 } from "./deductionsUi";
+import { toast } from "../../../../lib/toast";
 
 function blankForm() {
   return {
@@ -54,7 +55,6 @@ export default function EmployeeSalAdvTab({ employeeId, records, onReload }) {
   const [recoverMonth, setRecoverMonth] = useState(currentYm());
   const [recoverDate, setRecoverDate] = useState(new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
 
   const openActive = useMemo(
     () => rows.filter((r) => r.status === "active").length,
@@ -68,13 +68,12 @@ export default function EmployeeSalAdvTab({ employeeId, records, onReload }) {
   const openCreate = () => {
     setEditingId(null);
     setForm(blankForm());
-    setError("");
     setShowForm(true);
   };
 
   const openEdit = (row) => {
     if (row.status === "closed") {
-      alert("Closed salary advances are frozen and will not recover through salary again.");
+      toast.warning("Closed salary advances are frozen and will not recover through salary again.");
       return;
     }
     setEditingId(row.id);
@@ -87,7 +86,6 @@ export default function EmployeeSalAdvTab({ employeeId, records, onReload }) {
       entry_date: row.entry_date || new Date().toISOString().slice(0, 10),
       remarks: row.remarks || "",
     });
-    setError("");
     setShowForm(true);
   };
 
@@ -104,24 +102,24 @@ export default function EmployeeSalAdvTab({ employeeId, records, onReload }) {
     const months = Math.max(0, Math.floor(Number(form.months) || 0));
     const recovery = parseMoney(form.recovery) ?? 0;
     if (!editingId && (amount == null || amount <= 0)) {
-      alert("Enter the advance amount.");
+      toast.warning("Enter the advance amount.");
       return;
     }
     if (!editingId && months <= 0) {
-      alert("Enter recovery months (e.g. 3).");
+      toast.warning("Enter recovery months (e.g. 3).");
       return;
     }
     if (months > 0 && recovery <= 0) {
-      alert("Enter monthly recovery, or set months to 0 to stop salary recovery.");
+      toast.warning("Enter monthly recovery, or set months to 0 to stop salary recovery.");
       return;
     }
     if (!form.start_month) {
-      alert("Set a start month for recovery.");
+      toast.warning("Set a start month for recovery.");
       return;
     }
 
     setBusy(true);
-    setError("");
+    const wasEditing = Boolean(editingId);
     try {
       if (editingId) {
         await updateSalaryAdvance(editingId, {
@@ -146,9 +144,10 @@ export default function EmployeeSalAdvTab({ employeeId, records, onReload }) {
       setEditingId(null);
       setForm(blankForm());
       await refresh();
+      toast.success(wasEditing ? "Advance plan updated." : "Salary advance saved.");
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Could not save salary advance.");
+      toast.error(err?.message || "Failed to save salary advance.");
     } finally {
       setBusy(false);
     }
@@ -164,13 +163,19 @@ export default function EmployeeSalAdvTab({ employeeId, records, onReload }) {
       if (!ok) return;
     }
     setBusy(true);
-    setError("");
     try {
       await setSalaryAdvanceStatus(id, status);
       await refresh();
+      toast.success(
+        status === "closed"
+          ? "Salary advance closed."
+          : status === "hold"
+            ? "Salary advance on hold."
+            : "Salary advance resumed."
+      );
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Could not update status.");
+      toast.error(err?.message || "Failed to update status.");
     } finally {
       setBusy(false);
     }
@@ -179,11 +184,10 @@ export default function EmployeeSalAdvTab({ employeeId, records, onReload }) {
   const applyRecovery = async (row) => {
     const amount = parseMoney(recoverAmount);
     if (amount == null || amount <= 0) {
-      alert("Enter a recovery amount.");
+      toast.warning("Enter a recovery amount.");
       return;
     }
     setBusy(true);
-    setError("");
     try {
       await addSalaryAdvanceRecovery(row.id, {
         amount,
@@ -195,11 +199,13 @@ export default function EmployeeSalAdvTab({ employeeId, records, onReload }) {
       await refresh();
       const nextBal = Math.max(0, round2(Number(row.balance_outstanding) - amount));
       if (nextBal <= 0) {
-        alert("Advance fully recovered and closed — no further salary recovery.");
+        toast.success("Advance fully recovered and closed.");
+      } else {
+        toast.success("Recovery saved.");
       }
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Could not save recovery.");
+      toast.error(err?.message || "Failed to save recovery.");
     } finally {
       setBusy(false);
     }
@@ -207,12 +213,6 @@ export default function EmployeeSalAdvTab({ employeeId, records, onReload }) {
 
   return (
     <div className="space-y-4">
-      {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-          {error}
-        </div>
-      ) : null}
-
       <SectionCard
         title="Salary advances"
         right={

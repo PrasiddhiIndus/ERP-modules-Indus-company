@@ -7,6 +7,8 @@ const BILLING_MODULES = new Set(['billing', 'commercialmt', 'commercialrm', 'com
 const BILLING_TEAMS = new Set(['billing', 'commercial', 'commercialmt', 'commercialrm']);
 const BILLING_ROLES = new Set(['admin', 'billing']);
 const BILLING_SUB_MODULE_PREFIXES = ['billing.', 'commercialmt.', 'commercialrm.', 'commercial.'];
+const CRM_OUTREACH_MODULES = new Set(['marketing', 'crmoutreach']);
+const CRM_OUTREACH_TEAMS = new Set(['marketing']);
 
 function parseModules(raw) {
   if (Array.isArray(raw)) {
@@ -288,7 +290,7 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
         if (checkFn && !checkFn(ctx)) {
           const message = !ctx.profile
             ? 'Could not load your profile on the API server. Add a valid SUPABASE_SERVICE_ROLE_KEY matching SUPABASE_URL to .env.server (or ensure profiles RLS allows reading your own row), then restart the API.'
-            : 'Admin or HR module access is required for this API.';
+            : 'You do not have access to this API.';
           return res.status(403).json({ error: 'Forbidden.', message });
         }
         return next();
@@ -337,11 +339,20 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     return subModules.some((s) => BILLING_SUB_MODULE_PREFIXES.some((prefix) => s.startsWith(prefix)));
   }
 
+  function hasCrmOutreachAccess(ctx) {
+    if (isAdmin(ctx)) return true;
+    const team = String(ctx.profile?.team || '').trim().toLowerCase();
+    if (CRM_OUTREACH_TEAMS.has(team)) return true;
+    const modules = parseModules(ctx.profile?.allowed_modules).map((m) => m.toLowerCase());
+    return hasModule(modules, CRM_OUTREACH_MODULES);
+  }
+
   return {
     requireAuth: middleware(null),
     requireAdmin: middleware((ctx) => isAdmin(ctx)),
     requireHrOrAdmin: middleware((ctx) => hasHrAccess(ctx)),
     requireAttendanceAdmin: middleware((ctx) => hasAttendanceAdminAccess(ctx)),
     requireBillingAccess: middleware((ctx) => hasBillingAccess(ctx)),
+    requireCrmOutreachAccess: middleware((ctx) => hasCrmOutreachAccess(ctx)),
   };
 }

@@ -27,6 +27,7 @@ export const ROUTE_MODULE_MAP = [
   ['/app/marketing/enquiry-master', 'Marketing · Enquiry master'],
   ['/app/marketing/quotation-tracker', 'Marketing · Quotation tracker'],
   ['/app/marketing', 'Marketing'],
+  ['/app/crm-outreach', 'Client Master & Mail Outreach'],
   ['/app/maintenance', 'Maintenance'],
   ['/app/hr/calling-master', 'HR · Recruitment / Calling master'],
   ['/app/hr/site-iom', 'HR · Site Employee IOM'],
@@ -93,6 +94,7 @@ const ENTITY_LABELS = {
   marketing_enquiries: 'marketing enquiry',
   marketing_quotations: 'marketing quotation',
   marketing_clients: 'marketing client',
+  crm_outreach_clients: 'CRM outreach client',
   marketing_products: 'product catalog',
   maintenance_enquiries: 'maintenance enquiry',
   maintenance_quotations: 'maintenance quotation',
@@ -696,6 +698,24 @@ export const ACTIVITY_DESCRIPTORS = {
       const row = mergeActivityRows(req, res)
       const name = str(pick(row, 'client_name'), 48)
       return result(`deleted marketing client${name ? ` ${name}` : ''}`, 'DELETED', name || null)
+    },
+  },
+
+  crm_outreach_clients: {
+    INSERT: (req, res) => {
+      const row = mergeActivityRows(req, res)
+      const name = str(pick(row, 'client_name'), 48)
+      return result(`created CRM outreach client${name ? ` ${name}` : ''}`, 'CREATED', name || null)
+    },
+    UPDATE: (req, res) => {
+      const row = mergeActivityRows(req, res)
+      const name = str(pick(row, 'client_name'), 48)
+      return result(`updated CRM outreach client${name ? ` ${name}` : ''}`, 'UPDATED', name || null)
+    },
+    DELETE: (req, res) => {
+      const row = mergeActivityRows(req, res)
+      const name = str(pick(row, 'client_name'), 48)
+      return result(`deleted CRM outreach client${name ? ` ${name}` : ''}`, 'DELETED', name || null)
     },
   },
 

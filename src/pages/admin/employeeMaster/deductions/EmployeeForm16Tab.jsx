@@ -12,6 +12,7 @@ import {
   ShellBanner,
   StatusBadge,
 } from "./deductionsUi";
+import { toast } from "../../../../lib/toast";
 
 function currentFyLabel() {
   const d = new Date();
@@ -57,7 +58,7 @@ export default function EmployeeForm16Tab({ records, onChange, employeeName = ""
 
   const openEdit = (row) => {
     if (row.status === "cancelled") {
-      alert("Cancelled Form 16 records are frozen and cannot be edited.");
+      toast.warning("Cancelled Form 16 records are frozen and cannot be edited.");
       return;
     }
     setEditingId(row.id);
@@ -78,12 +79,13 @@ export default function EmployeeForm16Tab({ records, onChange, employeeName = ""
     e.preventDefault();
     const fy = String(form.financial_year || "").trim();
     if (!fy) {
-      alert("Enter the financial year (e.g. 2025-26).");
+      toast.warning("Enter the financial year (e.g. 2025-26).");
       return;
     }
     const gross = parseMoney(form.gross_salary);
     const tds = parseMoney(form.total_tds);
     const now = new Date().toISOString();
+    const wasEditing = Boolean(editingId);
 
     if (editingId) {
       onChange(
@@ -126,6 +128,7 @@ export default function EmployeeForm16Tab({ records, onChange, employeeName = ""
     }
     setShowForm(false);
     setEditingId(null);
+    toast.success(wasEditing ? "Form 16 updated." : "Form 16 draft saved.");
   };
 
   const issue = (id) => {
@@ -156,6 +159,7 @@ export default function EmployeeForm16Tab({ records, onChange, employeeName = ""
         return r;
       })
     );
+    toast.success("Form 16 issued.");
   };
 
   const cancel = (id) => {
@@ -175,6 +179,7 @@ export default function EmployeeForm16Tab({ records, onChange, employeeName = ""
           : r
       )
     );
+    toast.success("Form 16 cancelled.");
   };
 
   const statusLabel = (status) => {

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Check, ChevronDown, History, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, History, RefreshCw } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
+import { toast } from "../../../lib/toast";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import { employmentTypeLabel } from "../../../utils/employeeMasterReminders";
 import FormDateInput from "../../../components/FormDateInput";
@@ -425,8 +426,6 @@ export default function SalaryEmployeeCtc({
   const [employee, setEmployee] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [saveMsg, setSaveMsg] = useState("");
-  const [saveError, setSaveError] = useState("");
   const [hasExistingCtc, setHasExistingCtc] = useState(false);
   const [revisionCount, setRevisionCount] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -742,8 +741,6 @@ export default function SalaryEmployeeCtc({
       setGratuityMode(loadedGratuityMode);
       setGratuityCustom(numOrEmpty(saved?.gratuity_monthly));
       setWef(reviseRequested && declared ? todayInputDate() : saved?.wef_date || "");
-      setSaveError("");
-      setSaveMsg("");
       try {
         await hydratePersonComponents(employeeId);
       } catch (hydErr) {
@@ -1570,24 +1567,23 @@ export default function SalaryEmployeeCtc({
 
   const handleSave = async () => {
     if (!persist) {
-      setSaveError("Salary save is paused while salary admin is being rewired.");
+      toast.warning("Salary save is paused while salary admin is being rewired.");
       return;
     }
     if (!employee || !canEdit) return;
-    setSaveError("");
     const structure = computeCtcStructure(buildArgs());
     if (!structure.declared) {
-      setSaveError("Enter Gross salary before saving.");
+      toast.warning("Enter Gross salary before saving.");
       return;
     }
     if (structure.structure_invalid) {
-      setSaveError(
+      toast.warning(
         "Basic + HRA exceed Gross. Adjust Gross, Basic, or HRA so Special Allowance is not negative."
       );
       return;
     }
     if (normalizeComponentMode(structure.basic_mode) === MODE_AUTO && structure.basic_monthly < BASIC_SLAB_MIN) {
-      setSaveError(`Auto Basic cannot be below ₹${BASIC_SLAB_MIN.toLocaleString("en-IN")}.`);
+      toast.warning(`Auto Basic cannot be below ₹${BASIC_SLAB_MIN.toLocaleString("en-IN")}.`);
       return;
     }
     const ceiling = parseRupeeInput(esicCeiling);
@@ -1595,18 +1591,18 @@ export default function SalaryEmployeeCtc({
     const erRate = parseRateInput(esicErRate);
     if (esicEnabled) {
       if (ceiling == null || ceiling <= 0) {
-        setSaveError("ESIC ceiling must be a number greater than zero.");
+        toast.warning("ESIC ceiling must be a number greater than zero.");
         return;
       }
       if (empRate == null || empRate <= 0 || erRate == null || erRate <= 0) {
-        setSaveError("ESIC rates must be numbers greater than zero.");
+        toast.warning("ESIC rates must be numbers greater than zero.");
         return;
       }
     }
 
     const wefToSave = wef || (isRevisionMode ? todayInputDate() : null);
     if (isRevisionMode && !wefToSave) {
-      setSaveError("Set a W.E.F. date for this revision.");
+      toast.warning("Set a W.E.F. date for this revision.");
       return;
     }
 
@@ -1688,13 +1684,14 @@ export default function SalaryEmployeeCtc({
 
     let savedRow;
     let didRevision = isRevisionMode;
+    let successTitle = "CTC saved";
     try {
       if (isRevisionMode) {
         savedRow = await reviseSalaryStructure(employee.id, payload, {
           reason: revisionReason,
           wef_date: wefToSave,
         });
-        setSaveMsg(savedRow?.__local ? "Revision saved on this device" : "Revision saved");
+        successTitle = savedRow?.__local ? "Revision saved on this device" : "Revision saved";
       } else {
         // If a CTC row already exists in DB (e.g. loaded from cache gap), update/revise
         // instead of inserting a duplicate for the same employee.
@@ -1710,10 +1707,10 @@ export default function SalaryEmployeeCtc({
             reason: revisionReason || "Updated CTC",
             wef_date: wefToSave || todayInputDate(),
           });
-          setSaveMsg(savedRow?.__local ? "Revision saved on this device" : "Revision saved");
+          successTitle = savedRow?.__local ? "Revision saved on this device" : "Revision saved";
         } else {
           savedRow = await saveSalaryStructure(employee.id, payload);
-          setSaveMsg(savedRow?.__local ? "Saved on this device" : "Saved");
+          successTitle = savedRow?.__local ? "Saved on this device" : "CTC saved";
         }
       }
     } catch (err) {
@@ -1721,11 +1718,11 @@ export default function SalaryEmployeeCtc({
       const msg = String(err?.message || err?.details || err?.hint || "");
       const code = String(err?.code || "");
       if (/42501|row-level security|permission denied|RLS/i.test(`${code} ${msg}`)) {
-        setSaveError("You do not have permission to save salary CTC. Sign in with an allowed Salary Admin account.");
+        toast.error("You do not have permission to save salary CTC. Sign in with an allowed Salary Admin account.");
         return;
       }
       if (/foreign key|employee_master|23503/i.test(`${code} ${msg}`)) {
-        setSaveError("This employee is missing from Employee Master. Save the employee first, then save CTC.");
+        toast.error("This employee is missing from Employee Master. Save the employee first, then save CTC.");
         return;
       }
       if (
@@ -1739,16 +1736,16 @@ export default function SalaryEmployeeCtc({
             reason: revisionReason || "Updated CTC",
             wef_date: wefToSave || todayInputDate(),
           });
-          setSaveMsg(savedRow?.__local ? "Revision saved on this device" : "Revision saved");
+          successTitle = savedRow?.__local ? "Revision saved on this device" : "Revision saved";
         } catch (retryErr) {
           console.error("Salary CTC: save retry failed", retryErr);
-          setSaveError(
+          toast.error(
             "Could not save CTC because a record already exists for this employee. Please refresh the page and try Save revision again."
           );
           return;
         }
       } else {
-        setSaveError(msg ? `Could not save CTC: ${msg}` : "Could not save CTC. Please try again.");
+        toast.error(msg ? `Could not save CTC: ${msg}` : "Could not save CTC. Please try again.");
         return;
       }
     }
@@ -1831,7 +1828,7 @@ export default function SalaryEmployeeCtc({
     if (isRevisionMode || reviseRequested) {
       exitReviseMode();
     }
-    window.setTimeout(() => setSaveMsg(""), 2500);
+    toast.success(successTitle);
   };
 
   const shellClass = embedded
@@ -2699,14 +2696,7 @@ export default function SalaryEmployeeCtc({
               onClick={handleSave}
               className="h-10 px-5 rounded-md bg-ink-strong text-white text-sm font-semibold hover:bg-ink inline-flex items-center gap-1.5"
             >
-              {saveMsg ? <Check className="h-4 w-4" /> : null}
-              {saveMsg
-                ? saveMsg === "Revision saved"
-                  ? "Revision saved"
-                  : "CTC saved"
-                : isRevisionMode
-                  ? "Save revision"
-                  : "Save CTC"}
+              {isRevisionMode ? "Save revision" : "Save CTC"}
             </button>
           ) : null}
           {persist && !canEdit ? (
@@ -2744,9 +2734,6 @@ export default function SalaryEmployeeCtc({
               Go to Salary Processing
               <ArrowRight className="h-4 w-4" />
             </button>
-          ) : null}
-          {saveError ? (
-            <span className="text-sm text-red-600 font-medium">{saveError}</span>
           ) : null}
         </div>
       </footer>

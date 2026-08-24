@@ -14,6 +14,7 @@ import {
   fetchPlEncashPrefs,
 } from "../../../lib/leaveManagement";
 import { SectionCard } from "../../adminOperations/components/AdminUi";
+import { toast } from "../../../lib/toast";
 import {
   PrimaryButton,
   SecondaryButton,
@@ -91,7 +92,6 @@ export default function EmployeeLeavesTab({ employee }) {
   const [saving, setSaving] = useState(false);
   const [rolling, setRolling] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
   const [rules, setRules] = useState({ pl_carry_forward_max: 7, sl_carry_forward_max: 8 });
   const [encashPl, setEncashPl] = useState(false);
   const [ledgerEntries, setLedgerEntries] = useState([]);
@@ -168,13 +168,11 @@ export default function EmployeeLeavesTab({ employee }) {
     if (!empCode) return;
     try {
       setSaving(true);
-      setError("");
       await syncEmployeeYearlyLeaveFromRegister(supabase, empCode, year);
       await load();
-      setMessage("Used days refreshed from the attendance register.");
-      setTimeout(() => setMessage(""), 4000);
+      toast.success("Used days synced from attendance.");
     } catch (e) {
-      setError(e?.message || "Could not sync used leave from attendance.");
+      toast.error(e?.message || "Failed to sync used leave.");
     } finally {
       setSaving(false);
     }
@@ -184,7 +182,6 @@ export default function EmployeeLeavesTab({ employee }) {
     if (!empCode) return;
     try {
       setSaving(true);
-      setError("");
       await upsertLeaveBalanceYearly(
         supabase,
         {
@@ -196,10 +193,9 @@ export default function EmployeeLeavesTab({ employee }) {
       );
       setEditing(false);
       await load();
-      setMessage("Leave ledger saved.");
-      setTimeout(() => setMessage(""), 4000);
+      toast.success("Leave ledger saved.");
     } catch (e) {
-      setError(e?.message || "Could not save leave ledger.");
+      toast.error(e?.message || "Failed to save leave ledger.");
     } finally {
       setSaving(false);
     }
@@ -210,11 +206,12 @@ export default function EmployeeLeavesTab({ employee }) {
     try {
       setEncashPl(next);
       await upsertPlEncashPrefs(supabase, { [empCode]: next });
-      setMessage(next ? "PL will be encashed instead of carried at year-end." : "PL will carry forward at year-end (within cap).");
-      setTimeout(() => setMessage(""), 4000);
+      toast.success(
+        next ? "PL encash preference saved." : "PL carry-forward preference saved."
+      );
     } catch (e) {
       setEncashPl(!next);
-      setError(e?.message || "Could not save PL encash preference.");
+      toast.error(e?.message || "Failed to save PL encash preference.");
     }
   };
 
@@ -228,15 +225,14 @@ export default function EmployeeLeavesTab({ employee }) {
     if (!ok) return;
     try {
       setRolling(true);
-      setError("");
       const result = await processLeaveBalanceForEmployee(supabase, empCode, year);
       await load();
-      setMessage(
-        `Rollover done for ${year}: PL carried ${fmt(result.carried_pl)}, encashed ${fmt(result.encashed_pl)}, expired ${fmt(result.expired_pl)}; SL carried ${fmt(result.carried_sl)}, expired ${fmt(result.expired_sl)}. Openings seeded for ${result.nextYear}.`
+      toast.success(
+        `Rollover done for ${year}`,
+        `PL carried ${fmt(result.carried_pl)}, encashed ${fmt(result.encashed_pl)}, expired ${fmt(result.expired_pl)}; SL carried ${fmt(result.carried_sl)}, expired ${fmt(result.expired_sl)}. Openings seeded for ${result.nextYear}.`
       );
-      setTimeout(() => setMessage(""), 8000);
     } catch (e) {
-      setError(e?.message || "Year-end rollover failed.");
+      toast.error(e?.message || "Year-end rollover failed.");
     } finally {
       setRolling(false);
     }
@@ -298,7 +294,6 @@ export default function EmployeeLeavesTab({ employee }) {
       </div>
 
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      {message ? <p className="text-sm text-green-700">{message}</p> : null}
 
       <SectionCard
         title={`Balances · ${year}`}

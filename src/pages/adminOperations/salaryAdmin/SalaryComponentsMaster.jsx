@@ -23,6 +23,7 @@ import {
   suggestComponentCode,
   validateComponentFormula,
 } from "./salaryComponentsCatalog";
+import { toast } from "../../../lib/toast";
 
 const inputCls =
   "h-8 w-full border border-slate-200 rounded-md px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-accent/30";
@@ -84,8 +85,6 @@ export default function SalaryComponentsMaster() {
   const [allLoading, setAllLoading] = useState(false);
   const [directoryQ, setDirectoryQ] = useState("");
 
-  const [notice, setNotice] = useState("");
-  const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(() => blankForm());
   const [editingId, setEditingId] = useState(null);
@@ -146,8 +145,6 @@ export default function SalaryComponentsMaster() {
       return undefined;
     }
     setPersonComponents(loadPersonComponents(personId));
-    setNotice("");
-    setError("");
     (async () => {
       try {
         const rows = await hydratePersonComponents(personId);
@@ -181,17 +178,18 @@ export default function SalaryComponentsMaster() {
 
   const persistPerson = useCallback(
     async (next) => {
-      if (!personId) return;
+      if (!personId) return false;
       try {
         const saved = await persistPersonComponents(personId, next);
         setPersonComponents(saved);
-        setError("");
         refreshAllPersonRows(employees);
+        return true;
       } catch (err) {
         console.error("Salary components save failed", err);
-        setError(err?.message || "Could not save components to the database.");
+        toast.error(err?.message || "Could not save components to the database.");
         setPersonComponents(Array.isArray(next) ? next : []);
         refreshAllPersonRows(employees);
+        return false;
       }
     },
     [personId, refreshAllPersonRows, employees]
@@ -245,7 +243,7 @@ export default function SalaryComponentsMaster() {
 
   const openCreate = (parentCode = "PART_A") => {
     if (!personId) {
-      setError("Select an employee first — new components are only for that person.");
+      toast.warning("Select an employee first — new components are only for that person.");
       return;
     }
     setEditingId(null);
@@ -258,7 +256,6 @@ export default function SalaryComponentsMaster() {
       ) + 5;
     setForm(draft);
     setModalOpen(true);
-    setError("");
   };
 
   const openEdit = (row) => {
@@ -276,46 +273,45 @@ export default function SalaryComponentsMaster() {
       sort_order: row.sort_order || 0,
     });
     setModalOpen(true);
-    setError("");
   };
 
   const handleSaveForm = async (e) => {
     e.preventDefault();
     if (!personId) {
-      setError("Select an employee first.");
+      toast.warning("Select an employee first.");
       return;
     }
     const code = normalizeComponentCode(form.code);
     const name = String(form.name || "").trim();
     if (!code) {
-      setError("Enter a short code (e.g. CON for Conveyance).");
+      toast.warning("Enter a short code (e.g. CON for Conveyance).");
       return;
     }
     if (!name) {
-      setError("Enter a component name.");
+      toast.warning("Enter a component name.");
       return;
     }
     if (defaults.some((d) => d.code === code)) {
-      setError(`${code} is a company default code. Choose another code for this person.`);
+      toast.warning(`${code} is a company default code. Choose another code for this person.`);
       return;
     }
     const clash = personComponents.find((c) => c.code === code && c.id !== editingId);
     if (clash) {
-      setError(`This employee already has ${code}.`);
+      toast.warning(`This employee already has ${code}.`);
       return;
     }
     const formula = String(form.formula || "").trim();
     if (formula && !/^manual$/i.test(formula)) {
       const v = validateComponentFormula(formula, knownCodes.filter((c) => c !== code));
       if (!v.ok) {
-        setError(v.error || "Invalid formula.");
+        toast.warning(v.error || "Invalid formula.");
         return;
       }
     }
 
     const now = new Date().toISOString();
     if (editingId) {
-      await persistPerson(
+      const ok = await persistPerson(
         personComponents.map((c) =>
           c.id === editingId
             ? {
@@ -334,9 +330,9 @@ export default function SalaryComponentsMaster() {
             : c
         )
       );
-      setNotice(`Updated ${code} for this employee.`);
+      if (ok) toast.success(`Updated ${code}`);
     } else {
-      await persistPerson([
+      const ok = await persistPerson([
         ...personComponents,
         {
           id: newComponentId(),
@@ -355,15 +351,15 @@ export default function SalaryComponentsMaster() {
           updated_at: now,
         },
       ]);
-      setNotice(`${code} added for this employee — saved to database and shown on their CTC.`);
+      if (ok) toast.success(`Added ${code}`);
     }
     setModalOpen(false);
   };
 
   const handleDelete = async (row) => {
     if (!window.confirm(`Remove ${row.code} from this employee’s CTC?`)) return;
-    await persistPerson(personComponents.filter((c) => c.id !== row.id));
-    setNotice(`Removed ${row.code} for this employee.`);
+    const ok = await persistPerson(personComponents.filter((c) => c.id !== row.id));
+    if (ok) toast.success(`Removed ${row.code}`);
   };
 
   const step = !personId ? 1 : 2;
@@ -529,15 +525,6 @@ export default function SalaryComponentsMaster() {
           </li>
         </ol>
       </CollapsibleHelp>
-
-      {error ? (
-        <p className="text-xs text-red-600 rounded border border-red-100 bg-red-50 px-2.5 py-1.5">{error}</p>
-      ) : null}
-      {notice ? (
-        <p className="text-xs text-emerald-800 rounded border border-emerald-100 bg-emerald-50 px-2.5 py-1.5">
-          {notice}
-        </p>
-      ) : null}
 
       {/* Step 1 */}
       <SectionCard

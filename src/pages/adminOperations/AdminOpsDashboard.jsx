@@ -107,6 +107,19 @@ function todayIso() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** Today / future first (soonest upcoming), then past dates in the range. */
+function sortUpcomingCelebrationsFirst(rows) {
+  const today = todayIso();
+  return [...(rows || [])].sort((a, b) => {
+    const da = String(a.date || "");
+    const db = String(b.date || "");
+    const aUpcoming = da >= today;
+    const bUpcoming = db >= today;
+    if (aUpcoming !== bUpcoming) return aUpcoming ? -1 : 1;
+    return da.localeCompare(db);
+  });
+}
+
 function formatDisplayDate(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -132,18 +145,61 @@ function CoverageNote({ total, missing, muted, missingLabel, mutedLabel, fixPath
   if (muted > 0) notes.push(`${muted} ${mutedLabel}`);
   if (notes.length === 0) {
     return (
-      <p className="px-4 py-2 border-t border-divider type-meta text-ink-muted">
+      <p className="px-3 py-1.5 border-t border-divider text-[10px] leading-snug text-ink-muted">
         All {total} active employees are covered.
       </p>
     );
   }
   return (
-    <p className="px-4 py-2 border-t border-divider type-meta text-ink-muted">
+    <p className="px-3 py-1.5 border-t border-divider text-[10px] leading-snug text-ink-muted">
       {notes.join(" · ")} ·{" "}
       <Link to={fixPath} className="text-accent hover:underline">
         Update in Employee Master
       </Link>
     </p>
+  );
+}
+
+/** Compact Date / Name / Department list for dashboard reminder cards. */
+function CelebrationReminderList({ rows, empty, onRowClick }) {
+  if (!rows?.length) {
+    return (
+      <p className="px-3 py-4 text-center text-xs text-ink-muted leading-snug">{empty}</p>
+    );
+  }
+  return (
+    <div className="max-h-52 overflow-y-auto overflow-x-hidden">
+      <table className="w-full table-fixed text-[11px] leading-tight border-separate border-spacing-0">
+        <thead className="sticky top-0 z-10 bg-gray-50 text-gray-600">
+          <tr className="border-b border-divider">
+            <th className="w-[26%] text-left font-semibold px-2 py-1.5 whitespace-nowrap">Date</th>
+            <th className="w-[37%] text-left font-semibold px-2 py-1.5">Name</th>
+            <th className="w-[37%] text-left font-semibold px-2 py-1.5">Department</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr
+              key={row.id}
+              className={`border-b border-divider last:border-0 ${
+                onRowClick ? "cursor-pointer hover:bg-row-hover" : ""
+              }`}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+            >
+              <td className="px-2 py-1 whitespace-nowrap text-ink-secondary tabular-nums align-top">
+                {formatDisplayDate(row.date)}
+              </td>
+              <td className="px-2 py-1 text-ink align-top truncate" title={row.name}>
+                {row.name}
+              </td>
+              <td className="px-2 py-1 text-ink-secondary align-top truncate" title={row.department}>
+                {row.department || "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -374,7 +430,7 @@ export default function AdminOpsDashboard() {
         path: employeeDetailPath(e.id),
       };
     });
-    rows.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    rows = sortUpcomingCelebrationsFirst(rows);
     if (needle) {
       rows = rows.filter(
         (x) =>
@@ -401,7 +457,7 @@ export default function AdminOpsDashboard() {
         path: employeeDetailPath(e.id),
       };
     });
-    rows.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    rows = sortUpcomingCelebrationsFirst(rows);
     if (needle) {
       rows = rows.filter(
         (x) =>
@@ -431,7 +487,7 @@ export default function AdminOpsDashboard() {
         path: employeeDetailPath(e.id),
       };
     });
-    rows.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    rows = sortUpcomingCelebrationsFirst(rows);
     if (needle) {
       rows = rows.filter(
         (x) =>
@@ -641,43 +697,6 @@ export default function AdminOpsDashboard() {
     birthdayReminders,
   ]);
 
-  const celebrationColumns = [
-    { key: "empCode", label: "Code" },
-    {
-      key: "name",
-      label: "Employee",
-      render: (row) => (
-        <div>
-          <p className="text-sm font-medium text-ink">{row.name}</p>
-          {row.isToday ? (
-            <StatusChip label="Today" severity="critical" />
-          ) : null}
-        </div>
-      ),
-    },
-    { key: "department", label: "Department" },
-    {
-      key: "date",
-      label: "Date",
-      render: (row) => formatDisplayDate(row.date),
-    },
-    {
-      key: "action",
-      label: "",
-      render: (row) => (
-        <Link to={row.path} className="text-sm text-accent hover:underline">
-          Open
-        </Link>
-      ),
-    },
-  ];
-
-  const workAnniversaryColumns = [
-    ...celebrationColumns.slice(0, 4),
-    { key: "years", label: "Tenure" },
-    celebrationColumns[4],
-  ];
-
   const reminderColumns = [
     {
       key: "severity",
@@ -806,6 +825,9 @@ export default function AdminOpsDashboard() {
             if (pendingLeaves.length > 0) scrollToDashSection(DASH_SECTIONS.leaveQueue);
             else navigate(ROUTES.leaveApprovals);
           }}
+        />
+        <SparkKpi
+          label="Tour pending"
           value={loading ? "…" : tourCounts.pending ?? 0}
           sub="Awaiting approval"
           series={sparkFromValue(tourCounts.pending ?? 0)}
@@ -822,38 +844,30 @@ export default function AdminOpsDashboard() {
         />
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 min-w-0">
         <SectionCard
-          title="Birthday reminders"
+          title="Birthdays"
           right={
-            <div className="flex items-center gap-3">
-              <span className="type-meta text-ink-muted hidden sm:inline">
-                {birthdayReminders.length} · {formatDisplayDate(fromDate)} – {formatDisplayDate(toDate)}
-              </span>
-              <Link to={ROUTES.alerts} className="text-sm text-accent hover:underline shrink-0">
-                All alerts
-              </Link>
-            </div>
+            <span className="type-meta text-ink-muted tabular-nums shrink-0">
+              {birthdayReminders.length}
+            </span>
           }
-          className="scroll-mt-4"
+          className="scroll-mt-4 min-w-0 overflow-hidden"
         >
           <div id={DASH_SECTIONS.birthdays} className="-scroll-mt-24" />
-          {birthdayReminders.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-ink-muted">
-              No birthdays in this date range.{" "}
-              <Link to={ROUTES.employeeMaster} className="text-accent hover:underline">
-                Add Date of Birth in Employee Master
-              </Link>
-              .
-            </p>
-          ) : (
-            <DenseTable
-              columns={celebrationColumns}
-              rows={birthdayReminders}
-              rowKey="id"
-              onRowClick={(row) => navigate(row.path)}
-            />
-          )}
+          <CelebrationReminderList
+            rows={birthdayReminders}
+            onRowClick={(row) => navigate(row.path)}
+            empty={
+              <>
+                No birthdays in this date range.{" "}
+                <Link to={ROUTES.employeeMaster} className="text-accent hover:underline">
+                  Add Date of Birth
+                </Link>
+                .
+              </>
+            }
+          />
           <CoverageNote
             total={reminderCoverage.activeEmployees}
             missing={reminderCoverage.missingBirthday}
@@ -865,36 +879,28 @@ export default function AdminOpsDashboard() {
         </SectionCard>
 
         <SectionCard
-          title="Wedding anniversary reminders"
+          title="Wedding anniversaries"
           right={
-            <div className="flex items-center gap-3">
-              <span className="type-meta text-ink-muted hidden sm:inline">
-                {anniversaryReminders.length} · {formatDisplayDate(fromDate)} – {formatDisplayDate(toDate)}
-              </span>
-              <Link to={ROUTES.employeeMaster} className="text-sm text-accent hover:underline shrink-0">
-                Employee Master
-              </Link>
-            </div>
+            <span className="type-meta text-ink-muted tabular-nums shrink-0">
+              {anniversaryReminders.length}
+            </span>
           }
-          className="scroll-mt-4"
+          className="scroll-mt-4 min-w-0 overflow-hidden"
         >
           <div id={DASH_SECTIONS.weddingAnniversaries} className="-scroll-mt-24" />
-          {anniversaryReminders.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-ink-muted">
-              No wedding anniversaries in range.{" "}
-              <Link to={ROUTES.employeeMaster} className="text-accent hover:underline">
-                Add Wedding Anniversary Date
-              </Link>
-              .
-            </p>
-          ) : (
-            <DenseTable
-              columns={celebrationColumns}
-              rows={anniversaryReminders}
-              rowKey="id"
-              onRowClick={(row) => navigate(row.path)}
-            />
-          )}
+          <CelebrationReminderList
+            rows={anniversaryReminders}
+            onRowClick={(row) => navigate(row.path)}
+            empty={
+              <>
+                No wedding anniversaries in range.{" "}
+                <Link to={ROUTES.employeeMaster} className="text-accent hover:underline">
+                  Add anniversary date
+                </Link>
+                .
+              </>
+            }
+          />
           <CoverageNote
             total={reminderCoverage.activeEmployees}
             missing={reminderCoverage.missingAnniversary}
@@ -906,36 +912,28 @@ export default function AdminOpsDashboard() {
         </SectionCard>
 
         <SectionCard
-          title="Work anniversary reminders"
+          title="Work anniversaries"
           right={
-            <div className="flex items-center gap-3">
-              <span className="type-meta text-ink-muted hidden sm:inline">
-                {workAnniversaryReminders.length} · {formatDisplayDate(fromDate)} – {formatDisplayDate(toDate)}
-              </span>
-              <Link to={ROUTES.employeeMaster} className="text-sm text-accent hover:underline shrink-0">
-                Employee Master
-              </Link>
-            </div>
+            <span className="type-meta text-ink-muted tabular-nums shrink-0">
+              {workAnniversaryReminders.length}
+            </span>
           }
-          className="scroll-mt-4"
+          className="scroll-mt-4 min-w-0 overflow-hidden"
         >
           <div id={DASH_SECTIONS.workAnniversaries} className="-scroll-mt-24" />
-          {workAnniversaryReminders.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-ink-muted">
-              No work anniversaries in range.{" "}
-              <Link to={ROUTES.employeeMaster} className="text-accent hover:underline">
-                Check Date of Joining
-              </Link>
-              .
-            </p>
-          ) : (
-            <DenseTable
-              columns={workAnniversaryColumns}
-              rows={workAnniversaryReminders}
-              rowKey="id"
-              onRowClick={(row) => navigate(row.path)}
-            />
-          )}
+          <CelebrationReminderList
+            rows={workAnniversaryReminders}
+            onRowClick={(row) => navigate(row.path)}
+            empty={
+              <>
+                No work anniversaries in range.{" "}
+                <Link to={ROUTES.employeeMaster} className="text-accent hover:underline">
+                  Check Date of Joining
+                </Link>
+                .
+              </>
+            }
+          />
           <CoverageNote
             total={reminderCoverage.activeEmployees}
             missing={reminderCoverage.missingJoiningDate}
