@@ -458,9 +458,23 @@ function App() {
             <Route path="hr/site-iom" element={<HrSiteIom />} />
             <Route path="people-management" element={<PeopleManagement />} />
             
-            {/* Compliance */}
-            <Route path="ifsp-employee-compliance" element={<IfspEmployeeCompliance />} />
-            <Route path="general-compliance" element={<GeneralCompliance />} />
+            {/* Compliance — Rahul, Bency, Latha, Vivek, Vaisakh only */}
+            <Route
+              path="ifsp-employee-compliance"
+              element={
+                <ComplianceGuard>
+                  <IfspEmployeeCompliance />
+                </ComplianceGuard>
+              }
+            />
+            <Route
+              path="general-compliance"
+              element={
+                <ComplianceGuard>
+                  <GeneralCompliance />
+                </ComplianceGuard>
+              }
+            />
             <Route
               path="compliance"
               element={
