@@ -2,6 +2,7 @@ import React, { useCallback, useRef, useState } from "react";
 import { Download, Upload } from "lucide-react";
 import { Modal } from "../components/AdminUi";
 import { supabase } from "../../../lib/supabase";
+import { toast } from "../../../lib/toast";
 import { normalizeAttendanceEmpCode } from "../../../lib/attendanceDaily";
 import {
   downloadLeaveBalanceSampleSheet,
@@ -19,13 +20,11 @@ export function LeaveBalanceImportModal({ open, year, employees = [], onClose, o
   const [payloads, setPayloads] = useState([]);
   const [skipped, setSkipped] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
 
   const resetState = useCallback(() => {
     setParseErrors([]);
     setPayloads([]);
     setSkipped(0);
-    setError("");
     if (fileRef.current) fileRef.current.value = "";
   }, []);
 
@@ -54,7 +53,6 @@ export function LeaveBalanceImportModal({ open, year, employees = [], onClose, o
   const handleFile = useCallback(
     async (file) => {
       if (!file) return;
-      setError("");
       setParseErrors([]);
       setPayloads([]);
       setSkipped(0);
@@ -66,10 +64,10 @@ export function LeaveBalanceImportModal({ open, year, employees = [], onClose, o
         setPayloads(rows);
         setSkipped(skipCount);
         if (!rows.length) {
-          setError(errors.join(" ") || "No valid leave balance rows found in file.");
+          toast.warning(errors.join(" ") || "No valid leave balance rows found in file.");
         }
       } catch (e) {
-        setError(e?.message || "Could not read import file.");
+        toast.error(e?.message || "Could not read import file.");
         setPayloads([]);
       } finally {
         if (fileRef.current) fileRef.current.value = "";
@@ -81,16 +79,16 @@ export function LeaveBalanceImportModal({ open, year, employees = [], onClose, o
   const handleImport = useCallback(async () => {
     if (!payloads.length || busy) return;
     setBusy(true);
-    setError("");
     try {
       const { count } = await upsertLeaveBalancesBatch(supabase, payloads);
       const warn = parseErrors.length ? ` Warnings: ${parseErrors.slice(0, 3).join(" ")}` : "";
       const message = `Imported ${count} leave balance row(s) for ${year}.${skipped ? ` Skipped ${skipped}.` : ""}${warn}`;
+      toast.success(message);
       onImported?.(message);
       resetState();
       onClose?.();
     } catch (e) {
-      setError(e?.message || "Import failed.");
+      toast.error(e?.message || "Import failed.");
     } finally {
       setBusy(false);
     }
@@ -175,10 +173,6 @@ export function LeaveBalanceImportModal({ open, year, employees = [], onClose, o
             }}
           />
         </div>
-
-        {error ? (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800">{error}</div>
-        ) : null}
 
         {parseErrors.length > 0 && payloads.length > 0 ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 space-y-1">

@@ -207,7 +207,6 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const [filterEmployeeCode, setFilterEmployeeCode] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState(readStoredDepartmentFilter);
   const [designationFilter, setDesignationFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState('All');
   const [sortField, setSortField] = useState('employee_id');
   const [sortDirection, setSortDirection] = useState('asc');
   const [currentPage, setCurrentPage] = useState(1);
@@ -217,6 +216,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const [showAllTableColumns, setShowAllTableColumns] = useState(false);
   const fileInputRef = useRef(null);
   const bankFileInputRef = useRef(null);
+  const tableScrollRef = useRef(null);
 
   const deleteAllEmployees = async () => {
     if (!window.confirm('Delete ALL employee rows? This cannot be undone.')) return;
@@ -1209,11 +1209,11 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (formData.designation === 'Other' && !String(formData.designation_other || '').trim()) {
-      toast.warning('Please enter a designation when Other is selected.');
+      toast.warning('Enter a designation when Other is selected.');
       return;
     }
     if (formData.status === 'Inactive' && !String(formData.date_of_leaving || '').trim()) {
-      toast.warning('Date of Leaving is required when employee status is Inactive.');
+      toast.warning('Date of Leaving is required for Inactive status.');
       return;
     }
     try {
@@ -1272,7 +1272,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           }
           throw error;
         }
-        toast.success('Employee updated successfully!');
+        toast.success('Employee updated.');
         await fetchEmployees();
       } else {
         const employment_type = normalizeEmploymentType(formData.employment_type);
@@ -1312,14 +1312,14 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           }
           throw error;
         }
-        toast.success('Employee added successfully!');
+        toast.success('Employee added.');
         await fetchEmployees();
       }
 
       resetForm();
     } catch (error) {
       console.error('Error saving employee:', error);
-      toast.error(error?.message || 'Failed to save employee. Please try again.');
+      toast.error(error?.message || 'Failed to save employee.');
     }
   };
 
@@ -1340,10 +1340,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
       if (error) throw error;
       setEmployees(prev => prev.filter(emp => emp.id !== id));
-      toast.success('Employee deleted successfully!');
+      toast.success('Employee deleted.');
     } catch (error) {
       console.error('Error deleting employee:', error);
-      toast.error(error?.message || 'Failed to delete employee. Please try again.');
+      toast.error(error?.message || 'Failed to delete employee.');
     }
   };
 
@@ -1359,11 +1359,11 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             'Date of Leaving is required when deactivating an employee.\nEnter date (YYYY-MM-DD):'
           );
           if (!input?.trim()) {
-            toast.warning('Date of Leaving is required to set employee as Inactive.');
+            toast.warning('Date of Leaving is required for Inactive status.');
             return;
           }
           if (!/^\d{4}-\d{2}-\d{2}$/.test(input.trim())) {
-            toast.warning('Please enter a valid date in YYYY-MM-DD format.');
+            toast.warning('Enter a valid date (YYYY-MM-DD).');
             return;
           }
           dateOfLeaving = input.trim();
@@ -1401,10 +1401,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             }
           : emp
       ));
-      toast.success(`Employee status changed to ${newStatus} successfully!`);
+      toast.success(`Status changed to ${newStatus}.`);
     } catch (error) {
       console.error('Error updating status:', error);
-      toast.error(error?.message || 'Failed to update status. Please try again.');
+      toast.error(error?.message || 'Failed to update status.');
     }
   };
 
@@ -1495,6 +1495,8 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   };
 
   const filteredEmployees = useMemo(() => employees.filter((employee) => {
+    if (!isActiveEmployeeRow(employee)) return false;
+
     const st = searchTerm.trim().toLowerCase();
     const matchesSearch =
       !st ||
@@ -1524,7 +1526,6 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
     const matchesDepartment = departmentFilter === 'All' || employee.department === departmentFilter;
     const matchesDesignation = designationFilter === 'All' || employee.designation === designationFilter;
-    const matchesStatus = statusFilter === 'All' || employee.status === statusFilter;
 
     return (
       matchesSearch &&
@@ -1532,8 +1533,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       matchesSystemId &&
       matchesEmpCode &&
       matchesDepartment &&
-      matchesDesignation &&
-      matchesStatus
+      matchesDesignation
     );
   }), [
     employees,
@@ -1543,7 +1543,6 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     filterEmployeeCode,
     departmentFilter,
     designationFilter,
-    statusFilter,
   ]);
 
   const sortedFilteredEmployees = useMemo(() => {
@@ -1760,16 +1759,6 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                 <option key={d} value={d}>{d}</option>
               ))}
             </select>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className={filterInputClass}
-            >
-              <option value="All">All Status</option>
-              {statusOptions.map((status) => (
-                <option key={status} value={status}>{status}</option>
-              ))}
-            </select>
           </div>
           <p className="text-[11px] text-gray-500 mt-3">
             Excel bank sheet columns: Employee Code, Name of Employee, UAN Number, Esic number, A/c
@@ -1808,7 +1797,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                 Page {currentPage} of {totalPages}
               </span>
               <button
-                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                onClick={() => {
+                  setCurrentPage(Math.min(totalPages, currentPage + 1));
+                  tableScrollRef.current?.scrollTo({ top: 0, left: 0 });
+                }}
                 disabled={currentPage === totalPages}
                 className="h-8 px-3 text-sm border border-gray-300 rounded-lg disabled:opacity-50"
               >
@@ -1819,7 +1811,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
         </div>
 
         {/* Table scroller (vertical + horizontal) — only this section scrolls */}
-        <div className="flex-1 min-h-0 overflow-auto">
+        <div ref={tableScrollRef} className="flex-1 min-h-0 overflow-auto">
           <div className="w-max min-w-full">
             <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
               <thead className="bg-gray-50 sticky top-0 z-10">

@@ -7,6 +7,7 @@ import {
   parseSalaryBankImportFile,
 } from "../../../lib/salaryBankExcel";
 import { applySalaryBankImportToMaster } from "../../../lib/salaryBankImportApply";
+import { toast } from "../../../lib/toast";
 
 const PREVIEW_ROWS = 12;
 
@@ -21,7 +22,6 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
   const [unmatched, setUnmatched] = useState([]);
   const [skipped, setSkipped] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const [fileName, setFileName] = useState("");
 
   const resetState = useCallback(() => {
@@ -29,7 +29,6 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
     setMatched([]);
     setUnmatched([]);
     setSkipped(0);
-    setError("");
     setFileName("");
     if (fileRef.current) fileRef.current.value = "";
   }, []);
@@ -47,7 +46,6 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
   const handleFile = useCallback(
     async (file) => {
       if (!file) return;
-      setError("");
       setParseErrors([]);
       setMatched([]);
       setUnmatched([]);
@@ -60,11 +58,11 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
         setUnmatched(result.unmatched || []);
         setSkipped(result.skipped || 0);
         if (!(result.rows || []).length && !(result.unmatched || []).length) {
-          setError((result.errors || []).join(" ") || "No employee rows found in this file.");
+          toast.error((result.errors || []).join(" ") || "No employee rows found in this file.");
         }
       } catch (e) {
         console.error("Salary bank import: parse failed", e);
-        setError(e?.message || "Could not read this file.");
+        toast.error(e?.message || "Could not read this file.");
         setMatched([]);
         setUnmatched([]);
       } finally {
@@ -77,7 +75,6 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
   const handleImport = useCallback(async () => {
     if ((!matched.length && !unmatched.length) || busy) return;
     setBusy(true);
-    setError("");
     try {
       const {
         data: { user },
@@ -98,6 +95,7 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
         fileName ? ` from ${fileName}` : ""
       }.${warnParts.length ? ` ${warnParts.join(" ")}` : ""}`;
 
+      toast.success("Bank details saved", fullMessage);
       onImported?.({
         message: fullMessage,
         rows: [...matched, ...(result.createdRows || [])],
@@ -109,7 +107,7 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
       onClose?.();
     } catch (e) {
       console.error("Salary bank import: save failed", e);
-      setError(e?.message || "Could not save bank details. Please try again.");
+      toast.error(e?.message || "Could not save bank details. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -197,10 +195,6 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
             <span className="inline-flex items-center h-8 px-2 text-[11px] text-slate-600">{fileName}</span>
           ) : null}
         </div>
-
-        {error ? (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800">{error}</div>
-        ) : null}
 
         {parseErrors.length > 0 && (matched.length > 0 || unmatched.length > 0) ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 space-y-1">
