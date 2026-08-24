@@ -168,14 +168,16 @@ export default function SalaryComponentsMaster() {
 
   const filteredEmployees = useMemo(() => {
     const needle = empQ.trim().toLowerCase();
-    if (!needle) return employees.slice(0, 40);
-    return employees
-      .filter((e) => {
-        const hay = `${e.employee_code || ""} ${e.full_name || ""} ${e.designation || ""} ${e.department || ""}`.toLowerCase();
-        return hay.includes(needle);
-      })
-      .slice(0, 40);
-  }, [employees, empQ]);
+    const selected = personId
+      ? employees.filter((e) => String(e.id) === String(personId))
+      : [];
+    if (needle.length < 2) return selected;
+    const hits = employees.filter((e) => {
+      const hay = `${e.employee_code || ""} ${e.full_name || ""} ${e.designation || ""} ${e.department || ""}`.toLowerCase();
+      return hay.includes(needle);
+    });
+    return hits.slice(0, 40);
+  }, [employees, empQ, personId]);
 
   const persistPerson = useCallback(
     async (next) => {
@@ -585,7 +587,11 @@ export default function SalaryComponentsMaster() {
             );
           })}
           {!filteredEmployees.length ? (
-            <p className="text-center text-xs text-slate-500 py-6">No employees match.</p>
+            <p className="text-center text-xs text-slate-500 py-6">
+              {empQ.trim().length < 2
+                ? "Type at least 2 characters of a code or name. This list is Employee Master, not sample data."
+                : "No employees match."}
+            </p>
           ) : null}
         </div>
       </SectionCard>
