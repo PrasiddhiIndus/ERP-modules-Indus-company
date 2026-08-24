@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { Download, RefreshCw, Search, Upload, CheckCircle2, AlertTriangle, Lock, Clock, ArrowLeft } from "lucide-react";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import FormDateInput from "../../../components/FormDateInput";
@@ -47,6 +46,7 @@ import {
 } from "./salaryProcessingMock";
 import { exportSalaryProcessingWorkbook } from "../../../lib/salaryProcessingExcel";
 import { SalaryBankImportModal } from "./SalaryBankImportModal";
+import { toast } from "../../../lib/toast";
 
 const numIn =
   "w-[4.25rem] h-7 px-1 text-right text-[11px] tabular-nums border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent";
@@ -393,8 +393,6 @@ function EmployeeSalaryDetailPage({
   onSave,
   dirty = false,
   saving = false,
-  saveMsg = "",
-  saveError = "",
   readOnly = false,
 }) {
   if (!line) return null;
@@ -459,15 +457,6 @@ function EmployeeSalaryDetailPage({
           )}
         </div>
       </div>
-
-      {saveError ? (
-        <p className="text-xs text-red-600 rounded-lg border border-red-100 bg-red-50 px-3 py-2">{saveError}</p>
-      ) : null}
-      {saveMsg ? (
-        <p className="text-xs text-emerald-800 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
-          {saveMsg}
-        </p>
-      ) : null}
 
       <section className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
         <div className="px-4 sm:px-5 py-4 flex flex-wrap items-center gap-4 bg-slate-50/80 border-b border-slate-200">
@@ -1272,8 +1261,6 @@ export default function SalaryProcessing() {
   const [detailLineId, setDetailLineId] = useState(null);
   const [detailDirty, setDetailDirty] = useState(false);
   const [detailSaving, setDetailSaving] = useState(false);
-  const [detailSaveMsg, setDetailSaveMsg] = useState("");
-  const [detailSaveError, setDetailSaveError] = useState("");
   const [candidates, setCandidates] = useState({
     employees: [],
     departments: [],
@@ -1283,8 +1270,6 @@ export default function SalaryProcessing() {
   const [candidatesLoading, setCandidatesLoading] = useState(false);
 
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [existingRun, setExistingRun] = useState(null);
@@ -1383,7 +1368,7 @@ export default function SalaryProcessing() {
   ]);
 
   const handleBankImported = useCallback(
-    async ({ message, rows } = {}) => {
+    async ({ rows } = {}) => {
       for (const row of rows || []) {
         if (!row?.employeeMasterId) continue;
         syncScopeDraftBankFromMaster(row.employeeMasterId, {
@@ -1391,8 +1376,6 @@ export default function SalaryProcessing() {
           ifsc: row.ifsc,
         });
       }
-      setNotice(message || "Bank details saved to Employee Master.");
-      setError("");
       await loadCandidates();
     },
     [loadCandidates]
@@ -1610,7 +1593,7 @@ export default function SalaryProcessing() {
 
   const holdSelectedEmployees = useCallback(() => {
     if (!selectedIds.length) {
-      setError("Select at least one employee to put on hold.");
+      toast.warning("Select at least one employee to put on hold.");
       return;
     }
     const key = monthKey(year, month);
@@ -1618,15 +1601,13 @@ export default function SalaryProcessing() {
     setMonthHoldIds(key, next);
     setHoldIds(next);
     setSelectedIds([]);
-    setNotice(`${selectedIds.length} employee(s) moved to Hold — excluded from salary process.`);
-    setError("");
-    window.setTimeout(() => setNotice(""), 2500);
+    toast.success(`${selectedIds.length} employee(s) moved to Hold`);
     loadCandidates();
   }, [selectedIds, holdIds, year, month, loadCandidates]);
 
   const releaseSelectedFromHold = useCallback(() => {
     if (!selectedIds.length) {
-      setError("Select at least one employee to release from hold.");
+      toast.warning("Select at least one employee to release from hold.");
       return;
     }
     const key = monthKey(year, month);
@@ -1635,9 +1616,7 @@ export default function SalaryProcessing() {
     setMonthHoldIds(key, next);
     setHoldIds(next);
     setSelectedIds([]);
-    setNotice(`${drop.size} employee(s) released from Hold.`);
-    setError("");
-    window.setTimeout(() => setNotice(""), 2500);
+    toast.success(`${drop.size} employee(s) released from Hold`);
     loadCandidates();
   }, [selectedIds, holdIds, year, month, loadCandidates]);
 
@@ -1735,8 +1714,6 @@ export default function SalaryProcessing() {
       );
       if (detailLineId && id === detailLineId) {
         setDetailDirty(true);
-        setDetailSaveMsg("");
-        setDetailSaveError("");
       }
     },
     [monthDays, detailLineId]
@@ -1751,8 +1728,6 @@ export default function SalaryProcessing() {
     if (line?.id) {
       setDetailLineId(line.id);
       setDetailDirty(false);
-      setDetailSaveMsg("");
-      setDetailSaveError("");
     }
   }, []);
 
@@ -1769,7 +1744,7 @@ export default function SalaryProcessing() {
     const lockedChosen = chosen.filter((l) => lineIsSalaryLocked(l));
     const toPublish = chosen.filter((l) => !lineIsSalaryLocked(l));
     if (!toPublish.length) {
-      setError(
+      toast.warning(
         lockedChosen.length
           ? "These employees are already processed and locked for this month. Their salary will not be updated."
           : "Select employees, then click Processed to lock salary for this month."
@@ -1777,8 +1752,6 @@ export default function SalaryProcessing() {
       return;
     }
     setBusy(true);
-    setError("");
-    setNotice("");
     try {
       const result = await api.publishSlips({
         year,
@@ -1793,12 +1766,12 @@ export default function SalaryProcessing() {
       if (skipped) {
         msg += ` ${skipped} already locked — left unchanged.`;
       }
-      setNotice(msg);
+      toast.success(msg);
       setSelectedIds([]);
       await loadCandidates();
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Could not lock processed salary.");
+      toast.error(err?.message || "Could not lock processed salary.");
     } finally {
       setBusy(false);
     }
@@ -1840,7 +1813,7 @@ export default function SalaryProcessing() {
         }
       } catch (err) {
         console.warn("Open employee salary detail failed", err);
-        setError("Could not open employee salary detail.");
+        toast.error("Could not open employee salary detail.");
       } finally {
         setScopeLinesLoading(false);
       }
@@ -1852,12 +1825,10 @@ export default function SalaryProcessing() {
     async (line) => {
       if (!line?.employee_master_id) return;
       if (lineIsSalaryLocked(line)) {
-        setDetailSaveError("This salary is locked for the month and cannot be changed.");
+        toast.warning("This salary is locked for the month and cannot be changed.");
         return;
       }
       setDetailSaving(true);
-      setDetailSaveError("");
-      setDetailSaveMsg("");
       try {
         const key = monthKey(year, month);
         const recomputed = recomputeLineFromEdits(line, monthDays);
@@ -1893,18 +1864,17 @@ export default function SalaryProcessing() {
               },
             ]);
             await loadCandidates();
-            setDetailSaveMsg("Saved to salary sheet.");
+            toast.success("Saved to salary sheet.");
           } else {
-            setDetailSaveMsg("Saved. Changes apply when you process salary.");
+            toast.success("Saved. Changes apply when you process salary.");
           }
         } else {
-          setDetailSaveMsg("Saved. Changes apply when you process salary.");
+          toast.success("Saved. Changes apply when you process salary.");
         }
         setDetailDirty(false);
-        window.setTimeout(() => setDetailSaveMsg(""), 2500);
       } catch (err) {
         console.error("Salary detail save failed", err);
-        setDetailSaveError(err?.message || "Could not save employee salary details.");
+        toast.error(err?.message || "Could not save employee salary details.");
       } finally {
         setDetailSaving(false);
       }
@@ -1914,7 +1884,6 @@ export default function SalaryProcessing() {
 
   const openRun = useCallback(async (runId) => {
     setBusy(true);
-    setError("");
     try {
       const { run: r, lines: ls } = await api.getWithLines(runId);
       if (!r) throw new Error("Salary sheet not found.");
@@ -1926,7 +1895,7 @@ export default function SalaryProcessing() {
       setMonthDays(Number(r.month_days) || DEFAULT_MONTH_DAYS);
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Could not open salary sheet.");
+      toast.error(err?.message || "Could not open salary sheet.");
     } finally {
       setBusy(false);
     }
@@ -1935,14 +1904,12 @@ export default function SalaryProcessing() {
   const doProcess = useCallback(
     async ({ forceFullReprocess = false } = {}) => {
       if (processMode === PROCESS_MODES.HOLD) {
-        setError(
+        toast.warning(
           "Hold employees are excluded from processing. Release them first, or process from All Employees."
         );
         return;
       }
       setBusy(true);
-      setError("");
-      setNotice("");
       try {
         const key = monthKey(year, month);
         const isBulk = processMode === PROCESS_MODES.BULK && !selectedIds.length;
@@ -1971,7 +1938,7 @@ export default function SalaryProcessing() {
           .filter((id) => id != null);
 
         if (!pageIds.length && !(forceFullReprocess && isBulk)) {
-          setError(
+          toast.warning(
             selectedIds.length
               ? "No selected employees left to process for this month."
               : "No employees on this list to process for this month."
@@ -2011,7 +1978,7 @@ export default function SalaryProcessing() {
           msg += ` (rev ${result.run.revision_no})`;
         }
         msg += ". On Processed, click Processed to lock those employees for this month.";
-        setNotice(msg);
+        toast.success(msg);
         setSelectedIds([]);
         setViewTab("processed");
         await loadCandidates();
@@ -2023,7 +1990,7 @@ export default function SalaryProcessing() {
         setExistingRun(null);
       } catch (err) {
         console.error(err);
-        setError(err?.message || "Salary processing failed.");
+        toast.error(err?.message || "Salary processing failed.");
       } finally {
         setBusy(false);
       }
@@ -2060,18 +2027,17 @@ export default function SalaryProcessing() {
   const handleSave = useCallback(async () => {
     if (!run?.id) return;
     setSaving(true);
-    setError("");
     try {
       const result = await api.save(run.id, lines);
       setRun(result.run);
       setLines(result.lines || []);
       setDirty(false);
-      setNotice(
+      toast.success(
         `Saved as revision ${result.run.revision_no}. Payslips updated. Employee Master loan / advances / TDS synced from this sheet.`
       );
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Could not save sheet edits.");
+      toast.error(err?.message || "Could not save sheet edits.");
     } finally {
       setSaving(false);
     }
@@ -2083,18 +2049,17 @@ export default function SalaryProcessing() {
       await exportSalaryProcessingWorkbook({ run, lines });
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Excel export failed.");
+      toast.error(err?.message || "Excel export failed.");
     }
   }, [run, lines]);
 
   const handleTabExport = useCallback(async () => {
     const rows = visibleScopeLines;
     if (!rows.length) {
-      setError("No employees on this tab to download.");
+      toast.warning("No employees on this tab to download.");
       return;
     }
     setExporting(true);
-    setError("");
     try {
       const tabMeta = VIEW_TABS.find((t) => t.id === viewTab) || VIEW_TABS[0];
       await exportSalaryProcessingWorkbook(
@@ -2109,11 +2074,10 @@ export default function SalaryProcessing() {
         },
         { tabLabel: tabMeta.label, tabId: viewTab }
       );
-      setNotice(`Downloaded ${rows.length} employee(s) from ${tabMeta.label}.`);
-      window.setTimeout(() => setNotice(""), 2500);
+      toast.success(`Downloaded ${rows.length} employee(s) from ${tabMeta.label}.`);
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Excel download failed.");
+      toast.error(err?.message || "Excel download failed.");
     } finally {
       setExporting(false);
     }
@@ -2169,15 +2133,11 @@ export default function SalaryProcessing() {
         onBack={() => {
           setDetailLineId(null);
           setDetailDirty(false);
-          setDetailSaveMsg("");
-          setDetailSaveError("");
         }}
         onUpdate={updateScopeLine}
         onSave={saveEmployeeDetail}
         dirty={detailDirty}
         saving={detailSaving}
-        saveMsg={detailSaveMsg}
-        saveError={detailSaveError}
         readOnly={lineIsSalaryLocked(detailLine)}
       />
     );
@@ -2207,7 +2167,6 @@ export default function SalaryProcessing() {
               setRun(null);
               setLines([]);
               setDirty(false);
-              setNotice("");
             }}
           >
             Back
@@ -2220,15 +2179,6 @@ export default function SalaryProcessing() {
             {saving ? "Saving…" : "Save"}
           </button>
         </PageTaskHeader>
-
-        {error ? (
-          <p className="text-xs text-red-600 rounded border border-red-100 bg-red-50 px-2.5 py-1.5">{error}</p>
-        ) : null}
-        {notice ? (
-          <p className="text-xs text-emerald-800 rounded border border-emerald-100 bg-emerald-50 px-2.5 py-1.5">
-            {notice}
-          </p>
-        ) : null}
 
         <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 rounded border border-slate-200 bg-slate-50/80">
           <div className="relative">
@@ -2504,26 +2454,6 @@ export default function SalaryProcessing() {
         (green rows). Locked staff stay on the day they were processed and cannot be changed.
         Open a row to view the salary form — locked records are view only.
       </CollapsibleHelp>
-
-      {error ? (
-        <p className="text-xs text-red-600 rounded border border-red-100 bg-red-50 px-2.5 py-1.5">{error}</p>
-      ) : null}
-      {notice ? (
-        <p className="text-xs text-emerald-800 rounded border border-emerald-100 bg-emerald-50 px-2.5 py-1.5">
-          {notice}
-          {/locked for/i.test(notice) ? (
-            <>
-              {" "}
-              <Link
-                to={`/app/admin/salary-admin/reports?year=${year}&month=${month}`}
-                className="font-medium underline underline-offset-2"
-              >
-                Open report
-              </Link>
-            </>
-          ) : null}
-        </p>
-      ) : null}
 
       <SectionCard
         title="Salary Processing"
@@ -2818,7 +2748,6 @@ export default function SalaryProcessing() {
                   className={btnGhost}
                   disabled={!selectedIds.length || busy}
                   onClick={() => {
-                    setError("");
                     releaseSelectedFromHold();
                   }}
                 >
@@ -2840,7 +2769,6 @@ export default function SalaryProcessing() {
                     className={btnGhost}
                     disabled={!selectedIds.length || busy}
                     onClick={() => {
-                      setError("");
                       holdSelectedEmployees();
                     }}
                   >

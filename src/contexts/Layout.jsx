@@ -58,6 +58,7 @@ import {
   PhoneCall,
   Layers,
   FileSpreadsheet,
+  Mail,
 } from "lucide-react";
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
@@ -92,6 +93,7 @@ function resolveWorkspaceContext(pathname) {
     [/\/app\/commercial\/rm-mm-amc-iev/, "Commercial", "R&M / AMC / IEV"],
     [/\/app\/commercial|\/app\/manpower/, "Commercial", "Manpower & training"],
     [/\/app\/marketing/, "Go-to-market", "Marketing"],
+    [/\/app\/crm-outreach/, "Go-to-market", "Client Master & Mail Outreach"],
     [/\/app\/maintenance/, "Service", "Maintenance"],
     [/\/app\/billing|\/app\/projects-billing/, "Finance", "Billing"],
     [/\/app\/operations|\/app\/fire-tender-vehicle/, "Operations", "Sites & fleet"],
@@ -1357,6 +1359,13 @@ const Layout = () => {
             <NavLink to="all-employees" className={topNavClass}>
               <Users className="w-4 h-4 shrink-0" />
               <span className="type-body-medium type-truncate">All Employees</span>
+            </NavLink>
+            )}
+
+            {(can("crmOutreach") || can("marketing")) && (
+            <NavLink to="crm-outreach" className={topNavClass}>
+              <Mail className="w-4 h-4 shrink-0" />
+              <span className="type-body-medium type-truncate">Client Master &amp; Mail Outreach</span>
             </NavLink>
             )}
 

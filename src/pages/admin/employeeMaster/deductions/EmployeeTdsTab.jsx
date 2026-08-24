@@ -12,6 +12,7 @@ import {
   ShellBanner,
   StatusBadge,
 } from "./deductionsUi";
+import { toast } from "../../../../lib/toast";
 
 /**
  * TDS on Employee Master:
@@ -65,11 +66,11 @@ export default function EmployeeTdsTab({ tds, onChange, panHint = "" }) {
     let monthly = parseMoney(draft.monthly_amount);
     if (mode === "manual") {
       if (monthly == null || monthly < 0) {
-        alert("Enter a monthly TDS amount (0 or more) for manual mode.");
+        toast.warning("Enter a monthly TDS amount (0 or more) for manual mode.");
         return;
       }
       if (!draft.wef_month) {
-        alert("Set a W.E.F. month for manual TDS.");
+        toast.warning("Set a W.E.F. month for manual TDS.");
         return;
       }
     } else {
@@ -94,11 +95,7 @@ export default function EmployeeTdsTab({ tds, onChange, panHint = "" }) {
           : `Manual TDS ₹${round2(monthly)} / month from ${next.wef_month}`
     );
     onChange(next);
-    alert(
-      mode === "none"
-        ? "TDS stopped for this employee."
-        : "TDS settings saved for this employee."
-    );
+    toast.success(mode === "none" ? "TDS stopped." : "TDS settings saved.");
   };
 
   const stopTds = () => {
@@ -116,6 +113,7 @@ export default function EmployeeTdsTab({ tds, onChange, panHint = "" }) {
     next.history = pushHistory(next, "TDS stopped manually");
     onChange(next);
     setDraft((prev) => ({ ...prev, mode: "none", monthly_amount: "" }));
+    toast.success("TDS stopped.");
   };
 
   const feeds =

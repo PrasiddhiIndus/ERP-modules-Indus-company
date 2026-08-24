@@ -30,7 +30,7 @@ import { adminBulkDeleteUsers } from './adminBulkDeleteUserApi.js';
 import { fetchAllLeaveInboxTables } from './adminLeaveRequestsApi.js';
 import { fetchAllTourInboxTables } from './adminTourRequestsApi.js';
 import { createAuthMiddleware } from './authMiddleware.js';
-import { listUsbDscCertificatesFromWindows } from './dscUsbCertificates.js';
+import { sendCrmOutreachCampaign } from './crmOutreachSendApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -356,7 +356,7 @@ app.use(
 );
 app.use(express.json({ limit: '8mb' }));
 
-const { requireAuth, requireAdmin, requireBillingAccess, requireHrOrAdmin, requireAttendanceAdmin } =
+const { requireAuth, requireAdmin, requireBillingAccess, requireHrOrAdmin, requireAttendanceAdmin, requireCrmOutreachAccess } =
   createAuthMiddleware({
   getSupabaseUrl: getSupabaseUrlForServer,
   getServiceRoleKey: getSupabaseServiceRoleKeyForServer,
@@ -1434,6 +1434,34 @@ async function handleUsbDscCertificates(req, res) {
 
 app.get('/api/billing/dsc/usb-certificates', einvoiceRateLimit, requireBillingAccess, handleUsbDscCertificates);
 app.post('/api/billing/dsc/usb-certificates', einvoiceRateLimit, requireBillingAccess, handleUsbDscCertificates);
+
+app.post('/api/crm-outreach/send-campaign', requireCrmOutreachAccess, async (req, res) => {
+  try {
+    const supabaseAdmin = getSupabaseServiceClient(
+      getSupabaseUrlForServer,
+      getSupabaseServiceRoleKeyForServer
+    );
+    const result = await sendCrmOutreachCampaign({
+      supabaseAdmin,
+      userId: req.user?.id,
+      subject: req.body?.subject,
+      bodyTemplate: req.body?.bodyTemplate,
+      senderMailboxId: req.body?.senderMailboxId,
+      senderMail: req.body?.senderMail,
+      templateId: req.body?.templateId,
+      templateName: req.body?.templateName,
+      recipientClientIds: req.body?.recipientClientIds,
+      previewSample: req.body?.previewSample,
+    });
+    return res.json(result);
+  } catch (err) {
+    const status = Number(err?.status) || 400;
+    return res.status(status).json({
+      error: err?.message || 'Failed to send campaign.',
+      message: err?.message || 'Failed to send campaign.',
+    });
+  }
+});
 
 app.post('/api/billing/dsc/sign-pdf', einvoiceRateLimit, requireBillingAccess, async (req, res) => {
   try {

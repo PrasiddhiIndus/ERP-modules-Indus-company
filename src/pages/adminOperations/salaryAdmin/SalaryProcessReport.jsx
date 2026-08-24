@@ -14,6 +14,7 @@ import {
 } from "../../../lib/salaryPayslips";
 import { exportSalaryReportWorkbook } from "../../../lib/salaryProcessingExcel";
 import PayslipPreviewModal from "../../admin/employeeMaster/PayslipPreviewModal";
+import { toast } from "../../../lib/toast";
 
 const selectIn =
   "h-7 px-1.5 text-[11px] border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent";
@@ -143,10 +144,9 @@ export default function SalaryProcessReport() {
         (key ? getPayslipById(payslipId(key, emp.employee_master_id)) : null) ||
         (report?.run && emp.line ? buildPayslipFromLine(report.run, emp.line) : null);
       if (!slip) {
-        setError("Salary slip is not ready for this employee yet.");
+        toast.warning("Salary slip is not ready for this employee yet.");
         return;
       }
-      setError("");
       setPreview(slip);
     },
     [report]
@@ -154,16 +154,16 @@ export default function SalaryProcessReport() {
 
   const handleExport = useCallback(async () => {
     if (!reportRows.length) {
-      setError("No processed employees to download.");
+      toast.warning("No processed employees to download.");
       return;
     }
     setExporting(true);
-    setError("");
     try {
       await exportSalaryReportWorkbook(report, { groups: reportRows });
+      toast.success("Process report downloaded.");
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Excel download failed.");
+      toast.error(err?.message || "Excel download failed.");
     } finally {
       setExporting(false);
     }
