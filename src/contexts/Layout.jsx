@@ -446,7 +446,7 @@ const Layout = () => {
             )}
 
             {/* Compliance */}
-            {(can("compliance") || canAccessCompliance(userProfile, user)) && (
+            {canAccessCompliance(userProfile, user) && (
             <div>
               <button
                 onClick={() => setComplianceOpen(!complianceOpen)}

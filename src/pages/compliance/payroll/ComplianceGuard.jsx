@@ -13,7 +13,7 @@ export default function ComplianceGuard({ children }) {
     );
   }
   if (!canAccessCompliance(userProfile, user)) {
-    return <Navigate to="/app/ifsp-employee-compliance" replace />;
+    return <Navigate to="/app/dashboard" replace />;
   }
   return children;
 }

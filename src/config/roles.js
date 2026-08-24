@@ -19,7 +19,6 @@ import {
 import {
   canAccessCompliance,
   isCompliancePath,
-  COMPLIANCE_SUBMODULE_KEY,
 } from '../pages/compliance/payroll/complianceAccess';
 
 export const ROLES = {
@@ -192,8 +191,8 @@ export function canSeeSubModule(profile, accessibleModules, subModuleKey, userMe
     });
   }
 
-  // Compliance payroll (dashboard + PF/ESIC): same allowlist as Salary Admin.
-  if (subModuleKey === COMPLIANCE_SUBMODULE_KEY) {
+  // Compliance: email allowlist is the only gate (Payroll, IFSPL, General).
+  if (String(subModuleKey || "").startsWith("compliance.")) {
     return canAccessCompliance(profile, {
       email: userMetadata?.email || profile?.email,
     });
@@ -1088,7 +1087,7 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
     return canAccessSalaryAdmin(accessIdentity, accessIdentity);
   }
 
-  // Hard gate: Compliance PF/ESIC — same allowlist as Salary Admin
+  // Hard gate: Compliance (Payroll, IFSPL, General) — allowlisted emails only
   if (isCompliancePath(pathname)) {
     return canAccessCompliance(accessIdentity, accessIdentity);
   }
