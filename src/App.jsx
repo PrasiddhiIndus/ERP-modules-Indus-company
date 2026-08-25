@@ -159,6 +159,8 @@ import {
   ApiHealthDashboard,
   IndusLmsTrainings,
   MarketingDashboard,
+  LeadDashboard,
+  LeadMaster,
   EnquiryMaster,
   QuotationTracker,
   CostingSheetList,
@@ -671,6 +673,8 @@ function App() {
 
             {/* Marketing Module Routes */}
             <Route path="marketing" element={<MarketingDashboard />} />
+            <Route path="marketing/lead-dashboard" element={<LeadDashboard />} />
+            <Route path="marketing/lead-master" element={<LeadMaster />} />
             <Route path="marketing/enquiry-master" element={<EnquiryMaster />} />
             <Route path="marketing/quotation-tracker" element={<QuotationTracker />} />
             <Route path="marketing/quotation-tracker/costing" element={<CostingSheetList />} />

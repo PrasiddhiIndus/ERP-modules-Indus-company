@@ -1,0 +1,47 @@
+import { describe, it, expect } from 'vitest';
+import {
+  emptyContactPerson,
+  parseContactPersons,
+  flattenContactPersons,
+  formatPersonsSummary,
+} from '../src/pages/marketing/lib/clientContacts';
+
+describe('clientContacts', () => {
+  it('loads legacy single person + shared number lists', () => {
+    const persons = parseContactPersons({
+      primary_contact_person: 'Rahul Sharma',
+      contact_numbers: JSON.stringify(['9876543210', '02212345678']),
+      contact_emails: JSON.stringify(['rahul@acme.com']),
+    });
+    expect(persons).toHaveLength(1);
+    expect(persons[0].name).toBe('Rahul Sharma');
+    expect(persons[0].numbers).toEqual(['9876543210', '02212345678']);
+    expect(persons[0].emails).toEqual(['rahul@acme.com']);
+  });
+
+  it('keeps each person with their own numbers when grouped', () => {
+    const flat = flattenContactPersons([
+      { name: 'Rahul', numbers: ['111', '222'], emails: ['r@a.com'] },
+      { name: 'Priya', numbers: ['333'], emails: [''] },
+      emptyContactPerson(),
+    ]);
+    expect(flat.primary_contact_person).toBe('Rahul');
+    expect(flat.contact_numbers).toEqual(['111', '222', '333']);
+    expect(flat.contact_email).toBe('r@a.com');
+    expect(flat.contact_persons).toEqual([
+      { name: 'Rahul', numbers: ['111', '222'], emails: ['r@a.com'] },
+      { name: 'Priya', numbers: ['333'], emails: [] },
+    ]);
+  });
+
+  it('summarizes grouped people for the list', () => {
+    const summary = formatPersonsSummary({
+      contact_persons: JSON.stringify([
+        { name: 'Rahul', numbers: ['111'], emails: [] },
+        { name: 'Priya', numbers: ['333'], emails: ['p@a.com'] },
+      ]),
+    });
+    expect(summary.map((p) => p.name)).toEqual(['Rahul', 'Priya']);
+    expect(summary[1].emails).toEqual(['p@a.com']);
+  });
+});
