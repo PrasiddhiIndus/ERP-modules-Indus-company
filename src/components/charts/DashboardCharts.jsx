@@ -258,8 +258,10 @@ export function BarCompareChart({
   xTickFormatter,
   categoryWidth = 118,
   onBarClick,
+  activeName = null,
 }) {
   const horizontal = layout === "horizontal";
+  const highlight = activeName != null && series.length === 1;
   const moneyAxis = yTickFormatter || xTickFormatter || compactInrTick;
   const catTick = (v) => truncateLabel(v, horizontal ? 16 : 12);
 
@@ -328,7 +330,17 @@ export function BarCompareChart({
             maxBarSize={36}
             cursor={onBarClick ? "pointer" : "default"}
             onClick={(entry) => onBarClick?.(entry?.payload || entry)}
-          />
+          >
+            {highlight
+              ? data.map((d, di) => (
+                  <Cell
+                    key={di}
+                    fill={s.color || CHART_SERIES[i % CHART_SERIES.length]}
+                    fillOpacity={d[xKey] === activeName ? 1 : 0.3}
+                  />
+                ))
+              : null}
+          </Bar>
         ))}
       </BarChart>
     </ResponsiveContainer>
@@ -346,6 +358,7 @@ export function DonutChart({
   centerValue,
   formatter,
   onSliceClick,
+  activeName = null,
 }) {
   const rows = (data || []).filter((d) => (Number(d[valueKey]) || 0) > 0);
   const total = rows.reduce((a, d) => a + (Number(d[valueKey]) || 0), 0);
@@ -369,8 +382,12 @@ export function DonutChart({
             onClick={(entry) => onSliceClick?.(entry?.payload || entry)}
             style={{ cursor: onSliceClick ? "pointer" : "default" }}
           >
-            {rows.map((_, i) => (
-              <Cell key={i} fill={CHART_SERIES[i % CHART_SERIES.length]} />
+            {rows.map((row, i) => (
+              <Cell
+                key={i}
+                fill={CHART_SERIES[i % CHART_SERIES.length]}
+                fillOpacity={activeName != null && row[nameKey] !== activeName ? 0.3 : 1}
+              />
             ))}
           </Pie>
           <Tooltip content={<ChartTooltip formatter={formatter} />} />
