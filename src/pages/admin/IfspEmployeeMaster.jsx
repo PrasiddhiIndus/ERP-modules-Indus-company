@@ -59,6 +59,12 @@ import {
 import { toast } from '../../lib/toast';
 import EmployeeMasterPersonalForm from './employeeMaster/EmployeeMasterPersonalForm';
 
+function isInHouseEmployeeType(row) {
+  const value = String(row?.employee_type ?? "").trim().toLowerCase();
+  if (!value) return true;
+  return value === "in_house";
+}
+
 /** Default list view — identify and act on employees without exposing the full master record. */
 const EMPLOYEE_LIST_SUMMARY_FIELDS = new Set([
   "employee_id",
@@ -1495,6 +1501,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   };
 
   const filteredEmployees = useMemo(() => employees.filter((employee) => {
+    if (!isInHouseEmployeeType(employee)) return false;
     if (!isActiveEmployeeRow(employee)) return false;
 
     const st = searchTerm.trim().toLowerCase();

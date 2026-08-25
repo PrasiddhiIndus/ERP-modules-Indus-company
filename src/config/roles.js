@@ -81,7 +81,8 @@ export function normalizeAccessProfile(profile) {
  * Handles three cases:
  *   1. Standard 2-segment key (e.g. "hr.attendance") → adds pathPrefix from NAV_MODULE_TREE.
  *   2. Parent recruitment key "hr.calling-master" without full hr module →
- *      adds all workflow tab paths (implies all non-admin tabs).
+ *      adds workflow tab paths (implies all non-admin, non-opt-in tabs).
+ *      Opt-in tabs (e.g. hr.recruitment.referral) are never implied by the parent.
  *   3. 3-segment tab key (e.g. "hr.recruitment.candidates") without full hr module AND
  *      without the parent hr.calling-master key → adds only that tab's exact path.
  *
@@ -137,7 +138,7 @@ export function getAccessibleSubModulePaths(profile, userMetadata = null) {
     // --- Parent recruitment key hr.calling-master (2-segment) ---
     if (subKey === "hr.calling-master") {
       if (hasFullHr && !restrictRecruitment) continue;
-      // Imply all workflow tab paths (not dropdown-master — that requires Admin role).
+      // Imply workflow tab paths (not dropdown-master, not opt-in tabs such as referral).
       for (const tabKey of RECRUITMENT_WORKFLOW_KEYS) {
         const tabPath = RECRUITMENT_TAB_PATHS[tabKey];
         if (tabPath) paths.add(tabPath);
@@ -260,7 +261,8 @@ export const TEAMS = [
  * Tab-level keys use a 3-segment format: "<moduleKey>.<subModuleKey>.<tabKey>".
  * Example: "hr.recruitment.candidates" → /app/hr/calling-master/candidates
  * A 3-segment key is stored in allowed_sub_modules exactly like 2-segment ones.
- * The parent 2-segment key (hr.calling-master) implies all its tab children.
+ * The parent 2-segment key (hr.calling-master) implies workflow tab children
+ * (not admin-only or opt-in tabs such as hr.recruitment.referral).
  */
 
 /**
@@ -268,10 +270,12 @@ export const TEAMS = [
  * Used in CallingMasterLayout to filter visible tabs, and in access helpers below.
  * "dropdown-master" is flagged adminOnly — it is hidden from Executive/Manager regardless
  * of per-user grants, and is not included in the default parent-implies-children expansion.
+ * "referral" is flagged optIn — parent hr.calling-master does not grant it.
  */
 export const RECRUITMENT_TAB_KEYS = [
   { value: "hr.recruitment.dashboard",        label: "Dashboard",        tabTo: ".",                 end: true  },
   { value: "hr.recruitment.candidates",        label: "Candidates",       tabTo: "candidates"                   },
+  { value: "hr.recruitment.referral",          label: "Add Referral",     tabTo: "referral",          optIn: true },
   { value: "hr.recruitment.offer-generation",  label: "Offer Generation", tabTo: "offer-generation"             },
   { value: "hr.recruitment.offer-response",    label: "Offer Response",   tabTo: "offer-response"               },
   { value: "hr.recruitment.joining",           label: "Joining",          tabTo: "joining"                      },
@@ -280,10 +284,50 @@ export const RECRUITMENT_TAB_KEYS = [
   { value: "hr.recruitment.dropdown-master",   label: "Dropdown Master",  tabTo: "dropdown-master",  adminOnly: true },
 ];
 
-/** All workflow tab keys (non-admin). These are granted when the parent hr.calling-master is set. */
+/** All workflow tab keys (non-admin, non-opt-in). Granted when the parent hr.calling-master is set. */
 export const RECRUITMENT_WORKFLOW_KEYS = RECRUITMENT_TAB_KEYS
-  .filter((t) => !t.adminOnly)
+  .filter((t) => !t.adminOnly && !t.optIn)
   .map((t) => t.value);
+
+export function isRecruitmentOptInTabKey(value) {
+  return RECRUITMENT_TAB_KEYS.some((t) => t.value === value && t.optIn);
+}
+
+/**
+ * Toggle a recruitment parent or tab key in allowed_sub_modules.
+ * Opt-in tabs are independent of the parent (checking parent does not add/remove them).
+ * Returns null when subValue is not a recruitment access key.
+ */
+export function toggleRecruitmentAccessKey(currentSubModules, subValue) {
+  const list = Array.isArray(currentSubModules) ? [...currentSubModules] : [];
+  const isRecruitment =
+    subValue === "hr.calling-master" || ALL_RECRUITMENT_TAB_KEYS.includes(subValue);
+  if (!isRecruitment) return null;
+
+  const has = list.includes(subValue);
+
+  if (subValue === "hr.calling-master") {
+    if (!has) {
+      const kept = list.filter(
+        (s) => s !== "hr.calling-master" && !RECRUITMENT_WORKFLOW_KEYS.includes(s)
+      );
+      return [...kept, "hr.calling-master", ...RECRUITMENT_WORKFLOW_KEYS];
+    }
+    return list.filter(
+      (s) => s !== "hr.calling-master" && !RECRUITMENT_WORKFLOW_KEYS.includes(s)
+    );
+  }
+
+  if (isRecruitmentOptInTabKey(subValue)) {
+    return has ? list.filter((s) => s !== subValue) : [...list, subValue];
+  }
+
+  if (!has) {
+    const withoutParent = list.filter((s) => s !== "hr.calling-master");
+    return [...withoutParent, subValue];
+  }
+  return list.filter((s) => s !== subValue);
+}
 
 /** All tab keys including the admin-only one. */
 export const ALL_RECRUITMENT_TAB_KEYS = RECRUITMENT_TAB_KEYS.map((t) => t.value);
@@ -324,7 +368,9 @@ export function getRecruitmentRestrictionKeys(profile, userMetadata = null) {
 }
 
 export function hasRecruitmentTabRestrictions(profile, userMetadata = null) {
-  return getRecruitmentRestrictionKeys(profile, userMetadata).length > 0;
+  return getRecruitmentRestrictionKeys(profile, userMetadata).some(
+    (k) => k === "hr.calling-master" || !isRecruitmentOptInTabKey(k)
+  );
 }
 
 function recruitmentPathMatches(pathname, prefixPath) {
@@ -367,6 +413,11 @@ export function canSeeRecruitmentTab(tabDef, profile, accessibleModules, userMet
 
   const subMods = getEffectiveAllowedSubModules(profile, userMetadata);
   const restricted = hasRecruitmentTabRestrictions(profile, userMetadata);
+
+  if (tabDef?.optIn) {
+    if (accessibleModules?.has("hr") && !restricted) return true;
+    return subMods.includes(tabDef.value);
+  }
 
   if (accessibleModules?.has("hr") && !restricted) return true;
 
@@ -413,14 +464,15 @@ export const NAV_MODULE_TREE = [
         value: "hr.calling-master",
         label: "Recruitment",
         pathPrefix: "/app/hr/calling-master",
-        // tabModules lists the per-tab keys shown in the 3rd level of ModuleAccessTree.
-        // Checking the parent (hr.calling-master) implies all workflow tabs; unchecking it
-        // reveals individual tab checkboxes. adminOnly tabs are hidden from this picker
-        // because Dropdown Master is always controlled by role, not per-user grant.
+        // Checking the parent (hr.calling-master) implies workflow tabs only.
+        // Opt-in tabs (Add Referral) must be granted with hr.recruitment.referral.
+        // adminOnly tabs are hidden from this picker because Dropdown Master is
+        // always controlled by role, not per-user grant.
         tabModules: RECRUITMENT_TAB_KEYS.filter((t) => !t.adminOnly).map((t) => ({
           value: t.value,
           label: t.label,
           pathPrefix: RECRUITMENT_TAB_PATHS[t.value],
+          optIn: Boolean(t.optIn),
         })),
       },
       { value: "hr.attendance",          label: "Attendance",         pathPrefix: "/app/attendance" },

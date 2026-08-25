@@ -6,6 +6,8 @@ import {
   confirmCandidateIom,
   convertCandidateToEmployeeMaster,
   createDropdownOption,
+  createReferralCandidate,
+  fetchCallingByEmployees,
   deleteCallingCandidates,
   deleteDropdownOptionRow,
   flagCandidateNoShow,
@@ -195,4 +197,14 @@ export async function convertToEmployeeMaster(id) {
   const result = await convertCandidateToEmployeeMaster(id);
   notify(CALLING_MASTER_RECORDS_EVENT);
   return result;
+}
+
+export async function loadCallingByEmployees() {
+  return fetchCallingByEmployees();
+}
+
+export async function saveReferralCandidate(record) {
+  const saved = await createReferralCandidate(record);
+  notify(CALLING_MASTER_RECORDS_EVENT);
+  return saved;
 }

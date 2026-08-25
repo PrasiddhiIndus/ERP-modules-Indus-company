@@ -1053,6 +1053,9 @@ export const ACTIVITY_DESCRIPTORS = {
       return result(`recalculated all leave entitlements${year != null ? ` for ${year}` : ''}`, 'RPC', year != null ? String(year) : null)
     },
   },
+  'rpc:hr_calling_create_referral_candidate': {
+    RPC: () => result('created calling-master referral candidate', 'RPC', null),
+  },
   'rpc:hr_calling_allocate_offer_codes': {
     RPC: () => result('allocated calling-master offer codes', 'RPC', null),
   },

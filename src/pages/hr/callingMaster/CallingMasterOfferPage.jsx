@@ -35,7 +35,7 @@ import {
   saveOfferAndAllocateCodes,
   saveSelectedOfferDetails,
 } from "./callingMasterStorage";
-import { hasOfferLetterBeenGenerated, isValidOfferEmployeeCode, offerResponseLabel } from "./callingMasterApi";
+import { hasOfferLetterBeenGenerated, isReferralCandidate, isValidOfferEmployeeCode, offerResponseLabel } from "./callingMasterApi";
 
 function offerStatusLabel(row) {
   const status = String(row?.offerStatus || "").trim();
@@ -90,6 +90,7 @@ export default function CallingMasterOfferPage() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [sourceFilter, setSourceFilter] = useState("All");
   const [modalMode, setModalMode] = useState(null); // 'view' | 'edit' | null
   const [activeRow, setActiveRow] = useState(null);
   const [form, setForm] = useState(emptyOfferDetailValues());
@@ -139,6 +140,8 @@ export default function CallingMasterOfferPage() {
           return false;
         }
       }
+      if (sourceFilter === "Referral" && !isReferralCandidate(row)) return false;
+      if (sourceFilter === "Calling" && isReferralCandidate(row)) return false;
       if (!q) return true;
       const hay = [
         row.candidateName,
@@ -153,7 +156,7 @@ export default function CallingMasterOfferPage() {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [records, search, statusFilter]);
+  }, [records, search, statusFilter, sourceFilter]);
 
   const openModal = (row, mode) => {
     const details = offerDetailsFromCandidate(row);
@@ -329,8 +332,11 @@ export default function CallingMasterOfferPage() {
       label: "Candidate",
       widthClassName: "w-[168px] min-w-[168px] max-w-[168px]",
       render: (row) => (
-        <span className="block truncate font-medium" title={row.candidateName || undefined}>
-          {row.candidateName || "—"}
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 flex-1 truncate font-medium" title={row.candidateName || undefined}>
+            {row.candidateName || "—"}
+          </span>
+          {isReferralCandidate(row) ? <StatusChip label="Referral" severity="info" /> : null}
         </span>
       ),
     },
@@ -480,6 +486,14 @@ export default function CallingMasterOfferPage() {
               <option value="Accepted">Accepted</option>
               <option value="Declined">Declined</option>
               <option value="Expired">Expired</option>
+            </TinySelect>
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] text-slate-600">
+            Source
+            <TinySelect value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+              <option value="All">All</option>
+              <option value="Calling">Calling</option>
+              <option value="Referral">Referral</option>
             </TinySelect>
           </label>
         </FilterBar>

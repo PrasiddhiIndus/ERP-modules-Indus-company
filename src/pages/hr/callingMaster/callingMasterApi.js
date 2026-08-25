@@ -127,6 +127,12 @@ export function mapCandidateFromDb(row) {
     followUpDate: row.follow_up_date || "",
     recruiterNotes: row.recruiter_notes || "",
     hiringStatus: row.hiring_status || "",
+    candidateSource: normalizeCandidateSource(row.candidate_source),
+    referredByEmployeeId:
+      row.referred_by_employee_id == null || row.referred_by_employee_id === ""
+        ? null
+        : Number(row.referred_by_employee_id),
+    referredByNote: row.referred_by_note || "",
     offerStatus: normalizeOfferStatus(row.offer_status),
     joiningDate: row.joining_date || "",
     offerRespondedAt: row.offer_responded_at || "",
@@ -212,6 +218,14 @@ export function normalizeOfferSalutation(value) {
   const v = String(value || "").trim();
   if (v === "Ms." || v === "Mrs.") return v;
   return "Mr.";
+}
+
+export function normalizeCandidateSource(value) {
+  return String(value || "").trim() === "Referral" ? "Referral" : "Calling";
+}
+
+export function isReferralCandidate(row) {
+  return normalizeCandidateSource(row?.candidateSource ?? row?.candidate_source) === "Referral";
 }
 
 export function normalizeOfferStatus(value) {
@@ -454,17 +468,30 @@ export async function deleteCallingCandidates(ids) {
   return list;
 }
 
-/** Active HR employees used for Calling By. */
-export async function fetchCallingByFullNames() {
+/** Active HR employees used for Calling By (names) and Referred By (ids). */
+export async function fetchCallingByEmployees() {
   const { data, error } = await supabase
     .from(EMPLOYEE_MASTER_TABLE)
-    .select("full_name, department, status")
+    .select("id, full_name, employee_code, department, status")
     .eq("status", "Active")
     .in("department", CALLING_BY_DEPARTMENTS)
     .order("full_name", { ascending: true });
 
   if (error) throw new Error(friendlyError(error, "Unable to load Calling By names."));
-  return uniqueSortedLabels((data || []).map((row) => row.full_name));
+  return (data || [])
+    .map((row) => ({
+      id: row.id,
+      fullName: String(row.full_name || "").trim(),
+      employeeCode: String(row.employee_code || "").trim(),
+      department: String(row.department || "").trim(),
+    }))
+    .filter((row) => row.id != null && row.fullName);
+}
+
+/** Active HR employees used for Calling By. */
+export async function fetchCallingByFullNames() {
+  const employees = await fetchCallingByEmployees();
+  return uniqueSortedLabels(employees.map((row) => row.fullName));
 }
 
 /** Site names from public.sites for Site Suitable. */
@@ -1077,4 +1104,45 @@ export async function convertCandidateToEmployeeMaster(id) {
     employeeId: result?.employee_id || "",
     employeeCode: result?.employee_code || "",
   };
+}
+
+/** Insert a referral candidate at Selected without allocating offer codes. */
+export async function createReferralCandidate(record) {
+  const phone = String(record.phoneNumber || "").replace(/\D/g, "");
+  const referrerId =
+    record.referredByEmployeeId == null || record.referredByEmployeeId === ""
+      ? null
+      : Number(record.referredByEmployeeId);
+
+  const { data, error } = await supabase.rpc("hr_calling_create_referral_candidate", {
+    p_payload: {
+      candidate_name: toText(record.candidateName),
+      phone_number: phone,
+      cv_submitted: toText(record.cvSubmitted),
+      academic_qualification: toText(record.academicQualification),
+      fire_course: toText(record.fireCourse),
+      currently_working: toText(record.currentlyWorking),
+      designation: toText(record.designation),
+      company: toText(record.company),
+      salary_gross: record.salaryGross === "" || record.salaryGross == null ? "" : String(record.salaryGross),
+      site_suitable: toText(record.siteSuitable),
+      attachments: normalizeCallingAttachments(record.attachments),
+      referred_by_employee_id: referrerId == null || !Number.isFinite(referrerId) ? "" : String(referrerId),
+      referred_by_note: toText(record.referredByNote),
+      father_name: toText(record.fatherName),
+      address_line: toText(record.addressLine),
+      address_district: toText(record.addressDistrict),
+      address_state: toText(record.addressState),
+      address_pincode: toText(record.addressPincode),
+      duty_pattern: normalizeDutyPattern(record.dutyPattern),
+      site_full_name: toText(record.siteFullName),
+      site_code: toText(record.siteCode).toUpperCase(),
+      joining_date: record.joiningDate || "",
+      offer_salutation: normalizeOfferSalutation(record.offerSalutation),
+    },
+  });
+
+  if (error) throw new Error(friendlyError(error, "Unable to add referral candidate."));
+  const row = Array.isArray(data) ? data[0] : data;
+  return mapCandidateFromDb(row);
 }
