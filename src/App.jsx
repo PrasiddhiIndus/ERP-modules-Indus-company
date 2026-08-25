@@ -153,6 +153,7 @@ import {
   FireTenderManufacturing,
   AMC,
   Settings,
+  CrmOutreach,
   UserManagement,
   SoftwareSubscriptions,
   ApiHealthDashboard,
@@ -706,6 +707,8 @@ function App() {
             <Route path="maintenance/expo-seminar" element={<MaintenanceExpoSeminar />} />
             <Route path="maintenance/gst-upload" element={<MaintenanceGSTUpload />} />
             <Route path="maintenance/reports-analytics" element={<MaintenanceReports />} />
+
+            <Route path="crm-outreach" element={<CrmOutreach />} />
 
             {/* Super Admin-only modules */}
             <Route path="user-management" element={<UserManagement />} />

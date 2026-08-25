@@ -13,6 +13,7 @@ import {
   saveCustomComponentAmounts,
   suggestComponentCode,
 } from "./salaryComponentsCatalog";
+import { toast } from "../../../lib/toast";
 
 const inputCls =
   "h-8 w-full border border-slate-200 rounded-md px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-accent/30";
@@ -88,8 +89,6 @@ export default function PersonSalaryComponentsPanel({
   onChanged,
 }) {
   const [personComponents, setPersonComponents] = useState([]);
-  const [notice, setNotice] = useState("");
-  const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(() => blankForm());
   const [editingId, setEditingId] = useState(null);
@@ -101,8 +100,6 @@ export default function PersonSalaryComponentsPanel({
       return undefined;
     }
     setPersonComponents(loadPersonComponents(employeeId));
-    setNotice("");
-    setError("");
     (async () => {
       try {
         const rows = await hydratePersonComponents(employeeId);
@@ -122,11 +119,11 @@ export default function PersonSalaryComponentsPanel({
       try {
         const saved = await persistPersonComponents(employeeId, next);
         setPersonComponents(saved);
-        setError("");
         onChanged?.();
+        return true;
       } catch (err) {
         console.error("Person components save failed", err);
-        setError(
+        toast.error(
           err?.message
             ? `Could not save to database: ${err.message}`
             : "Could not save components to the database."
@@ -134,6 +131,7 @@ export default function PersonSalaryComponentsPanel({
         // Still keep local so CTC sheet works
         setPersonComponents(Array.isArray(next) ? next : []);
         onChanged?.();
+        return false;
       }
     },
     [employeeId, onChanged]
@@ -160,7 +158,6 @@ export default function PersonSalaryComponentsPanel({
     draft.sort_order = nextSortOrder(personComponents, "PART_A");
     setForm(draft);
     setModalOpen(true);
-    setError("");
   };
 
   const openEdit = (row) => {
@@ -178,7 +175,6 @@ export default function PersonSalaryComponentsPanel({
       sort_order: row.sort_order || 0,
     });
     setModalOpen(true);
-    setError("");
   };
 
   const handleSaveForm = async (e) => {
@@ -188,20 +184,20 @@ export default function PersonSalaryComponentsPanel({
     const name = String(form.name || "").trim();
     const parentChoice = normalizeParentChoice(form.parent_code);
     if (!code) {
-      setError("Enter a short code (e.g. CON).");
+      toast.warning("Enter a short code (e.g. CON).");
       return;
     }
     if (isCtcOptionalPresetCode(code)) {
-      setError("LTA, FOOD, and VPI are added with the checkboxes on the CTC sheet.");
+      toast.warning("LTA, FOOD, and VPI are added with the checkboxes on the CTC sheet.");
       return;
     }
     if (!name) {
-      setError("Enter a component name.");
+      toast.warning("Enter a component name.");
       return;
     }
     const clash = personComponents.find((c) => c.code === code && c.id !== editingId);
     if (clash) {
-      setError(`This employee already has ${code}.`);
+      toast.warning(`This employee already has ${code}.`);
       return;
     }
 
@@ -211,7 +207,7 @@ export default function PersonSalaryComponentsPanel({
     if (editingId) {
       // Edit always targets one existing row — Part A or Part B only
       const parent = parentChoice === "PART_B" ? "PART_B" : "PART_A";
-      await persistPerson(
+      const ok = await persistPerson(
         personComponents.map((c) =>
           c.id === editingId
             ? {
@@ -230,16 +226,16 @@ export default function PersonSalaryComponentsPanel({
             : c
         )
       );
-      setNotice(`Updated ${code}. Enter monthly / P.A. on the CTC sheet above.`);
+      if (ok) toast.success(`Updated ${code}`);
     } else if (parentChoice === "BOTH") {
       const codeB = twinPartBCode(code, knownCodes);
       if (isCtcOptionalPresetCode(codeB)) {
-        setError("Could not create a Part B code. Try a different code.");
+        toast.warning("Could not create a Part B code. Try a different code.");
         return;
       }
       const sortA = nextSortOrder(personComponents, "PART_A");
       const sortB = nextSortOrder(personComponents, "PART_B");
-      await persistPerson([
+      const ok = await persistPerson([
         ...personComponents,
         {
           id: newComponentId(),
@@ -274,12 +270,10 @@ export default function PersonSalaryComponentsPanel({
           updated_at: now,
         },
       ]);
-      setNotice(
-        `${code} (Part A) and ${codeB} (Part B) added. Enter monthly / P.A. on each CTC section, then Save CTC.`
-      );
+      if (ok) toast.success(`Added ${code} (Part A) and ${codeB} (Part B)`);
     } else {
       const parent = parentChoice === "PART_B" ? "PART_B" : "PART_A";
-      await persistPerson([
+      const ok = await persistPerson([
         ...personComponents,
         {
           id: newComponentId(),
@@ -298,22 +292,18 @@ export default function PersonSalaryComponentsPanel({
           updated_at: now,
         },
       ]);
-      setNotice(
-        `${code} added under ${parent === "PART_B" ? "Part B" : "Part A"}. Enter monthly / P.A. on the CTC sheet, then Save CTC.`
-      );
+      if (ok) toast.success(`Added ${code}`);
     }
     setModalOpen(false);
-    window.setTimeout(() => setNotice(""), 4000);
   };
 
   const handleDelete = async (row) => {
     if (!window.confirm(`Remove ${row.code} — ${row.name} from this CTC?`)) return;
-    await persistPerson(personComponents.filter((c) => c.id !== row.id));
+    const ok = await persistPerson(personComponents.filter((c) => c.id !== row.id));
     const amts = { ...loadCustomComponentAmounts(employeeId) };
     delete amts[row.code];
     saveCustomComponentAmounts(employeeId, amts);
-    setNotice(`Removed ${row.code}.`);
-    window.setTimeout(() => setNotice(""), 3500);
+    if (ok) toast.success(`Removed ${row.code}`);
   };
 
   if (!employeeId) return null;
@@ -335,15 +325,6 @@ export default function PersonSalaryComponentsPanel({
       </div>
 
       <div className="px-4 sm:px-6 py-3 space-y-3">
-        {error ? (
-          <p className="text-xs text-red-600 rounded border border-red-100 bg-red-50 px-2.5 py-1.5">{error}</p>
-        ) : null}
-        {notice ? (
-          <p className="text-xs text-emerald-800 rounded border border-emerald-100 bg-emerald-50 px-2.5 py-1.5">
-            {notice}
-          </p>
-        ) : null}
-
         {!personTree.length ? (
           <p className="text-[11px] text-ink-muted py-2">
             No extra components yet. Use Add component above, or tick LTA / Food coupon / Variable

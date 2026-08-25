@@ -21,6 +21,7 @@ import {
   filterOvertimeRows,
   LATE_PUNCH_IN_THRESHOLD,
 } from "../../lib/attendanceReports";
+import { toast } from "../../lib/toast";
 
 const REPORT_TABS = [
   { id: "employee", label: "Employee reports" },
@@ -87,7 +88,6 @@ export default function AdminOpsReports() {
   const [departmentOptions, setDepartmentOptions] = useState([]);
   const [employeeRows, setEmployeeRows] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [hasRun, setHasRun] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -130,11 +130,10 @@ export default function AdminOpsReports() {
     const from = attendanceReportType === "daily" ? reportDate : fromDate;
     const to = attendanceReportType === "daily" ? reportDate : toDate;
     if (!from || !to) {
-      setError("Choose valid from and to dates.");
+      toast.warning("Choose valid from and to dates.");
       return;
     }
     setLoading(true);
-    setError("");
     setPage(1);
     try {
       const code = empCodeFilter.trim() || "ALL";
@@ -178,7 +177,7 @@ export default function AdminOpsReports() {
       setHasRun(true);
     } catch (err) {
       setEmployeeRows([]);
-      setError(formatAttendanceSupabaseError(err));
+      toast.error(formatAttendanceSupabaseError(err));
     } finally {
       setLoading(false);
     }
@@ -198,11 +197,10 @@ export default function AdminOpsReports() {
 
   const runLegacySingleDay = useCallback(async () => {
     if (!reportDate) {
-      setError("Choose a valid date.");
+      toast.warning("Choose a valid date.");
       return;
     }
     setLoading(true);
-    setError("");
     setPage(1);
     try {
       const code = empCodeFilter.trim();
@@ -223,7 +221,7 @@ export default function AdminOpsReports() {
       setHasRun(true);
     } catch (err) {
       setEmployeeRows([]);
-      setError(formatAttendanceSupabaseError(err));
+      toast.error(formatAttendanceSupabaseError(err));
     } finally {
       setLoading(false);
     }
@@ -251,7 +249,6 @@ export default function AdminOpsReports() {
     }
     setHasRun(true);
     setEmployeeRows([]);
-    setError("");
   };
 
   const handleExport = () => {
@@ -334,7 +331,6 @@ export default function AdminOpsReports() {
               onClick={() => {
                 setActiveTab(tab.id);
                 setHasRun(false);
-                setError("");
                 setNameSearch("");
                 setDepartmentFilter("ALL");
                 setPage(1);
@@ -532,10 +528,6 @@ export default function AdminOpsReports() {
             Flags days with worked time over <strong>{WORKING_HOURS_LONG_THRESHOLD_MIN / 60} hours</strong> (first punch in,
             last punch out).
           </p>
-        ) : null}
-
-        {error ? (
-          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</div>
         ) : null}
 
         {activeTab === "employee" ? (

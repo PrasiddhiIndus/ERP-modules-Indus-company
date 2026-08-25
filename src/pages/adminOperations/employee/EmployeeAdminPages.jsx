@@ -44,6 +44,7 @@ import {
   // mockExits,
 } from "../data/mockAdminData";
 import { fetchApiHealth, fetchApiWithAuth, fetchAttendanceApiStatus } from "../../../lib/apiBase";
+import { toast } from "../../../lib/toast";
 
 const tabs = ["Personal", "Employment", "Salary", "Compliance", "Documents", "Leave", "Attendance", "Exit status"];
 
@@ -527,7 +528,6 @@ export function EmployeeAttendanceInputsPage() {
       persist: "1",
     });
     setSyncing(true);
-    setError("");
     try {
       // Server fetches eTimeOffice and upserts with service role — avoids browser REST timeouts.
       const result = await fetchApiWithAuth(`/api/admin/attendance/punches?${params.toString()}`, {
@@ -537,7 +537,6 @@ export function EmployeeAttendanceInputsPage() {
       if (!result.ok) {
         if (isAttendanceSessionAuthFailure({ message: result.error }, { status: result.status }, data)) {
           console.warn("[Raw Attendance] Sync auth notice:", result.error || data.message || data.error);
-          setError("");
           await loadAttendanceFromTable();
           return;
         }
@@ -588,14 +587,13 @@ export function EmployeeAttendanceInputsPage() {
       const formatted = formatAttendanceApiError(err);
       if (!formatted || isAttendanceSessionAuthFailure(err)) {
         console.warn("[Raw Attendance] Sync notice:", err?.message || err);
-        setError("");
         try {
           await loadAttendanceFromTable();
         } catch {
           /* ignore reload errors */
         }
       } else {
-        setError(formatted);
+        toast.error(formatted);
       }
     } finally {
       setSyncing(false);

@@ -295,6 +295,7 @@ export const CompliancePayrollProcessPage = lazy(
 export const FireTenderManufacturing = lazy(() => import("../pages/fireTenderManufacturing/FireTenderManufacturing"));
 export const AMC = lazy(() => import("../pages/amc/AMC"));
 export const Settings = lazy(() => import("../pages/Settings"));
+export const CrmOutreach = lazy(() => import("../pages/crmOutreach/CrmOutreach"));
 export const UserManagement = lazy(() => import("../pages/UserManagement"));
 export const SoftwareSubscriptions = lazy(() => import("../pages/SoftwareSubscriptions"));
 export const ApiHealthDashboard = lazy(() => import("../pages/apiMonitoring/ApiHealthDashboard"));

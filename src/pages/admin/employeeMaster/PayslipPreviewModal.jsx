@@ -4,6 +4,7 @@ import { Download } from "lucide-react";
 import { Modal } from "../../adminOperations/components/AdminUi";
 import { downloadBlob, exportNodeToPdfBlob } from "../../../lib/exportNodeToPdf";
 import PayslipTemplate from "./PayslipTemplate";
+import { toast } from "../../../lib/toast";
 
 export default function PayslipPreviewModal({ payslip, onClose, profileHref }) {
   const ref = useRef(null);
@@ -16,9 +17,10 @@ export default function PayslipPreviewModal({ payslip, onClose, profileHref }) {
       const name = `Payslip_${payslip.employee_code || "EMP"}_${payslip.month_key || "month"}.pdf`;
       const blob = await exportNodeToPdfBlob(ref.current, { marginMm: 6 });
       downloadBlob(blob, name);
+      toast.success("Payslip PDF downloaded.");
     } catch (err) {
       console.error(err);
-      window.alert(err?.message || "Could not download payslip PDF.");
+      toast.error(err?.message || "Failed to download payslip PDF.");
     } finally {
       setBusy(false);
     }

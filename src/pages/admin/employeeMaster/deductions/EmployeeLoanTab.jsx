@@ -27,6 +27,7 @@ import {
   SecondaryButton,
   StatusBadge,
 } from "./deductionsUi";
+import { toast } from "../../../../lib/toast";
 
 function blankLoanForm() {
   return {
@@ -54,7 +55,6 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
   const [recoverMonth, setRecoverMonth] = useState(currentYm());
   const [recoverDate, setRecoverDate] = useState(new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
 
   const activeCount = useMemo(
     () => loans.filter((l) => l.status === "active").length,
@@ -68,13 +68,12 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
   const openCreate = () => {
     setEditingId(null);
     setForm(blankLoanForm());
-    setError("");
     setShowForm(true);
   };
 
   const openEdit = (loan) => {
     if (loan.status === "closed") {
-      alert("Closed loans are frozen and no longer update salary processing.");
+      toast.warning("Closed loans are frozen and cannot be edited.");
       return;
     }
     setEditingId(loan.id);
@@ -87,7 +86,6 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
       entry_date: loan.entry_date || new Date().toISOString().slice(0, 10),
       remarks: loan.remarks || "",
     });
-    setError("");
     setShowForm(true);
   };
 
@@ -104,24 +102,24 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
     const months = Math.max(0, Math.floor(Number(form.months) || 0));
     const emi = parseMoney(form.emi) ?? 0;
     if (!editingId && (principal == null || principal <= 0)) {
-      alert("Enter a loan principal greater than zero.");
+      toast.warning("Enter a loan principal greater than zero.");
       return;
     }
     if (!editingId && months <= 0) {
-      alert("Enter EMI tenure in months (e.g. 3).");
+      toast.warning("Enter EMI tenure in months (e.g. 3).");
       return;
     }
     if (months > 0 && emi <= 0) {
-      alert("Enter an EMI amount, or set months to 0 to stop salary deduction.");
+      toast.warning("Enter an EMI amount, or set months to 0 to stop salary deduction.");
       return;
     }
     if (!form.start_month) {
-      alert("Set a start month.");
+      toast.warning("Set a start month.");
       return;
     }
 
     setBusy(true);
-    setError("");
+    const wasEditing = Boolean(editingId);
     try {
       if (editingId) {
         await updateLoan(editingId, {
@@ -146,9 +144,10 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
       setEditingId(null);
       setForm(blankLoanForm());
       await refresh();
+      toast.success(wasEditing ? "Loan updated." : "Loan saved.");
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Could not save loan.");
+      toast.error(err?.message || "Failed to save loan.");
     } finally {
       setBusy(false);
     }
@@ -164,13 +163,13 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
       if (!ok) return;
     }
     setBusy(true);
-    setError("");
     try {
       await setLoanStatus(id, status);
       await refresh();
+      toast.success(status === "closed" ? "Loan closed." : status === "hold" ? "Loan on hold." : "Loan resumed.");
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Could not update status.");
+      toast.error(err?.message || "Failed to update loan status.");
     } finally {
       setBusy(false);
     }
@@ -179,11 +178,10 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
   const applyRecovery = async (loan) => {
     const amount = parseMoney(recoverAmount);
     if (amount == null || amount <= 0) {
-      alert("Enter a recovery amount greater than zero.");
+      toast.warning("Enter a recovery amount greater than zero.");
       return;
     }
     setBusy(true);
-    setError("");
     try {
       await addLoanRecovery(loan.id, {
         amount,
@@ -195,11 +193,13 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
       await refresh();
       const nextBal = Math.max(0, round2(Number(loan.balance_outstanding) - amount));
       if (nextBal <= 0) {
-        alert("Balance cleared. Loan closed — no further salary deduction.");
+        toast.success("Loan recovered and closed.");
+      } else {
+        toast.success("Loan recovery saved.");
       }
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Could not save recovery.");
+      toast.error(err?.message || "Failed to save recovery.");
     } finally {
       setBusy(false);
     }
@@ -207,12 +207,6 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
 
   return (
     <div className="space-y-4">
-      {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-          {error}
-        </div>
-      ) : null}
-
       <SectionCard title="Loans" right={<PrimaryButton onClick={openCreate} disabled={busy}>New loan</PrimaryButton>}>
         <p className="text-xs text-gray-500 mb-3">
           {activeCount} active loan{activeCount === 1 ? "" : "s"} — EMI hits salary only inside

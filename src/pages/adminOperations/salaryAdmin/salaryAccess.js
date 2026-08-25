@@ -7,7 +7,7 @@ export const SALARY_ADMIN_ALLOWED_EMAILS = Object.freeze([
   "rahul.ifspl@gmail.com",
   "bency@indusfire.com",
   "latha@indusfire.com",
-  "vaisakh@indusfire.com",
+  "vaisakh_fire@yahoo.co.in",
 ]);
 
 /** Employee Master sections visible to non–Salary Admin users (Admin module). */
