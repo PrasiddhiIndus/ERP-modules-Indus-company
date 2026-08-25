@@ -7,6 +7,7 @@ import {
   ListChecks,
   Mail,
   PhoneCall,
+  Share2,
   UserCheck,
   UserPlus,
 } from "lucide-react";
@@ -20,6 +21,7 @@ import {
 const TAB_ICONS = {
   ".": LayoutDashboard,
   candidates: PhoneCall,
+  referral: Share2,
   "offer-generation": FileText,
   "offer-response": ClipboardCheck,
   joining: UserPlus,

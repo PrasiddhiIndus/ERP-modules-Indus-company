@@ -41,8 +41,8 @@ import {
   MODULES,
   NAV_MODULE_TREE,
   resolveTeamModuleKey,
-  RECRUITMENT_WORKFLOW_KEYS,
   ALL_RECRUITMENT_TAB_KEYS,
+  toggleRecruitmentAccessKey,
 } from "../config/roles";
 import { ChevronDown as ChevronDownIcon } from "lucide-react";
 import {
@@ -133,9 +133,11 @@ const parseAllowedSubModules = (raw) => {
  * Rules:
  *   - Checking a full module clears all sub-module/tab selections for that module.
  *   - Unchecking a full module reveals level-2 sub-module checkboxes.
- *   - Checking a level-2 parent (hr.calling-master) grants all workflow tab keys.
- *   - Unchecking hr.calling-master collapses back to no tab keys selected.
+ *   - Checking a level-2 parent (hr.calling-master) grants workflow tab keys
+ *     (not opt-in tabs such as Add Referral).
+ *   - Unchecking hr.calling-master collapses workflow tabs; opt-in keys stay.
  *   - Level-3 tab keys can be toggled individually when the parent is unchecked.
+ *   - Opt-in tabs stay visible (and independently grantable) when the parent is checked.
  */
 function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], onToggleModule, onToggleSubModule }) {
   // Tracks expanded state for both level-1 modules and level-2 sub-modules with children.
@@ -297,8 +299,34 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
                                 className="rounded border-gray-200 text-indigo-400 focus:ring-indigo-300 shrink-0"
                               />
                               <span className="text-[11px] text-gray-600">{tab.label}</span>
+                              {tab.optIn ? (
+                                <span className="text-[10px] text-indigo-500">opt-in</span>
+                              ) : null}
                             </label>
                           ))}
+                        </div>
+                      )}
+
+                      {/* Opt-in tabs remain grantable even when the parent is checked. */}
+                      {hasTabChildren && subChecked && sub.tabModules.some((t) => t.optIn) && (
+                        <div className="bg-white border-t border-gray-100 ml-5 mr-0 divide-y divide-gray-50">
+                          {sub.tabModules
+                            .filter((tab) => tab.optIn)
+                            .map((tab) => (
+                              <label
+                                key={tab.value}
+                                className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-slate-50"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={safeSubModules.includes(tab.value)}
+                                  onChange={() => onToggleSubModule(tab.value)}
+                                  className="rounded border-gray-200 text-indigo-400 focus:ring-indigo-300 shrink-0"
+                                />
+                                <span className="text-[11px] text-gray-600">{tab.label}</span>
+                                <span className="text-[10px] text-indigo-500">opt-in</span>
+                              </label>
+                            ))}
                         </div>
                       )}
                     </div>
@@ -900,33 +928,9 @@ const UserManagement = () => {
       const willAdd = !prev.allowed_sub_modules.includes(subValue);
 
       let newSubModules;
-      if (subValue === "hr.calling-master") {
-        if (willAdd) {
-          // Parent key added — also add all workflow tab keys; remove individual tab keys
-          // that are already there to avoid duplicates (parent implies all of them).
-          const withoutTabs = prev.allowed_sub_modules.filter(
-            (s) => !ALL_RECRUITMENT_TAB_KEYS.includes(s)
-          );
-          newSubModules = [...withoutTabs, "hr.calling-master", ...RECRUITMENT_WORKFLOW_KEYS];
-        } else {
-          // Parent key removed — also remove all tab keys so nothing is silently left.
-          newSubModules = prev.allowed_sub_modules.filter(
-            (s) => s !== "hr.calling-master" && !ALL_RECRUITMENT_TAB_KEYS.includes(s)
-          );
-        }
-      } else if (ALL_RECRUITMENT_TAB_KEYS.includes(subValue)) {
-        // Individual tab key toggled — ensure the parent "hr.calling-master" is NOT
-        // also in the list (a tab-level grant is more restrictive than the parent).
-        // If all workflow tabs are explicitly selected, we leave the parent absent so the
-        // Admin can still fine-tune; it's cleaner than auto-promoting to parent.
-        if (willAdd) {
-          const withoutParent = prev.allowed_sub_modules.filter(
-            (s) => s !== "hr.calling-master"
-          );
-          newSubModules = [...withoutParent, subValue];
-        } else {
-          newSubModules = prev.allowed_sub_modules.filter((s) => s !== subValue);
-        }
+      const recruitmentNext = toggleRecruitmentAccessKey(prev.allowed_sub_modules, subValue);
+      if (recruitmentNext) {
+        newSubModules = recruitmentNext;
       } else {
         newSubModules = willAdd
           ? [...prev.allowed_sub_modules, subValue]
@@ -1952,34 +1956,12 @@ const UserManagement = () => {
                         setCreateForm((prev) => {
                           const willAdd = !prev.allowed_sub_modules.includes(subValue);
                           let newSubModules;
-                          if (subValue === "hr.calling-master") {
-                            if (willAdd) {
-                              const withoutTabs = prev.allowed_sub_modules.filter(
-                                (s) => !ALL_RECRUITMENT_TAB_KEYS.includes(s)
-                              );
-                              newSubModules = [
-                                ...withoutTabs,
-                                "hr.calling-master",
-                                ...RECRUITMENT_WORKFLOW_KEYS,
-                              ];
-                            } else {
-                              newSubModules = prev.allowed_sub_modules.filter(
-                                (s) =>
-                                  s !== "hr.calling-master" &&
-                                  !ALL_RECRUITMENT_TAB_KEYS.includes(s)
-                              );
-                            }
-                          } else if (ALL_RECRUITMENT_TAB_KEYS.includes(subValue)) {
-                            if (willAdd) {
-                              const withoutParent = prev.allowed_sub_modules.filter(
-                                (s) => s !== "hr.calling-master"
-                              );
-                              newSubModules = [...withoutParent, subValue];
-                            } else {
-                              newSubModules = prev.allowed_sub_modules.filter(
-                                (s) => s !== subValue
-                              );
-                            }
+                          const recruitmentNext = toggleRecruitmentAccessKey(
+                            prev.allowed_sub_modules,
+                            subValue
+                          );
+                          if (recruitmentNext) {
+                            newSubModules = recruitmentNext;
                           } else {
                             newSubModules = willAdd
                               ? [...prev.allowed_sub_modules, subValue]

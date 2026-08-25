@@ -39,7 +39,7 @@ import {
   CALLING_PIPELINE_TABS,
   journeyStatusSeverity,
 } from "./callingMasterConfig";
-import { normalizePipelineStatus, offerResponseLabel } from "./callingMasterApi";
+import { isReferralCandidate, normalizePipelineStatus, offerResponseLabel } from "./callingMasterApi";
 import {
   deleteCallingMasterRecords,
   loadCallingMasterRecords,
@@ -360,6 +360,7 @@ export default function CallingMasterPage() {
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [pipelineTab, setPipelineTab] = useState("Calling");
   const [statusUpdatingId, setStatusUpdatingId] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("All");
 
   const loadRecords = (showLoader = true) => {
     if (showLoader) setLoading(true);
@@ -388,8 +389,13 @@ export default function CallingMasterPage() {
   const filteredRows = useMemo(() => {
     const searched = stageRecords.filter((record) => matchesSearch(record, search));
     const filtered = searched.filter((record) => matchesFilters(record, filters));
-    return sortRows(filtered, sortConfig);
-  }, [stageRecords, search, filters, sortConfig]);
+    const sourced = filtered.filter((record) => {
+      if (sourceFilter === "Referral") return isReferralCandidate(record);
+      if (sourceFilter === "Calling") return !isReferralCandidate(record);
+      return true;
+    });
+    return sortRows(sourced, sortConfig);
+  }, [stageRecords, search, filters, sortConfig, sourceFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
 
@@ -662,6 +668,14 @@ export default function CallingMasterPage() {
         </button>
       ),
       render: (row) => {
+        if (column.key === "candidateName") {
+          return (
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="min-w-0 flex-1 truncate">{row.candidateName || "—"}</span>
+              {isReferralCandidate(row) ? <StatusChip label="Referral" severity="info" /> : null}
+            </span>
+          );
+        }
         if (column.key === "callDate") return formatDateDisplay(row.callDate);
         if (column.key === "cvSubmitted") {
           return (
@@ -720,6 +734,7 @@ export default function CallingMasterPage() {
   const clearFilters = () => {
     setSearch("");
     setFilters(EMPTY_FILTERS);
+    setSourceFilter("All");
     setPage(1);
   };
 
@@ -930,6 +945,24 @@ export default function CallingMasterPage() {
                   />
                 </label>
 
+                <label className="min-w-0">
+                  <span className="mb-1 block truncate text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                    Source
+                  </span>
+                  <TinySelect
+                    value={sourceFilter}
+                    onChange={(event) => {
+                      setSourceFilter(event.target.value);
+                      setPage(1);
+                    }}
+                    className="box-border min-w-[10rem] rounded-lg border-slate-200 bg-white text-sm"
+                  >
+                    <option value="All">All</option>
+                    <option value="Calling">Calling</option>
+                    <option value="Referral">Referral</option>
+                  </TinySelect>
+                </label>
+
                 {[
                   ["callingBy", "Calling By"],
                   ["homeState", "Home State"],
@@ -1019,8 +1052,9 @@ export default function CallingMasterPage() {
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
-                              <p className="truncate text-base font-semibold text-slate-900" title={row.candidateName || "Unnamed candidate"}>
-                                {row.candidateName || "Unnamed candidate"}
+                              <p className="flex items-center gap-1.5 truncate text-base font-semibold text-slate-900" title={row.candidateName || "Unnamed candidate"}>
+                                <span className="truncate">{row.candidateName || "Unnamed candidate"}</span>
+                                {isReferralCandidate(row) ? <StatusChip label="Referral" severity="info" /> : null}
                               </p>
                               <p className="mt-1 truncate text-sm text-slate-500" title={`${row.designation || "Designation pending"}${row.company ? ` · ${row.company}` : ""}`}>
                                 {row.designation || "Designation pending"}
