@@ -3,6 +3,7 @@
  */
 
 import { formatDateDdMmYyyy } from "../utils/dateDisplay";
+import { formatPersonsSummary } from "../pages/marketing/lib/clientContacts";
 
 export const ENQUIRY_CUSTOM_FIELDS = [
   { id: "enquiryNumber", label: "Enquiry number" },
@@ -171,6 +172,10 @@ export function normalizeQuotationRow(row) {
 }
 
 export function normalizeClientRow(row) {
+  const people = formatPersonsSummary(row);
+  const names = people.map((p) => p.name).filter(Boolean);
+  const numbers = people.flatMap((p) => p.numbers).filter(Boolean);
+  const emails = people.flatMap((p) => p.emails).filter(Boolean);
   return {
     id: row.id,
     clientName: row.client_name || "",
@@ -178,9 +183,9 @@ export function normalizeClientRow(row) {
     city: row.city || "",
     state: row.state || "",
     country: row.country || "",
-    primaryContact: row.primary_contact_person || "",
-    contactNumber: formatContactList(row.contact_numbers) || row.contact_number || "",
-    contactEmail: formatContactList(row.contact_emails) || row.contact_email || "",
+    primaryContact: names.join("; ") || row.primary_contact_person || "",
+    contactNumber: numbers.join("; ") || formatContactList(row.contact_numbers) || row.contact_number || "",
+    contactEmail: emails.join("; ") || formatContactList(row.contact_emails) || row.contact_email || "",
     createdAt: row.created_at || "",
   };
 }

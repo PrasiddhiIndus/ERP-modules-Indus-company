@@ -302,6 +302,8 @@ export const IndusLmsTrainings = lazy(() => import("../pages/IndusLmsTrainings")
 
 // Marketing
 export const MarketingDashboard = lazy(() => import("../pages/marketing/MarketingDashboard"));
+export const LeadDashboard = lazy(() => import("../pages/marketing/LeadDashboard"));
+export const LeadMaster = lazy(() => import("../pages/marketing/LeadMaster"));
 export const EnquiryMaster = lazy(() => import("../pages/marketing/EnquiryMaster"));
 export const QuotationTracker = lazy(() => import("../pages/marketing/QuotationTracker"));
 export const CostingSheetList = lazy(() => import("../pages/marketing/CostingSheetList"));

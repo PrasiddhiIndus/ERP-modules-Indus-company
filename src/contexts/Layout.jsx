@@ -10,6 +10,7 @@ import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import { SALARY_SUB_NAV, HR_SALARY_BASE, HR_SALARY_DASHBOARD, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
 import { OPERATIONS_NAV, operationsNavHref, operationsNavIsActive } from "../pages/operations/navConfig";
+import { MARKETING_NAV_ITEMS } from "../pages/marketing/marketingNav";
 import PoApprovalBell from "../components/PoApprovalBell";
 import {
   LogOut,
@@ -866,50 +867,25 @@ const Layout = () => {
 
               {marketingOpen && (
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
-                  <NavLink to="/app/marketing" className={subNavClass}>
-                    <BarChart3 className="w-4 h-4 shrink-0 text-purple-600" />
-                    <span className="type-meta type-truncate">Marketing Dashboard</span>
-                  </NavLink>
-                  <NavLink to="/app/marketing/enquiry-master" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-accent" />
-                    <span className="type-meta type-truncate">Enquiry Master</span>
-                  </NavLink>
-                  <NavLink to="/app/marketing/quotation-tracker" className={subNavClass}>
-                    <RupeeIcon className="w-4 h-4 shrink-0 text-green-600" />
-                    <span className="type-meta type-truncate">Quotation Tracker</span>
-                  </NavLink>
-                  <NavLink to="/app/marketing/follow-up-planner" className={subNavClass}>
-                    <Calendar className="w-4 h-4 shrink-0 text-orange-600" />
-                    <span className="type-meta type-truncate">Follow-up Planner</span>
-                  </NavLink>
-                  <NavLink to="/app/marketing/client-master" className={subNavClass}>
-                    <Users className="w-4 h-4 shrink-0 text-indigo-600" />
-                    <span className="type-meta type-truncate">Client Master</span>
-                  </NavLink>
-                  <NavLink to="/app/marketing/product-catalog" className={subNavClass}>
-                    <Package className="w-4 h-4 shrink-0 text-yellow-600" />
-                    <span className="type-meta type-truncate">Product Catalog</span>
-                  </NavLink>
-                  <NavLink to="/app/marketing/purchase-orders" className={subNavClass}>
-                    <ShoppingCart className="w-4 h-4 shrink-0 text-pink-600" />
-                    <span className="type-meta type-truncate">Purchase Orders</span>
-                  </NavLink>
-                  <NavLink to="/app/marketing/expo-seminar" className={subNavClass}>
-                    <MapPin className="w-4 h-4 shrink-0 text-accent" />
-                    <span className="type-meta type-truncate">Expo & Seminar</span>
-                  </NavLink>
-                  <NavLink to="/app/marketing/gst-upload" className={subNavClass}>
-                    <Receipt className="w-4 h-4 shrink-0 text-teal-600" />
-                    <span className="type-meta type-truncate">GST Documents</span>
-                  </NavLink>
-                  <NavLink to="/app/marketing/mail-templates" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-accent" />
-                    <span className="type-meta type-truncate">Marketing Mail Template</span>
-                  </NavLink>
-                  <NavLink to="/app/marketing/reports-analytics" className={subNavClass}>
-                    <BarChart3 className="w-4 h-4 shrink-0 text-accent" />
-                    <span className="type-meta type-truncate">Reports & Analytics</span>
-                  </NavLink>
+                  {MARKETING_NAV_ITEMS.map((item) => {
+                    if (!canSub(item.subModule)) return null;
+                    const Icon = item.icon;
+                    return (
+                      <NavLink
+                        key={item.path}
+                        to={item.path}
+                        end={Boolean(item.end)}
+                        className={subNavClass}
+                      >
+                        {item.useRupee ? (
+                          <RupeeIcon className={`w-4 h-4 ${item.iconClass}`} />
+                        ) : Icon ? (
+                          <Icon className={`w-4 h-4 shrink-0 ${item.iconClass}`} />
+                        ) : null}
+                        <span className="type-meta type-truncate">{item.label}</span>
+                      </NavLink>
+                    );
+                  })}
                 </div>
               )}
             </div>
