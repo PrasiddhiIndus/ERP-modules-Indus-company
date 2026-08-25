@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { X, Plus, Edit2, Trash2, MoreVertical, Download, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Plus, Edit2, Trash2, MoreVertical, Download, Search, ChevronLeft, ChevronRight, User } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
-
 import { toast } from "../../lib/toast";
+import {
+  emptyClientForm,
+  emptyContactPerson,
+  parseContactPersons,
+  flattenContactPersons,
+  formatPersonsSummary,
+  parseStringList,
+} from './lib/clientContacts';
+
 const ClientMaster = () => {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -15,18 +23,7 @@ const ClientMaster = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
   const [menuOpen, setMenuOpen] = useState(null);
-  const [formData, setFormData] = useState({
-    client_name: '',
-    industry: '',
-    street_address: '',
-    city: '',
-    state: '',
-    country: 'India',
-    zip_code: '',
-    primary_contact_person: '',
-    contact_numbers: [''],
-    contact_emails: [''],
-  });
+  const [formData, setFormData] = useState(emptyClientForm());
 
   useEffect(() => {
     fetchClients(1);
@@ -34,7 +31,6 @@ const ClientMaster = () => {
   }, []);
 
   useEffect(() => {
-    // Reset + refetch when searching
     setCurrentPage(1);
     fetchClients(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -53,7 +49,6 @@ const ClientMaster = () => {
 
       const q = String(searchQuery || '').trim();
       if (q) {
-        // Search across a few common fields.
         query = query.or(
           `client_name.ilike.%${q}%,industry.ilike.%${q}%,city.ilike.%${q}%,state.ilike.%${q}%,primary_contact_person.ilike.%${q}%`
         );
@@ -72,16 +67,50 @@ const ClientMaster = () => {
     }
   };
 
+  const updatePerson = (index, patch) => {
+    setFormData((prev) => {
+      const next = [...(prev.contact_persons || [emptyContactPerson()])];
+      next[index] = { ...next[index], ...patch };
+      return { ...prev, contact_persons: next };
+    });
+  };
+
+  const updatePersonList = (personIndex, field, itemIndex, value) => {
+    setFormData((prev) => {
+      const next = [...(prev.contact_persons || [emptyContactPerson()])];
+      const list = [...(next[personIndex][field] || [''])];
+      list[itemIndex] = value;
+      next[personIndex] = { ...next[personIndex], [field]: list };
+      return { ...prev, contact_persons: next };
+    });
+  };
+
+  const addPersonListItem = (personIndex, field) => {
+    setFormData((prev) => {
+      const next = [...(prev.contact_persons || [emptyContactPerson()])];
+      next[personIndex] = {
+        ...next[personIndex],
+        [field]: [...(next[personIndex][field] || []), ''],
+      };
+      return { ...prev, contact_persons: next };
+    });
+  };
+
+  const removePersonListItem = (personIndex, field, itemIndex) => {
+    setFormData((prev) => {
+      const next = [...(prev.contact_persons || [emptyContactPerson()])];
+      const list = (next[personIndex][field] || ['']).filter((_, i) => i !== itemIndex);
+      next[personIndex] = { ...next[personIndex], [field]: list.length ? list : [''] };
+      return { ...prev, contact_persons: next };
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      
-      // Filter out empty contact numbers and emails
-      const contactNumbers = formData.contact_numbers.filter(num => num.trim() !== '');
-      const contactEmails = formData.contact_emails.filter(email => email.trim() !== '');
-      
-      // Prepare data for submission - store arrays as JSON strings for Supabase
+      const flat = flattenContactPersons(formData.contact_persons);
+
       const submitData = {
         client_name: formData.client_name,
         industry: formData.industry || null,
@@ -90,52 +119,44 @@ const ClientMaster = () => {
         state: formData.state || null,
         country: formData.country || 'India',
         zip_code: formData.zip_code || null,
-        primary_contact_person: formData.primary_contact_person || null,
-        // Store arrays as JSON strings (Supabase will handle JSONB conversion)
-        contact_numbers: contactNumbers.length > 0 ? JSON.stringify(contactNumbers) : null,
-        contact_emails: contactEmails.length > 0 ? JSON.stringify(contactEmails) : null,
-        // Keep backward compatibility - store first contact as single fields
-        contact_number: contactNumbers.length > 0 ? contactNumbers[0] : null,
-        contact_email: contactEmails.length > 0 ? contactEmails[0] : null,
+        primary_contact_person: flat.primary_contact_person,
+        contact_numbers: flat.contact_numbers.length > 0 ? JSON.stringify(flat.contact_numbers) : null,
+        contact_emails: flat.contact_emails.length > 0 ? JSON.stringify(flat.contact_emails) : null,
+        contact_number: flat.contact_number,
+        contact_email: flat.contact_email,
+        contact_persons: flat.contact_persons.length > 0 ? JSON.stringify(flat.contact_persons) : null,
       };
-      
-      if (editingClient) {
-        const { error } = await supabase
-          .from('marketing_clients')
-          .update({
-            ...submitData,
-            updated_by: user.id,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', editingClient.id);
 
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
+      const save = async (payload) => {
+        if (editingClient) {
+          return supabase
+            .from('marketing_clients')
+            .update({
+              ...payload,
+              updated_by: user.id,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', editingClient.id);
+        }
+        return supabase
           .from('marketing_clients')
           .insert([{
-            ...submitData,
+            ...payload,
             created_by: user.id,
             updated_by: user.id,
           }]);
+      };
 
-        if (error) throw error;
+      let { error } = await save(submitData);
+      if (error && /contact_persons/i.test(error.message || '')) {
+        const { contact_persons: _omit, ...withoutNewColumn } = submitData;
+        ({ error } = await save(withoutNewColumn));
       }
+      if (error) throw error;
 
       setShowForm(false);
       setEditingClient(null);
-      setFormData({
-        client_name: '',
-        industry: '',
-        street_address: '',
-        city: '',
-        state: '',
-        country: 'India',
-        zip_code: '',
-        primary_contact_person: '',
-        contact_numbers: [''],
-        contact_emails: [''],
-      });
+      setFormData(emptyClientForm());
       fetchClients(1);
     } catch (error) {
       console.error('Error saving client:', error);
@@ -145,49 +166,6 @@ const ClientMaster = () => {
 
   const handleEdit = (client) => {
     setEditingClient(client);
-    
-    // Handle contact numbers - support JSON string, array, or single value
-    let contactNumbers = [''];
-    if (client.contact_numbers) {
-      try {
-        // Try to parse as JSON first
-        if (typeof client.contact_numbers === 'string') {
-          const parsed = JSON.parse(client.contact_numbers);
-          contactNumbers = Array.isArray(parsed) ? parsed : [parsed];
-        } else if (Array.isArray(client.contact_numbers)) {
-          contactNumbers = client.contact_numbers;
-        } else {
-          contactNumbers = [client.contact_numbers];
-        }
-      } catch (e) {
-        // If not JSON, treat as single value
-        contactNumbers = [client.contact_numbers];
-      }
-    } else if (client.contact_number) {
-      contactNumbers = [client.contact_number];
-    }
-    
-    // Handle contact emails - support JSON string, array, or single value
-    let contactEmails = [''];
-    if (client.contact_emails) {
-      try {
-        // Try to parse as JSON first
-        if (typeof client.contact_emails === 'string') {
-          const parsed = JSON.parse(client.contact_emails);
-          contactEmails = Array.isArray(parsed) ? parsed : [parsed];
-        } else if (Array.isArray(client.contact_emails)) {
-          contactEmails = client.contact_emails;
-        } else {
-          contactEmails = [client.contact_emails];
-        }
-      } catch (e) {
-        // If not JSON, treat as single value
-        contactEmails = [client.contact_emails];
-      }
-    } else if (client.contact_email) {
-      contactEmails = [client.contact_email];
-    }
-    
     setFormData({
       client_name: client.client_name || '',
       industry: client.industry || '',
@@ -196,9 +174,7 @@ const ClientMaster = () => {
       state: client.state || '',
       country: client.country || 'India',
       zip_code: client.zip_code || '',
-      primary_contact_person: client.primary_contact_person || '',
-      contact_numbers: contactNumbers.length > 0 ? contactNumbers : [''],
-      contact_emails: contactEmails.length > 0 ? contactEmails : [''],
+      contact_persons: parseContactPersons(client),
     });
     setShowForm(true);
     setMenuOpen(null);
@@ -223,45 +199,17 @@ const ClientMaster = () => {
   };
 
   const handleExport = () => {
-    const exportData = clients.map(client => {
-      // Handle contact numbers - support JSON string, array, or single value
-      let contactNumbers = '';
-      if (client.contact_numbers) {
-        try {
-          if (typeof client.contact_numbers === 'string') {
-            const parsed = JSON.parse(client.contact_numbers);
-            contactNumbers = Array.isArray(parsed) ? parsed.join(', ') : parsed;
-          } else if (Array.isArray(client.contact_numbers)) {
-            contactNumbers = client.contact_numbers.join(', ');
-          } else {
-            contactNumbers = client.contact_numbers;
-          }
-        } catch (e) {
-          contactNumbers = client.contact_numbers;
-        }
-      } else if (client.contact_number) {
-        contactNumbers = client.contact_number;
-      }
-      
-      // Handle contact emails - support JSON string, array, or single value
-      let contactEmails = '';
-      if (client.contact_emails) {
-        try {
-          if (typeof client.contact_emails === 'string') {
-            const parsed = JSON.parse(client.contact_emails);
-            contactEmails = Array.isArray(parsed) ? parsed.join(', ') : parsed;
-          } else if (Array.isArray(client.contact_emails)) {
-            contactEmails = client.contact_emails.join(', ');
-          } else {
-            contactEmails = client.contact_emails;
-          }
-        } catch (e) {
-          contactEmails = client.contact_emails;
-        }
-      } else if (client.contact_email) {
-        contactEmails = client.contact_email;
-      }
-      
+    const exportData = clients.map((client) => {
+      const people = formatPersonsSummary(client);
+      const contactNumbers = people.flatMap((p) => p.numbers).join(', ')
+        || parseStringList(client.contact_numbers).join(', ')
+        || client.contact_number
+        || '';
+      const contactEmails = people.flatMap((p) => p.emails).join(', ')
+        || parseStringList(client.contact_emails).join(', ')
+        || client.contact_email
+        || '';
+
       return {
         'Client Name': client.client_name,
         'Industry': client.industry,
@@ -270,13 +218,22 @@ const ClientMaster = () => {
         'State': client.state,
         'Zip Code': client.zip_code || '',
         'Country': client.country,
-        'Primary Contact Person': client.primary_contact_person,
+        'Contact People': people.map((p) => {
+          const nums = p.numbers.join(', ');
+          return nums ? `${p.name || 'Contact'} (${nums})` : (p.name || '');
+        }).filter(Boolean).join('; '),
         'Contact Numbers': contactNumbers,
         'Contact Emails': contactEmails,
         'Created At': formatDateDdMmYyyy(client.created_at),
       };
     });
     exportToExcel(exportData, 'Clients_Export', 'Clients');
+  };
+
+  const openNewClient = () => {
+    setEditingClient(null);
+    setFormData(emptyClientForm());
+    setShowForm(true);
   };
 
   return (
@@ -307,22 +264,7 @@ const ClientMaster = () => {
               <span className="sm:hidden">Export</span>
             </button>
             <button
-              onClick={() => {
-                setEditingClient(null);
-                setFormData({
-                  client_name: '',
-                  industry: '',
-                  street_address: '',
-                  city: '',
-                  state: '',
-                  country: 'India',
-                  zip_code: '',
-                  primary_contact_person: '',
-                  contact_numbers: [''],
-                  contact_emails: [''],
-                });
-                setShowForm(true);
-              }}
+              onClick={openNewClient}
               className="flex items-center justify-center space-x-2 px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm sm:text-base"
             >
               <Plus className="w-4 h-4" />
@@ -331,7 +273,6 @@ const ClientMaster = () => {
           </div>
         </div>
 
-        {/* Clients Table */}
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           {loading ? (
             <div className="p-4 sm:p-8 text-center text-gray-500">Loading...</div>
@@ -347,64 +288,42 @@ const ClientMaster = () => {
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Industry</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">City</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">State</th>
-                    <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact Person</th>
-                    <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Contact Numbers</th>
-                    <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Contact Emails</th>
+                    <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact people</th>
+                    <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Emails</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {clients.map((client, idx) => (
+                  {clients.map((client, idx) => {
+                    const people = formatPersonsSummary(client);
+                    return (
                     <tr key={client.id} className="hover:bg-gray-50">
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-center tabular-nums text-gray-600">{(currentPage - 1) * itemsPerPage + idx + 1}</td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm font-medium text-gray-900">{client.client_name}</td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">{client.industry || '-'}</td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">{client.city || '-'}</td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">{client.state || '-'}</td>
-                      <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">{client.primary_contact_person || '-'}</td>
-                      <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500 hidden md:table-cell">
-                        {(() => {
-                          let numbers = '';
-                          if (client.contact_numbers) {
-                            try {
-                              if (typeof client.contact_numbers === 'string') {
-                                const parsed = JSON.parse(client.contact_numbers);
-                                numbers = Array.isArray(parsed) ? parsed.join(', ') : parsed;
-                              } else if (Array.isArray(client.contact_numbers)) {
-                                numbers = client.contact_numbers.join(', ');
-                              } else {
-                                numbers = client.contact_numbers;
-                              }
-                            } catch (e) {
-                              numbers = client.contact_numbers;
-                            }
-                          } else if (client.contact_number) {
-                            numbers = client.contact_number;
-                          }
-                          return numbers || '-';
-                        })()}
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-700">
+                        {people.length ? (
+                          <div className="space-y-1.5">
+                            {people.map((p, i) => (
+                              <div key={`${client.id}-p-${i}`}>
+                                <div className="font-medium text-gray-900">
+                                  {p.name || 'Contact'}
+                                  {i === 0 ? <span className="ml-1 text-[10px] font-normal uppercase tracking-wide text-purple-600">Primary</span> : null}
+                                </div>
+                                {p.numbers.length ? (
+                                  <div className="text-xs text-gray-500">{p.numbers.join(', ')}</div>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500 hidden lg:table-cell">
-                        {(() => {
-                          let emails = '';
-                          if (client.contact_emails) {
-                            try {
-                              if (typeof client.contact_emails === 'string') {
-                                const parsed = JSON.parse(client.contact_emails);
-                                emails = Array.isArray(parsed) ? parsed.join(', ') : parsed;
-                              } else if (Array.isArray(client.contact_emails)) {
-                                emails = client.contact_emails.join(', ');
-                              } else {
-                                emails = client.contact_emails;
-                              }
-                            } catch (e) {
-                              emails = client.contact_emails;
-                            }
-                          } else if (client.contact_email) {
-                            emails = client.contact_email;
-                          }
-                          return emails || '-';
-                        })()}
+                        {people.flatMap((p) => p.emails).filter(Boolean).join(', ') || '-'}
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-right text-sm font-medium relative">
                         <button
@@ -433,13 +352,13 @@ const ClientMaster = () => {
                         )}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
 
-          {/* Pagination */}
           {!loading && totalCount > itemsPerPage ? (
             <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-3 border-t bg-white">
               <p className="text-xs text-gray-600">
@@ -469,7 +388,6 @@ const ClientMaster = () => {
         </div>
       </div>
 
-      {/* Create/Edit Client Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-y-auto">
@@ -478,7 +396,9 @@ const ClientMaster = () => {
                 <h2 className="text-lg sm:text-xl font-semibold text-gray-900">
                   {editingClient ? 'Edit Client' : 'Create New Client'}
                 </h2>
-                <p className="text-xs sm:text-sm text-gray-600 mt-1">Add a new client to the system</p>
+                <p className="text-xs sm:text-sm text-gray-600 mt-1">
+                  {editingClient ? 'Update client details and contact people' : 'Add a client and each person you need to reach'}
+                </p>
               </div>
               <button
                 onClick={() => {
@@ -572,114 +492,145 @@ const ClientMaster = () => {
                     placeholder="e.g., India"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Primary Contact Person</label>
-                  <input
-                    type="text"
-                    value={formData.primary_contact_person}
-                    onChange={(e) => setFormData({ ...formData, primary_contact_person: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="e.g., John Doe"
-                  />
+              <div className="mt-8 pt-6 border-t border-gray-200">
+                <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Contact people</h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Add each person and their phone or email. The first person is the primary contact.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        contact_persons: [...(prev.contact_persons || []), emptyContactPerson()],
+                      }))
+                    }
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add person
+                  </button>
                 </div>
 
-                {/* Contact Numbers Section */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Contact Numbers
-                  </label>
-                  <div className="space-y-2">
-                    {formData.contact_numbers.map((number, index) => (
-                      <div key={index} className="flex items-center gap-2">
+                <div className="space-y-4">
+                  {(formData.contact_persons?.length ? formData.contact_persons : [emptyContactPerson()]).map((person, personIndex) => (
+                    <div
+                      key={`person-${personIndex}`}
+                      className="rounded-xl border border-gray-200 bg-gray-50/70 p-3 sm:p-4"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <p className="inline-flex items-center gap-2 text-xs font-semibold text-gray-700">
+                          <User className="w-3.5 h-3.5 text-purple-600" />
+                          Person {personIndex + 1}
+                          {personIndex === 0 ? (
+                            <span className="font-normal text-purple-600">(primary)</span>
+                          ) : null}
+                        </p>
+                        {(formData.contact_persons || []).length > 1 ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                contact_persons: prev.contact_persons.filter((_, i) => i !== personIndex),
+                              }))
+                            }
+                            className="text-xs text-red-600 hover:underline"
+                          >
+                            Remove person
+                          </button>
+                        ) : null}
+                      </div>
+
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
                         <input
                           type="text"
-                          value={number}
-                          onChange={(e) => {
-                            const newNumbers = [...formData.contact_numbers];
-                            newNumbers[index] = e.target.value;
-                            setFormData({ ...formData, contact_numbers: newNumbers });
-                          }}
-                          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                          placeholder="e.g., +91 98765 43210"
+                          value={person.name || ''}
+                          onChange={(e) => updatePerson(personIndex, { name: e.target.value })}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                          placeholder="e.g., Rahul Sharma"
                         />
-                        {formData.contact_numbers.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const newNumbers = formData.contact_numbers.filter((_, i) => i !== index);
-                              setFormData({ ...formData, contact_numbers: newNumbers });
-                            }}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
                       </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormData({
-                          ...formData,
-                          contact_numbers: [...formData.contact_numbers, ''],
-                        });
-                      }}
-                      className="flex items-center space-x-2 px-3 py-2 text-sm text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add Contact Number</span>
-                    </button>
-                  </div>
-                </div>
 
-                {/* Contact Emails Section */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Contact Emails
-                  </label>
-                  <div className="space-y-2">
-                    {formData.contact_emails.map((email, index) => (
-                      <div key={index} className="flex items-center gap-2">
-                        <input
-                          type="email"
-                          value={email}
-                          onChange={(e) => {
-                            const newEmails = [...formData.contact_emails];
-                            newEmails[index] = e.target.value;
-                            setFormData({ ...formData, contact_emails: newEmails });
-                          }}
-                          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                          placeholder="e.g., contact@abcindustries.com"
-                        />
-                        {formData.contact_emails.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const newEmails = formData.contact_emails.filter((_, i) => i !== index);
-                              setFormData({ ...formData, contact_emails: newEmails });
-                            }}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Phone numbers</label>
+                          <div className="space-y-2">
+                            {(person.numbers?.length ? person.numbers : ['']).map((number, numberIndex) => (
+                              <div key={`n-${personIndex}-${numberIndex}`} className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  value={number}
+                                  onChange={(e) => updatePersonList(personIndex, 'numbers', numberIndex, e.target.value)}
+                                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                  placeholder="e.g., +91 98765 43210"
+                                />
+                                {(person.numbers || []).length > 1 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => removePersonListItem(personIndex, 'numbers', numberIndex)}
+                                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                                    aria-label="Remove number"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                ) : null}
+                              </div>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={() => addPersonListItem(personIndex, 'numbers')}
+                              className="inline-flex items-center gap-1 text-xs text-purple-700 hover:underline"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              Add number for this person
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Emails</label>
+                          <div className="space-y-2">
+                            {(person.emails?.length ? person.emails : ['']).map((email, emailIndex) => (
+                              <div key={`e-${personIndex}-${emailIndex}`} className="flex items-center gap-2">
+                                <input
+                                  type="email"
+                                  value={email}
+                                  onChange={(e) => updatePersonList(personIndex, 'emails', emailIndex, e.target.value)}
+                                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                  placeholder="e.g., rahul@company.com"
+                                />
+                                {(person.emails || []).length > 1 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => removePersonListItem(personIndex, 'emails', emailIndex)}
+                                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                                    aria-label="Remove email"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                ) : null}
+                              </div>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={() => addPersonListItem(personIndex, 'emails')}
+                              className="inline-flex items-center gap-1 text-xs text-purple-700 hover:underline"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              Add email for this person
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormData({
-                          ...formData,
-                          contact_emails: [...formData.contact_emails, ''],
-                        });
-                      }}
-                      className="flex items-center space-x-2 px-3 py-2 text-sm text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add Contact Email</span>
-                    </button>
-                  </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -710,4 +661,3 @@ const ClientMaster = () => {
 };
 
 export default ClientMaster;
-

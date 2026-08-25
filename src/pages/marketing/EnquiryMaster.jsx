@@ -866,8 +866,7 @@ const EnquiryMaster = () => {
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Date</th>
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Expected Closing Date</th>
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Estimated Value</th>
-                    <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Status</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider">Convert</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider">Status</th>
                     <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
@@ -921,34 +920,24 @@ const EnquiryMaster = () => {
                           {enquiry.estimated_value ? `₹${parseFloat(enquiry.estimated_value).toLocaleString('en-IN')}` : '-'}
                         </span>
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-0.5 text-[10px] font-semibold rounded-full ${
-                          enquiry.is_converted_to_quotation 
-                            ? 'bg-green-100 text-green-700 border border-green-200' 
-                            : enquiry.status === 'New' 
-                            ? 'bg-red-100 text-red-800 border border-red-200'
-                            : enquiry.status === 'In Progress'
-                            ? 'bg-yellow-100 text-yellow-700 border border-yellow-200'
-                            : enquiry.status === 'Follow Up'
-                            ? 'bg-orange-100 text-orange-700 border border-orange-200'
-                            : 'bg-gray-100 text-gray-700 border border-gray-200'
-                        }`}>
-                          {enquiry.is_converted_to_quotation ? 'Converted' : enquiry.status}
-                        </span>
-                      </td>
                       <td className="px-3 py-2 text-center">
-                        <button
-                          onClick={() => !enquiry.is_converted_to_quotation && handleConvertToQuotation(enquiry)}
-                          disabled={enquiry.is_converted_to_quotation}
-                          className={`px-3 py-1 text-[10px] font-semibold rounded-md transition-all whitespace-nowrap ${
-                            enquiry.is_converted_to_quotation
-                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
-                              : 'bg-purple-600 text-white hover:bg-purple-700 hover:shadow-sm active:scale-95'
-                          }`}
-                          title={enquiry.is_converted_to_quotation ? 'Already Converted' : 'Convert to Quotation'}
-                        >
-                          {enquiry.is_converted_to_quotation ? 'Converted' : 'Convert'}
-                        </button>
+                        {enquiry.is_converted_to_quotation ? (
+                          <span
+                            className="inline-flex items-center px-2.5 py-1 text-[10px] font-semibold rounded-full bg-green-100 text-green-800 border border-green-200 whitespace-nowrap"
+                            title="Already converted to quotation"
+                          >
+                            Converted to quotation
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleConvertToQuotation(enquiry)}
+                            className="px-3 py-1 text-[10px] font-semibold rounded-md bg-purple-600 text-white hover:bg-purple-700 hover:shadow-sm active:scale-95 transition-all whitespace-nowrap"
+                            title="Convert to quotation"
+                          >
+                            Convert to quotation
+                          </button>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-center" style={{ position: 'relative', overflow: 'visible' }}>
                         <div className="relative inline-block text-center" style={{ zIndex: menuOpen === enquiry.id ? 1000 : 'auto' }}>
@@ -1663,7 +1652,7 @@ const EnquiryMaster = () => {
                             ? 'bg-orange-100 text-orange-700 border border-orange-200'
                             : 'bg-gray-100 text-gray-700 border border-gray-200'
                         }`}>
-                          {viewingEnquiry.is_converted_to_quotation ? 'Converted' : viewingEnquiry.status}
+                          {viewingEnquiry.is_converted_to_quotation ? 'Converted to quotation' : viewingEnquiry.status}
                         </span>
                       ) : (
                         <span className="text-gray-400 italic text-sm">Not provided</span>
