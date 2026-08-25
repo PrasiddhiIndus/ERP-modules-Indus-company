@@ -52,6 +52,7 @@ import {
   HrEmployeeMaster,
   HrCallingMaster,
   HrCallingMasterCandidates,
+  HrCallingMasterReferral,
   HrCallingMasterOffers,
   HrCallingMasterOfferResponse,
   HrCallingMasterJoining,
@@ -397,6 +398,7 @@ function App() {
             <Route path="hr/calling-master" element={<HrCallingMaster />}>
               <Route index element={<HrCallingMasterEntry />} />
               <Route path="candidates" element={<HrCallingMasterCandidates />} />
+              <Route path="referral" element={<HrCallingMasterReferral />} />
               <Route path="offer-generation" element={<HrCallingMasterOffers />} />
               <Route path="offer-response" element={<HrCallingMasterOfferResponse />} />
               <Route path="joining" element={<HrCallingMasterJoining />} />
