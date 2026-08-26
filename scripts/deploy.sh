@@ -163,8 +163,18 @@ echo "NODE_ENV=production" >> .env.server
 echo "==> npm ci"
 npm ci
 
-echo "==> npm run build"
-npm run build
+# CI builds the frontend on the runner and ships dist/ ahead of this script, because
+# Vite exhausts this droplet's RAM and gets OOM-killed (exit 137). Building locally is
+# the fallback for manual runs, with a capped heap so GC runs before the kernel steps in.
+if [ -n "${PREBUILT_DIST:-}" ] && [ -f "${PREBUILT_DIST}/index.html" ]; then
+  echo "==> Using prebuilt frontend from ${PREBUILT_DIST}"
+  rm -rf dist
+  mkdir -p dist
+  rsync -a "${PREBUILT_DIST}/" dist/
+else
+  echo "==> npm run build"
+  NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB:-2048}" npm run build
+fi
 
 test -f dist/index.html
 
