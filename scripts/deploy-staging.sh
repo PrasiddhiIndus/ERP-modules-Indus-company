@@ -21,9 +21,31 @@ echo "==> Deploy staging from ${REPO_DIR} (branch ${BRANCH})"
 
 cd "${REPO_DIR}"
 
+# Private repo: anonymous HTTPS fetch fails, so pin origin to the SSH deploy-key remote.
+REPO_URL="${REPO_URL:-git@github.com:PrasiddhiIndus/ERP-modules-Indus-company.git}"
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+if ! grep -q '^github.com ' ~/.ssh/known_hosts 2>/dev/null; then
+  ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+fi
+CURRENT_REMOTE="$(git remote get-url origin 2>/dev/null || true)"
+case "${CURRENT_REMOTE}" in
+  https://github.com/*)
+    echo "==> Switching origin from public HTTPS to SSH deploy key"
+    git remote set-url origin "${REPO_URL}"
+    ;;
+esac
+
+if ! git ls-remote origin >/dev/null 2>&1; then
+  echo "ERROR: cannot read the private repository from this server."
+  echo "One-time fix:  ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N '' -C indus-erp-deploy"
+  echo "               cat ~/.ssh/id_ed25519.pub"
+  echo "Add that key at GitHub -> Settings -> Deploy keys (write access OFF)."
+  exit 1
+fi
+
 git fetch origin "${BRANCH}"
 git checkout "${BRANCH}"
-git pull origin "${BRANCH}"
+git reset --hard "origin/${BRANCH}"
 
 if [ ! -f .env.staging ]; then
   echo "ERROR: ${REPO_DIR}/.env.staging missing. Copy from .env.staging.example and set staging Supabase keys."
