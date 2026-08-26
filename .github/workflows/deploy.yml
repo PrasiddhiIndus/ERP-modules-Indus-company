@@ -71,11 +71,11 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
-          debug: true
           command_timeout: 30m
           envs: PROD_SUPABASE_URL,PROD_SUPABASE_SERVICE_ROLE_KEY,VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY
           script: |
-            set -euxo pipefail
+            # No `-x`: tracing expands secret assignments into the Actions log.
+            set -euo pipefail
             REPO_DIR=/root/indus-erp
             # Must match nginx sites-available/indus-erp: root /var/www/indus-erp/dist;
             APP_DIR=/var/www/indus-erp/dist
@@ -127,32 +127,24 @@ jobs:
               sed -i '/^SUPABASE_URL=/d' .env.server || true
               echo "SUPABASE_URL=https://wbyzhknaqcjqqtwopupl.supabase.co" >> .env.server
             fi
+            # Only the CI secret may write this key. An empty secret leaves the
+            # existing server value untouched — never seeded from a committed template.
             if [ -n "${PROD_SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
               sed -i '/^SUPABASE_SERVICE_ROLE_KEY=/d' .env.server || true
               echo "SUPABASE_SERVICE_ROLE_KEY=${PROD_SUPABASE_SERVICE_ROLE_KEY}" >> .env.server
             else
-              echo "WARNING: PROD_SUPABASE_SERVICE_ROLE_KEY secret is empty — seeding from .env.server.example"
-              EXAMPLE_SRK="$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' .env.server.example | tail -1 | cut -d= -f2- | tr -d '[:space:]\"' || true)"
-              if [ -n "${EXAMPLE_SRK}" ] && [ "${#EXAMPLE_SRK}" -ge 40 ]; then
-                sed -i '/^SUPABASE_SERVICE_ROLE_KEY=/d' .env.server || true
-                echo "SUPABASE_SERVICE_ROLE_KEY=${EXAMPLE_SRK}" >> .env.server
-              fi
+              echo "WARNING: PROD_SUPABASE_SERVICE_ROLE_KEY secret is empty — keeping existing .env.server value"
             fi
 
-            # Ensure .env.server exists with production URL even if copy steps above were skipped
+            # Ensure .env.server exists even if the copy steps above were skipped
             if [ ! -f .env.server ]; then
               cp .env.server.example .env.server
+              echo "WARNING: .env.server created from placeholders — set real secrets on the host"
             fi
-            # If key line is blank/placeholder, force example seed again
-            CURRENT_SRK="$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' .env.server | tail -1 | cut -d= -f2- | tr -d '[:space:]\"' || true)"
-            if [ -z "${CURRENT_SRK}" ] || [ "${#CURRENT_SRK}" -lt 40 ] || echo "${CURRENT_SRK}" | grep -qi 'your_.*key\|changeme\|placeholder'; then
-              EXAMPLE_SRK="$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' .env.server.example | tail -1 | cut -d= -f2- | tr -d '[:space:]\"' || true)"
-              if [ -n "${EXAMPLE_SRK}" ] && [ "${#EXAMPLE_SRK}" -ge 40 ]; then
-                echo "==> Forcing SUPABASE_SERVICE_ROLE_KEY from .env.server.example"
-                sed -i '/^SUPABASE_SERVICE_ROLE_KEY=/d' .env.server || true
-                echo "SUPABASE_SERVICE_ROLE_KEY=${EXAMPLE_SRK}" >> .env.server
-              fi
-            fi
+
+            # Production runtime flags (strict CORS, quiet health, debug routes 404)
+            sed -i '/^NODE_ENV=/d' .env.server || true
+            echo "NODE_ENV=production" >> .env.server
 
             export REPO_DIR APP_DIR
             export PM2_NAME=indus-erp
