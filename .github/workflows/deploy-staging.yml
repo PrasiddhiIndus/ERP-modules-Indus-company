@@ -74,6 +74,13 @@ jobs:
               exit 1
             fi
 
+            # One-time: create the staging checkout if this droplet does not have it yet.
+            if [ ! -d "${REPO_DIR}/.git" ]; then
+              echo "==> Cloning staging repo into ${REPO_DIR}"
+              rm -rf "${REPO_DIR}"
+              git clone --branch staging "${REPO_URL}" "${REPO_DIR}"
+            fi
+
             cd "${REPO_DIR}"
             git remote set-url origin "${REPO_URL}" || true
             git fetch origin staging

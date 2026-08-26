@@ -49,12 +49,18 @@ git checkout "${BRANCH}"
 git reset --hard "origin/${BRANCH}"
 
 if [ ! -f .env.staging ]; then
-  echo "ERROR: ${REPO_DIR}/.env.staging missing. Copy from .env.staging.example and set staging Supabase keys."
+  echo "ERROR: ${REPO_DIR}/.env.staging is missing (gitignored, so a fresh clone never has it)."
+  echo "Create it once on this server:"
+  echo "  cd ${REPO_DIR} && cp .env.staging.example .env.staging && nano .env.staging"
+  echo "Set the staging VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (project xjzhlbpgnpcmbdlufhwo)."
   exit 1
 fi
 
 if [ ! -f .env.server ]; then
-  echo "ERROR: ${REPO_DIR}/.env.server missing. Copy from .env.server.example (Supabase + ETIME_AUTH_CREDENTIALS, SERVER_PORT=4001)."
+  echo "ERROR: ${REPO_DIR}/.env.server is missing (gitignored, so a fresh clone never has it)."
+  echo "Create it once on this server:"
+  echo "  cd ${REPO_DIR} && cp .env.server.example .env.server && nano .env.server"
+  echo "Set SERVER_PORT=4001, staging SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY, and ETIME_AUTH_CREDENTIALS."
   exit 1
 fi
 
