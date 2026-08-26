@@ -24,9 +24,10 @@ cd "${REPO_DIR}"
 # Private repo: anonymous HTTPS fetch fails, so pin origin to the SSH deploy-key remote.
 REPO_URL="${REPO_URL:-git@github.com:PrasiddhiIndus/ERP-modules-Indus-company.git}"
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
-if ! grep -q '^github.com ' ~/.ssh/known_hosts 2>/dev/null; then
-  ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
-fi
+touch ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+# Refresh GitHub host keys every run so a stale entry can never block the fetch.
+ssh-keygen -R github.com >/dev/null 2>&1 || true
+ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
 CURRENT_REMOTE="$(git remote get-url origin 2>/dev/null || true)"
 case "${CURRENT_REMOTE}" in
   https://github.com/*)
@@ -48,12 +49,18 @@ git checkout "${BRANCH}"
 git reset --hard "origin/${BRANCH}"
 
 if [ ! -f .env.staging ]; then
-  echo "ERROR: ${REPO_DIR}/.env.staging missing. Copy from .env.staging.example and set staging Supabase keys."
+  echo "ERROR: ${REPO_DIR}/.env.staging is missing (gitignored, so a fresh clone never has it)."
+  echo "Create it once on this server:"
+  echo "  cd ${REPO_DIR} && cp .env.staging.example .env.staging && nano .env.staging"
+  echo "Set the staging VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (project xjzhlbpgnpcmbdlufhwo)."
   exit 1
 fi
 
 if [ ! -f .env.server ]; then
-  echo "ERROR: ${REPO_DIR}/.env.server missing. Copy from .env.server.example (Supabase + ETIME_AUTH_CREDENTIALS, SERVER_PORT=4001)."
+  echo "ERROR: ${REPO_DIR}/.env.server is missing (gitignored, so a fresh clone never has it)."
+  echo "Create it once on this server:"
+  echo "  cd ${REPO_DIR} && cp .env.server.example .env.server && nano .env.server"
+  echo "Set SERVER_PORT=4001, staging SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY, and ETIME_AUTH_CREDENTIALS."
   exit 1
 fi
 

@@ -23,9 +23,10 @@ cd "${REPO_DIR}"
 # Private repo: anonymous HTTPS fetch fails, so pin origin to the SSH deploy-key remote.
 REPO_URL="${REPO_URL:-git@github.com:PrasiddhiIndus/ERP-modules-Indus-company.git}"
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
-if ! grep -q '^github.com ' ~/.ssh/known_hosts 2>/dev/null; then
-  ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
-fi
+touch ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+# Refresh GitHub host keys every run so a stale entry can never block the fetch.
+ssh-keygen -R github.com >/dev/null 2>&1 || true
+ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
 CURRENT_REMOTE="$(git remote get-url origin 2>/dev/null || true)"
 case "${CURRENT_REMOTE}" in
   https://github.com/*)
