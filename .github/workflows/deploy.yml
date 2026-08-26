@@ -60,8 +60,6 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment:
-      name: production
 
     steps:
       - name: Checkout Code

@@ -39,8 +39,6 @@ jobs:
     name: Deploy Staging
     needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: staging
 
     steps:
       - name: Checkout Code
