@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Production deploy (DigitalOcean). Run on the server only:
 #   cd /root/indus-erp && bash scripts/deploy.sh
-set -euxo pipefail
+# No `-x`: tracing would expand secret assignments into deploy logs.
+set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/root/indus-erp}"
 # Must match nginx: root /var/www/indus-erp/dist;
@@ -12,7 +13,8 @@ LEGACY_PM2_NAME="indus-erp-backend"
 PROD_PROJECT_REF="wbyzhknaqcjqqtwopupl"
 STAGING_PROJECT_REF="xjzhlbpgnpcmbdlufhwo"
 EXPECTED_SUPABASE_URL="https://${PROD_PROJECT_REF}.supabase.co"
-EXPECTED_CORS="https://indus-erp.in,http://localhost:5173"
+# Production allows the live origin only — no localhost.
+EXPECTED_CORS="https://indus-erp.in"
 
 echo "==> Deploy production REPO_DIR=${REPO_DIR} APP_DIR=${APP_DIR} pm2=${PM2_NAME}"
 
@@ -56,18 +58,7 @@ fi
 
 CURRENT_SRK="$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' .env.server | tail -1 | cut -d= -f2- | tr -d '[:space:]\"' || true)"
 
-# If key still missing, seed from committed .env.server.example (production project only).
-if [ -z "${CURRENT_SRK}" ] || [ "${#CURRENT_SRK}" -lt 40 ]; then
-  if [ -f .env.server.example ]; then
-    EXAMPLE_SRK="$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' .env.server.example | tail -1 | cut -d= -f2- | tr -d '[:space:]\"' || true)"
-    if [ -n "${EXAMPLE_SRK}" ] && [ "${#EXAMPLE_SRK}" -ge 40 ]; then
-      echo "==> Seeding SUPABASE_SERVICE_ROLE_KEY from .env.server.example (CI secret / .env.server were empty)"
-      sed -i '/^SUPABASE_SERVICE_ROLE_KEY=/d' .env.server
-      echo "SUPABASE_SERVICE_ROLE_KEY=${EXAMPLE_SRK}" >> .env.server
-      CURRENT_SRK="${EXAMPLE_SRK}"
-    fi
-  fi
-fi
+# Never seed this key from the committed .env.server.example — that template is public.
 
 if [ -z "${CURRENT_SRK}" ] || [ "${#CURRENT_SRK}" -lt 40 ]; then
   echo "WARNING: SUPABASE_SERVICE_ROLE_KEY still missing — deploy continues; Raw Attendance Sync may 401"
@@ -128,11 +119,23 @@ if [ -n "${VITE_SUPABASE_URL:-}" ]; then
   echo "VITE_SUPABASE_URL=${VITE_SUPABASE_URL}" >> .env.server
 fi
 
-CURRENT_CORS="$(grep -E '^CORS_ORIGINS=' .env.server | tail -1 | cut -d= -f2- || true)"
-if [ -z "${CURRENT_CORS}" ] || ! echo "${CURRENT_CORS}" | grep -qi 'indus-erp\.in'; then
-  sed -i '/^CORS_ORIGINS=/d' .env.server
-  echo "CORS_ORIGINS=${EXPECTED_CORS}" >> .env.server
+# Strip dev origins from production but keep any other origin the operator configured.
+CURRENT_CORS="$(grep -E '^CORS_ORIGINS=' .env.server | tail -1 | cut -d= -f2- | tr -d '[:space:]\"' || true)"
+CLEANED_CORS="$(printf '%s' "${CURRENT_CORS}" | tr ',' '\n' \
+  | grep -v -E '^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$' \
+  | grep -v '^$' | paste -sd, - || true)"
+if [ -z "${CLEANED_CORS}" ] || ! echo "${CLEANED_CORS}" | grep -qi 'indus-erp\.in'; then
+  CLEANED_CORS="${EXPECTED_CORS}"
 fi
+if [ "${CLEANED_CORS}" != "${CURRENT_CORS}" ]; then
+  echo "==> Pin CORS_ORIGINS -> ${CLEANED_CORS}"
+  sed -i '/^CORS_ORIGINS=/d' .env.server
+  echo "CORS_ORIGINS=${CLEANED_CORS}" >> .env.server
+fi
+
+# Production runtime: strict CORS, minimal /api/health, /api/debug/* returns 404.
+sed -i '/^NODE_ENV=/d' .env.server || true
+echo "NODE_ENV=production" >> .env.server
 
 echo "==> npm ci"
 npm ci
