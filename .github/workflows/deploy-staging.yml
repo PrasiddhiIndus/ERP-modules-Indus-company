@@ -54,7 +54,10 @@ jobs:
           script: |
             # No `-x`: tracing expands secret assignments into the Actions log.
             set -euo pipefail
-            REPO_DIR=/root/indus-erp-staging
+            # Staging checkout on the droplet. nginx serves ${REPO_DIR}/dist directly,
+            # so the build happens in place — there is no separate rsync target.
+            REPO_DIR=/var/www/indus-erp-staging
+            PM2_NAME=indus-erp-staging
             # The repo is private, so anonymous HTTPS fetch fails. Auth comes from a
             # read-only Deploy key held by this droplet (~/.ssh/id_ed25519).
             REPO_URL="git@github.com:PrasiddhiIndus/ERP-modules-Indus-company.git"
@@ -74,21 +77,22 @@ jobs:
               exit 1
             fi
 
-            # One-time: create the staging checkout if this droplet does not have it yet.
             if [ ! -d "${REPO_DIR}/.git" ]; then
-              echo "==> Cloning staging repo into ${REPO_DIR}"
-              rm -rf "${REPO_DIR}"
-              git clone --branch staging "${REPO_URL}" "${REPO_DIR}"
+              echo "ERROR: ${REPO_DIR} is not a git checkout on this droplet."
+              echo "Staging is expected to live there (nginx serves ${REPO_DIR}/dist)."
+              exit 1
             fi
 
             cd "${REPO_DIR}"
-            git remote set-url origin "${REPO_URL}" || true
+            # Existing checkouts still point at the old public HTTPS URL, which now 401s.
+            git remote set-url origin "${REPO_URL}"
             git fetch origin staging
-            git checkout -B staging origin/staging
             git reset --hard origin/staging
 
-            # Run the repo copy so the server script can never go stale again.
-            bash scripts/deploy-staging.sh
+            npm ci
+            npm run build
 
-            cp scripts/deploy-staging.sh /root/deploy-staging.sh
-            chmod +x /root/deploy-staging.sh
+            pm2 restart "${PM2_NAME}" --update-env
+            pm2 save
+            systemctl reload nginx
+            echo "==> Staging deploy complete (${REPO_DIR}/dist)"
