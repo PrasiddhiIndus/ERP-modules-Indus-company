@@ -143,6 +143,18 @@ mustNotInclude(
   ['EXAMPLE_SRK', 'debug: true'],
   'Deploy workflow must not seed secrets or echo debug output'
 );
+mustNotInclude(
+  '.github/workflows/deploy-staging.yml',
+  ['EXAMPLE_SRK', 'debug: true'],
+  'Staging workflow must not seed secrets or echo debug output'
+);
+
+// The repo is private: deploys must authenticate with the SSH deploy key.
+// A public https:// remote silently breaks every deploy with an auth error.
+for (const wf of ['.github/workflows/deploy.yml', '.github/workflows/deploy-staging.yml']) {
+  mustInclude(wf, ['git@github.com:PrasiddhiIndus'], 'Private repo deploy remote');
+  mustNotInclude(wf, ['https://github.com/PrasiddhiIndus'], 'Private repo deploy remote');
+}
 
 if (failures.length) {
   console.error('Security check failed:\n');
