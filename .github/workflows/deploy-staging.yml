@@ -35,7 +35,28 @@ jobs:
       - name: Smoke tests
         run: npm run test:smoke
 
-      # Built here rather than on the droplet, where Vite gets OOM-killed (exit 137).
+  deploy:
+    name: Deploy Staging
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      # Built here, not on the droplet, where Vite gets OOM-killed (exit 137). This job
+      # declares `environment: staging`, so it can read environment-scoped secrets too.
       - name: Build Frontend
         run: |
           test -n "${VITE_SUPABASE_URL}" || { echo "ERROR: secret STAGING_SUPABASE_URL is empty"; exit 1; }
@@ -51,26 +72,6 @@ jobs:
       # A single tarball avoids scp glob surprises with nested asset folders.
       - name: Package staging build
         run: tar -czf dist-staging.tar.gz -C dist .
-
-      - name: Upload staging build
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-staging
-          path: dist-staging.tar.gz
-          retention-days: 1
-
-  deploy:
-    name: Deploy Staging
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: staging
-
-    steps:
-      - name: Download staging build
-        uses: actions/download-artifact@v4
-        with:
-          name: dist-staging
 
       - name: Copy staging build to server
         uses: appleboy/scp-action@v0.1.7
