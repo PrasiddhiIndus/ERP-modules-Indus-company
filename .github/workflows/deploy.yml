@@ -79,10 +79,25 @@ jobs:
             REPO_DIR=/root/indus-erp
             # Must match nginx sites-available/indus-erp: root /var/www/indus-erp/dist;
             APP_DIR=/var/www/indus-erp/dist
-            REPO_URL="https://github.com/PrasiddhiIndus/ERP-modules-Indus-company.git"
+            # The repo is private, so anonymous HTTPS fetch fails. Auth comes from a
+            # read-only Deploy key held by this droplet (~/.ssh/id_ed25519).
+            REPO_URL="git@github.com:PrasiddhiIndus/ERP-modules-Indus-company.git"
 
             echo "==> host=$(hostname)"
-            ls -la /root | head -40 || true
+
+            mkdir -p ~/.ssh && chmod 700 ~/.ssh
+            if ! grep -q '^github.com ' ~/.ssh/known_hosts 2>/dev/null; then
+              ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+            fi
+
+            if ! git ls-remote "${REPO_URL}" >/dev/null 2>&1; then
+              echo "ERROR: this droplet cannot read the private repository."
+              echo "One-time fix on the server:"
+              echo "  ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N '' -C indus-erp-deploy"
+              echo "  cat ~/.ssh/id_ed25519.pub"
+              echo "Then GitHub -> Settings -> Deploy keys -> Add deploy key (paste it, leave write access OFF)."
+              exit 1
+            fi
 
             # One-time: create git checkout used by deploy (static site stays in APP_DIR)
             if [ ! -d "${REPO_DIR}/.git" ]; then

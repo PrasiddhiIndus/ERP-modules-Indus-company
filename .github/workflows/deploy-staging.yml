@@ -50,5 +50,37 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
-          debug: true
-          script: /root/deploy-staging.sh
+          command_timeout: 30m
+          script: |
+            # No `-x`: tracing expands secret assignments into the Actions log.
+            set -euo pipefail
+            REPO_DIR=/root/indus-erp-staging
+            # The repo is private, so anonymous HTTPS fetch fails. Auth comes from a
+            # read-only Deploy key held by this droplet (~/.ssh/id_ed25519).
+            REPO_URL="git@github.com:PrasiddhiIndus/ERP-modules-Indus-company.git"
+
+            mkdir -p ~/.ssh && chmod 700 ~/.ssh
+            if ! grep -q '^github.com ' ~/.ssh/known_hosts 2>/dev/null; then
+              ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+            fi
+
+            if ! git ls-remote "${REPO_URL}" >/dev/null 2>&1; then
+              echo "ERROR: this droplet cannot read the private repository."
+              echo "One-time fix on the server:"
+              echo "  ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N '' -C indus-erp-deploy"
+              echo "  cat ~/.ssh/id_ed25519.pub"
+              echo "Then GitHub -> Settings -> Deploy keys -> Add deploy key (write access OFF)."
+              exit 1
+            fi
+
+            cd "${REPO_DIR}"
+            git remote set-url origin "${REPO_URL}" || true
+            git fetch origin staging
+            git checkout -B staging origin/staging
+            git reset --hard origin/staging
+
+            # Run the repo copy so the server script can never go stale again.
+            bash scripts/deploy-staging.sh
+
+            cp scripts/deploy-staging.sh /root/deploy-staging.sh
+            chmod +x /root/deploy-staging.sh
