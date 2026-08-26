@@ -54,7 +54,10 @@ if [ -f .env.server ] && ! grep -qiE '^ERP_ENV[[:space:]]*=[[:space:]]*staging' 
 fi
 
 npm ci
-npm run build
+# Vite was OOM-killed here (exit 137). Capping V8's heap makes it collect
+# garbage instead of growing until the kernel kills the process.
+NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB:-2048}" npm run build
+test -f dist/index.html
 
 pm2 restart "${PM2_NAME}" --update-env
 pm2 save

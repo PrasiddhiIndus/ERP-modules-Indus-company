@@ -35,6 +35,30 @@ jobs:
       - name: Smoke tests
         run: npm run test:smoke
 
+      # Built here rather than on the droplet, where Vite gets OOM-killed (exit 137).
+      - name: Build Frontend
+        run: |
+          test -n "${VITE_SUPABASE_URL}" || { echo "ERROR: secret STAGING_SUPABASE_URL is empty"; exit 1; }
+          test -n "${VITE_SUPABASE_ANON_KEY}" || { echo "ERROR: secret STAGING_SUPABASE_ANON_KEY is empty"; exit 1; }
+          npm run build:staging
+          test -f dist/index.html
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          VITE_EINVOICE_PROVIDER: backend
+          VITE_EINVOICE_API_URL: /api/billing/e-invoice
+
+      # A single tarball avoids scp glob surprises with nested asset folders.
+      - name: Package staging build
+        run: tar -czf dist-staging.tar.gz -C dist .
+
+      - name: Upload staging build
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-staging
+          path: dist-staging.tar.gz
+          retention-days: 1
+
   deploy:
     name: Deploy Staging
     needs: build
@@ -43,6 +67,21 @@ jobs:
       name: staging
 
     steps:
+      - name: Download staging build
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-staging
+
+      - name: Copy staging build to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 22
+          source: dist-staging.tar.gz
+          target: /tmp/indus-erp-staging-build
+
       - name: Deploy to Staging Server
         uses: appleboy/ssh-action@v1.0.0
         with:
@@ -55,7 +94,7 @@ jobs:
             # No `-x`: tracing expands secret assignments into the Actions log.
             set -euo pipefail
             # Staging checkout on the droplet. nginx serves ${REPO_DIR}/dist directly,
-            # so the build happens in place — there is no separate rsync target.
+            # so the CI build is unpacked there — there is no separate rsync target.
             REPO_DIR=/var/www/indus-erp-staging
             PM2_NAME=indus-erp-staging
             # The repo is private, so anonymous HTTPS fetch fails. Auth comes from a
@@ -89,8 +128,21 @@ jobs:
             git fetch origin staging
             git reset --hard origin/staging
 
+            # Server-side deps are still needed for the PM2 API process.
             npm ci
-            npm run build
+
+            # The frontend was built on the CI runner and scp'd here. Building it on this
+            # droplet is what got OOM-killed, so only fall back if the artifact is missing.
+            if [ -f /tmp/indus-erp-staging-build/dist-staging.tar.gz ]; then
+              echo "==> Using frontend built by CI"
+              rm -rf dist && mkdir -p dist
+              tar -xzf /tmp/indus-erp-staging-build/dist-staging.tar.gz -C dist
+            else
+              echo "WARNING: no CI build found — falling back to building on the server"
+              NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB:-2048}" npm run build
+            fi
+            test -f dist/index.html
+            rm -rf /tmp/indus-erp-staging-build
 
             pm2 restart "${PM2_NAME}" --update-env
             pm2 save
