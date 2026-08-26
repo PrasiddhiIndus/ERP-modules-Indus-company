@@ -55,6 +55,22 @@ jobs:
           VITE_EINVOICE_PROVIDER: backend
           VITE_EINVOICE_API_URL: /api/billing/e-invoice
 
+      # Ship this build to the droplet instead of rebuilding there: Vite exhausts the
+      # server's RAM and gets OOM-killed. A single tarball avoids scp glob surprises.
+      - name: Package production build
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          test -f dist/index.html
+          tar -czf dist-production.tar.gz -C dist .
+
+      - name: Upload production build
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-production
+          path: dist-production.tar.gz
+          retention-days: 1
+
   deploy-production:
     name: Deploy Production
     needs: build
@@ -64,6 +80,21 @@ jobs:
       name: production
 
     steps:
+      - name: Download production build
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-production
+
+      - name: Copy production build to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 22
+          source: dist-production.tar.gz
+          target: /tmp/indus-erp-build
+
       - name: Deploy to Production Server
         uses: appleboy/ssh-action@v1.0.0
         with:
@@ -162,7 +193,20 @@ jobs:
             sed -i '/^NODE_ENV=/d' .env.server || true
             echo "NODE_ENV=production" >> .env.server
 
-            export REPO_DIR APP_DIR
+            # The frontend was built on the CI runner and scp'd here, so deploy.sh can
+            # skip Vite entirely — running it on this droplet gets it OOM-killed.
+            PREBUILT_DIST=""
+            if [ -f /tmp/indus-erp-build/dist-production.tar.gz ]; then
+              rm -rf /tmp/indus-erp-dist
+              mkdir -p /tmp/indus-erp-dist
+              tar -xzf /tmp/indus-erp-build/dist-production.tar.gz -C /tmp/indus-erp-dist
+              PREBUILT_DIST=/tmp/indus-erp-dist
+              echo "==> Using frontend built by CI"
+            else
+              echo "WARNING: no CI build found — falling back to building on the server"
+            fi
+
+            export REPO_DIR APP_DIR PREBUILT_DIST
             export PM2_NAME=indus-erp
             export PROD_SUPABASE_URL PROD_SUPABASE_SERVICE_ROLE_KEY VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY
             bash scripts/deploy.sh
@@ -177,6 +221,8 @@ jobs:
             if ! echo "${PUBLIC_HEALTH}" | grep -q '"service_role_key":"ok"\|"service_role_key": "ok"'; then
               echo "WARNING: service_role_key is not ok — Raw Attendance Sync may 401 until PROD_SUPABASE_SERVICE_ROLE_KEY is set"
             fi
+
+            rm -rf /tmp/indus-erp-build /tmp/indus-erp-dist
 
             # Keep legacy entrypoint in sync for manual runs
             cp scripts/deploy.sh /root/deploy.sh
