@@ -41,8 +41,8 @@ jobs:
         if: github.ref == 'refs/heads/staging' || (github.event_name == 'pull_request' && github.base_ref == 'staging')
         run: npm run build:staging
         env:
-          VITE_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL || secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY || secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_EINVOICE_PROVIDER: backend
           VITE_EINVOICE_API_URL: /api/billing/e-invoice
 
@@ -60,6 +60,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Public repo: reads production environment secrets.
+    # Private + GitHub Free: set the same names as repository secrets.
     environment:
       name: production
 
@@ -239,7 +241,7 @@ jobs:
             cp scripts/deploy.sh /root/deploy.sh
             chmod +x /root/deploy.sh
         env:
-          PROD_SUPABASE_URL: ${{ secrets.PROD_SUPABASE_URL }}
+          PROD_SUPABASE_URL: ${{ secrets.PROD_SUPABASE_URL || secrets.VITE_SUPABASE_URL }}
           PROD_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PROD_SUPABASE_SERVICE_ROLE_KEY }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
