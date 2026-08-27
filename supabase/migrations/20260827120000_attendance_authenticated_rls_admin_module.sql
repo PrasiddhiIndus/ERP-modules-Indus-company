@@ -16,21 +16,26 @@ SECURITY DEFINER
 SET search_path = public
 SET row_security = off
 AS $$
-  SELECT
-    public.current_user_has_admin_module_access()
-    OR public.current_user_can_access_module('admin')
-    OR public.current_user_can_access_module('hr')
-    OR public.current_user_can_access_module('payroll')
-    OR EXISTS (
-      SELECT 1
-      FROM public.profiles p
-      WHERE p.id = auth.uid()
-        AND lower(coalesce(p.team, '')) IN ('hr', 'admin')
-    );
+  -- Single profiles read (no nested N1/C2). Prefer InitPlan via (SELECT fn()) in policies.
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    WHERE p.id = auth.uid()
+      AND auth.uid() IS NOT NULL
+      AND (
+        p.role IN ('admin', 'super_admin', 'super_admin_pro')
+        OR lower(coalesce(p.team, '')) IN ('hr', 'admin')
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements_text(coalesce(p.allowed_modules, '[]'::jsonb)) AS m(value)
+          WHERE lower(m.value) IN ('hr', 'payroll', 'admin')
+        )
+      )
+  );
 $$;
 
 COMMENT ON FUNCTION public.current_user_has_attendance_admin_access() IS
-  'Attendance/HR admin: N1 privilege, Admin module (C2), HR/payroll modules, or HR/admin team.';
+  'Cheap attendance/HR admin gate (single profiles read). role admin/super_admin*, team hr/admin, or allowed_modules hr|payroll|admin.';
 
 GRANT EXECUTE ON FUNCTION public.current_user_has_attendance_admin_access() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.current_user_has_attendance_admin_access() TO service_role;
@@ -77,8 +82,8 @@ BEGIN
 
   CREATE POLICY admin_attendance_register_hr_all ON public.admin_attendance_register
     FOR ALL TO authenticated
-    USING (public.current_user_has_attendance_admin_access())
-    WITH CHECK (public.current_user_has_attendance_admin_access());
+    USING ((SELECT public.current_user_has_attendance_admin_access()))
+    WITH CHECK ((SELECT public.current_user_has_attendance_admin_access()));
 
   SELECT CASE
     WHEN EXISTS (
@@ -100,7 +105,7 @@ BEGIN
     'CREATE POLICY admin_attendance_register_self_read ON public.admin_attendance_register
       FOR SELECT TO authenticated
       USING (
-        public.current_user_has_attendance_admin_access()
+        (SELECT public.current_user_has_attendance_admin_access())
         OR lower(btrim(%I)) = lower(btrim(public.current_user_employee_code()))
       )',
     att_emp_col
@@ -137,8 +142,8 @@ BEGIN
 
   CREATE POLICY erp_attendance_punches_hr_all ON public.erp_attendance_punches
     FOR ALL TO authenticated
-    USING (public.current_user_has_attendance_admin_access())
-    WITH CHECK (public.current_user_has_attendance_admin_access());
+    USING ((SELECT public.current_user_has_attendance_admin_access()))
+    WITH CHECK ((SELECT public.current_user_has_attendance_admin_access()));
 
   SELECT CASE
     WHEN EXISTS (
@@ -160,7 +165,7 @@ BEGIN
     'CREATE POLICY erp_attendance_punches_select_own ON public.erp_attendance_punches
       FOR SELECT TO authenticated
       USING (
-        public.current_user_has_attendance_admin_access()
+        (SELECT public.current_user_has_attendance_admin_access())
         OR lower(btrim(%I)) = lower(btrim(public.current_user_employee_code()))
       )',
     punch_emp_col
