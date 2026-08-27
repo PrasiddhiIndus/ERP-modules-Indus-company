@@ -1325,15 +1325,14 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
 
   if (!approvedById.size) return marks;
 
-  const approvedIds = [...approvedById.keys()];
-
-  // Applied marks are best-effort (RLS may hide rows); date-range fill covers gaps.
+  // Applied marks are best-effort. Do not send hundreds of leave IDs in one GET
+  // `.in(...)` — that URL is too long and Supabase returns 500. Filter by month
+  // here; date-range fill below covers any remaining gaps.
   const { data: applied, error: appliedErr } = await supabase
     .schema("indus_one")
     .from("admin_leave_attendance_marks")
     .select("leave_request_id, employee_code, register_date, applied_mark")
     .eq("reverted", false)
-    .in("leave_request_id", approvedIds)
     .gte("register_date", fromDate)
     .lte("register_date", toDate);
 
