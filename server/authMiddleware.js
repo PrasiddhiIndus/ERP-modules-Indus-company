@@ -11,20 +11,49 @@ const CRM_OUTREACH_MODULES = new Set(['marketing', 'crmoutreach']);
 const CRM_OUTREACH_TEAMS = new Set(['marketing']);
 
 function parseModules(raw) {
-  if (Array.isArray(raw)) {
-    return raw.map((m) => String(m || '').trim()).filter(Boolean);
+  let value = raw;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      value = JSON.parse(trimmed);
+    } catch {
+      return trimmed
+        .split(',')
+        .map((m) => m.trim())
+        .filter(Boolean);
+    }
   }
-  if (raw && typeof raw === 'object') {
-    return Object.keys(raw)
-      .filter((k) => raw[k])
+  if (Array.isArray(value)) {
+    return value.map((m) => String(m || '').trim()).filter(Boolean);
+  }
+  if (value && typeof value === 'object') {
+    return Object.keys(value)
+      .filter((k) => value[k])
       .map((k) => String(k || '').trim())
       .filter(Boolean);
   }
   return [];
 }
 
+function moduleListLower(raw) {
+  return parseModules(raw).map((m) => m.toLowerCase());
+}
+
 function hasModule(modules, allowed) {
-  return modules.some((m) => allowed.has(m));
+  return modules.some((m) => allowed.has(String(m || '').toLowerCase()));
+}
+
+/** Matches SQL `current_user_can_access_module(module_key)`. */
+function canAccessModule(ctx, moduleKey) {
+  const key = String(moduleKey || '').trim().toLowerCase();
+  if (!key) return false;
+  const role = String(ctx.profile?.role || '').trim().toLowerCase();
+  if (role === 'super_admin' || role === 'super_admin_pro') return true;
+  if (role === 'admin' && key !== 'usermanagement' && key !== 'softwaresubscriptions') return true;
+  const team = String(ctx.profile?.team || '').trim().toLowerCase();
+  if (team === key) return true;
+  return moduleListLower(ctx.profile?.allowed_modules).includes(key);
 }
 
 function projectRefFromUrl(url) {
@@ -305,25 +334,27 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
   }
 
   function isAdmin(ctx) {
-    const role = String(ctx.profile?.role || '').trim();
+    const role = String(ctx.profile?.role || '').trim().toLowerCase();
     return ADMIN_ROLES.has(role);
   }
 
   function hasHrAccess(ctx) {
     if (isAdmin(ctx)) return true;
-    const team = String(ctx.profile?.team || '').trim();
+    const team = String(ctx.profile?.team || '').trim().toLowerCase();
     if (HR_TEAMS.has(team)) return true;
-    const modules = parseModules(ctx.profile?.allowed_modules);
-    return hasModule(modules, HR_MODULES);
+    return hasModule(moduleListLower(ctx.profile?.allowed_modules), HR_MODULES);
   }
 
   /** Matches SQL `current_user_has_attendance_admin_access()` for raw attendance / eTime sync. */
   function hasAttendanceAdminAccess(ctx) {
     if (isAdmin(ctx)) return true;
-    const team = String(ctx.profile?.team || '').trim();
+    const team = String(ctx.profile?.team || '').trim().toLowerCase();
     if (HR_TEAMS.has(team)) return true;
-    const modules = parseModules(ctx.profile?.allowed_modules);
-    return modules.includes('hr') || modules.includes('admin');
+    return (
+      canAccessModule(ctx, 'admin') ||
+      canAccessModule(ctx, 'hr') ||
+      canAccessModule(ctx, 'payroll')
+    );
   }
 
   function hasBillingAccess(ctx) {
