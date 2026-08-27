@@ -3987,6 +3987,14 @@ export function formatAttendanceSupabaseError(err) {
     );
   }
 
+  // Business-rule triggers also use check_violation (23514); show their message.
+  if (
+    /biometric punch|consecutive days|Birthday or Anniversary|Half Day and Present/i.test(msg) ||
+    /biometric punch|consecutive days|Birthday or Anniversary|Half Day and Present/i.test(details)
+  ) {
+    return (msg || details).trim();
+  }
+
   if (code === "23514" || /admin_attendance_register_mark_check/i.test(msg)) {
     return "Invalid attendance mark. Check the selected mark and try again.";
   }
