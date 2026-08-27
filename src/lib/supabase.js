@@ -567,11 +567,10 @@ function resolveFetchSignal(options, url) {
   if (urlStr.includes('/auth/v1/')) {
     timeoutMs = AUTH_FETCH_TIMEOUT_MS
   } else if (
-    urlStr.includes('erp_attendance_punches') &&
-    method !== 'GET' &&
-    method !== 'HEAD'
+    urlStr.includes('erp_attendance_punches') ||
+    urlStr.includes('admin_attendance_register')
   ) {
-    // POST/PATCH/PUT upserts of punch batches
+    // Month register / punch scans under RLS need more headroom than default GETs.
     timeoutMs = HEAVY_REST_FETCH_TIMEOUT_MS
   }
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {

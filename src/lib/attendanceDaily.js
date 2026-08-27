@@ -1579,8 +1579,16 @@ const LMS_TOUR_META_SELECTS = [
   "id, location, reason, destination, purpose, place, tour_location, remarks",
 ];
 
+function isStatementTimeoutError(error) {
+  if (!error) return false;
+  const msg = String(error.message || "").toLowerCase();
+  return msg.includes("statement timeout") || msg.includes("canceling statement");
+}
+
 function isRetryableTourQueryError(error) {
   if (!error) return false;
+  // Never retry timeouts — each attempt burns ~8s and floods the Network tab.
+  if (isStatementTimeoutError(error)) return false;
   const msg = String(error.message || "").toLowerCase();
   const code = String(error.code || "");
   if (code === "PGRST204" || code === "42703" || code === "PGRST202" || code === "PGRST106") return true;
@@ -1785,30 +1793,80 @@ async function buildApprovedTourMetaForRange(supabase, fromDate, toDate) {
   return { byEmpDate };
 }
 
-/**
- * Approved tours for the daily register (read-only).
- * Merges admin_tour_attendance_marks, admin_tour_requests, and tour_requests (LMS).
- */
-export async function fetchApprovedTourMarksForMonth(supabase, fromDate, toDate) {
-  if (!fromDate || !toDate) return { marks: {}, remarks: {} };
+function isTourRegisterRpcMissing(error) {
+  if (!error) return false;
+  const code = String(error.code || "");
+  const msg = String(error.message || "").toLowerCase();
+  return (
+    code === "PGRST202" ||
+    code === "42883" ||
+    msg.includes("could not find the function") ||
+    msg.includes("function public.fetch_approved_tour_marks_for_register") ||
+    msg.includes("does not exist")
+  );
+}
 
+/**
+ * Daily Register tour source: SECURITY DEFINER RPC (bypasses slow RLS on tour tables).
+ * Same rows the register has used since fetch_approved_tour_marks_for_register landed.
+ * @returns {{ rows: Array|null, missing: boolean }}
+ *   rows=null + missing=false → RPC failed (do not hammer direct table scans)
+ *   rows=null + missing=true → RPC not deployed; caller may use table fallback
+ */
+async function loadTourRegisterRpcRows(supabase, fromDate, toDate) {
   try {
     const { data, error } = await supabase.rpc("fetch_approved_tour_marks_for_register", {
       p_from_date: fromDate,
       p_to_date: toDate,
     });
-    if (!error && data?.length) {
-      const marks = {};
-      const remarks = {};
-      for (const row of data) {
-        const remark = formatTourRegisterRemark(row.location, row.reason);
-        addTourMark(marks, remarks, row.employee_code, row.register_date, remark);
-      }
-      if (Object.keys(marks).length) return { marks, remarks };
-    }
-  } catch {
-    /* RPC not deployed — fall back to direct reads */
+    if (!error) return { rows: data || [], missing: false };
+    if (isTourRegisterRpcMissing(error)) return { rows: null, missing: true };
+    console.warn("Tour register RPC failed:", error.message);
+    return { rows: null, missing: false };
+  } catch (err) {
+    if (isTourRegisterRpcMissing(err)) return { rows: null, missing: true };
+    console.warn("Tour register RPC failed:", err?.message || err);
+    return { rows: null, missing: false };
   }
+}
+
+function tourMarksFromRegisterRpcRows(rows) {
+  const marks = {};
+  const remarks = {};
+  for (const row of rows || []) {
+    const remark = formatTourRegisterRemark(row.location, row.reason);
+    addTourMark(marks, remarks, row.employee_code, row.register_date, remark);
+  }
+  return { marks, remarks };
+}
+
+function tourMetaFromRegisterRpcRows(rows) {
+  const byEmpDate = {};
+  for (const row of rows || []) {
+    const code = normalizeAttendanceEmpCode(row.employee_code);
+    const date = normalizeDbDate(row.register_date);
+    if (!code || !date) continue;
+    if (!byEmpDate[code]) byEmpDate[code] = {};
+    byEmpDate[code][date] = {
+      location: String(row.location || "").trim(),
+      reason: String(row.reason || "").trim(),
+      tour_request_id: row.tour_request_id ?? null,
+    };
+  }
+  return { byEmpDate };
+}
+
+/**
+ * Approved tours for the daily register (read-only).
+ * Prefers SECURITY DEFINER RPC; same overlay marks/remarks. Direct table reads only
+ * if the RPC is not deployed (avoids admin_tour_requests statement-timeout 500s).
+ */
+export async function fetchApprovedTourMarksForMonth(supabase, fromDate, toDate) {
+  if (!fromDate || !toDate) return { marks: {}, remarks: {} };
+
+  const rpc = await loadTourRegisterRpcRows(supabase, fromDate, toDate);
+  if (rpc.rows) return tourMarksFromRegisterRpcRows(rpc.rows);
+  if (!rpc.missing) return { marks: {}, remarks: {} };
 
   try {
     return await buildApprovedTourMarksFromSources(supabase, fromDate, toDate);
@@ -2092,7 +2150,17 @@ async function fetchApprovedTourRegisterUpserts(supabase, fromDate, toDate) {
 }
 
 async function fetchApprovedTourMetaForRange(supabase, fromDate, toDate) {
-  return buildApprovedTourMetaForRange(supabase, fromDate, toDate);
+  // Same RPC as the overlay — syncApprovedToursToRegister used to always scan
+  // admin_tour_requests under RLS and timed out (~8s / HTTP 500).
+  const rpc = await loadTourRegisterRpcRows(supabase, fromDate, toDate);
+  if (rpc.rows) return tourMetaFromRegisterRpcRows(rpc.rows);
+  if (!rpc.missing) return { byEmpDate: {} };
+  try {
+    return await buildApprovedTourMetaForRange(supabase, fromDate, toDate);
+  } catch (err) {
+    console.warn("Tour meta fallback failed:", err?.message || err);
+    return { byEmpDate: {} };
+  }
 }
 
 /** All register mark rows for a calendar year (leave limits, CO validation, alerts). */
