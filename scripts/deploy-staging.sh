@@ -1,63 +1,66 @@
 #!/usr/bin/env bash
-# Copy to /root/deploy-staging.sh on the DigitalOcean droplet and chmod +x.
-# GitHub Actions (deploy-staging.yml) runs this on every push to the staging branch.
+# Manual staging deploy. GitHub Actions (deploy-staging.yml) runs these same steps
+# inline on every push to the staging branch, so keep the two in sync.
 #
-# One-time server setup:
-#   mkdir -p /var/www/staging-erp
-#   git clone <repo-url> /root/indus-erp-staging && cd /root/indus-erp-staging && git checkout staging
-#   cp .env.staging.example .env.staging   # fill staging Supabase keys
-#   cp .env.server.example .env.server     # staging SUPABASE_URL + service_role, SERVER_PORT=4001
-#   pm2 start server/index.js --name indus-erp-staging-backend --cwd /root/indus-erp-staging
-#   ln -sf /etc/nginx/sites-available/staging-erp /etc/nginx/sites-enabled/staging-erp
+# Layout on the droplet (139.59.58.167 — same host as production):
+#   /var/www/indus-erp-staging   git checkout on branch `staging`
+#   nginx serves /var/www/indus-erp-staging/dist  (port 3001)
+#   pm2 process `indus-erp-staging` runs server/index.js from that folder
+#
+# Run on the server only:
+#   bash /var/www/indus-erp-staging/scripts/deploy-staging.sh
 
+# No `-x`: tracing would expand secret assignments into deploy logs.
 set -euo pipefail
 
-REPO_DIR="${REPO_DIR:-/root/indus-erp-staging}"
-APP_DIR="${APP_DIR:-/var/www/staging-erp}"
+REPO_DIR="${REPO_DIR:-/var/www/indus-erp-staging}"
 BRANCH="${BRANCH:-staging}"
-PM2_NAME="${PM2_NAME:-indus-erp-staging-backend}"
+PM2_NAME="${PM2_NAME:-indus-erp-staging}"
+REPO_URL="${REPO_URL:-git@github.com:PrasiddhiIndus/ERP-modules-Indus-company.git}"
 
 echo "==> Deploy staging from ${REPO_DIR} (branch ${BRANCH})"
 
+if [ ! -d "${REPO_DIR}/.git" ]; then
+  echo "ERROR: ${REPO_DIR} is not a git checkout on this droplet."
+  exit 1
+fi
+
 cd "${REPO_DIR}"
 
+# Private repo: anonymous HTTPS fetch fails, so pin origin to the SSH deploy-key remote.
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+touch ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+# Refresh GitHub host keys every run so a stale entry can never block the fetch.
+ssh-keygen -R github.com >/dev/null 2>&1 || true
+ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+git remote set-url origin "${REPO_URL}"
+
+if ! git ls-remote origin >/dev/null 2>&1; then
+  echo "ERROR: cannot read the private repository from this server."
+  echo "One-time fix:  ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N '' -C indus-erp-deploy"
+  echo "               cat ~/.ssh/id_ed25519.pub"
+  echo "Add that key at GitHub -> Settings -> Deploy keys (write access OFF)."
+  exit 1
+fi
+
 git fetch origin "${BRANCH}"
-git checkout "${BRANCH}"
-git pull origin "${BRANCH}"
-
-if [ ! -f .env.staging ]; then
-  echo "ERROR: ${REPO_DIR}/.env.staging missing. Copy from .env.staging.example and set staging Supabase keys."
-  exit 1
-fi
-
-if [ ! -f .env.server ]; then
-  echo "ERROR: ${REPO_DIR}/.env.server missing. Copy from .env.server.example (Supabase + ETIME_AUTH_CREDENTIALS, SERVER_PORT=4001)."
-  exit 1
-fi
+git reset --hard "origin/${BRANCH}"
 
 # Staging must opt in so the API never auto-pins to the production Supabase project.
-if ! grep -qiE '^ERP_ENV[[:space:]]*=[[:space:]]*staging' .env.server 2>/dev/null; then
+if [ -f .env.server ] && ! grep -qiE '^ERP_ENV[[:space:]]*=[[:space:]]*staging' .env.server; then
   echo "==> Setting ERP_ENV=staging in .env.server (keeps staging/production Supabase isolated)"
   sed -i '/^ERP_ENV=/d' .env.server
   echo "ERP_ENV=staging" >> .env.server
 fi
 
-if ! grep -q '^ETIME_AUTH_CREDENTIALS=.\+' .env.server 2>/dev/null; then
-  echo "WARNING: ETIME_AUTH_CREDENTIALS is missing in .env.server — Raw Attendance Data sync will not work until set."
-fi
-
 npm ci
-npm run build:staging
+# Vite was OOM-killed here (exit 137). Capping V8's heap makes it collect
+# garbage instead of growing until the kernel kills the process.
+NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB:-2048}" npm run build
+test -f dist/index.html
 
-mkdir -p "${APP_DIR}"
-rsync -a --delete "${REPO_DIR}/dist/" "${APP_DIR}/"
-
-if pm2 describe "${PM2_NAME}" >/dev/null 2>&1; then
-  pm2 restart "${PM2_NAME}" --update-env
-else
-  pm2 start server/index.js --name "${PM2_NAME}" --cwd "${REPO_DIR}"
-fi
-
+pm2 restart "${PM2_NAME}" --update-env
 pm2 save
+systemctl reload nginx
 
-echo "==> Staging deploy complete: ${APP_DIR}"
+echo "==> Staging deploy complete: ${REPO_DIR}/dist"

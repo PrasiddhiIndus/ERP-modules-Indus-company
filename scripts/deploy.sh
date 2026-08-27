@@ -20,6 +20,29 @@ echo "==> Deploy production REPO_DIR=${REPO_DIR} APP_DIR=${APP_DIR} pm2=${PM2_NA
 
 cd "${REPO_DIR}"
 
+# Private repo: anonymous HTTPS fetch fails, so pin origin to the SSH deploy-key remote.
+REPO_URL="${REPO_URL:-git@github.com:PrasiddhiIndus/ERP-modules-Indus-company.git}"
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+touch ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+# Refresh GitHub host keys every run so a stale entry can never block the fetch.
+ssh-keygen -R github.com >/dev/null 2>&1 || true
+ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+CURRENT_REMOTE="$(git remote get-url origin 2>/dev/null || true)"
+case "${CURRENT_REMOTE}" in
+  https://github.com/*)
+    echo "==> Switching origin from public HTTPS to SSH deploy key"
+    git remote set-url origin "${REPO_URL}"
+    ;;
+esac
+
+if ! git ls-remote origin >/dev/null 2>&1; then
+  echo "ERROR: cannot read the private repository from this server."
+  echo "One-time fix:  ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N '' -C indus-erp-deploy"
+  echo "               cat ~/.ssh/id_ed25519.pub"
+  echo "Add that key at GitHub -> Settings -> Deploy keys (write access OFF)."
+  exit 1
+fi
+
 git fetch origin "${BRANCH}"
 git checkout -B "${BRANCH}" "origin/${BRANCH}"
 git reset --hard "origin/${BRANCH}"
@@ -140,8 +163,18 @@ echo "NODE_ENV=production" >> .env.server
 echo "==> npm ci"
 npm ci
 
-echo "==> npm run build"
-npm run build
+# CI builds the frontend on the runner and ships dist/ ahead of this script, because
+# Vite exhausts this droplet's RAM and gets OOM-killed (exit 137). Building locally is
+# the fallback for manual runs, with a capped heap so GC runs before the kernel steps in.
+if [ -n "${PREBUILT_DIST:-}" ] && [ -f "${PREBUILT_DIST}/index.html" ]; then
+  echo "==> Using prebuilt frontend from ${PREBUILT_DIST}"
+  rm -rf dist
+  mkdir -p dist
+  rsync -a "${PREBUILT_DIST}/" dist/
+else
+  echo "==> npm run build"
+  NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB:-2048}" npm run build
+fi
 
 test -f dist/index.html
 

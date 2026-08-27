@@ -39,10 +39,53 @@ jobs:
     name: Deploy Staging
     needs: build
     runs-on: ubuntu-latest
+    # Public repo: reads staging environment secrets (VITE_SUPABASE_*).
+    # Private + GitHub Free: environment secrets are ignored — set repository
+    # secrets STAGING_SUPABASE_URL / STAGING_SUPABASE_ANON_KEY instead.
     environment:
       name: staging
 
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      # Built here, not on the droplet, where Vite gets OOM-killed (exit 137).
+      # Prefer STAGING_* repository secrets; fall back to VITE_* staging env secrets.
+      - name: Build Frontend
+        run: |
+          test -n "${VITE_SUPABASE_URL}" || { echo "ERROR: STAGING_SUPABASE_URL / VITE_SUPABASE_URL is empty"; exit 1; }
+          test -n "${VITE_SUPABASE_ANON_KEY}" || { echo "ERROR: STAGING_SUPABASE_ANON_KEY / VITE_SUPABASE_ANON_KEY is empty"; exit 1; }
+          npm run build:staging
+          test -f dist/index.html
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL || secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY || secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_EINVOICE_PROVIDER: backend
+          VITE_EINVOICE_API_URL: /api/billing/e-invoice
+
+      # A single tarball avoids scp glob surprises with nested asset folders.
+      - name: Package staging build
+        run: tar -czf dist-staging.tar.gz -C dist .
+
+      - name: Copy staging build to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 22
+          source: dist-staging.tar.gz
+          target: /tmp/indus-erp-staging-build
+
       - name: Deploy to Staging Server
         uses: appleboy/ssh-action@v1.0.0
         with:
@@ -50,5 +93,62 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
-          debug: true
-          script: /root/deploy-staging.sh
+          command_timeout: 30m
+          script: |
+            # No `-x`: tracing expands secret assignments into the Actions log.
+            set -euo pipefail
+            # Staging checkout on the droplet. nginx serves ${REPO_DIR}/dist directly,
+            # so the CI build is unpacked there — there is no separate rsync target.
+            REPO_DIR=/var/www/indus-erp-staging
+            PM2_NAME=indus-erp-staging
+            # The repo is private, so anonymous HTTPS fetch fails. Auth comes from a
+            # read-only Deploy key held by this droplet (~/.ssh/id_ed25519).
+            REPO_URL="git@github.com:PrasiddhiIndus/ERP-modules-Indus-company.git"
+
+            mkdir -p ~/.ssh && chmod 700 ~/.ssh
+            touch ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+            # Refresh GitHub host keys every run so a stale entry can never block the fetch.
+            ssh-keygen -R github.com >/dev/null 2>&1 || true
+            ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+
+            if ! git ls-remote "${REPO_URL}" >/dev/null 2>&1; then
+              echo "ERROR: this droplet cannot read the private repository."
+              echo "One-time fix on the server:"
+              echo "  ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N '' -C indus-erp-deploy"
+              echo "  cat ~/.ssh/id_ed25519.pub"
+              echo "Then GitHub -> Settings -> Deploy keys -> Add deploy key (write access OFF)."
+              exit 1
+            fi
+
+            if [ ! -d "${REPO_DIR}/.git" ]; then
+              echo "ERROR: ${REPO_DIR} is not a git checkout on this droplet."
+              echo "Staging is expected to live there (nginx serves ${REPO_DIR}/dist)."
+              exit 1
+            fi
+
+            cd "${REPO_DIR}"
+            # Existing checkouts still point at the old public HTTPS URL, which now 401s.
+            git remote set-url origin "${REPO_URL}"
+            git fetch origin staging
+            git reset --hard origin/staging
+
+            # Server-side deps are still needed for the PM2 API process.
+            npm ci
+
+            # The frontend was built on the CI runner and scp'd here. Building it on this
+            # droplet is what got OOM-killed, so only fall back if the artifact is missing.
+            if [ -f /tmp/indus-erp-staging-build/dist-staging.tar.gz ]; then
+              echo "==> Using frontend built by CI"
+              rm -rf dist && mkdir -p dist
+              tar -xzf /tmp/indus-erp-staging-build/dist-staging.tar.gz -C dist
+            else
+              echo "WARNING: no CI build found — falling back to building on the server"
+              NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB:-2048}" npm run build
+            fi
+            test -f dist/index.html
+            rm -rf /tmp/indus-erp-staging-build
+
+            pm2 restart "${PM2_NAME}" --update-env
+            pm2 save
+            systemctl reload nginx
+            echo "==> Staging deploy complete (${REPO_DIR}/dist)"
