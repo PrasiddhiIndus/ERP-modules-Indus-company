@@ -18,6 +18,7 @@ import { supabase } from "../../../lib/supabase";
 import {
   fetchAttendancePunchesPage,
   fetchAttendancePunchesInRange,
+  formatAttendanceSupabaseError,
   isoDateToday,
   mapDbPunchToViewRow,
   resolveAttendanceEmpCodeFilter,
@@ -273,15 +274,17 @@ function formatAttendanceApiError(err, res, data) {
       "If it still fails, ask an admin to confirm SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.server match this website and restart the API.",
     ].join(" ");
   }
-  if (res?.status === 401 || /invalid or expired session|sign out and sign in|session expired|could not verify your login|not signed in/i.test(msg)) {
-    // Session/auth issues are handled with a quiet retry path — never paint the page with this banner.
-    return "";
+  if (res?.status === 401 || /invalid or expired session|sign out and sign in|session expired|could not verify your login|not signed in|jwt expired/i.test(msg)) {
+    return "Session expired. Sign out and sign in again, then retry Sync eTimeOffice.";
+  }
+  if (/row-level security|permission denied|42501|pgrst301/i.test(msg)) {
+    return "You do not have access to save punches. Sign in with an Admin Ops, HR, or payroll account, then retry Sync eTimeOffice.";
   }
   if (/supabase request timed out|erp_attendance_punches.*timed out|timed out \(\/rest\/v1\/erp_attendance/i.test(msg)) {
     return "Saving punches took too long. Wait a moment and click Sync eTimeOffice again (smaller batches are used automatically).";
   }
   if (res?.status === 403) {
-    return "You need admin or HR access to sync punches. Sign in with an allowed account and retry.";
+    return "You need Admin Ops, HR, or payroll access to sync punches. Sign in with an allowed account and retry.";
   }
   if (err instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(msg)) {
     return [
@@ -306,17 +309,6 @@ function formatAttendanceApiError(err, res, data) {
     );
   }
   return msg || "Unable to sync attendance punches from eTimeOffice.";
-}
-
-function isAttendanceSessionAuthFailure(err, res, data) {
-  const status = Number(res?.status) || 0;
-  const msg = String(err?.message || data?.message || data?.error || "").trim();
-  return (
-    status === 401 ||
-    /invalid or expired session|sign out and sign in|session expired|could not verify your login|not signed in/i.test(
-      msg
-    )
-  );
 }
 
 async function upsertAttendanceRows(rows) {
@@ -499,19 +491,17 @@ export function EmployeeAttendanceInputsPage() {
       setRows([]);
       setTotalCount(0);
       const msg = err?.message || "Unable to load attendance punches.";
-      // Never surface session/API auth noise while browsing stored punches.
       if (
         /invalid or expired session|sign out and sign in|session expired|jwt expired|not signed in/i.test(
           msg
         )
       ) {
-        console.warn("[Raw Attendance] session notice while loading punches:", msg);
-        setError("");
+        setError("Session expired. Sign out and sign in again, then reload punches.");
       } else {
         setError(
           msg.includes("erp_attendance_punches") || err?.code === "PGRST205"
             ? "Attendance data is not set up yet. Contact your system administrator."
-            : msg
+            : formatAttendanceSupabaseError(err)
         );
       }
     } finally {
@@ -535,11 +525,6 @@ export function EmployeeAttendanceInputsPage() {
       });
       const data = result.data || {};
       if (!result.ok) {
-        if (isAttendanceSessionAuthFailure({ message: result.error }, { status: result.status }, data)) {
-          console.warn("[Raw Attendance] Sync auth notice:", result.error || data.message || data.error);
-          await loadAttendanceFromTable();
-          return;
-        }
         throw new Error(
           formatAttendanceApiError(
             { message: result.error || data.message || data.error },
@@ -584,16 +569,12 @@ export function EmployeeAttendanceInputsPage() {
       setPage(1);
       await loadAttendanceFromTable();
     } catch (err) {
-      const formatted = formatAttendanceApiError(err);
-      if (!formatted || isAttendanceSessionAuthFailure(err)) {
-        console.warn("[Raw Attendance] Sync notice:", err?.message || err);
-        try {
-          await loadAttendanceFromTable();
-        } catch {
-          /* ignore reload errors */
-        }
-      } else {
-        toast.error(formatted);
+      const formatted = formatAttendanceApiError(err) || formatAttendanceSupabaseError(err);
+      toast.error(formatted || "Unable to sync attendance punches from eTimeOffice.");
+      try {
+        await loadAttendanceFromTable();
+      } catch {
+        /* ignore reload errors */
       }
     } finally {
       setSyncing(false);
