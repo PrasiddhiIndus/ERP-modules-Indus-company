@@ -1233,6 +1233,8 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
       ingestApprovedRequests((result.data.adminRows || []).filter(requestOverlapsMonth));
       ingestApprovedRequests((result.data.lmsRows || []).filter(requestOverlapsMonth));
       loadedFromApi = true;
+    } else if (result.status === 401 || result.status === 403) {
+      console.warn("Leave API not authorized for register overlay; using Supabase:", result.error);
     }
   } catch (err) {
     console.warn("Leave API unavailable for register overlay; using Supabase:", err?.message || err);
@@ -1258,11 +1260,22 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
         .gte("to_date", fromDate),
     ]);
 
-    if (adminRes.error && lmsRes.error) throw adminRes.error;
-    if (!adminRes.error) ingestApprovedRequests(adminRes.data);
-    if (!lmsRes.error) ingestApprovedRequests(lmsRes.data);
-    else if (!adminRes.error) {
-      console.warn("LMS leave_requests fetch failed; using admin_leave_requests only:", lmsRes.error.message);
+    if (adminRes.error && lmsRes.error) {
+      if (isAttendanceAuthError(adminRes.error) && isAttendanceAuthError(lmsRes.error)) {
+        console.warn(
+          "Leave requests unavailable for register overlay (session or access):",
+          adminRes.error.message,
+          lmsRes.error.message
+        );
+      } else {
+        throw adminRes.error;
+      }
+    } else {
+      if (!adminRes.error) ingestApprovedRequests(adminRes.data);
+      if (!lmsRes.error) ingestApprovedRequests(lmsRes.data);
+      else if (!adminRes.error) {
+        console.warn("LMS leave_requests fetch failed; using admin_leave_requests only:", lmsRes.error.message);
+      }
     }
   }
 
@@ -3864,6 +3877,21 @@ export async function fetchActiveEmployeesForRegister(supabase) {
   return all.filter((e) => e.empCode);
 }
 
+function isAttendanceAuthError(err) {
+  const msg = String(err?.message || err?.error || "");
+  const code = String(err?.code || "");
+  const status = Number(err?.status || err?.statusCode || 0);
+  return (
+    status === 401 ||
+    status === 403 ||
+    code === "PGRST301" ||
+    code === "42501" ||
+    /JWT expired|invalid jwt|not authenticated|unauthorized|permission denied|row-level security/i.test(
+      msg
+    )
+  );
+}
+
 /**
  * Turn Supabase/PostgREST errors into actionable attendance messages.
  */
@@ -3871,6 +3899,10 @@ export function formatAttendanceSupabaseError(err) {
   const msg = String(err?.message || "");
   const code = String(err?.code || "");
   const details = String(err?.details || "");
+
+  if (isAttendanceAuthError(err)) {
+    return "Session expired or you do not have attendance access. Sign out, sign in again, then retry.";
+  }
 
   if (code === "PGRST205" || /schema cache|relation.*does not exist/i.test(msg)) {
     return "Attendance register is not available yet. Contact your system administrator.";
