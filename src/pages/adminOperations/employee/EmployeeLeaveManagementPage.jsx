@@ -251,20 +251,27 @@ export function EmployeeLeaveManagementPage() {
     try {
       if (showLoading) setLoading(true);
       setError("");
-      // Used/unused only — never runs carry-forward / encash year-close logic.
-      if (syncUsage) {
-        try {
-          await syncLiveLeaveUsageFromRegister(supabase, year);
-        } catch (syncErr) {
-          console.warn("Live leave usage sync skipped:", syncErr);
-        }
-      }
       const [rows, usageByCode] = await Promise.all([
         fetchLeaveBalancesForYear(supabase, year),
         fetchLeaveUsageFromDailyRegister(supabase, year),
       ]);
       setBalances(rows || []);
       setRegisterUsageByCode(usageByCode || {});
+      // Used/unused only — never runs carry-forward / encash year-close logic.
+      // Do this after the ledger is on screen so a slow upsert cannot blank the page.
+      if (syncUsage) {
+        try {
+          await syncLiveLeaveUsageFromRegister(supabase, year);
+          const [syncedRows, syncedUsage] = await Promise.all([
+            fetchLeaveBalancesForYear(supabase, year),
+            fetchLeaveUsageFromDailyRegister(supabase, year),
+          ]);
+          setBalances(syncedRows || []);
+          setRegisterUsageByCode(syncedUsage || {});
+        } catch (syncErr) {
+          console.warn("Live leave usage sync skipped:", syncErr);
+        }
+      }
     } catch (e) {
       setError(e?.message || "Failed to load balances");
     } finally {

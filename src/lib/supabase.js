@@ -568,9 +568,10 @@ function resolveFetchSignal(options, url) {
     timeoutMs = AUTH_FETCH_TIMEOUT_MS
   } else if (
     urlStr.includes('erp_attendance_punches') ||
-    urlStr.includes('admin_attendance_register')
+    urlStr.includes('admin_attendance_register') ||
+    urlStr.includes('employee_leave_balances_yearly')
   ) {
-    // Month register / punch scans under RLS need more headroom than default GETs.
+    // Month register / punch / yearly leave-balance scans under RLS need more headroom.
     timeoutMs = HEAVY_REST_FETCH_TIMEOUT_MS
   }
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {

@@ -667,14 +667,19 @@ export function buildLeaveBalanceDbRow(input, year) {
   };
 }
 
+const LEAVE_BALANCE_UPSERT_CHUNK = 40;
+
 export async function upsertLeaveBalancesBatch(supabase, payloads) {
   const rows = (payloads || []).filter(Boolean);
   if (!rows.length) return { count: 0 };
-  const { error } = await supabase
-    .schema("indus_one")
-    .from("employee_leave_balances_yearly")
-    .upsert(rows, { onConflict: "employee_code,year" });
-  if (error) throw error;
+  for (let i = 0; i < rows.length; i += LEAVE_BALANCE_UPSERT_CHUNK) {
+    const chunk = rows.slice(i, i + LEAVE_BALANCE_UPSERT_CHUNK);
+    const { error } = await supabase
+      .schema("indus_one")
+      .from("employee_leave_balances_yearly")
+      .upsert(chunk, { onConflict: "employee_code,year" });
+    if (error) throw error;
+  }
   return { count: rows.length };
 }
 
