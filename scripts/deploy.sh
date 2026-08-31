@@ -27,13 +27,8 @@ touch ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
 # Refresh GitHub host keys every run so a stale entry can never block the fetch.
 ssh-keygen -R github.com >/dev/null 2>&1 || true
 ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
-CURRENT_REMOTE="$(git remote get-url origin 2>/dev/null || true)"
-case "${CURRENT_REMOTE}" in
-  https://github.com/*)
-    echo "==> Switching origin from public HTTPS to SSH deploy key"
-    git remote set-url origin "${REPO_URL}"
-    ;;
-esac
+git remote set-url origin "${REPO_URL}"
+echo "==> origin=$(git remote get-url origin)"
 
 if ! git ls-remote origin >/dev/null 2>&1; then
   echo "ERROR: cannot read the private repository from this server."
@@ -204,13 +199,35 @@ staging_pm2_pid() {
   pm2 pid indus-erp-staging 2>/dev/null | tr -d '[:space:]' || true
 }
 
+staging_pm2_cwd() {
+  pm2 jlist 2>/dev/null | node -e '
+    let raw=""; process.stdin.on("data", d => raw += d); process.stdin.on("end", () => {
+      try {
+        const list = JSON.parse(raw || "[]");
+        const p = list.find(x => x && x.name === "indus-erp-staging");
+        const cwd = p && p.pm2_env && p.pm2_env.pm_cwd;
+        if (cwd) process.stdout.write(String(cwd));
+      } catch (_) {}
+    });
+  ' || true
+}
+
 move_staging_off_production_port() {
-  local staging_env="/var/www/indus-erp-staging/.env.server"
-  echo "==> Staging is bound to production port ${API_PORT}; moving it to 4001"
-  if [ -f "${staging_env}" ]; then
-    sed -i '/^SERVER_PORT=/d' "${staging_env}" || true
-    echo "SERVER_PORT=4001" >> "${staging_env}"
+  local cwd staging_env
+  cwd="$(staging_pm2_cwd)"
+  if [ -n "${cwd}" ]; then
+    staging_env="${cwd}/.env.server"
+  elif [ -f /var/www/indus-erp-staging/.env.server ] || [ -d /var/www/indus-erp-staging ]; then
+    staging_env="/var/www/indus-erp-staging/.env.server"
+  else
+    staging_env="/root/indus-erp-staging/.env.server"
   fi
+  echo "==> Staging is bound to production port ${API_PORT}; pinning ${staging_env} to 4001"
+  mkdir -p "$(dirname "${staging_env}")"
+  touch "${staging_env}"
+  sed -i '/^SERVER_PORT=/d' "${staging_env}" || true
+  echo "SERVER_PORT=4001" >> "${staging_env}"
+  grep -qiE '^ERP_ENV=' "${staging_env}" || echo "ERP_ENV=staging" >> "${staging_env}"
   pm2 restart indus-erp-staging --update-env >/dev/null 2>&1 || true
   sleep 2
 }
