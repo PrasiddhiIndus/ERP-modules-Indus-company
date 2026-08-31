@@ -1,14 +1,35 @@
 import { createClient } from '@supabase/supabase-js';
 
-const ADMIN_ROLES = new Set(['super_admin', 'super_admin_pro', 'admin']);
+const ADMIN_ROLES = new Set(['super_admin', 'super_admin_pro', 'admin', 'hod']);
 const HR_MODULES = new Set(['hr', 'payroll', 'admin']);
 const HR_TEAMS = new Set(['hr', 'admin']);
 const BILLING_MODULES = new Set(['billing', 'commercialmt', 'commercialrm', 'commercial']);
 const BILLING_TEAMS = new Set(['billing', 'commercial', 'commercialmt', 'commercialrm']);
-const BILLING_ROLES = new Set(['admin', 'billing']);
+const BILLING_ROLES = new Set(['admin', 'hod', 'billing']);
 const BILLING_SUB_MODULE_PREFIXES = ['billing.', 'commercialmt.', 'commercialrm.', 'commercial.'];
 const CRM_OUTREACH_MODULES = new Set(['marketing', 'crmoutreach']);
 const CRM_OUTREACH_TEAMS = new Set(['marketing']);
+
+/** Match SQL normalize_erp_role / src/config/roles.js (HOD → admin). */
+function normalizeErpRole(raw) {
+  const r = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  if (r === 'hod' || r === 'admin') return 'admin';
+  if (r === 'superadmin' || r === 'super_admin') return 'super_admin';
+  if (r === 'superadmin_pro' || r === 'super_admin_pro') return 'super_admin_pro';
+  return r;
+}
+
+/** Match SQL normalize_erp_module_key — Employee Master team labels → module keys. */
+function normalizeErpModuleKey(raw) {
+  const t = String(raw || '').trim().toLowerCase();
+  if (t === 'dahej-hr' || t === 'hr') return 'hr';
+  if (t === 'administration' || t === 'management' || t === 'admin') return 'admin';
+  if (t === 'payroll') return 'payroll';
+  return t;
+}
 
 function parseModules(raw) {
   let value = raw;
@@ -37,23 +58,32 @@ function parseModules(raw) {
 }
 
 function moduleListLower(raw) {
-  return parseModules(raw).map((m) => m.toLowerCase());
+  return parseModules(raw).map((m) => normalizeErpModuleKey(m)).filter(Boolean);
 }
 
 function hasModule(modules, allowed) {
-  return modules.some((m) => allowed.has(String(m || '').toLowerCase()));
+  return modules.some((m) => allowed.has(normalizeErpModuleKey(m)));
+}
+
+function hasSubModuleFor(ctx, moduleKey) {
+  const key = normalizeErpModuleKey(moduleKey);
+  if (!key) return false;
+  return parseModules(ctx.profile?.allowed_sub_modules).some((s) => {
+    const top = normalizeErpModuleKey(String(s || '').split('.')[0]);
+    return top === key;
+  });
 }
 
 /** Matches SQL `current_user_can_access_module(module_key)`. */
 function canAccessModule(ctx, moduleKey) {
-  const key = String(moduleKey || '').trim().toLowerCase();
+  const key = normalizeErpModuleKey(moduleKey);
   if (!key) return false;
-  const role = String(ctx.profile?.role || '').trim().toLowerCase();
+  const role = normalizeErpRole(ctx.profile?.role);
   if (role === 'super_admin' || role === 'super_admin_pro') return true;
   if (role === 'admin' && key !== 'usermanagement' && key !== 'softwaresubscriptions') return true;
-  const team = String(ctx.profile?.team || '').trim().toLowerCase();
-  if (team === key) return true;
-  return moduleListLower(ctx.profile?.allowed_modules).includes(key);
+  if (normalizeErpModuleKey(ctx.profile?.team) === key) return true;
+  if (moduleListLower(ctx.profile?.allowed_modules).includes(key)) return true;
+  return hasSubModuleFor(ctx, key);
 }
 
 function projectRefFromUrl(url) {
@@ -334,22 +364,20 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
   }
 
   function isAdmin(ctx) {
-    const role = String(ctx.profile?.role || '').trim().toLowerCase();
-    return ADMIN_ROLES.has(role);
+    return ADMIN_ROLES.has(normalizeErpRole(ctx.profile?.role));
   }
 
   function hasHrAccess(ctx) {
     if (isAdmin(ctx)) return true;
-    const team = String(ctx.profile?.team || '').trim().toLowerCase();
-    if (HR_TEAMS.has(team)) return true;
-    return hasModule(moduleListLower(ctx.profile?.allowed_modules), HR_MODULES);
+    if (HR_TEAMS.has(normalizeErpModuleKey(ctx.profile?.team))) return true;
+    if (hasModule(moduleListLower(ctx.profile?.allowed_modules), HR_MODULES)) return true;
+    return hasSubModuleFor(ctx, 'hr') || hasSubModuleFor(ctx, 'admin') || hasSubModuleFor(ctx, 'payroll');
   }
 
   /** Matches SQL `current_user_has_attendance_admin_access()` for raw attendance / eTime sync. */
   function hasAttendanceAdminAccess(ctx) {
     if (isAdmin(ctx)) return true;
-    const team = String(ctx.profile?.team || '').trim().toLowerCase();
-    if (HR_TEAMS.has(team)) return true;
+    if (HR_TEAMS.has(normalizeErpModuleKey(ctx.profile?.team))) return true;
     return (
       canAccessModule(ctx, 'admin') ||
       canAccessModule(ctx, 'hr') ||
@@ -359,11 +387,11 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
 
   function hasBillingAccess(ctx) {
     if (isAdmin(ctx)) return true;
-    const role = String(ctx.profile?.role || '').trim().toLowerCase();
+    const role = normalizeErpRole(ctx.profile?.role);
     if (BILLING_ROLES.has(role)) return true;
     // Employee Master stores "Commercial"; RLS/UI map that to commercialMt — match case-insensitively.
     const team = String(ctx.profile?.team || '').trim().toLowerCase();
-    if (BILLING_TEAMS.has(team)) return true;
+    if (BILLING_TEAMS.has(team) || BILLING_TEAMS.has(normalizeErpModuleKey(team))) return true;
     const modules = parseModules(ctx.profile?.allowed_modules).map((m) => m.toLowerCase());
     if (hasModule(modules, BILLING_MODULES)) return true;
     const subModules = parseModules(ctx.profile?.allowed_sub_modules).map((m) => m.toLowerCase());
