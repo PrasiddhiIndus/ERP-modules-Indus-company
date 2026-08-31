@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchLeaveRequests,
-  fetchLeaveStatusCounts,
   fetchLeaveTypes,
   formatLeaveDateRange,
   LEAVE_STATUS_FILTER_OPTIONS,
   leaveTypeLabel,
-  subscribeLeaveWorkflowRealtime,
+  subscribeLeaveInboxRealtime,
 } from "../../../lib/adminLeaveRequests";
 import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
 import { formatDateTimeDdMmYyyy } from "../../../utils/dateDisplay";
@@ -25,7 +24,7 @@ import {
 
 const PAGE_SIZES = [25, 50, 100];
 const SEARCH_DEBOUNCE_MS = 400;
-const REALTIME_DEBOUNCE_MS = 450;
+const REALTIME_DEBOUNCE_MS = 1500;
 
 const STATUS_KPI = [
   { id: "pending", label: "Pending", tone: "border-amber-200 bg-amber-50/40" },
@@ -121,15 +120,6 @@ export function EmployeeLeavesPage() {
     };
   }, []);
 
-  const refreshCounts = useCallback(async () => {
-    try {
-      const counts = await fetchLeaveStatusCounts();
-      setStatusCounts(counts);
-    } catch {
-      /* keep previous counts */
-    }
-  }, []);
-
   const loadRequests = useCallback(
     async ({ silent = false } = {}) => {
       const seq = ++loadSeqRef.current;
@@ -149,10 +139,12 @@ export function EmployeeLeavesPage() {
           toDate,
           page,
           pageSize,
+          forceRefresh: silent,
         });
         if (seq !== loadSeqRef.current) return;
         setRows(result.rows);
         setTotal(result.total);
+        if (result.statusCounts) setStatusCounts(result.statusCounts);
       } catch (e) {
         if (seq !== loadSeqRef.current) return;
         if (!silent) {
@@ -172,8 +164,7 @@ export function EmployeeLeavesPage() {
 
   useEffect(() => {
     loadRequests({ silent: false });
-    refreshCounts();
-  }, [loadRequests, refreshCounts]);
+  }, [loadRequests]);
 
   useEffect(() => {
     let debounce = null;
@@ -181,18 +172,17 @@ export function EmployeeLeavesPage() {
       if (debounce) window.clearTimeout(debounce);
       debounce = window.setTimeout(() => {
         loadRequests({ silent: true });
-        refreshCounts();
       }, REALTIME_DEBOUNCE_MS);
     };
 
-    const unsubscribe = subscribeLeaveWorkflowRealtime(scheduleReload);
+    const unsubscribe = subscribeLeaveInboxRealtime(scheduleReload);
     setRealtimeLive(isSupabaseRealtimeEnabled());
 
     return () => {
       if (debounce) window.clearTimeout(debounce);
       unsubscribe();
     };
-  }, [loadRequests, refreshCounts]);
+  }, [loadRequests]);
 
   const resetFilters = () => {
     setEmpSearch("");
@@ -360,7 +350,6 @@ export function EmployeeLeavesPage() {
             type="button"
             onClick={() => {
               loadRequests({ silent: true });
-              refreshCounts();
             }}
             disabled={initialLoading && !rows.length}
             className="h-8 px-3 rounded-lg border border-accent/30 bg-accent/5 text-xs font-semibold text-accent hover:bg-accent/10 disabled:opacity-60"

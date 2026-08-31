@@ -366,9 +366,15 @@ const { requireAuth, requireAdmin, requireBillingAccess, requireHrOrAdmin, requi
 
 const apiRateLimit = rateLimit({
   windowMs: 60_000,
-  max: 120,
+  max: 180,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    const path = String(req.originalUrl || req.url || '').split('?')[0];
+    // Leave inbox is one HR dashboard read; do not count it toward the global cap
+    // (list + counts + Strict Mode + realtime used to 429 and fall back to slow RLS).
+    return req.method === 'GET' && path === '/api/admin/leave-requests';
+  },
 });
 const einvoiceRateLimit = rateLimit({
   windowMs: 60_000,
