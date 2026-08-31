@@ -569,9 +569,11 @@ function resolveFetchSignal(options, url) {
   } else if (
     urlStr.includes('erp_attendance_punches') ||
     urlStr.includes('admin_attendance_register') ||
-    urlStr.includes('employee_leave_balances_yearly')
+    urlStr.includes('employee_leave_balances_yearly') ||
+    urlStr.includes('admin_leave_requests') ||
+    urlStr.includes('leave_requests')
   ) {
-    // Month register / punch / yearly leave-balance scans under RLS need more headroom.
+    // Month register / punch / yearly leave-balance / leave-inbox scans under RLS need more headroom.
     timeoutMs = HEAVY_REST_FETCH_TIMEOUT_MS
   }
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {

@@ -708,6 +708,31 @@ export function subscribeLeaveWorkflowRealtime(onChange) {
   };
 }
 
+/** Inbox / approvals: request tables only. Balance upserts must not reload this page. */
+export function subscribeLeaveInboxRealtime(onChange) {
+  if (!isSupabaseRealtimeEnabled() || typeof onChange !== "function") {
+    return () => {};
+  }
+
+  const channel = supabase
+    .channel("erp-indus-one-leave-inbox")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: INDUS_ONE, table: INDUS_ONE_LEAVE_TABLES.lmsRequests },
+      onChange
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: INDUS_ONE, table: INDUS_ONE_LEAVE_TABLES.adminRequests },
+      onChange
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 const LEAVE_FETCH_CAP = 2000;
 const LEAVE_PAGE_SIZE = 1000;
 
@@ -745,24 +770,21 @@ export async function fetchLeaveTypes() {
 /**
  * Prefer service-role API so ERP admins see ALL employees' leave (RLS otherwise
  * often returns only the signed-in user's rows). Falls back to direct Supabase.
+ * Coalesce overlapping calls (inbox list + KPI counts + React Strict Mode).
  */
-async function loadLeaveInboxSourceRows() {
-  try {
-    const result = await fetchApiWithAuth("/api/admin/leave-requests");
-    if (result.ok && (Array.isArray(result.data?.lmsRows) || Array.isArray(result.data?.adminRows))) {
-      return {
-        lmsRows: result.data.lmsRows || [],
-        adminRows: result.data.adminRows || [],
-        source: "api",
-      };
-    }
-    if (result.error) {
-      console.warn("Leave inbox API unavailable; falling back to direct Supabase:", result.error);
-    }
-  } catch (err) {
-    console.warn("Leave inbox API failed; falling back to direct Supabase:", err?.message || err);
-  }
+let leaveInboxInflight = null;
+let leaveInboxCache = { at: 0, payload: null };
+const LEAVE_INBOX_CACHE_MS = 30_000;
 
+function countInboxStatuses(merged) {
+  const counts = { pending: 0, approved: 0, rejected: 0, cancelled: 0, withdrawn: 0, all: merged.length };
+  for (const row of merged) {
+    counts[inboxStatusBucket(row.status)] += 1;
+  }
+  return counts;
+}
+
+async function loadLeaveInboxFromSupabase() {
   const [lmsRes, adminRes] = await Promise.all([
     fetchAllPagedRows(lmsLeaveRequestsTable),
     fetchAllPagedRows(adminLeaveRequestsTable),
@@ -785,6 +807,49 @@ async function loadLeaveInboxSourceRows() {
   };
 }
 
+async function loadLeaveInboxSourceRows({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && leaveInboxCache.payload && now - leaveInboxCache.at < LEAVE_INBOX_CACHE_MS) {
+    return leaveInboxCache.payload;
+  }
+  if (leaveInboxInflight) return leaveInboxInflight;
+
+  leaveInboxInflight = (async () => {
+    try {
+      let result = await fetchApiWithAuth("/api/admin/leave-requests");
+      if (result.status === 429) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        result = await fetchApiWithAuth("/api/admin/leave-requests");
+      }
+      if (result.ok && (Array.isArray(result.data?.lmsRows) || Array.isArray(result.data?.adminRows))) {
+        const payload = {
+          lmsRows: result.data.lmsRows || [],
+          adminRows: result.data.adminRows || [],
+          source: "api",
+        };
+        leaveInboxCache = { at: Date.now(), payload };
+        return payload;
+      }
+      if (result.status === 429 && leaveInboxCache.payload) {
+        return leaveInboxCache.payload;
+      }
+      if (result.error) {
+        console.warn("Leave inbox API unavailable; falling back to direct Supabase:", result.error);
+      }
+    } catch (err) {
+      console.warn("Leave inbox API failed; falling back to direct Supabase:", err?.message || err);
+    }
+
+    const payload = await loadLeaveInboxFromSupabase();
+    leaveInboxCache = { at: Date.now(), payload };
+    return payload;
+  })().finally(() => {
+    leaveInboxInflight = null;
+  });
+
+  return leaveInboxInflight;
+}
+
 export async function countPendingLeaveRequests() {
   const counts = await fetchLeaveStatusCounts();
   return counts.pending ?? 0;
@@ -794,11 +859,7 @@ export async function countPendingLeaveRequests() {
 export async function fetchLeaveStatusCounts() {
   const { lmsRows, adminRows } = await loadLeaveInboxSourceRows();
   const merged = mergeLmsAndAdminLeaveRows(lmsRows, adminRows);
-  const counts = { pending: 0, approved: 0, rejected: 0, cancelled: 0, withdrawn: 0, all: merged.length };
-  for (const row of merged) {
-    counts[inboxStatusBucket(row.status)] += 1;
-  }
-  return counts;
+  return countInboxStatuses(merged);
 }
 
 /**
@@ -814,10 +875,12 @@ export async function fetchLeaveRequests(opts = {}) {
     toDate = "",
     page = 1,
     pageSize = PAGE_SIZE_DEFAULT,
+    forceRefresh = false,
   } = opts;
 
-  const { lmsRows, adminRows } = await loadLeaveInboxSourceRows();
+  const { lmsRows, adminRows } = await loadLeaveInboxSourceRows({ force: forceRefresh });
   let merged = mergeLmsAndAdminLeaveRows(lmsRows, adminRows);
+  const statusCounts = countInboxStatuses(merged);
 
   const needle = empSearch.trim();
   if (needle) {
@@ -878,6 +941,7 @@ export async function fetchLeaveRequests(opts = {}) {
     total,
     page: safePage,
     pageSize,
+    statusCounts,
   };
 }
 
