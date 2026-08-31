@@ -15,10 +15,13 @@ import { downloadLeaveBalanceSampleSheet, ledgerDisplayRowToEditForm } from "../
 import { LeaveBalanceImportModal } from "./LeaveBalanceImportModal";
 import {
   DEFAULT_ANNUAL_ENTITLEMENTS,
+  buildLeaveBalanceDbRow,
   fetchLeaveBalancesForYear,
   fetchLeaveUsageFromDailyRegister,
   fetchPlEncashPrefs,
+  formatLeaveBalanceError,
   getLeaveCarryForwardRules,
+  mergeSavedLeaveBalanceRow,
   syncLiveLeaveUsageFromRegister,
   subscribeLeaveUsageRealtime,
   upsertLeaveBalanceYearly,
@@ -595,14 +598,16 @@ export function EmployeeLeaveManagementPage() {
           balanceByCode[code] || {}
         );
         await upsertLeaveBalanceYearly(supabase, payload, year, { skipEntitlementRecalc: true });
-        const rows = await fetchLeaveBalancesForYear(supabase, year);
-        setBalances(rows || []);
+        const savedRow = buildLeaveBalanceDbRow(payload, year);
+        if (savedRow) {
+          setBalances((prev) => mergeSavedLeaveBalanceRow(prev, savedRow));
+        }
         setLedgerEditingId(null);
         setLedgerEditDraft({});
         ledgerEditDraftRef.current = {};
         toast.success("Ledger row saved.");
       } catch (e) {
-        toast.error(e?.message || "Could not save ledger row.");
+        toast.error(formatLeaveBalanceError(e));
       } finally {
         setLedgerEditSaving(false);
       }
