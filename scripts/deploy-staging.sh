@@ -62,7 +62,9 @@ test -f dist/index.html
 # Same droplet as production: production owns 8787, staging API is 4001 (nginx :3001).
 if [ -f .env.server ]; then
   sed -i '/^SERVER_PORT=/d' .env.server || true
+  sed -i '/^PORT=/d' .env.server || true
   echo "SERVER_PORT=4001" >> .env.server
+  echo "PORT=4001" >> .env.server
 fi
 
 pm2 restart "${PM2_NAME}" --update-env
