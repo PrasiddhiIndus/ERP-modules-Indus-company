@@ -157,7 +157,9 @@ echo "NODE_ENV=production" >> .env.server
 
 # nginx proxies https://indus-erp.in/api -> 127.0.0.1:8787. Staging must use 4001.
 sed -i '/^SERVER_PORT=/d' .env.server || true
+sed -i '/^PORT=/d' .env.server || true
 echo "SERVER_PORT=8787" >> .env.server
+echo "PORT=8787" >> .env.server
 API_PORT=8787
 
 echo "==> npm ci"
@@ -226,7 +228,9 @@ move_staging_off_production_port() {
   mkdir -p "$(dirname "${staging_env}")"
   touch "${staging_env}"
   sed -i '/^SERVER_PORT=/d' "${staging_env}" || true
+  sed -i '/^PORT=/d' "${staging_env}" || true
   echo "SERVER_PORT=4001" >> "${staging_env}"
+  echo "PORT=4001" >> "${staging_env}"
   grep -qiE '^ERP_ENV=' "${staging_env}" || echo "ERP_ENV=staging" >> "${staging_env}"
   pm2 restart indus-erp-staging --update-env >/dev/null 2>&1 || true
   sleep 2
