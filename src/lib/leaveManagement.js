@@ -1,4 +1,4 @@
-import { fetchActiveEmployees, fetchRegisterMarksForYear, fetchRegisterMarksForEmployeeYear, normalizeAttendanceEmpCode, attendanceEmpCodeLookupVariants } from "./attendanceDaily";
+import { fetchActiveEmployees, fetchRegisterMarksForYear, fetchRegisterMarksForEmployeeYear, normalizeAttendanceEmpCode, attendanceEmpCodeLookupVariants, registerPlSlClLeaveDayWeight } from "./attendanceDaily";
 import { supabase } from "./supabase";
 import { isSupabaseRealtimeEnabled } from "./supabaseConfig";
 
@@ -10,24 +10,15 @@ export const DEFAULT_ANNUAL_ENTITLEMENTS = {
 
 // Which attendance-register marks count against the generic carry-forward categories.
 function markWeightForPl(mark) {
-  const m = String(mark || "").trim().toUpperCase();
-  if (m === "PL") return 1;
-  if (m === "P/PL") return 0.5;
-  return 0;
+  return registerPlSlClLeaveDayWeight(mark, "PL");
 }
 
 function markWeightForSl(mark) {
-  const m = String(mark || "").trim().toUpperCase();
-  if (m === "SL") return 1;
-  if (m === "P/SL") return 0.5;
-  return 0;
+  return registerPlSlClLeaveDayWeight(mark, "SL");
 }
 
 function markWeightForCl(mark) {
-  const m = String(mark || "").trim().toUpperCase();
-  if (m === "CL") return 1;
-  if (m === "P/CL") return 0.5;
-  return 0;
+  return registerPlSlClLeaveDayWeight(mark, "CL");
 }
 
 function markWeightForSbel(mark) {
@@ -146,6 +137,33 @@ export async function fetchLeaveBalancesForYear(supabase, year) {
     .eq("year", year);
   if (error) throw error;
   return data || [];
+}
+
+/** User-friendly message for leave balance / ledger API failures. */
+export function formatLeaveBalanceError(err) {
+  const msg = String(err?.message || err?.details || "");
+  if (/57014|statement timeout|canceling statement/i.test(msg)) {
+    return (
+      "Leave balance operation timed out on the server. " +
+      "Apply the latest leave-balance database migration, wait a minute, then retry."
+    );
+  }
+  return msg || "Unable to complete leave balance operation.";
+}
+
+/**
+ * Merge a saved balance row into an in-memory year list (avoids full-year refetch after edit).
+ */
+export function mergeSavedLeaveBalanceRow(balances, savedRow) {
+  if (!savedRow) return balances || [];
+  const code = normalizeAttendanceEmpCode(savedRow.employee_code);
+  const list = [...(balances || [])];
+  const idx = list.findIndex((b) => normalizeAttendanceEmpCode(b.employee_code) === code);
+  if (idx >= 0) {
+    list[idx] = { ...list[idx], ...savedRow };
+    return list;
+  }
+  return [...list, savedRow];
 }
 
 export async function recalculateEmployeeLeaveEntitlements(supabase, employeeCode, year) {

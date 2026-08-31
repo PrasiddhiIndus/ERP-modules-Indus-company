@@ -4,6 +4,7 @@
 
 import {
   isRegisterNhphMark,
+  normalizeAttendanceEmpCode,
   normalizeRegisterMarkForDb,
   registerPresentDayCredit,
 } from "./attendanceDaily";
@@ -21,7 +22,7 @@ export const REGISTER_LEAVE_ANNUAL_LIMITS = {
   SPLM: 3,
 };
 
-/** Marks that consume 0.5 day against their leave type quota. */
+/** Marks that consume fractional day against leave balance / annual limits. */
 export const REGISTER_MARK_DAY_FRACTION = {
   HD: 0.5,
   SPLA: 0.5,
@@ -36,7 +37,7 @@ export const REGISTER_MARK_DAY_FRACTION = {
 
 export const LEAVE_LIMIT_ALERTS_STORAGE_KEY = "adminAttendance.leaveLimitSeen";
 
-/** Leave units for limit checks (0 if mark has no annual limit). */
+/** Leave units for balance checks and annual limits (0 if mark has no annual limit). */
 export function leaveDayFraction(mark) {
   const m = normalizeRegisterMarkForDb(mark);
   if (!m) return 0;
@@ -69,8 +70,8 @@ export function hasLeaveAnnualLimit(mark) {
 export function aggregateLeaveUsageByEmployee(rows) {
   const byEmp = {};
   for (const row of rows || []) {
-    const code = String(row.employee_code || "").trim();
-    const mark = normalizeRegisterMarkForDb(row.mark);
+    const code = normalizeAttendanceEmpCode(row.employee_code);
+    const mark = row.mark;
     const limitType = leaveLimitTypeForMark(mark);
     if (!code || !limitType) continue;
     const frac = leaveDayFraction(mark);
@@ -115,10 +116,12 @@ export function findAllLeaveLimitExceeded(usage) {
  * Usage for one employee after applying/replacing a mark on one day.
  */
 export function projectLeaveUsageAfterMark(yearRows, empCode, registerDate, newMark, oldMark = null) {
-  const code = String(empCode || "").trim();
+  const code = normalizeAttendanceEmpCode(empCode);
   const date = String(registerDate || "").slice(0, 10);
   const filtered = (yearRows || []).filter(
-    (r) => String(r.employee_code || "").trim() !== code || String(r.register_date || "").slice(0, 10) !== date
+    (r) =>
+      normalizeAttendanceEmpCode(r.employee_code) !== code ||
+      String(r.register_date || "").slice(0, 10) !== date
   );
   if (newMark) {
     filtered.push({ employee_code: code, register_date: date, mark: newMark });

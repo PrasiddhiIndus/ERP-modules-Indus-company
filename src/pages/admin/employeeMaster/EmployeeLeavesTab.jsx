@@ -6,6 +6,8 @@ import { normalizeAttendanceEmpCode } from "../../../lib/attendanceDaily";
 import {
   DEFAULT_ANNUAL_ENTITLEMENTS,
   fetchLeaveBalanceForEmployee,
+  fetchLeaveUsageFromDailyRegister,
+  formatLeaveBalanceError,
   getLeaveCarryForwardRules,
   processLeaveBalanceForEmployee,
   syncEmployeeYearlyLeaveFromRegister,
@@ -107,8 +109,9 @@ export default function EmployeeLeavesTab({ employee }) {
     try {
       setLoading(true);
       setError("");
-      const [row, carryRules, prefs, ledgerRes] = await Promise.all([
+      const [row, usageByCode, carryRules, prefs, ledgerRes] = await Promise.all([
         fetchLeaveBalanceForEmployee(supabase, empCode, year),
+        fetchLeaveUsageFromDailyRegister(supabase, year),
         getLeaveCarryForwardRules(supabase),
         fetchPlEncashPrefs(supabase),
         supabase
@@ -120,8 +123,23 @@ export default function EmployeeLeavesTab({ employee }) {
           .order("created_at", { ascending: false })
           .limit(25),
       ]);
-      setBalance(row);
-      setDraft(rowToDraft(row));
+      const liveUsed = usageByCode?.[empCode] || {};
+      const mergedRow = row
+        ? {
+            ...row,
+            used_pl: Number(liveUsed.used_pl ?? row.used_pl ?? 0),
+            used_sl: Number(liveUsed.used_sl ?? row.used_sl ?? 0),
+            used_cl: Number(liveUsed.used_cl ?? row.used_cl ?? 0),
+            used_sbel: Number(liveUsed.used_sbel ?? row.used_sbel ?? 0),
+            used_spla: Number(liveUsed.used_spla ?? row.used_spla ?? 0),
+            used_splb: Number(liveUsed.used_splb ?? row.used_splb ?? 0),
+            used_splm: Number(liveUsed.used_splm ?? row.used_splm ?? 0),
+            used_coff: Number(liveUsed.used_coff ?? row.used_coff ?? 0),
+            used_paternity: Number(liveUsed.used_paternity ?? row.used_paternity ?? 0),
+          }
+        : null;
+      setBalance(mergedRow);
+      setDraft(rowToDraft(mergedRow));
       setRules(carryRules || { pl_carry_forward_max: 7, sl_carry_forward_max: 8, cl_carry_forward_max: 0 });
       setEncashPl(!!prefs[empCode]);
       if (ledgerRes.error) {
@@ -191,11 +209,13 @@ export default function EmployeeLeavesTab({ employee }) {
         year,
         { skipEntitlementRecalc: true }
       );
+      const row = await fetchLeaveBalanceForEmployee(supabase, empCode, year);
+      setBalance(row);
+      setDraft(rowToDraft(row));
       setEditing(false);
-      await load();
       toast.success("Leave ledger saved.");
     } catch (e) {
-      toast.error(e?.message || "Failed to save leave ledger.");
+      toast.error(formatLeaveBalanceError(e));
     } finally {
       setSaving(false);
     }

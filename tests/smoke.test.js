@@ -14,11 +14,14 @@ import { createAuthMiddleware } from '../server/authMiddleware.js';
 import {
   applyManualRegisterRowsToMarks,
   buildMonthlyRegisterGrid,
+  computeEmployeeRegisterSummary,
   mergeApprovedLeaveMarksIntoManualMarks,
   mergeApprovedTourIntoRegisterView,
   normalizeRegisterMarkForDb,
   registerMarkCompositeDisplayParts,
+  registerSummaryLeaveCredit,
 } from '../src/lib/attendanceDaily.js';
+import { leaveDayFraction } from '../src/lib/attendanceLeaveLimits.js';
 
 describe('registerMarkFromPunchWindow', () => {
   it('marks half day when out is on cutoff', () => {
@@ -416,6 +419,37 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
       leave: 'CL',
       combined: 'P/CL',
     });
+  });
+
+  it('counts P/PL, P/CL, and P/SL as 1 in register summary but 0.5 for balance/limits', () => {
+    for (const mark of ['P/PL', 'P/CL', 'P/SL', 'p/pl', 'P / CL']) {
+      expect(registerSummaryLeaveCredit(mark)).toBe(1);
+      expect(leaveDayFraction(mark)).toBe(0.5);
+    }
+    expect(registerSummaryLeaveCredit('PL')).toBe(1);
+    expect(leaveDayFraction('PL')).toBe(1);
+    expect(registerSummaryLeaveCredit('LWP/PL')).toBe(0.5);
+    expect(leaveDayFraction('LWP/PL')).toBe(0.5);
+  });
+
+  it('register row summary counts each P/PL as 1 leave day (not 0.5)', () => {
+    const dayMarks = {};
+    for (let day = 1; day <= 31; day += 1) {
+      if (day === 5 || day === 12) dayMarks[day] = 'P/PL';
+      else if (day <= 24) dayMarks[day] = 'P';
+      else if (day <= 29) dayMarks[day] = 'WO';
+      else dayMarks[day] = 'NH/PH';
+    }
+    const summary = computeEmployeeRegisterSummary(
+      { empCode: '101', dayMarks },
+      {},
+      31,
+      { year: 2026, month: 8 }
+    );
+    expect(summary.leave).toBe(2);
+    expect(summary.weekoff).toBe(5);
+    expect(summary.nhph).toBe(2);
+    expect(summary.totalPresent).toBe(26); // 22 P + 2×1 P/PL + 2 NH/PH (summary display)
   });
 });
 
