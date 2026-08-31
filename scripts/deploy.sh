@@ -160,6 +160,11 @@ fi
 sed -i '/^NODE_ENV=/d' .env.server || true
 echo "NODE_ENV=production" >> .env.server
 
+# nginx proxies https://indus-erp.in/api -> 127.0.0.1:8787. Staging must use 4001.
+sed -i '/^SERVER_PORT=/d' .env.server || true
+echo "SERVER_PORT=8787" >> .env.server
+API_PORT=8787
+
 echo "==> npm ci"
 npm ci
 
@@ -184,17 +189,73 @@ rsync -a --delete dist/ "${APP_DIR}/"
 echo "==> Frontend live at ${APP_DIR}"
 echo "==> Reminder: nginx must not long-cache index.html (see scripts/nginx-production-cache-snippet.conf)"
 
-# Stop legacy duplicate API name
+pids_listening_on() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnp "sport = :${port}" 2>/dev/null | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | sort -u
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -t -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true
+  elif command -v fuser >/dev/null 2>&1; then
+    fuser "${port}/tcp" 2>/dev/null | tr -s ' \t' '\n' | grep -E '^[0-9]+$' || true
+  fi
+}
+
+staging_pm2_pid() {
+  pm2 pid indus-erp-staging 2>/dev/null | tr -d '[:space:]' || true
+}
+
+move_staging_off_production_port() {
+  local staging_env="/var/www/indus-erp-staging/.env.server"
+  echo "==> Staging is bound to production port ${API_PORT}; moving it to 4001"
+  if [ -f "${staging_env}" ]; then
+    sed -i '/^SERVER_PORT=/d' "${staging_env}" || true
+    echo "SERVER_PORT=4001" >> "${staging_env}"
+  fi
+  pm2 restart indus-erp-staging --update-env >/dev/null 2>&1 || true
+  sleep 2
+}
+
+# Stop production API (and the old duplicate name). Staging stays up on 4001.
+pm2 stop "${PM2_NAME}" >/dev/null 2>&1 || true
 pm2 delete "${LEGACY_PM2_NAME}" >/dev/null 2>&1 || true
+pm2 delete "${PM2_NAME}" >/dev/null 2>&1 || true
+
+echo "==> Freeing port ${API_PORT} for production API"
+for i in $(seq 1 15); do
+  leftover="$(pids_listening_on "${API_PORT}" || true)"
+  if [ -z "${leftover}" ]; then
+    echo "==> Port ${API_PORT} is free"
+    break
+  fi
+  stg="$(staging_pm2_pid)"
+  for pid in ${leftover}; do
+    [ -n "${pid}" ] || continue
+    if [ -n "${stg}" ] && [ "${pid}" = "${stg}" ]; then
+      move_staging_off_production_port
+      continue
+    fi
+    echo "==> Stopping leftover PID ${pid} on port ${API_PORT}"
+    if [ "${i}" -ge 8 ]; then
+      kill -9 "${pid}" 2>/dev/null || true
+    else
+      kill -TERM "${pid}" 2>/dev/null || true
+    fi
+  done
+  sleep 1
+done
+
+still_there="$(pids_listening_on "${API_PORT}" || true)"
+if [ -n "${still_there}" ]; then
+  echo "ERROR: port ${API_PORT} still in use by PID(s): ${still_there}"
+  ss -ltnp "sport = :${API_PORT}" 2>/dev/null || true
+  echo "Staging must use SERVER_PORT=4001. Production nginx expects 8787."
+  exit 1
+fi
 
 # Always run API from git repo cwd (not static nginx folder)
-pm2 delete "${PM2_NAME}" >/dev/null 2>&1 || true
-sleep 1
-pm2 start "${REPO_DIR}/server/index.js" --name "${PM2_NAME}" --cwd "${REPO_DIR}"
+pm2 start "${REPO_DIR}/server/index.js" --name "${PM2_NAME}" --cwd "${REPO_DIR}" --update-env
 pm2 save
 
-API_PORT="$(grep -E '^SERVER_PORT=' .env.server 2>/dev/null | tail -1 | cut -d= -f2 | tr -d '[:space:]\"' || true)"
-API_PORT="${API_PORT:-8787}"
 HEALTH_URL="http://127.0.0.1:${API_PORT}/api/health"
 
 echo "==> Health check ${HEALTH_URL}"

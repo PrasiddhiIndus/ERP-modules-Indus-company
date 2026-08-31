@@ -59,6 +59,12 @@ npm ci
 NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB:-2048}" npm run build
 test -f dist/index.html
 
+# Same droplet as production: production owns 8787, staging API is 4001 (nginx :3001).
+if [ -f .env.server ]; then
+  sed -i '/^SERVER_PORT=/d' .env.server || true
+  echo "SERVER_PORT=4001" >> .env.server
+fi
+
 pm2 restart "${PM2_NAME}" --update-env
 pm2 save
 systemctl reload nginx

@@ -148,6 +148,12 @@ jobs:
             test -f dist/index.html
             rm -rf /tmp/indus-erp-staging-build
 
+            # Production API is 8787 on this droplet. Staging must stay on 4001.
+            if [ -f .env.server ]; then
+              sed -i '/^SERVER_PORT=/d' .env.server || true
+              echo "SERVER_PORT=4001" >> .env.server
+            fi
+
             pm2 restart "${PM2_NAME}" --update-env
             pm2 save
             systemctl reload nginx
