@@ -51,7 +51,7 @@ export const STORAGE_KEYS = {
 
 /** Stored mark code for national holiday / public holiday. */
 export const REGISTER_MARK_NHPH = "NH/PH";
-/** Display-only mark for days after employee date of leaving (daily register). */
+/** Display-only mark for days after the employee's last working day (daily register). */
 export const REGISTER_MARK_LEFT = "Left";
 
 /** Daily register grid — dropdown options (clear + P, L, WO, NH/PH). */
@@ -137,10 +137,26 @@ export const REGISTER_PRIMARY_MARK_OPTIONS = [
 
 /** Canonical P/SL | P/CL | P/PL (case-insensitive leave half). */
 export function canonicalRegisterCompositeMark(mark) {
-  const m = String(mark ?? "").trim();
-  const match = m.match(/^P\/(SL|CL|PL)$/i);
+  const compact = String(mark ?? "")
+    .trim()
+    .replace(/\s+/g, "");
+  const match = compact.match(/^P\/(SL|CL|PL)$/i);
   if (!match) return null;
   return `P/${match[1].toUpperCase()}`;
+}
+
+/**
+ * Leave balance / deductible weight for PL / SL / CL register marks.
+ * Full PL|CL|SL = 1; P/PL|P/CL|P/SL composites = 0.5 (half-day deduction unchanged).
+ */
+export function registerPlSlClLeaveDayWeight(mark, leaveType) {
+  const type = String(leaveType || "").trim().toUpperCase();
+  if (!["PL", "SL", "CL"].includes(type)) return 0;
+  const raw = String(mark ?? "").trim();
+  if (!raw) return 0;
+  if (raw.toUpperCase() === type) return 1;
+  const composite = canonicalRegisterCompositeMark(raw);
+  return composite && composite.slice(2) === type ? 0.5 : 0;
 }
 
 /** Canonical LWP/SL | LWP/CL | LWP/PL. */
@@ -246,11 +262,25 @@ export function isRegisterSummaryLeaveMark(mark) {
   return false;
 }
 
-/** Leave-day credit for register summary (HD / P/* / LWP/* composites = 0.5; full leave = 1). */
+/**
+ * Register summary leave credit for P/PL, P/CL, P/SL — display/count as 1 full day.
+ * Does not affect balance deduction (still 0.5 via registerPlSlClLeaveDayWeight).
+ */
+export function registerCompositePaidLeaveSummaryCredit(mark) {
+  const composite = canonicalRegisterCompositeMark(mark);
+  return composite ? 1 : 0;
+}
+
+/** Leave-day credit for register summary (P/SL|P/CL|P/PL = 1; HD / LWP/* composites = 0.5; full leave = 1). */
 export function registerSummaryLeaveCredit(mark) {
+  const compositeCredit = registerCompositePaidLeaveSummaryCredit(mark);
+  if (compositeCredit > 0) return compositeCredit;
+
   const m = String(mark ?? "").trim();
-  if (!isRegisterSummaryLeaveMark(m)) return 0;
-  if (m === "HD" || isRegisterCompositeHalfDayMark(m) || isRegisterLwpCompositeMark(m)) return 0.5;
+  const canonical = normalizeRegisterMarkForDb(m) || m;
+  if (!isRegisterSummaryLeaveMark(m) && !isRegisterSummaryLeaveMark(canonical)) return 0;
+  const eff = canonical || m;
+  if (eff === "HD" || isRegisterLwpCompositeMark(eff) || isRegisterLwpCompositeMark(m)) return 0.5;
   return 1;
 }
 
@@ -305,10 +335,22 @@ export function registerPresentDayCreditForCell(mark, { year, month, day } = {})
   return 0;
 }
 
-/** Leave credit for a day cell (PL/CL/SL on weekoff → 0). */
+/** Leave credit for a day cell (PL/CL/SL on weekoff → 0; P/* composites → 1). */
 export function registerSummaryLeaveCreditForCell(mark, { year, month, day } = {}) {
+  const compositeCredit = registerCompositePaidLeaveSummaryCredit(mark);
+  if (compositeCredit > 0) return compositeCredit;
   if (isPlClSlOnWeekoffDate(mark, { year, month, day })) return 0;
   return registerSummaryLeaveCredit(mark);
+}
+
+/**
+ * Present credit for register summary Total present column only.
+ * P/PL, P/CL, P/SL count as 1 (display); does not change day-level present/absent logic.
+ */
+export function registerPresentDaySummaryCreditForCell(mark, { year, month, day } = {}) {
+  const compositeCredit = registerCompositePaidLeaveSummaryCredit(mark);
+  if (compositeCredit > 0) return compositeCredit;
+  return registerPresentDayCreditForCell(mark, { year, month, day });
 }
 
 /** Whether a mark counts as a present day (incl. CO, T). */
@@ -527,12 +569,12 @@ export function isRegisterLeftMark(mark) {
   return String(mark ?? "").trim() === REGISTER_MARK_LEFT;
 }
 
-/** True when register date is on or after the employee's date of leaving. */
+/** True when register date is strictly after the employee's last working day (date_of_leaving). */
 export function isRegisterDayAfterLeaving(registerDateIso, dateOfLeaving) {
   const leaving = normalizeDbDate(dateOfLeaving);
   const date = normalizeDbDate(registerDateIso);
   if (!leaving || !date) return false;
-  return date >= leaving;
+  return date > leaving;
 }
 
 /** Colored box behind the closed cell only (pair with registerMarkCellInlineStyle). */
@@ -2924,7 +2966,7 @@ export function computeEmployeeRegisterSummary(row, manualMarksForEmp = {}, days
   for (let day = 1; day <= daysInMonth; day += 1) {
     const mark = row.dayMarks[day] || "";
     const cellCtx = { year, month, day };
-    summary.totalPresent += registerPresentDayCreditForCell(mark, cellCtx);
+    summary.totalPresent += registerPresentDaySummaryCreditForCell(mark, cellCtx);
     summary.leave += registerSummaryLeaveCreditForCell(mark, cellCtx);
     if (mark === "WO") {
       summary.weekoff += 1;
