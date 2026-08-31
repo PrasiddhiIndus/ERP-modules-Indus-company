@@ -47,8 +47,11 @@ DECLARE
     'tenders', 'tender_contacts', 'costing_rows', 'costing_summary', 'costing_accessories',
     'quotations', 'approved_quotation_items', 'quotation_templates',
     'main_components', 'moc_prices', 'price_master',
-    -- Admin
-    'admin_ifsp_employee_master', 'admin_attendance_register', 'erp_attendance_punches',
+    -- Admin (employee master + sync/log stay here).
+    -- Do NOT add admin_attendance_register or erp_attendance_punches:
+    -- those use scoped HR/own RLS (20260827120000 / 20260831120000).
+    -- Re-creating erp_auth_* USING (true) on punches lets any login dump the table.
+    'admin_ifsp_employee_master',
     'erp_attendance_sync_state', 'erp_activity_log', 'erp_app_access_config'
   ];
 BEGIN
