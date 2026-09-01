@@ -155,6 +155,9 @@ export async function fetchLeaveBalancesForYear(supabase, year) {
 /** User-friendly message for leave balance / ledger API failures. */
 export function formatLeaveBalanceError(err) {
   const msg = String(err?.message || err?.details || "");
+  if (/42501|not authorized|permission denied|row-level security/i.test(msg)) {
+    return "You do not have permission to edit leave balances. Contact a super admin.";
+  }
   if (/57014|statement timeout|canceling statement/i.test(msg)) {
     return (
       "Leave balance operation timed out on the server. " +
@@ -700,6 +703,16 @@ export function buildLeaveBalanceDbRow(input, year) {
 
 const LEAVE_BALANCE_UPSERT_CHUNK = 40;
 
+async function applySyncedLeaveUsageRows(supabaseClient, rows) {
+  const list = (rows || []).filter(Boolean);
+  if (!list.length) return { count: 0 };
+  const { data, error } = await supabaseClient
+    .schema("indus_one")
+    .rpc("sync_employee_yearly_leave_usage_batch", { p_rows: list });
+  if (error) throw error;
+  return { count: Number(data) || list.length };
+}
+
 export async function upsertLeaveBalancesBatch(supabase, payloads) {
   const rows = (payloads || []).filter(Boolean);
   if (!rows.length) return { count: 0 };
@@ -939,7 +952,7 @@ export async function syncEmployeeYearlyLeaveFromRegister(supabaseClient, employ
   const used = usedByEmp[emp_code] || emptyUsedLeaveTotals();
   // Keep the existing primary-key employee_code (do not strip leading zeros) so upsert updates the real row.
   const balanceEmployeeCode = String(current.employee_code ?? "").trim() || emp_code;
-  await upsertLeaveBalancesBatch(supabaseClient, [
+  await applySyncedLeaveUsageRows(supabaseClient, [
     buildSyncedYearlyBalanceRow(current, used, balanceEmployeeCode, y),
   ]);
   return true;
@@ -977,7 +990,7 @@ export async function syncYearlyLeaveBalancesFromRegister(supabase, year) {
     .filter(Boolean);
 
   if (!rows.length) return 0;
-  await upsertLeaveBalancesBatch(supabase, rows);
+  await applySyncedLeaveUsageRows(supabase, rows);
   return rows.length;
 }
 

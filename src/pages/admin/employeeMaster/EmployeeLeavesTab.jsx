@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
+import { useAuth } from "../../../contexts/AuthContext";
 import { normalizeAttendanceEmpCode } from "../../../lib/attendanceDaily";
+import { canEditLeaveBalances } from "../../adminOperations/employee/leaveBalanceAccess";
 import {
   DEFAULT_ANNUAL_ENTITLEMENTS,
   fetchLeaveBalanceForEmployee,
@@ -85,6 +87,8 @@ function rowToDraft(row) {
  * Reads/writes indus_one.employee_leave_balances_yearly; year-end PL/SL via processLeaveBalanceForEmployee.
  */
 export default function EmployeeLeavesTab({ employee }) {
+  const { userProfile, user } = useAuth();
+  const canEditBalances = canEditLeaveBalances(userProfile, user);
   const empCode = normalizeAttendanceEmpCode(employee?.employee_code || employee?.employee_id || "");
   const [year, setYear] = useState(YEAR_DEFAULT);
   const [balance, setBalance] = useState(null);
@@ -318,6 +322,7 @@ export default function EmployeeLeavesTab({ employee }) {
       <SectionCard
         title={`Balances · ${year}`}
         right={
+          canEditBalances ? (
           editing ? (
             <div className="flex gap-2">
               <SecondaryButton
@@ -343,6 +348,9 @@ export default function EmployeeLeavesTab({ employee }) {
             >
               Edit ledger
             </PrimaryButton>
+          )
+          ) : (
+            <span className="text-xs text-gray-500">View only</span>
           )
         }
       >
@@ -411,8 +419,9 @@ export default function EmployeeLeavesTab({ employee }) {
             </table>
             {!balance && !editing ? (
               <p className="text-xs text-gray-500 mt-3">
-                No balance row for {year} yet. Click Edit ledger to create one, or run year-end
-                rollover from the prior year.
+                {canEditBalances
+                  ? `No balance row for ${year} yet. Click Edit ledger to create one, or run year-end rollover from the prior year.`
+                  : `No balance row for ${year} yet.`}
               </p>
             ) : null}
             {balance?.processed_at ? (
@@ -465,7 +474,7 @@ export default function EmployeeLeavesTab({ employee }) {
             </p>
           </div>
         </div>
-        <PrimaryButton onClick={runRollover} disabled={rolling || loading || !empCode}>
+        <PrimaryButton onClick={runRollover} disabled={!canEditBalances || rolling || loading || !empCode}>
           {rolling ? "Running rollover…" : `Run PL/SL rollover for ${year}`}
         </PrimaryButton>
       </SectionCard>

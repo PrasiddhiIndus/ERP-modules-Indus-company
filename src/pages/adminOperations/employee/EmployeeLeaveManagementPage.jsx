@@ -10,9 +10,11 @@ import {
 } from "../components/AdminUi";
 import { supabase } from "../../../lib/supabase";
 import { toast } from "../../../lib/toast";
+import { useAuth } from "../../../contexts/AuthContext";
 import { fetchActiveEmployees, normalizeAttendanceEmpCode } from "../../../lib/attendanceDaily";
 import { downloadLeaveBalanceSampleSheet, ledgerDisplayRowToEditForm } from "../../../lib/leaveLedgerExcel";
 import { LeaveBalanceImportModal } from "./LeaveBalanceImportModal";
+import { canEditLeaveBalances } from "./leaveBalanceAccess";
 import {
   DEFAULT_ANNUAL_ENTITLEMENTS,
   buildLeaveBalanceDbRow,
@@ -218,6 +220,8 @@ function Pager({
 }
 
 export function EmployeeLeaveManagementPage() {
+  const { userProfile, user } = useAuth();
+  const canEditBalances = canEditLeaveBalances(userProfile, user);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
@@ -674,6 +678,7 @@ export function EmployeeLeaveManagementPage() {
       headerClassName: "min-w-[120px]",
       cellClassName: "min-w-[120px]",
       render: (r) => {
+        if (!canEditBalances) return <span className="text-[11px] text-gray-400">View only</span>;
         if (ledgerEditingId === r.id) {
           return (
             <div className="flex flex-wrap items-center gap-2">
@@ -710,6 +715,7 @@ export function EmployeeLeaveManagementPage() {
     }),
     [
       cancelLedgerEdit,
+      canEditBalances,
       importOpen,
       ledgerEditSaving,
       ledgerEditingId,
@@ -728,18 +734,27 @@ export function EmployeeLeaveManagementPage() {
   );
 
   const ledgerColumnsByTab = useMemo(
-    () => ({
-      opening: [...ledgerEmployeeColumns, ...ledgerLeaveColumnsForTab("opening"), ledgerActionsColumn],
-      used: [...ledgerEmployeeColumns, ...ledgerLeaveColumnsForTab("used"), ledgerActionsColumn],
-      balance: [...ledgerEmployeeColumns, ...ledgerLeaveColumnsForTab("balance"), ledgerActionsColumn],
-    }),
-    [ledgerActionsColumn, ledgerEmployeeColumns, ledgerLeaveColumnsForTab]
+    () => {
+      const actions = canEditBalances ? [ledgerActionsColumn] : [];
+      return {
+        opening: [...ledgerEmployeeColumns, ...ledgerLeaveColumnsForTab("opening"), ...actions],
+        used: [...ledgerEmployeeColumns, ...ledgerLeaveColumnsForTab("used"), ...actions],
+        balance: [...ledgerEmployeeColumns, ...ledgerLeaveColumnsForTab("balance"), ...actions],
+      };
+    },
+    [canEditBalances, ledgerActionsColumn, ledgerEmployeeColumns, ledgerLeaveColumnsForTab]
   );
 
   const ledgerTabDescriptions = {
-    opening: "Opening leave balances by type. Click Edit on a row to change values inline, then Save.",
-    used: "Leave days used during the year. Click Edit on a row to adjust values inline, then Save.",
-    balance: "Current leave balance by type. Click Edit to adjust balance inline (opening is updated to match).",
+    opening: canEditBalances
+      ? "Opening leave balances by type. Click Edit on a row to change values inline, then Save."
+      : "Opening leave balances by type (read-only).",
+    used: canEditBalances
+      ? "Leave days used during the year. Click Edit on a row to adjust values inline, then Save."
+      : "Leave days used during the year (read-only; updates automatically from the attendance register).",
+    balance: canEditBalances
+      ? "Current leave balance by type. Click Edit to adjust balance inline (opening is updated to match)."
+      : "Current leave balance by type (read-only).",
   };
 
   const handleImportComplete = useCallback(
@@ -823,6 +838,7 @@ export function EmployeeLeaveManagementPage() {
               </>
             ) : null}
             {realtimeLive ? <StatusChip label="Live" severity="info" /> : null}
+            {!canEditBalances ? <StatusChip label="View only" severity="medium" /> : null}
             <StatusChip label="Auto-synced from register" severity="high" />
           </div>
         }
@@ -995,14 +1011,16 @@ export function EmployeeLeaveManagementPage() {
                 >
                   Download Sample Sheet
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setImportOpen(true)}
-                  disabled={loading}
-                  className="h-8 px-3 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-900 text-xs font-semibold hover:bg-indigo-100 disabled:opacity-60"
-                >
-                  Import
-                </button>
+                {canEditBalances ? (
+                  <button
+                    type="button"
+                    onClick={() => setImportOpen(true)}
+                    disabled={loading}
+                    className="h-8 px-3 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-900 text-xs font-semibold hover:bg-indigo-100 disabled:opacity-60"
+                  >
+                    Import
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={exportLedgerToExcel}
@@ -1031,7 +1049,7 @@ export function EmployeeLeaveManagementPage() {
                 columns={ledgerColumnsByTab[ledgerSubTab] || []}
               />
               <LeaveBalanceImportModal
-                open={importOpen}
+                open={importOpen && canEditBalances}
                 year={year}
                 employees={filteredEmployees}
                 onClose={() => setImportOpen(false)}
