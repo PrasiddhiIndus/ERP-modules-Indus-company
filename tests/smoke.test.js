@@ -14,7 +14,10 @@ import { createAuthMiddleware } from '../server/authMiddleware.js';
 import {
   applyManualRegisterRowsToMarks,
   buildMonthlyRegisterGrid,
+  buildRegisterEmployeeList,
   computeEmployeeRegisterSummary,
+  isEmployeeRelevantForRegisterMonth,
+  isInactiveEmployeeRelevantForRegisterMonth,
   mergeApprovedLeaveMarksIntoManualMarks,
   mergeApprovedTourIntoRegisterView,
   normalizeRegisterMarkForDb,
@@ -538,6 +541,52 @@ describe('validatePlClSlConsecutiveMark', () => {
       { employee_code: emp, register_date: '2026-08-08', mark: 'PL' },
     ]);
     expect(failures).toHaveLength(1);
+  });
+});
+
+describe('register employee month visibility (DOL)', () => {
+  const march = { fromDate: '2026-03-01', toDate: '2026-03-31' };
+  const april = { fromDate: '2026-04-01', toDate: '2026-04-30' };
+
+  it('includes employees with no DOL in any month', () => {
+    expect(isEmployeeRelevantForRegisterMonth(null, march.fromDate, march.toDate)).toBe(true);
+    expect(isEmployeeRelevantForRegisterMonth('', march.fromDate, march.toDate)).toBe(true);
+  });
+
+  it('includes through DOL month and months before leaving', () => {
+    expect(isEmployeeRelevantForRegisterMonth('2026-03-15', march.fromDate, march.toDate)).toBe(true);
+    expect(isEmployeeRelevantForRegisterMonth('2026-03-31', march.fromDate, march.toDate)).toBe(true);
+    expect(isEmployeeRelevantForRegisterMonth('2026-03-15', '2026-02-01', '2026-02-28')).toBe(true);
+  });
+
+  it('excludes months after the leaving month', () => {
+    expect(isEmployeeRelevantForRegisterMonth('2026-03-15', april.fromDate, april.toDate)).toBe(false);
+    expect(isEmployeeRelevantForRegisterMonth('2026-03-31', april.fromDate, april.toDate)).toBe(false);
+  });
+
+  it('requires DOL for inactive employee path', () => {
+    expect(isInactiveEmployeeRelevantForRegisterMonth('2026-03-15', march.fromDate, march.toDate)).toBe(true);
+    expect(isInactiveEmployeeRelevantForRegisterMonth(null, march.fromDate, march.toDate)).toBe(false);
+    expect(isInactiveEmployeeRelevantForRegisterMonth('2026-03-15', april.fromDate, april.toDate)).toBe(false);
+  });
+
+  it('includes inactive DOL-month employees without register activity', () => {
+    const list = buildRegisterEmployeeList(
+      [],
+      [{ empCode: 'E99', employeeName: 'Left', dateOfLeaving: '2026-03-15' }],
+      { fromDate: march.fromDate, toDate: march.toDate }
+    );
+    expect(list).toHaveLength(1);
+    expect(list[0].empCode).toBe('E99');
+  });
+
+  it('excludes active employees who left before the viewed month', () => {
+    const list = buildRegisterEmployeeList(
+      [{ empCode: 'E01', employeeName: 'Former', dateOfLeaving: '2026-03-15' }],
+      [],
+      { fromDate: april.fromDate, toDate: april.toDate }
+    );
+    expect(list).toHaveLength(0);
   });
 });
 
