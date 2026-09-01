@@ -4,6 +4,7 @@ import {
   parseContactPersons,
   flattenContactPersons,
   formatPersonsSummary,
+  leadToClientForm,
 } from '../src/pages/marketing/lib/clientContacts';
 
 describe('clientContacts', () => {
@@ -43,5 +44,31 @@ describe('clientContacts', () => {
     });
     expect(summary.map((p) => p.name)).toEqual(['Rahul', 'Priya']);
     expect(summary[1].emails).toEqual(['p@a.com']);
+  });
+
+  it('fills client form from a lead, with person 1 name, email, and phone', () => {
+    const form = leadToClientForm({
+      company: 'ITC Hotels Ltd',
+      project: 'New hotel, Bengaluru',
+      industry: 'Hospitality',
+      location: 'Whitefield',
+      district: 'Bengaluru Urban',
+      project_state: 'Karnataka',
+      telephone: '08012345678',
+      email: 'sanjay@itc.example',
+      contact_person: 'Mr. Sanjay',
+      contact_person_2: 'Ms. Priya',
+    });
+    expect(form.client_name).toBe('ITC Hotels Ltd');
+    expect(form.industry).toBe('New hotel, Bengaluru');
+    expect(form.city).toBe('Bengaluru Urban');
+    expect(form.state).toBe('Karnataka');
+    expect(form.street_address).toBe('Whitefield');
+    expect(form.contact_persons[0]).toEqual({
+      name: 'Mr. Sanjay',
+      numbers: ['08012345678'],
+      emails: ['sanjay@itc.example'],
+    });
+    expect(form.contact_persons[1].name).toBe('Ms. Priya');
   });
 });

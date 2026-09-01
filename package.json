@@ -17,6 +17,7 @@
     "build:staging": "vite build --mode staging",
     "lint": "eslint .",
     "security-check": "node scripts/security-check.mjs",
+    "hooks:install": "node scripts/install-git-hooks.mjs",
     "test": "vitest run",
     "test:smoke": "vitest run tests/smoke.test.js",
     "preview": "vite preview",

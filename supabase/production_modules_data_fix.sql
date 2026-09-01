@@ -99,7 +99,7 @@ UNION ALL SELECT 'tenders', count(*)::text FROM public.tenders
 UNION ALL SELECT 'billing.po_wo', count(*)::text FROM billing.po_wo
 UNION ALL SELECT 'finance.sites', count(*)::text FROM finance.sites
 UNION ALL SELECT 'admin_ifsp_employee_master', count(*)::text FROM public.admin_ifsp_employee_master;
-
 -- ── 4) Super-admin profile check (replace email if needed) ─────────────────────
 -- UPDATE public.profiles SET role = 'super_admin', team = 'admin',
 --   allowed_modules = '[]'::jsonb WHERE email ILIKE 'your-admin@ifspl.com';
+

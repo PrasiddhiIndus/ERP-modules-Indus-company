@@ -4,6 +4,7 @@ import { X, Plus, Edit2, Trash2, MoreVertical, Download, Search, ChevronLeft, Ch
 import { exportToExcel } from './utils/excelExport';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { toast } from "../../lib/toast";
+import LeadCompanyAutocomplete from './components/LeadCompanyAutocomplete';
 import {
   emptyClientForm,
   emptyContactPerson,
@@ -11,6 +12,7 @@ import {
   flattenContactPersons,
   formatPersonsSummary,
   parseStringList,
+  leadToClientForm,
 } from './lib/clientContacts';
 
 const ClientMaster = () => {
@@ -24,6 +26,7 @@ const ClientMaster = () => {
   const [editingClient, setEditingClient] = useState(null);
   const [menuOpen, setMenuOpen] = useState(null);
   const [formData, setFormData] = useState(emptyClientForm());
+  const [sourceLead, setSourceLead] = useState(null);
 
   useEffect(() => {
     fetchClients(1);
@@ -154,8 +157,24 @@ const ClientMaster = () => {
       }
       if (error) throw error;
 
+      if (!editingClient && sourceLead?.id) {
+        const { error: leadError } = await supabase
+          .from('marketing_leads')
+          .delete()
+          .eq('id', sourceLead.id);
+        if (leadError) {
+          console.error('Error removing converted lead:', leadError);
+          toast.warning('Client saved, but the lead could not be removed from Lead Master.');
+        } else {
+          toast.success('Client saved. Lead removed from Lead Master.');
+        }
+      } else {
+        toast.success(editingClient ? 'Client updated' : 'Client saved');
+      }
+
       setShowForm(false);
       setEditingClient(null);
+      setSourceLead(null);
       setFormData(emptyClientForm());
       fetchClients(1);
     } catch (error) {
@@ -166,6 +185,7 @@ const ClientMaster = () => {
 
   const handleEdit = (client) => {
     setEditingClient(client);
+    setSourceLead(null);
     setFormData({
       client_name: client.client_name || '',
       industry: client.industry || '',
@@ -178,6 +198,19 @@ const ClientMaster = () => {
     });
     setShowForm(true);
     setMenuOpen(null);
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingClient(null);
+    setSourceLead(null);
+    setFormData(emptyClientForm());
+  };
+
+  const applyLead = (lead) => {
+    if (!lead) return;
+    setSourceLead({ id: lead.id, company: lead.company || '' });
+    setFormData(leadToClientForm(lead));
   };
 
   const handleDelete = async (id) => {
@@ -232,6 +265,7 @@ const ClientMaster = () => {
 
   const openNewClient = () => {
     setEditingClient(null);
+    setSourceLead(null);
     setFormData(emptyClientForm());
     setShowForm(true);
   };
@@ -397,14 +431,13 @@ const ClientMaster = () => {
                   {editingClient ? 'Edit Client' : 'Create New Client'}
                 </h2>
                 <p className="text-xs sm:text-sm text-gray-600 mt-1">
-                  {editingClient ? 'Update client details and contact people' : 'Add a client and each person you need to reach'}
+                  {editingClient
+                    ? 'Update client details and contact people'
+                    : 'Type a company name to fill from Lead Master, then add or edit people'}
                 </p>
               </div>
               <button
-                onClick={() => {
-                  setShowForm(false);
-                  setEditingClient(null);
-                }}
+                onClick={closeForm}
                 className="p-2 hover:bg-gray-100 rounded-lg"
               >
                 <X className="w-5 h-5" />
@@ -417,14 +450,32 @@ const ClientMaster = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Client Name <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
-                    value={formData.client_name}
-                    onChange={(e) => setFormData({ ...formData, client_name: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="e.g., ABC Industries Pvt Ltd"
-                    required
-                  />
+                  {editingClient ? (
+                    <input
+                      type="text"
+                      value={formData.client_name}
+                      onChange={(e) => setFormData({ ...formData, client_name: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      placeholder="e.g., ABC Industries Pvt Ltd"
+                      required
+                    />
+                  ) : (
+                    <LeadCompanyAutocomplete
+                      value={formData.client_name}
+                      onChange={(next) => setFormData((prev) => ({ ...prev, client_name: next }))}
+                      onSelectLead={applyLead}
+                      placeholder="Type a company from Lead Master…"
+                    />
+                  )}
+                  {!editingClient && sourceLead ? (
+                    <p className="mt-1.5 text-xs text-purple-700">
+                      Filled from Lead Master. Saving this client will remove that lead.
+                    </p>
+                  ) : !editingClient ? (
+                    <p className="mt-1.5 text-xs text-gray-500">
+                      Pick a lead company to fill industry, city, state, and person 1. You can still type a new name.
+                    </p>
+                  ) : null}
                 </div>
 
                 <div>
@@ -637,10 +688,7 @@ const ClientMaster = () => {
               <div className="flex justify-end space-x-3 mt-6 pt-6 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowForm(false);
-                    setEditingClient(null);
-                  }}
+                  onClick={closeForm}
                   className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   Cancel
