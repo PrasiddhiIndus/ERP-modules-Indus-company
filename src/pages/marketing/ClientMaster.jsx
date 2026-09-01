@@ -464,7 +464,7 @@ const ClientMaster = () => {
                       value={formData.client_name}
                       onChange={(next) => setFormData((prev) => ({ ...prev, client_name: next }))}
                       onSelectLead={applyLead}
-                      placeholder="Type a company from Lead Master…"
+                      placeholder="Click to see all Lead Master companies…"
                     />
                   )}
                   {!editingClient && sourceLead ? (
@@ -473,7 +473,7 @@ const ClientMaster = () => {
                     </p>
                   ) : !editingClient ? (
                     <p className="mt-1.5 text-xs text-gray-500">
-                      Pick a lead company to fill industry, city, state, and person 1. You can still type a new name.
+                      Click the name field to see every company from Lead Master. Pick one to fill the form.
                     </p>
                   ) : null}
                 </div>

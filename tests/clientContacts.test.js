@@ -5,6 +5,8 @@ import {
   flattenContactPersons,
   formatPersonsSummary,
   leadToClientForm,
+  fetchAllLeadCompanies,
+  rankLeadCompanies,
 } from '../src/pages/marketing/lib/clientContacts';
 
 describe('clientContacts', () => {
@@ -70,5 +72,48 @@ describe('clientContacts', () => {
       emails: ['sanjay@itc.example'],
     });
     expect(form.contact_persons[1].name).toBe('Ms. Priya');
+  });
+
+  it('loads every lead company across pages and skips blank names', async () => {
+    const page1 = Array.from({ length: 1000 }, (_, i) => ({ id: `a${i}`, company: `Co ${i}` }));
+    const page2 = [
+      { id: 'b1', company: 'Zeta Hotels Ltd' },
+      { id: 'b2', company: '   ' },
+    ];
+    let calls = 0;
+    const client = {
+      from() {
+        return {
+          select() { return this; },
+          order() { return this; },
+          async range(from) {
+            calls += 1;
+            if (from === 0) return { data: page1, error: null };
+            return { data: page2, error: null };
+          },
+        };
+      },
+    };
+    const rows = await fetchAllLeadCompanies(client);
+    expect(calls).toBe(2);
+    expect(rows).toHaveLength(1001);
+    expect(rows[1000].company).toBe('Zeta Hotels Ltd');
+  });
+
+  it('puts company names starting with the typed letter first', () => {
+    const ranked = rankLeadCompanies(
+      [
+        { id: '1', company: 'Adani Ports' },
+        { id: '2', company: 'Cipla Ltd' },
+        { id: '3', company: 'Tata Chemicals' },
+        { id: '4', company: 'Cadila Healthcare' },
+        { id: '5', company: 'Ultratech Cement' },
+      ],
+      'c'
+    ).map((row) => row.company);
+    expect(ranked.slice(0, 2)).toEqual(['Cadila Healthcare', 'Cipla Ltd']);
+    expect(ranked).toContain('Tata Chemicals');
+    expect(ranked).toContain('Ultratech Cement');
+    expect(ranked.indexOf('Cadila Healthcare')).toBeLessThan(ranked.indexOf('Tata Chemicals'));
   });
 });
