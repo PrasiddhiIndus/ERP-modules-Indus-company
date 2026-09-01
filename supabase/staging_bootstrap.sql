@@ -114,10 +114,10 @@ BEGIN
       NULLIF(btrim(NEW.raw_user_meta_data->>'full_name'), ''),
       split_part(COALESCE(NEW.email, 'user@local'), '@', 1)
     ),
-    NULLIF(btrim(NEW.raw_user_meta_data->>'team'), ''),
-    COALESCE(NULLIF(btrim(NEW.raw_user_meta_data->>'role'), ''), 'executive'),
-    COALESCE(NEW.raw_user_meta_data->'allowed_modules', '[]'::jsonb),
-    NULLIF(btrim(NEW.raw_user_meta_data->>'employee_code'), '')
+    NULL,
+    'executive',
+    '[]'::jsonb,
+    NULL
   )
   ON CONFLICT (id) DO NOTHING;
   RETURN NEW;

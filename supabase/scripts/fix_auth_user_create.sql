@@ -1,10 +1,8 @@
 -- Run in Supabase Dashboard → SQL Editor if creating users fails with:
 --   "Database error creating new user"
 --
--- Root cause: a trigger on auth.users inserts into public.profiles without SECURITY DEFINER / row_security off,
--- or the insert error aborts the auth transaction.
-
--- Copy of supabase/migrations/20260609190000_fix_auth_user_created_trigger.sql
+-- Signup stub only: executive, empty modules. Never copies metadata role.
+-- Prefer supabase/migrations/20260901130000_profiles_no_self_assign_role.sql
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
@@ -14,7 +12,9 @@ SET search_path = public
 SET row_security = off
 AS $$
 BEGIN
-  INSERT INTO public.profiles (id, email, username, team, role, allowed_modules, employee_code)
+  INSERT INTO public.profiles (
+    id, email, username, team, role, allowed_modules, allowed_sub_modules, employee_code, module_access_pending
+  )
   VALUES (
     NEW.id,
     NEW.email,
@@ -23,10 +23,12 @@ BEGIN
       NULLIF(btrim(NEW.raw_user_meta_data->>'full_name'), ''),
       split_part(COALESCE(NEW.email, 'user@local'), '@', 1)
     ),
-    NULLIF(btrim(NEW.raw_user_meta_data->>'team'), ''),
-    COALESCE(NULLIF(btrim(NEW.raw_user_meta_data->>'role'), ''), 'executive'),
-    COALESCE(NEW.raw_user_meta_data->'allowed_modules', '[]'::jsonb),
-    NULLIF(btrim(NEW.raw_user_meta_data->>'employee_code'), '')
+    NULL,
+    'executive',
+    '[]'::jsonb,
+    '[]'::jsonb,
+    NULL,
+    true
   )
   ON CONFLICT (id) DO NOTHING;
 
