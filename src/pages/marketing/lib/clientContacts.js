@@ -48,6 +48,94 @@ export function leadToClientForm(lead) {
   };
 }
 
+const LEAD_PAGE_SIZE = 1000;
+const LEAD_CLIENT_COLUMNS =
+  'id, company, project, industry, location, district, project_state, address_state, telephone, email, contact_person, contact_person_2';
+
+/** Load every Lead Master company (paged past the 1,000-row default). */
+export async function fetchAllLeadCompanies(client) {
+  if (!client?.from) return [];
+  const rows = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await client
+      .from('marketing_leads')
+      .select(LEAD_CLIENT_COLUMNS)
+      .order('company', { ascending: true })
+      .range(from, from + LEAD_PAGE_SIZE - 1);
+    if (error) throw error;
+    const batch = data || [];
+    rows.push(...batch);
+    if (batch.length < LEAD_PAGE_SIZE) break;
+    from += LEAD_PAGE_SIZE;
+  }
+  return rows.filter((row) => text(row?.company));
+}
+
+export function normalizeLeadSearch(value) {
+  return String(value || '')
+    .replace(/[\u00a0]/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function leadSearchHaystack(lead) {
+  return [
+    lead?.company,
+    lead?.project,
+    lead?.industry,
+    lead?.district,
+    lead?.project_state,
+    lead?.location,
+  ]
+    .map(normalizeLeadSearch)
+    .join(' ');
+}
+
+function companyWordStartsWith(company, query) {
+  return normalizeLeadSearch(company)
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .some((word) => word.startsWith(query));
+}
+
+/**
+ * Filter leads and put company names that start with the typed letters first.
+ * Example: typing "c" lists Cadila, Cipla, Cummins before names that only contain C later.
+ */
+export function rankLeadCompanies(leads, query) {
+  const list = Array.isArray(leads) ? leads : [];
+  const q = normalizeLeadSearch(query);
+  if (!q) {
+    return [...list].sort((a, b) =>
+      normalizeLeadSearch(a?.company).localeCompare(normalizeLeadSearch(b?.company))
+    );
+  }
+
+  const scored = [];
+  for (const lead of list) {
+    const company = normalizeLeadSearch(lead?.company);
+    if (company.startsWith(q)) {
+      scored.push({ lead, rank: 0, company });
+      continue;
+    }
+    if (companyWordStartsWith(lead?.company, q)) {
+      scored.push({ lead, rank: 1, company });
+      continue;
+    }
+    if (company.includes(q)) {
+      scored.push({ lead, rank: 2, company });
+      continue;
+    }
+    if (leadSearchHaystack(lead).includes(q)) {
+      scored.push({ lead, rank: 3, company });
+    }
+  }
+
+  scored.sort((a, b) => a.rank - b.rank || a.company.localeCompare(b.company));
+  return scored.map((item) => item.lead);
+}
+
 function parseJsonValue(value) {
   if (value == null || value === '') return null;
   if (typeof value === 'object') return value;

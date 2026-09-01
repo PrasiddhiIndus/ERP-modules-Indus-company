@@ -1,33 +1,27 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Building2 } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
-
-function sanitizeSearch(value) {
-  return String(value || '')
-    .replace(/[%_,()]/g, ' ')
-    .trim();
-}
+import { fetchAllLeadCompanies, rankLeadCompanies } from '../lib/clientContacts';
 
 function dashPart(value) {
-  const text = String(value || '').trim();
-  return text || '';
+  return String(value || '').trim();
 }
 
 export default function LeadCompanyAutocomplete({
   value,
   onChange,
   onSelectLead,
-  placeholder = 'Type a company from Lead Master…',
+  placeholder = 'Type or pick a company from Lead Master…',
   inputClassName = '',
   disabled = false,
   id = 'client-lead-company',
 }) {
   const [open, setOpen] = useState(false);
-  const [matches, setMatches] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [leads, setLeads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const containerRef = useRef(null);
   const blurTimerRef = useRef(null);
-  const requestIdRef = useRef(0);
 
   useEffect(() => {
     const onDoc = (e) => {
@@ -39,46 +33,30 @@ export default function LeadCompanyAutocomplete({
   }, []);
 
   useEffect(() => {
-    if (disabled || !open) return undefined;
-    const q = sanitizeSearch(value);
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
-    const timer = setTimeout(async () => {
-      setLoading(true);
-      try {
-        let query = supabase
-          .from('marketing_leads')
-          .select(
-            'id, company, project, industry, location, district, project_state, address_state, telephone, email, contact_person, contact_person_2'
-          )
-          .order('company', { ascending: true })
-          .limit(20);
-
-        if (q) {
-          query = query.or(
-            [
-              `company.ilike.%${q}%`,
-              `project.ilike.%${q}%`,
-              `district.ilike.%${q}%`,
-              `project_state.ilike.%${q}%`,
-            ].join(',')
-          );
+    if (disabled) return undefined;
+    let cancelled = false;
+    setLoading(true);
+    setLoadError('');
+    fetchAllLeadCompanies(supabase)
+      .then((rows) => {
+        if (!cancelled) setLeads(rows);
+      })
+      .catch((error) => {
+        console.error('Error loading lead companies:', error);
+        if (!cancelled) {
+          setLeads([]);
+          setLoadError('Could not load companies from Lead Master.');
         }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [disabled]);
 
-        const { data, error } = await query;
-        if (error) throw error;
-        if (requestIdRef.current !== requestId) return;
-        setMatches(data || []);
-      } catch (error) {
-        console.error('Error searching lead companies:', error);
-        if (requestIdRef.current === requestId) setMatches([]);
-      } finally {
-        if (requestIdRef.current === requestId) setLoading(false);
-      }
-    }, 250);
-
-    return () => clearTimeout(timer);
-  }, [value, open, disabled]);
+  const matches = useMemo(() => rankLeadCompanies(leads, value), [leads, value]);
 
   const scheduleClose = () => {
     if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
@@ -129,39 +107,54 @@ export default function LeadCompanyAutocomplete({
         <ul
           id={`${id}-listbox`}
           role="listbox"
-          className="absolute left-0 right-0 z-[60] mt-1 max-h-64 overflow-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+          className="absolute left-0 right-0 z-[60] mt-1 max-h-80 overflow-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
         >
           {loading ? (
-            <li className="px-3 py-2 text-sm text-gray-500">Looking up companies…</li>
+            <li className="px-3 py-2 text-sm text-gray-500">Loading all companies from Lead Master…</li>
+          ) : loadError ? (
+            <li className="px-3 py-2 text-sm text-red-600">{loadError}</li>
+          ) : leads.length === 0 ? (
+            <li className="px-3 py-2 text-sm text-gray-500">No companies in Lead Master yet.</li>
           ) : matches.length === 0 ? (
             <li className="px-3 py-2 text-sm text-gray-500">
-              {sanitizeSearch(value)
-                ? 'No matching lead. You can still save this as a new client.'
-                : 'Type a company name to see leads.'}
+              No matching company. You can still save this as a new client.
             </li>
           ) : (
-            matches.map((lead) => {
-              const meta = [
-                dashPart(lead.project),
-                dashPart(lead.district),
-                dashPart(lead.project_state),
-              ].filter(Boolean).join(' · ');
-              return (
-                <li key={lead.id} role="option">
-                  <button
-                    type="button"
-                    className="flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm hover:bg-purple-50"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      handleSelect(lead);
-                    }}
-                  >
-                    <span className="font-medium text-gray-900">{lead.company || 'Untitled company'}</span>
-                    {meta ? <span className="text-xs text-gray-500">{meta}</span> : null}
-                  </button>
-                </li>
-              );
-            })
+            <>
+              <li className="px-3 py-1.5 text-[11px] uppercase tracking-wide text-gray-400">
+                {matches.length === leads.length
+                  ? `${leads.length} compan${leads.length === 1 ? 'y' : 'ies'} from Lead Master`
+                  : `${matches.length} of ${leads.length} companies`}
+              </li>
+              {matches.map((lead) => {
+                const meta = [
+                  dashPart(lead.project),
+                  dashPart(lead.district),
+                  dashPart(lead.project_state),
+                ]
+                  .filter(Boolean)
+                  .join(' · ');
+                return (
+                  <li key={lead.id} role="option">
+                    <button
+                      type="button"
+                      className="flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm hover:bg-purple-50"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleSelect(lead);
+                      }}
+                    >
+                      <span className="whitespace-normal break-words font-medium text-gray-900">
+                        {lead.company}
+                      </span>
+                      {meta ? (
+                        <span className="whitespace-normal break-words text-xs text-gray-500">{meta}</span>
+                      ) : null}
+                    </button>
+                  </li>
+                );
+              })}
+            </>
           )}
         </ul>
       ) : null}
