@@ -10,8 +10,8 @@ function expectSettingsOnly(mods) {
 }
 
 /**
- * Mirrors loginFlow.buildProfileFromSession / login-check merge:
- * profiles.module_access_pending must win even when auth metadata omits it.
+ * Mirrors login-check row merge: profiles.module_access_pending is the lock.
+ * Auth metadata must not grant or clear privileges.
  */
 function profileFromLoginCheckWithoutAuthPending(profileRow) {
   return normalizeAccessProfile({

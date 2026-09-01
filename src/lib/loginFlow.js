@@ -17,7 +17,7 @@ import {
   TEAMS,
 } from '../config/roles';
 import { invokeAuthenticatedFunction } from './supabase';
-import { writeCachedProfileRow } from './authSessionUtils';
+import { writeCachedProfileRow, readCachedProfileRow } from './authSessionUtils';
 import {
   ACCOUNT_INACTIVE_CODE,
   ACCOUNT_INACTIVE_MESSAGE,
@@ -36,52 +36,48 @@ export function logLoginStage(stage, detail = {}) {
 }
 
 export function buildProfileFromSession(session, quickProfile) {
-  const meta = session?.user?.user_metadata || {};
   const row = quickProfile;
   const rowModules = Array.isArray(row?.allowed_modules) ? row.allowed_modules : [];
-  const metaModules = Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [];
   const rowSubModules = Array.isArray(row?.allowed_sub_modules) ? row.allowed_sub_modules : [];
-  const metaSubModules = Array.isArray(meta.allowed_sub_modules) ? meta.allowed_sub_modules : [];
-  const pendingFromRow = row?.module_access_pending === true;
-  const pendingFromMeta = meta.module_access_pending === true;
+  const hasRow = Boolean(row?.role || rowModules.length || rowSubModules.length || row?.team);
   const inactiveFromRow = row?.is_active === false;
   return normalizeAccessProfile({
-    role: row?.role ?? meta.role ?? null,
-    team: row?.team ?? meta.team ?? null,
-    allowed_modules: rowModules.length ? rowModules : metaModules,
-    allowed_sub_modules: rowSubModules.length ? rowSubModules : metaSubModules,
-    // Prefer profiles column so login-check (or any path without auth metadata) cannot drop the lock.
-    module_access_pending: pendingFromRow || pendingFromMeta,
+    role: row?.role ?? "executive",
+    team: row?.team ?? null,
+    allowed_modules: rowModules,
+    allowed_sub_modules: rowSubModules,
+    module_access_pending: hasRow ? row?.module_access_pending === true : true,
     is_active: inactiveFromRow ? false : true,
   });
 }
 
 function cacheProfileSnapshot(session, profile) {
   if (!session?.user?.id) return;
-  const meta = session.user.user_metadata || {};
   writeCachedProfileRow({
     id: session.user.id,
     email: session.user.email,
-    username: meta.username || meta.full_name || session.user.email?.split('@')[0],
-    team: profile.team,
-    role: profile.role,
-    allowed_modules: profile.allowed_modules,
-    allowed_sub_modules: profile.allowed_sub_modules,
+    username: session.user.email?.split("@")[0],
+    team: profile.team ?? null,
+    role: profile.role ?? "executive",
+    allowed_modules: Array.isArray(profile.allowed_modules) ? profile.allowed_modules : [],
+    allowed_sub_modules: Array.isArray(profile.allowed_sub_modules) ? profile.allowed_sub_modules : [],
     module_access_pending: profile.module_access_pending === true,
     is_active: profile.is_active !== false,
   });
 }
 
 /**
- * Load authorization profile: login-check (preferred) → auth metadata fallback.
- * Never throws; returns { profile, source, warning }.
+ * Load authorization profile: login-check (preferred) → profiles cache / safe stub.
+ * Never grants role or modules from Auth metadata. Never throws.
  */
 export async function fetchLoginProfile(session, quickProfile, { timeoutMs = 8000 } = {}) {
-  const fallback = buildProfileFromSession(session, quickProfile);
+  const cached = session?.user?.id ? readCachedProfileRow(session.user.id) : null;
+  const seed = cached?.id ? cached : quickProfile;
+  const fallback = buildProfileFromSession(session, seed);
   const accessToken = session?.access_token;
   if (!accessToken) {
     logLoginStage('profile-skipped', { reason: 'no-access-token' });
-    return { profile: fallback, source: 'metadata', warning: null };
+    return { profile: fallback, source: 'safe-default', warning: null };
   }
 
   logLoginStage('profile-fetch-start', { userId: session?.user?.id });
@@ -98,8 +94,8 @@ export async function fetchLoginProfile(session, quickProfile, { timeoutMs = 800
       cacheProfileSnapshot(session, fallback);
       return {
         profile: fallback,
-        source: 'metadata-timeout',
-        warning: 'Profile sync timed out; using account metadata. Sidebar may update in a moment.',
+        source: 'safe-default-timeout',
+        warning: 'Profile sync timed out. Sidebar may update in a moment.',
       };
     }
 
@@ -126,7 +122,7 @@ export async function fetchLoginProfile(session, quickProfile, { timeoutMs = 800
       cacheProfileSnapshot(session, fallback);
       return {
         profile: fallback,
-        source: 'metadata-after-error',
+        source: 'safe-default-after-error',
         warning: null,
       };
     }
@@ -164,11 +160,11 @@ export async function fetchLoginProfile(session, quickProfile, { timeoutMs = 800
 
     logLoginStage('profile-fetch-empty', { chk });
     cacheProfileSnapshot(session, fallback);
-    return { profile: fallback, source: 'metadata', warning: null };
+    return { profile: fallback, source: 'safe-default', warning: null };
   } catch (err) {
     logLoginStage('profile-fetch-exception', { message: err?.message || String(err) });
     cacheProfileSnapshot(session, fallback);
-    return { profile: fallback, source: 'metadata-exception', warning: null };
+    return { profile: fallback, source: 'safe-default-exception', warning: null };
   }
 }
 

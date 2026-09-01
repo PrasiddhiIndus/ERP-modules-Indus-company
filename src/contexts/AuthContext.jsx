@@ -30,7 +30,8 @@ import {
   hasCachedRefreshToken,
   readCachedAuthSession,
 } from "../lib/authSessionUtils";
-import { getAccessibleModules, getAccessibleSubModulePaths, getNavVisibleModuleKeys, normalizeAppRole, parseAllowedSubModules, ROLES } from "../config/roles";
+import { getAccessibleModules, getAccessibleSubModulePaths, getNavVisibleModuleKeys, normalizeAppRole, parseAllowedSubModules } from "../config/roles";
+import { displayNameFromAuthMeta, safeSelfSignupProfileFields } from "../lib/safeSelfProfile";
 import { logLoginStage } from "../lib/loginFlow";
 import {
   ACCOUNT_INACTIVE_MESSAGE,
@@ -42,18 +43,15 @@ import {
   profileHasBillingModuleAccess,
 } from "../lib/billingVerticalAccess";
 
-/** Build role/profile from auth user metadata — used for immediate post-login navigation. */
+/** Immediate post-login shape from the JWT only. Never grants role/modules from metadata. */
 function buildAuthProfile(authUser) {
   if (!authUser) return null;
-  const email = String(authUser.email || '').trim().toLowerCase();
-  const meta = authUser.user_metadata || {};
+  const email = String(authUser.email || "").trim().toLowerCase();
   return {
-    username: meta.username || meta.full_name || email.split('@')[0] || 'User',
-    team: meta.team ?? null,
-    role: normalizeAppRole(meta.role) || ROLES.EXECUTIVE,
-    allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
-    allowed_sub_modules: Array.isArray(meta.allowed_sub_modules) ? meta.allowed_sub_modules : [],
-    module_access_pending: meta.module_access_pending === true,
+    ...safeSelfSignupProfileFields({
+      email,
+      username: displayNameFromAuthMeta(authUser.user_metadata, email),
+    }),
     is_active: true,
   };
 }
@@ -288,19 +286,11 @@ export const AuthProvider = ({ children }) => {
     ).catch(() => ({ data: null }));
     if (existing?.id) return true;
 
-    const meta = authUser.user_metadata || {};
-    const allowed = meta.allowed_modules;
-    const allowedSub = meta.allowed_sub_modules;
-    const emailLocal = (authUser.email || "user@local").split("@")[0];
-    const payload = {
+    const payload = safeSelfSignupProfileFields({
       id: authUser.id,
       email: authUser.email ?? null,
-      username: String(meta.username || meta.full_name || emailLocal).trim() || emailLocal,
-      team: meta.team ?? null,
-      role: meta.role || "executive",
-      allowed_modules: Array.isArray(allowed) ? allowed : [],
-      allowed_sub_modules: Array.isArray(allowedSub) ? allowedSub : [],
-    };
+      username: displayNameFromAuthMeta(authUser.user_metadata, authUser.email),
+    });
     const insert = () => supabase.from("profiles").insert(payload);
     const { error } = await withTimeout(
       insert(),
@@ -535,16 +525,11 @@ export const AuthProvider = ({ children }) => {
         }
       }
       if (!readCachedProfileRow(userId)) {
-        const meta = authUser?.user_metadata || {};
-        const fallbackRow = {
+        const fallbackRow = safeSelfSignupProfileFields({
           id: userId,
           email: authUser?.email ?? null,
-          username: meta.username || meta.full_name || authUser?.email?.split("@")[0] || "User",
-          team: meta.team ?? null,
-          role: meta.role ?? null,
-          allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
-          allowed_sub_modules: Array.isArray(meta.allowed_sub_modules) ? meta.allowed_sub_modules : [],
-        };
+          username: displayNameFromAuthMeta(authUser?.user_metadata, authUser?.email),
+        });
         writeCachedProfileRow(fallbackRow);
         setProfileRow(fallbackRow);
       }
@@ -572,21 +557,17 @@ export const AuthProvider = ({ children }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, profileRow?.id]);
 
-  // Register user + save role-based profile (username, team, role, allowed_modules for manager)
+  // Register: name + email only. Role/modules/team are set in User Management.
   const signUpWithProfile = async (email, password, profileData) => {
-    const safeRole = profileData?.role || 'executive';
+    const username = String(profileData?.username || "").trim();
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: `${window.location.origin}/login`,
         data: {
-          full_name: profileData?.username ?? "",
-          phone: profileData?.phone ?? "",
-          company: profileData?.company ?? "",
-          team: profileData?.team ?? null,
-          role: safeRole,
-          allowed_modules: profileData?.allowed_modules ?? [],
+          full_name: username,
+          username,
         },
       },
     });
@@ -597,11 +578,8 @@ export const AuthProvider = ({ children }) => {
       await ensureProfileFromAuthUser({
         ...data.user,
         user_metadata: {
-          ...(data.user.user_metadata || {}),
-          username: profileData?.username ?? "",
-          team: profileData?.team ?? null,
-          role: safeRole,
-          allowed_modules: profileData?.allowed_modules ?? [],
+          username,
+          full_name: username,
         },
       });
     }
@@ -766,38 +744,21 @@ export const AuthProvider = ({ children }) => {
     const uid = userId || userRef.current;
     if (!uid || !profile) return;
     const cached = readCachedProfileRow(uid);
-    const meta = user?.user_metadata || {};
     const row = {
       id: uid,
-      email: cached?.email ?? user?.email ?? null,
+      email: profile.email ?? cached?.email ?? user?.email ?? null,
       username:
-        cached?.username ??
         profile.username ??
-        meta.username ??
-        meta.full_name ??
-        user?.email?.split("@")[0] ??
-        "User",
-      team: profile.team ?? cached?.team ?? meta.team ?? null,
-      role: profile.role ?? cached?.role ?? normalizeAppRole(meta.role) ?? null,
-      allowed_modules: Array.isArray(profile.allowed_modules)
-        ? profile.allowed_modules
-        : Array.isArray(cached?.allowed_modules)
-          ? cached.allowed_modules
-          : Array.isArray(meta.allowed_modules)
-            ? meta.allowed_modules
-            : [],
+        cached?.username ??
+        displayNameFromAuthMeta(user?.user_metadata, user?.email),
+      team: profile.team ?? null,
+      role: profile.role ?? "executive",
+      allowed_modules: Array.isArray(profile.allowed_modules) ? profile.allowed_modules : [],
       allowed_sub_modules: Array.isArray(profile.allowed_sub_modules)
         ? profile.allowed_sub_modules
-        : Array.isArray(cached?.allowed_sub_modules)
-          ? cached.allowed_sub_modules
-          : Array.isArray(meta.allowed_sub_modules)
-            ? meta.allowed_sub_modules
-            : [],
-      module_access_pending:
-        profile.module_access_pending === true ||
-        cached?.module_access_pending === true ||
-        meta.module_access_pending === true,
-      is_active: profile.is_active === false || cached?.is_active === false ? false : true,
+        : [],
+      module_access_pending: profile.module_access_pending === true,
+      is_active: profile.is_active !== false,
     };
     writeCachedProfileRow(row);
     setProfileRow(row);
@@ -836,14 +797,8 @@ export const AuthProvider = ({ children }) => {
       team: profileRow.team ?? null,
       role: normalizeAppRole(profileRow.role),
       allowed_modules: Array.isArray(profileRow.allowed_modules) ? profileRow.allowed_modules : [],
-      allowed_sub_modules: (() => {
-        const fromRow = parseAllowedSubModules(profileRow.allowed_sub_modules);
-        if (fromRow.length) return fromRow;
-        return parseAllowedSubModules(user?.user_metadata?.allowed_sub_modules);
-      })(),
-      module_access_pending:
-        profileRow.module_access_pending === true ||
-        user?.user_metadata?.module_access_pending === true,
+      allowed_sub_modules: parseAllowedSubModules(profileRow.allowed_sub_modules),
+      module_access_pending: profileRow.module_access_pending === true,
       is_active: profileRow.is_active !== false,
       billing_vertical_codes: billingVerticalCodes,
       billing_vertical_grants_ready: billingVerticalGrantsReady,
@@ -940,28 +895,6 @@ export const AuthProvider = ({ children }) => {
     [userProfile, accessibleModules, user?.user_metadata]
   );
 
-  // Best-effort: if this user is force-super-admin (by email), keep `profiles.role`
-  // in sync so server-side RBAC (Edge Functions / SQL helpers) sees the same role.
-  useEffect(() => {
-    if (!useProfilesTable) return;
-    if (!user?.id) return;
-    if (!userProfile?.role) return;
-    if (userProfile.role !== 'super_admin' && userProfile.role !== 'super_admin_pro') return;
-    if (!profileRow) return;
-    if (profileRow.role === userProfile.role) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        await supabase.from('profiles').update({ role: userProfile.role }).eq('id', user.id);
-      } catch (_) {
-        // If RLS blocks this, ignore; UI will still work.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [useProfilesTable, user?.id, userProfile?.role, profileRow?.role]);
-
   useEffect(() => {
     if (!profileLoading || permissionsReady) return undefined;
     const t = setTimeout(() => {
@@ -969,16 +902,11 @@ export const AuthProvider = ({ children }) => {
         setProfileLoading(false);
         return;
       }
-      const meta = user.user_metadata || {};
-      const fallbackRow = {
+      const fallbackRow = safeSelfSignupProfileFields({
         id: user.id,
         email: user.email ?? null,
-        username: meta.username || meta.full_name || user.email?.split("@")[0] || "User",
-        team: meta.team ?? null,
-        role: meta.role ?? null,
-        allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
-        allowed_sub_modules: Array.isArray(meta.allowed_sub_modules) ? meta.allowed_sub_modules : [],
-      };
+        username: displayNameFromAuthMeta(user.user_metadata, user.email),
+      });
       writeCachedProfileRow(fallbackRow);
       setProfileRow(fallbackRow);
       setProfileLoading(false);
