@@ -444,6 +444,8 @@ export function EmployeeAttendanceDailyPage() {
         masterCodeMap,
         punchCodes,
         registerCodes: [...collectRegisterEmployeeCodes(employeesWithCode), ...leaveCodes, ...collectRegisterEmployeeCodes(inactiveForMonth)],
+        fromDate: monthMeta.fromDate,
+        toDate: monthMeta.toDate,
       });
       const registerEmpCodes = collectRegisterEmployeeCodes(registerEmployees);
       const weekoffDates = listAutoWeekoffDatesForMonthAndNext(monthMeta);
@@ -718,6 +720,8 @@ export function EmployeeAttendanceDailyPage() {
           masterCodeMap,
           punchCodes,
           registerCodes: [...leaveCodes],
+          fromDate: monthMeta.fromDate,
+          toDate: monthMeta.toDate,
         });
 
         if (cancelled) return;

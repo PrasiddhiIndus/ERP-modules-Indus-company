@@ -2610,26 +2610,26 @@ export async function syncRegisterMarksFromPunches(supabase, punches, options = 
   };
 }
 
-/** Include active master employees plus inactive (removed) master employees with month activity. */
+/** Include active master employees plus inactive employees for the viewed month (DOL month). */
 export function buildRegisterEmployeeList(
   activeEmployees,
   inactiveEmployees,
-  { punchCodes = [], registerCodes = [], masterCodeMap = null } = {}
+  { registerCodes = [], masterCodeMap = null, fromDate = null, toDate = null } = {}
 ) {
   const byCode = new Map();
+  const includeForMonth = (emp) => {
+    if (!fromDate || !toDate) return true;
+    return isEmployeeRelevantForRegisterMonth(emp?.dateOfLeaving, fromDate, toDate);
+  };
   for (const e of activeEmployees || []) {
+    if (!includeForMonth(e)) continue;
     const code = resolveRegisterGridEmpCode(e.empCode, masterCodeMap);
     if (code) byCode.set(code, { ...e, empCode: code, masterStatus: "Active" });
   }
-  const activityCodes = new Set(
-    [...(punchCodes || []), ...(registerCodes || [])]
-      .map((c) => resolveRegisterGridEmpCode(c, masterCodeMap))
-      .filter(Boolean)
-  );
   for (const e of inactiveEmployees || []) {
     const code = resolveRegisterGridEmpCode(e.empCode, masterCodeMap);
     if (!code || byCode.has(code)) continue;
-    if (activityCodes.size > 0 && !activityCodes.has(code)) continue;
+    if (!includeForMonth(e)) continue;
     byCode.set(code, { ...e, empCode: code, masterStatus: "Inactive" });
   }
   for (const rawCode of registerCodes || []) {
@@ -3960,14 +3960,26 @@ export async function fetchInactiveEmployeesWithDateOfLeaving(supabase) {
   return (data || []).map(mapMasterEmployee).filter((e) => e.empCode && e.dateOfLeaving);
 }
 
-/** Inactive employee appears in a month register when DOL is on/after month start (incl. left after month end). */
-export function isInactiveEmployeeRelevantForRegisterMonth(dateOfLeaving, fromDate, toDate) {
-  const dol = normalizeDbDate(dateOfLeaving);
+/**
+ * Whether an employee should appear in the daily register for the selected month.
+ * - No DOL: include (still employed).
+ * - DOL on/after month start: include (through leaving month).
+ * - DOL before month start: exclude (left in a prior month).
+ */
+export function isEmployeeRelevantForRegisterMonth(dateOfLeaving, fromDate, toDate) {
   const from = normalizeDbDate(fromDate);
   const to = normalizeDbDate(toDate);
-  if (!dol || !from || !to) return false;
-  if (dol < from) return false;
-  return true;
+  if (!from || !to) return false;
+  const dol = normalizeDbDate(dateOfLeaving);
+  if (!dol) return true;
+  return dol >= from;
+}
+
+/** Inactive master row — only when DOL is set and the month is on/before the leaving month. */
+export function isInactiveEmployeeRelevantForRegisterMonth(dateOfLeaving, fromDate, toDate) {
+  const dol = normalizeDbDate(dateOfLeaving);
+  if (!dol) return false;
+  return isEmployeeRelevantForRegisterMonth(dol, fromDate, toDate);
 }
 
 /** Inactive (removed/deactivated) employees still on master — shown when they have month activity. */
