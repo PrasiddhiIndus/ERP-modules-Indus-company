@@ -41,8 +41,9 @@ DECLARE
     'marketing_quotation_revisions', 'marketing_clients', 'marketing_costing_sheets',
     'marketing_follow_ups', 'marketing_notifications', 'marketing_site_visits',
     'marketing_enquiry_documents', 'marketing_mail_templates', 'marketing_gst_documents',
-    -- Commercial
-    'manpower_enquiries',
+    -- Commercial manpower_enquiries is NOT listed here.
+    -- It uses shared Commercial-board RLS (20260901120000), not USING (true).
+    -- Re-creating erp_auth_* on that table lets Marketing/Finance dump the pipeline.
     -- Fire Tender / Projects
     'tenders', 'tender_contacts', 'costing_rows', 'costing_summary', 'costing_accessories',
     'quotations', 'approved_quotation_items', 'quotation_templates',

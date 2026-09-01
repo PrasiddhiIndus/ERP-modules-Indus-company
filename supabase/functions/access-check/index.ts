@@ -9,6 +9,7 @@
 // @ts-nocheck
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 import { syncAppUsers } from '../_shared/syncAppUsers.ts'
+import { safeSelfSignupProfile } from '../_shared/safeSelfProfile.ts'
 
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -57,39 +58,11 @@ Deno.serve(async (req) => {
     return json(200, { ok: true })
   }
 
-  // Auth user exists but profiles row missing (re-create, legacy import, etc.) — provision from metadata.
-  const meta = authUser.user_metadata ?? {}
-  const username =
-    (typeof meta.full_name === 'string' && meta.full_name) ||
-    (typeof meta.username === 'string' && meta.username) ||
-    (authUser.email?.split('@')[0] ?? 'user')
-  const team = meta.team ?? null
-  const role = meta.role ?? 'executive'
-  const profilePayload = {
-    id: callerId,
-    email: authUser.email ?? null,
-    username,
-    team,
-    role,
-    allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
-  }
+  // Missing row: executive stub only. Never copy metadata role / modules / team / code.
+  // Do not delete another profiles row if the email is already taken.
+  const profilePayload = safeSelfSignupProfile(callerId, authUser.email ?? null, authUser.user_metadata ?? {})
 
-  let { error: upsertErr } = await admin.from('profiles').upsert(profilePayload, { onConflict: 'id' })
-
-  // Re-created Auth user (new uuid) but old profiles row still has same email → upsert fails.
-  if (upsertErr && authUser.email) {
-    const email = String(authUser.email).toLowerCase()
-    const { data: orphan } = await admin
-      .from('profiles')
-      .select('id')
-      .ilike('email', email)
-      .maybeSingle()
-    if (orphan?.id && orphan.id !== callerId) {
-      await admin.from('profiles').delete().eq('id', orphan.id)
-      const retry = await admin.from('profiles').upsert(profilePayload, { onConflict: 'id' })
-      upsertErr = retry.error
-    }
-  }
+  const { error: upsertErr } = await admin.from('profiles').upsert(profilePayload, { onConflict: 'id' })
 
   if (upsertErr) {
     return json(403, {
@@ -101,9 +74,9 @@ Deno.serve(async (req) => {
   await syncAppUsers(admin, {
     id: callerId,
     email: authUser.email ?? null,
-    username,
-    role,
-    team,
+    username: profilePayload.username,
+    role: 'executive',
+    team: null,
   })
 
   return json(200, { ok: true, provisioned: true })

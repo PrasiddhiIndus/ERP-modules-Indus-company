@@ -86,6 +86,49 @@ function canAccessModule(ctx, moduleKey) {
   return hasSubModuleFor(ctx, key);
 }
 
+function isSuperAdminRole(ctx) {
+  const role = normalizeErpRole(ctx.profile?.role);
+  return role === 'super_admin' || role === 'super_admin_pro';
+}
+
+/** Assigned team / modules / sub-modules only — not “any login” and not role=admin by itself. */
+function hasAssignedModuleOrSub(ctx, moduleKey) {
+  const key = normalizeErpModuleKey(moduleKey);
+  if (!key) return false;
+  if (isSuperAdminRole(ctx)) return true;
+  if (normalizeErpModuleKey(ctx.profile?.team) === key) return true;
+  if (moduleListLower(ctx.profile?.allowed_modules).includes(key)) return true;
+  return hasSubModuleFor(ctx, key);
+}
+
+function subModulesLower(ctx) {
+  return parseModules(ctx.profile?.allowed_sub_modules).map((s) => String(s || '').toLowerCase());
+}
+
+/** Software subscription invoices: Super Admin or IT/IS (same as the UI). */
+export function hasSoftwareSubscriptionsR2Access(ctx) {
+  if (isSuperAdminRole(ctx)) return true;
+  return hasAssignedModuleOrSub(ctx, 'itIs');
+}
+
+/** Fleet / vehicle papers: Operations or Fleet — shared board, not uploader-only. */
+export function hasFleetR2Access(ctx) {
+  if (isSuperAdminRole(ctx)) return true;
+  if (hasAssignedModuleOrSub(ctx, 'operations') || hasAssignedModuleOrSub(ctx, 'fleet')) return true;
+  return subModulesLower(ctx).some(
+    (s) => s === 'operations.fleet' || s.startsWith('operations.fleet.') || s === 'fleet' || s.startsWith('fleet.')
+  );
+}
+
+/** HR Calling CVs: HR module or recruitment sub-module — colleagues can open files. */
+export function hasHrCallingR2Access(ctx) {
+  if (isSuperAdminRole(ctx)) return true;
+  if (hasAssignedModuleOrSub(ctx, 'hr')) return true;
+  return subModulesLower(ctx).some(
+    (s) => s === 'hr.calling-master' || s.startsWith('hr.calling-master.') || s.startsWith('hr.recruitment.')
+  );
+}
+
 function projectRefFromUrl(url) {
   const m = String(url || '').match(/https?:\/\/([^.]+)\.supabase\.co/i);
   return m ? m[1] : '';
@@ -315,19 +358,17 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
       profile = await loadProfile(createUserClient(jwt));
     }
 
-    // Last resort: build a minimal profile from JWT user_metadata so Sync is not blocked
-    // when service_role is missing and profiles RLS cannot be read.
+    // Last resort: never elevate from JWT metadata. User Management owns role/modules.
     if (!profile && userData.user) {
-      const meta = userData.user.user_metadata || {};
-      const appMeta = userData.user.app_metadata || {};
       profile = {
         id: userData.user.id,
         email: userData.user.email || null,
-        role: String(meta.role || appMeta.role || '').trim(),
-        team: String(meta.team || appMeta.team || '').trim(),
-        allowed_modules: meta.allowed_modules || appMeta.allowed_modules || [],
-        allowed_sub_modules: meta.allowed_sub_modules || appMeta.allowed_sub_modules || [],
-        employee_code: meta.employee_code || null,
+        role: 'executive',
+        team: null,
+        allowed_modules: [],
+        allowed_sub_modules: [],
+        module_access_pending: true,
+        employee_code: null,
         is_active: true,
       };
     }
@@ -413,5 +454,8 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     requireAttendanceAdmin: middleware((ctx) => hasAttendanceAdminAccess(ctx)),
     requireBillingAccess: middleware((ctx) => hasBillingAccess(ctx)),
     requireCrmOutreachAccess: middleware((ctx) => hasCrmOutreachAccess(ctx)),
+    requireSoftwareSubscriptionsR2: middleware((ctx) => hasSoftwareSubscriptionsR2Access(ctx)),
+    requireFleetR2: middleware((ctx) => hasFleetR2Access(ctx)),
+    requireHrCallingR2: middleware((ctx) => hasHrCallingR2Access(ctx)),
   };
 }
