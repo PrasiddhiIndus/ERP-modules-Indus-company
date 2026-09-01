@@ -129,14 +129,27 @@ export async function upsertPlEncashPrefs(supabase, prefs) {
   if (error) throw error;
 }
 
+const fetchLeaveBalancesInflight = new Map();
+
 export async function fetchLeaveBalancesForYear(supabase, year) {
-  const { data, error } = await supabase
-    .schema("indus_one")
-    .from("employee_leave_balances_yearly")
-    .select("*")
-    .eq("year", year);
-  if (error) throw error;
-  return data || [];
+  const key = String(year);
+  const inflight = fetchLeaveBalancesInflight.get(key);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const { data, error } = await supabase
+      .schema("indus_one")
+      .from("employee_leave_balances_yearly")
+      .select("*")
+      .eq("year", year);
+    if (error) throw error;
+    return data || [];
+  })().finally(() => {
+    fetchLeaveBalancesInflight.delete(key);
+  });
+
+  fetchLeaveBalancesInflight.set(key, promise);
+  return promise;
 }
 
 /** User-friendly message for leave balance / ledger API failures. */
@@ -1125,16 +1138,23 @@ export function subscribeLeaveUsageRealtime(onChange, options = {}) {
   const yearHint = Number(options.year) || null;
   let debounceTimer = null;
   let syncQueue = Promise.resolve();
+  let lastUiAt = 0;
+  const UI_DEBOUNCE_MS = 1500;
+  const MIN_UI_INTERVAL_MS = 2500;
 
   const scheduleUi = () => {
+    const now = Date.now();
+    const wait = Math.max(UI_DEBOUNCE_MS, MIN_UI_INTERVAL_MS - (now - lastUiAt));
     if (debounceTimer) window.clearTimeout(debounceTimer);
     debounceTimer = window.setTimeout(() => {
+      debounceTimer = null;
+      lastUiAt = Date.now();
       try {
         onChange();
       } catch (err) {
         console.warn("Leave usage realtime UI refresh failed:", err);
       }
-    }, 400);
+    }, wait);
   };
 
   const syncFromRegisterPayload = (payload) => {

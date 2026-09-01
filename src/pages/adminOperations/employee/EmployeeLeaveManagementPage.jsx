@@ -276,7 +276,7 @@ export function EmployeeLeaveManagementPage() {
         }
       }
     } catch (e) {
-      setError(e?.message || "Failed to load balances");
+      setError(formatLeaveBalanceError(e) || "Failed to load balances");
     } finally {
       if (showLoading) setLoading(false);
     }
@@ -319,7 +319,7 @@ export function EmployeeLeaveManagementPage() {
     let cancelled = false;
     (async () => {
       if (cancelled) return;
-      await loadBalances({ syncUsage: true });
+      await loadBalances({ syncUsage: false });
     })();
     return () => {
       cancelled = true;
