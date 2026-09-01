@@ -187,6 +187,141 @@ export function validateCoMark(
   return { ok: true };
 }
 
+const PL_CL_SL_CONSECUTIVE_MAX_BRIDGE_DAYS = 14;
+
+function addCalendarDays(isoDate, delta) {
+  const d = new Date(`${String(isoDate || "").slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return "";
+  d.setDate(d.getDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
+/** PL / CL / SL family for consecutive-leave rule (includes P/ and LWP/ composites). */
+export function registerMarkPlClSlType(mark) {
+  const m = normalizeRegisterMarkForDb(mark);
+  if (!m) return null;
+  if (m === "PL" || m === "P/PL" || m === "LWP/PL") return "PL";
+  if (m === "CL" || m === "P/CL" || m === "LWP/CL") return "CL";
+  if (m === "SL" || m === "P/SL" || m === "LWP/SL") return "SL";
+  return null;
+}
+
+/** WO and NH/PH marks bridge PL/CL/SL sequences without breaking them. */
+export function registerMarkIsLeaveBridge(mark) {
+  const m = normalizeRegisterMarkForDb(mark);
+  if (!m) return false;
+  return m === "WO" || isRegisterNhphMark(m);
+}
+
+function buildRegisterMarksByDateForEmployee(registerRows, employeeCode, excludeDate = null) {
+  const code = normalizeAttendanceEmpCode(employeeCode);
+  const byDate = new Map();
+  for (const row of registerRows || []) {
+    if (normalizeAttendanceEmpCode(row.employee_code) !== code) continue;
+    const date = String(row.register_date || "").slice(0, 10);
+    if (!date || date === excludeDate) continue;
+    const mk = normalizeRegisterMarkForDb(row.mark);
+    if (mk) byDate.set(date, mk);
+  }
+  return byDate;
+}
+
+function neighborPlClSlType(marksByDate, fromDate, direction) {
+  const step = direction < 0 ? -1 : 1;
+  let cursor = addCalendarDays(fromDate, step);
+  for (let guard = 0; guard < PL_CL_SL_CONSECUTIVE_MAX_BRIDGE_DAYS; guard += 1) {
+    const mark = marksByDate.get(cursor);
+    if (!mark) return null;
+    const type = registerMarkPlClSlType(mark);
+    if (type) return type;
+    if (registerMarkIsLeaveBridge(mark)) {
+      cursor = addCalendarDays(cursor, step);
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
+function validatePlClSlOnMarksByDate(marksByDate, registerDate, mark) {
+  const date = String(registerDate || "").slice(0, 10);
+  const newType = registerMarkPlClSlType(mark);
+  if (!newType || !date) return { ok: true };
+
+  const prevType = neighborPlClSlType(marksByDate, date, -1);
+  if (prevType && prevType !== newType) {
+    return {
+      ok: false,
+      message:
+        `Cannot combine different leave types on consecutive days: ${newType} next to existing ${prevType}. ` +
+        "Use the same leave type or leave a gap.",
+    };
+  }
+
+  const nextType = neighborPlClSlType(marksByDate, date, 1);
+  if (nextType && nextType !== newType) {
+    return {
+      ok: false,
+      message:
+        `Cannot combine different leave types on consecutive days: ${newType} next to existing ${nextType}. ` +
+        "Use the same leave type or leave a gap.",
+    };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Block mixing PL / CL / SL across calendar-adjacent days (WO / NH/PH bridge only).
+ * Mirrors public.admin_attendance_neighbor_pl_cl_sl_type on the server.
+ */
+export function validatePlClSlConsecutiveMark(
+  yearRowsForEmp,
+  registerDate,
+  mark,
+  { employeeCode = "" } = {}
+) {
+  const date = String(registerDate || "").slice(0, 10);
+  const marksByDate = buildRegisterMarksByDateForEmployee(yearRowsForEmp, employeeCode, date);
+  return validatePlClSlOnMarksByDate(marksByDate, date, mark);
+}
+
+/** Validate a batch of register upserts (bulk mark) in date order per employee. */
+export function validatePlClSlMarksForUpserts(registerRows, upserts) {
+  const pending = [...(upserts || [])].sort((a, b) => {
+    const codeCmp = String(a.employee_code || "").localeCompare(String(b.employee_code || ""));
+    if (codeCmp !== 0) return codeCmp;
+    return String(a.register_date || "").localeCompare(String(b.register_date || ""));
+  });
+
+  const failures = [];
+  const stagedByEmp = new Map();
+
+  for (const row of pending) {
+    const code = normalizeAttendanceEmpCode(row.employee_code);
+    const date = String(row.register_date || "").slice(0, 10);
+    const mark = row.mark;
+    if (!code || !date) continue;
+
+    if (!stagedByEmp.has(code)) {
+      stagedByEmp.set(code, buildRegisterMarksByDateForEmployee(registerRows, code));
+    }
+    const marksByDate = stagedByEmp.get(code);
+    marksByDate.delete(date);
+
+    const check = validatePlClSlOnMarksByDate(marksByDate, date, mark);
+    if (!check.ok) {
+      failures.push({ employeeCode: code, registerDate: date, message: check.message });
+      continue;
+    }
+
+    const normalized = normalizeRegisterMarkForDb(mark);
+    if (normalized) marksByDate.set(date, normalized);
+  }
+
+  return failures;
+}
+
 export function buildLeaveLimitNotifications({
   registerRows,
   employeeNameByCode = {},

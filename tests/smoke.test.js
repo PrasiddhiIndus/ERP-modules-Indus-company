@@ -21,7 +21,11 @@ import {
   registerMarkCompositeDisplayParts,
   registerSummaryLeaveCredit,
 } from '../src/lib/attendanceDaily.js';
-import { leaveDayFraction } from '../src/lib/attendanceLeaveLimits.js';
+import {
+  leaveDayFraction,
+  validatePlClSlConsecutiveMark,
+  validatePlClSlMarksForUpserts,
+} from '../src/lib/attendanceLeaveLimits.js';
 
 describe('registerMarkFromPunchWindow', () => {
   it('marks half day when out is on cutoff', () => {
@@ -482,6 +486,58 @@ describe('manual register mark priority', () => {
       [{ employee_code: '101', register_date: '2026-08-03', mark: 'P', mark_source: 'manual' }]
     );
     expect(marks['101'][3]).toBe('P');
+  });
+});
+
+describe('validatePlClSlConsecutiveMark', () => {
+  const emp = '101';
+  const rows = [
+    { employee_code: emp, register_date: '2026-08-04', mark: 'SL' },
+    { employee_code: emp, register_date: '2026-08-05', mark: 'SL' },
+    { employee_code: emp, register_date: '2026-08-06', mark: 'WO' },
+    { employee_code: emp, register_date: '2026-08-07', mark: 'WO' },
+  ];
+
+  it('blocks PL or CL after SL bridged through WO', () => {
+    for (const mark of ['PL', 'CL', 'P/PL', 'LWP/CL']) {
+      const check = validatePlClSlConsecutiveMark(rows, '2026-08-08', mark, { employeeCode: emp });
+      expect(check.ok).toBe(false);
+      expect(check.message).toMatch(/SL/);
+    }
+  });
+
+  it('allows SL continuation and CO after SL bridged through WO', () => {
+    expect(
+      validatePlClSlConsecutiveMark(rows, '2026-08-08', 'SL', { employeeCode: emp }).ok
+    ).toBe(true);
+    expect(
+      validatePlClSlConsecutiveMark(rows, '2026-08-08', 'CO', { employeeCode: emp }).ok
+    ).toBe(true);
+  });
+
+  it('bridges NH/PH and NHPH between leave types', () => {
+    const nhRows = [
+      { employee_code: emp, register_date: '2026-08-04', mark: 'PL' },
+      { employee_code: emp, register_date: '2026-08-05', mark: 'NH/PH' },
+    ];
+    expect(
+      validatePlClSlConsecutiveMark(nhRows, '2026-08-06', 'PL', { employeeCode: emp }).ok
+    ).toBe(true);
+    expect(
+      validatePlClSlConsecutiveMark(
+        [{ employee_code: emp, register_date: '2026-08-04', mark: 'CL' }, { employee_code: emp, register_date: '2026-08-05', mark: 'NHPH' }],
+        '2026-08-06',
+        'SL',
+        { employeeCode: emp }
+      ).ok
+    ).toBe(false);
+  });
+
+  it('validates bulk upserts in staged date order', () => {
+    const failures = validatePlClSlMarksForUpserts(rows, [
+      { employee_code: emp, register_date: '2026-08-08', mark: 'PL' },
+    ]);
+    expect(failures).toHaveLength(1);
   });
 });
 
