@@ -90,6 +90,8 @@ import {
   indexLeaveBalancesByEmployeeCode,
   projectLeaveUsageAfterMark,
   validateCoMark,
+  validatePlClSlConsecutiveMark,
+  validatePlClSlMarksForUpserts,
 } from "../../../lib/attendanceLeaveLimits";
 import { fetchLeaveBalancesForYear } from "../../../lib/leaveManagement";
 import { subscribeLeaveWorkflowRealtime } from "../../../lib/adminLeaveRequests";
@@ -833,6 +835,14 @@ export function EmployeeAttendanceDailyPage() {
         });
         if (!coCheck.ok) warnings.push(coCheck.message);
 
+        const plClSlCheck = validatePlClSlConsecutiveMark(empYearRows, registerDate, value, {
+          employeeCode: empCodeKey,
+        });
+        if (!plClSlCheck.ok) {
+          toast.error(plClSlCheck.message);
+          return;
+        }
+
         if (hasLeaveAnnualLimit(value)) {
           const projected = projectLeaveUsageAfterMark(
             yearRegisterRows,
@@ -1348,6 +1358,13 @@ export function EmployeeAttendanceDailyPage() {
         }
       }
 
+      const plClSlBulkFailures = validatePlClSlMarksForUpserts(yearRegisterRows, upserts);
+      if (plClSlBulkFailures.length) {
+        const hit = plClSlBulkFailures[0];
+        toast.error(hit.message);
+        return;
+      }
+
       setManualMarks(next);
       setManualRemarks(nextRemarks);
       if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
@@ -1380,7 +1397,7 @@ export function EmployeeAttendanceDailyPage() {
         setSavingMark(false);
       }
     },
-    [bulkDayRange, bulkOverwrite, dateOfLeavingByEmp, gridRows, manualMarks, manualRemarks, masterRegisterCodeMap, monthMeta]
+    [bulkDayRange, bulkOverwrite, dateOfLeavingByEmp, gridRows, manualMarks, manualRemarks, masterRegisterCodeMap, monthMeta, yearRegisterRows]
   );
 
   const handleClearSelectedRange = useCallback(async () => {
