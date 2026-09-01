@@ -16,6 +16,38 @@ export function emptyClientForm() {
   };
 }
 
+function text(value) {
+  return String(value ?? '').trim();
+}
+
+/**
+ * Map a Lead Master row onto the Client Master form.
+ * Person 1 gets the lead's first contact (name, phone, email). Extra people can be added on the form.
+ */
+export function leadToClientForm(lead) {
+  const person1 = {
+    name: text(lead?.contact_person),
+    numbers: [text(lead?.telephone) || ''],
+    emails: [text(lead?.email) || ''],
+  };
+  const persons = [person1];
+  const person2Name = text(lead?.contact_person_2);
+  if (person2Name) {
+    persons.push({ name: person2Name, numbers: [''], emails: [''] });
+  }
+
+  return {
+    client_name: text(lead?.company),
+    industry: text(lead?.project) || text(lead?.industry),
+    street_address: text(lead?.location),
+    city: text(lead?.district),
+    state: text(lead?.project_state) || text(lead?.address_state),
+    country: 'India',
+    zip_code: '',
+    contact_persons: persons,
+  };
+}
+
 function parseJsonValue(value) {
   if (value == null || value === '') return null;
   if (typeof value === 'object') return value;
