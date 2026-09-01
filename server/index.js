@@ -356,8 +356,17 @@ app.use(
 );
 app.use(express.json({ limit: '8mb' }));
 
-const { requireAuth, requireAdmin, requireBillingAccess, requireHrOrAdmin, requireAttendanceAdmin, requireCrmOutreachAccess } =
-  createAuthMiddleware({
+const {
+  requireAuth,
+  requireAdmin,
+  requireBillingAccess,
+  requireHrOrAdmin,
+  requireAttendanceAdmin,
+  requireCrmOutreachAccess,
+  requireSoftwareSubscriptionsR2,
+  requireFleetR2,
+  requireHrCallingR2,
+} = createAuthMiddleware({
   getSupabaseUrl: getSupabaseUrlForServer,
   getServiceRoleKey: getSupabaseServiceRoleKeyForServer,
   getAnonKey: getSupabaseAnonKeyForServer,
@@ -511,7 +520,7 @@ function normalizeSoftwareSubObjectKey(raw) {
     .replace(/^\/+/, '');
 }
 
-/** Software subscriptions UI is super-admin-only; presign only requires a valid Supabase session. */
+/** Valid JWT only. Do not use as the R2 permission gate — login ≠ module access. */
 async function requireSessionForSoftwareSubscriptionsR2(req) {
   const authHeader = req.headers.authorization || '';
   const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length).trim() : '';
@@ -548,7 +557,8 @@ function getFleetKeyPrefixForScope(scope) {
   return null;
 }
 
-function assertFleetObjectKeyAllowedForUser(objectKey, userId) {
+/** Prefix + path shape only. Module gate (operations/fleet) is the permission check. */
+function assertFleetObjectKeyAllowed(objectKey) {
   const key = String(objectKey || '').trim();
   if (!key.startsWith(R2_FLEET_KEY_PREFIX) || key.includes('..') || key.includes('//')) {
     throw new HttpError(400, 'Invalid object key.');
@@ -560,10 +570,10 @@ function assertFleetObjectKeyAllowedForUser(objectKey, userId) {
   if (!['documents', 'drivers'].includes(parts[1])) {
     throw new HttpError(400, 'Invalid object key.');
   }
-  const owner = parts[2];
-  if (owner !== String(userId)) {
-    throw new HttpError(403, 'Not allowed to access this object.');
-  }
+}
+
+function assertFleetObjectKeyAllowedForUser(objectKey, _userId) {
+  assertFleetObjectKeyAllowed(objectKey);
 }
 
 function getRequiredEnv(name) {
@@ -1799,9 +1809,9 @@ app.post(
       res.status(400).json({ message: err.message || 'Upload failed.' });
     });
   },
+  requireSoftwareSubscriptionsR2,
   async (req, res) => {
     try {
-      await requireSessionForSoftwareSubscriptionsR2(req);
       const bucket = getR2BucketName();
 
       const sid = String(req.body?.subscriptionId || '').trim();
@@ -1841,9 +1851,8 @@ app.post(
   }
 );
 
-app.post('/api/software-subscriptions/r2/presign-get', async (req, res) => {
+app.post('/api/software-subscriptions/r2/presign-get', requireSoftwareSubscriptionsR2, async (req, res) => {
   try {
-    await requireSessionForSoftwareSubscriptionsR2(req);
     const bucket = getR2BucketName();
 
     const objectKey = normalizeSoftwareSubObjectKey(req.body?.objectKey);
@@ -1875,9 +1884,8 @@ app.post('/api/software-subscriptions/r2/presign-get', async (req, res) => {
   }
 });
 
-app.post('/api/software-subscriptions/r2/delete', async (req, res) => {
+app.post('/api/software-subscriptions/r2/delete', requireSoftwareSubscriptionsR2, async (req, res) => {
   try {
-    await requireSessionForSoftwareSubscriptionsR2(req);
     const bucket = getR2BucketName();
 
     const objectKey = normalizeSoftwareSubObjectKey(req.body?.objectKey);
@@ -1914,9 +1922,13 @@ app.post(
       res.status(400).json({ message: err.message || 'Upload failed.' });
     });
   },
+  requireFleetR2,
   async (req, res) => {
     try {
-      const user = await requireSessionForSoftwareSubscriptionsR2(req);
+      const user = req.user;
+      if (!user?.id) {
+        return res.status(401).json({ message: 'Invalid or expired session.' });
+      }
       const bucket = getR2BucketName();
 
       const scope = String(req.body?.scope || '').trim();
@@ -1962,13 +1974,12 @@ app.post(
   }
 );
 
-app.post('/api/fleet/r2/presign-get', async (req, res) => {
+app.post('/api/fleet/r2/presign-get', requireFleetR2, async (req, res) => {
   try {
-    const user = await requireSessionForSoftwareSubscriptionsR2(req);
     const bucket = getR2BucketName();
 
     const objectKey = String(req.body?.objectKey || '').trim();
-    assertFleetObjectKeyAllowedForUser(objectKey, user.id);
+    assertFleetObjectKeyAllowed(objectKey);
 
     const client = getR2S3Client();
     const getCmd = new GetObjectCommand({ Bucket: bucket, Key: objectKey });
@@ -1996,9 +2007,13 @@ app.post(
       res.status(400).json({ message: err.message || 'Upload failed.' });
     });
   },
+  requireHrCallingR2,
   async (req, res) => {
     try {
-      const user = await requireSessionForSoftwareSubscriptionsR2(req);
+      const user = req.user;
+      if (!user?.id) {
+        return res.status(401).json({ message: 'Invalid or expired session.' });
+      }
       const bucket = getR2BucketName();
 
       const candidateKey = sanitizeR2UploadFileName(String(req.body?.candidateKey || 'draft').trim() || 'draft');
@@ -2033,9 +2048,8 @@ app.post(
   }
 );
 
-app.post('/api/hr-calling/r2/presign-get', async (req, res) => {
+app.post('/api/hr-calling/r2/presign-get', requireHrCallingR2, async (req, res) => {
   try {
-    await requireSessionForSoftwareSubscriptionsR2(req);
     const bucket = getR2BucketName();
     const objectKey = String(req.body?.objectKey || '').trim();
     if (!objectKey.startsWith(R2_HR_CALLING_KEY_PREFIX) || objectKey.includes('..') || objectKey.includes('//')) {

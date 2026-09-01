@@ -1,14 +1,35 @@
 import { createClient } from '@supabase/supabase-js';
 
-const ADMIN_ROLES = new Set(['super_admin', 'super_admin_pro', 'admin']);
+const ADMIN_ROLES = new Set(['super_admin', 'super_admin_pro', 'admin', 'hod']);
 const HR_MODULES = new Set(['hr', 'payroll', 'admin']);
 const HR_TEAMS = new Set(['hr', 'admin']);
 const BILLING_MODULES = new Set(['billing', 'commercialmt', 'commercialrm', 'commercial']);
 const BILLING_TEAMS = new Set(['billing', 'commercial', 'commercialmt', 'commercialrm']);
-const BILLING_ROLES = new Set(['admin', 'billing']);
+const BILLING_ROLES = new Set(['admin', 'hod', 'billing']);
 const BILLING_SUB_MODULE_PREFIXES = ['billing.', 'commercialmt.', 'commercialrm.', 'commercial.'];
 const CRM_OUTREACH_MODULES = new Set(['marketing', 'crmoutreach']);
 const CRM_OUTREACH_TEAMS = new Set(['marketing']);
+
+/** Match SQL normalize_erp_role / src/config/roles.js (HOD → admin). */
+function normalizeErpRole(raw) {
+  const r = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  if (r === 'hod' || r === 'admin') return 'admin';
+  if (r === 'superadmin' || r === 'super_admin') return 'super_admin';
+  if (r === 'superadmin_pro' || r === 'super_admin_pro') return 'super_admin_pro';
+  return r;
+}
+
+/** Match SQL normalize_erp_module_key — Employee Master team labels → module keys. */
+function normalizeErpModuleKey(raw) {
+  const t = String(raw || '').trim().toLowerCase();
+  if (t === 'dahej-hr' || t === 'hr') return 'hr';
+  if (t === 'administration' || t === 'management' || t === 'admin') return 'admin';
+  if (t === 'payroll') return 'payroll';
+  return t;
+}
 
 function parseModules(raw) {
   let value = raw;
@@ -37,23 +58,75 @@ function parseModules(raw) {
 }
 
 function moduleListLower(raw) {
-  return parseModules(raw).map((m) => m.toLowerCase());
+  return parseModules(raw).map((m) => normalizeErpModuleKey(m)).filter(Boolean);
 }
 
 function hasModule(modules, allowed) {
-  return modules.some((m) => allowed.has(String(m || '').toLowerCase()));
+  return modules.some((m) => allowed.has(normalizeErpModuleKey(m)));
+}
+
+function hasSubModuleFor(ctx, moduleKey) {
+  const key = normalizeErpModuleKey(moduleKey);
+  if (!key) return false;
+  return parseModules(ctx.profile?.allowed_sub_modules).some((s) => {
+    const top = normalizeErpModuleKey(String(s || '').split('.')[0]);
+    return top === key;
+  });
 }
 
 /** Matches SQL `current_user_can_access_module(module_key)`. */
 function canAccessModule(ctx, moduleKey) {
-  const key = String(moduleKey || '').trim().toLowerCase();
+  const key = normalizeErpModuleKey(moduleKey);
   if (!key) return false;
-  const role = String(ctx.profile?.role || '').trim().toLowerCase();
+  const role = normalizeErpRole(ctx.profile?.role);
   if (role === 'super_admin' || role === 'super_admin_pro') return true;
   if (role === 'admin' && key !== 'usermanagement' && key !== 'softwaresubscriptions') return true;
-  const team = String(ctx.profile?.team || '').trim().toLowerCase();
-  if (team === key) return true;
-  return moduleListLower(ctx.profile?.allowed_modules).includes(key);
+  if (normalizeErpModuleKey(ctx.profile?.team) === key) return true;
+  if (moduleListLower(ctx.profile?.allowed_modules).includes(key)) return true;
+  return hasSubModuleFor(ctx, key);
+}
+
+function isSuperAdminRole(ctx) {
+  const role = normalizeErpRole(ctx.profile?.role);
+  return role === 'super_admin' || role === 'super_admin_pro';
+}
+
+/** Assigned team / modules / sub-modules only — not “any login” and not role=admin by itself. */
+function hasAssignedModuleOrSub(ctx, moduleKey) {
+  const key = normalizeErpModuleKey(moduleKey);
+  if (!key) return false;
+  if (isSuperAdminRole(ctx)) return true;
+  if (normalizeErpModuleKey(ctx.profile?.team) === key) return true;
+  if (moduleListLower(ctx.profile?.allowed_modules).includes(key)) return true;
+  return hasSubModuleFor(ctx, key);
+}
+
+function subModulesLower(ctx) {
+  return parseModules(ctx.profile?.allowed_sub_modules).map((s) => String(s || '').toLowerCase());
+}
+
+/** Software subscription invoices: Super Admin or IT/IS (same as the UI). */
+export function hasSoftwareSubscriptionsR2Access(ctx) {
+  if (isSuperAdminRole(ctx)) return true;
+  return hasAssignedModuleOrSub(ctx, 'itIs');
+}
+
+/** Fleet / vehicle papers: Operations or Fleet — shared board, not uploader-only. */
+export function hasFleetR2Access(ctx) {
+  if (isSuperAdminRole(ctx)) return true;
+  if (hasAssignedModuleOrSub(ctx, 'operations') || hasAssignedModuleOrSub(ctx, 'fleet')) return true;
+  return subModulesLower(ctx).some(
+    (s) => s === 'operations.fleet' || s.startsWith('operations.fleet.') || s === 'fleet' || s.startsWith('fleet.')
+  );
+}
+
+/** HR Calling CVs: HR module or recruitment sub-module — colleagues can open files. */
+export function hasHrCallingR2Access(ctx) {
+  if (isSuperAdminRole(ctx)) return true;
+  if (hasAssignedModuleOrSub(ctx, 'hr')) return true;
+  return subModulesLower(ctx).some(
+    (s) => s === 'hr.calling-master' || s.startsWith('hr.calling-master.') || s.startsWith('hr.recruitment.')
+  );
 }
 
 function projectRefFromUrl(url) {
@@ -285,19 +358,17 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
       profile = await loadProfile(createUserClient(jwt));
     }
 
-    // Last resort: build a minimal profile from JWT user_metadata so Sync is not blocked
-    // when service_role is missing and profiles RLS cannot be read.
+    // Last resort: never elevate from JWT metadata. User Management owns role/modules.
     if (!profile && userData.user) {
-      const meta = userData.user.user_metadata || {};
-      const appMeta = userData.user.app_metadata || {};
       profile = {
         id: userData.user.id,
         email: userData.user.email || null,
-        role: String(meta.role || appMeta.role || '').trim(),
-        team: String(meta.team || appMeta.team || '').trim(),
-        allowed_modules: meta.allowed_modules || appMeta.allowed_modules || [],
-        allowed_sub_modules: meta.allowed_sub_modules || appMeta.allowed_sub_modules || [],
-        employee_code: meta.employee_code || null,
+        role: 'executive',
+        team: null,
+        allowed_modules: [],
+        allowed_sub_modules: [],
+        module_access_pending: true,
+        employee_code: null,
         is_active: true,
       };
     }
@@ -334,22 +405,20 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
   }
 
   function isAdmin(ctx) {
-    const role = String(ctx.profile?.role || '').trim().toLowerCase();
-    return ADMIN_ROLES.has(role);
+    return ADMIN_ROLES.has(normalizeErpRole(ctx.profile?.role));
   }
 
   function hasHrAccess(ctx) {
     if (isAdmin(ctx)) return true;
-    const team = String(ctx.profile?.team || '').trim().toLowerCase();
-    if (HR_TEAMS.has(team)) return true;
-    return hasModule(moduleListLower(ctx.profile?.allowed_modules), HR_MODULES);
+    if (HR_TEAMS.has(normalizeErpModuleKey(ctx.profile?.team))) return true;
+    if (hasModule(moduleListLower(ctx.profile?.allowed_modules), HR_MODULES)) return true;
+    return hasSubModuleFor(ctx, 'hr') || hasSubModuleFor(ctx, 'admin') || hasSubModuleFor(ctx, 'payroll');
   }
 
   /** Matches SQL `current_user_has_attendance_admin_access()` for raw attendance / eTime sync. */
   function hasAttendanceAdminAccess(ctx) {
     if (isAdmin(ctx)) return true;
-    const team = String(ctx.profile?.team || '').trim().toLowerCase();
-    if (HR_TEAMS.has(team)) return true;
+    if (HR_TEAMS.has(normalizeErpModuleKey(ctx.profile?.team))) return true;
     return (
       canAccessModule(ctx, 'admin') ||
       canAccessModule(ctx, 'hr') ||
@@ -359,11 +428,11 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
 
   function hasBillingAccess(ctx) {
     if (isAdmin(ctx)) return true;
-    const role = String(ctx.profile?.role || '').trim().toLowerCase();
+    const role = normalizeErpRole(ctx.profile?.role);
     if (BILLING_ROLES.has(role)) return true;
     // Employee Master stores "Commercial"; RLS/UI map that to commercialMt — match case-insensitively.
     const team = String(ctx.profile?.team || '').trim().toLowerCase();
-    if (BILLING_TEAMS.has(team)) return true;
+    if (BILLING_TEAMS.has(team) || BILLING_TEAMS.has(normalizeErpModuleKey(team))) return true;
     const modules = parseModules(ctx.profile?.allowed_modules).map((m) => m.toLowerCase());
     if (hasModule(modules, BILLING_MODULES)) return true;
     const subModules = parseModules(ctx.profile?.allowed_sub_modules).map((m) => m.toLowerCase());
@@ -385,5 +454,8 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     requireAttendanceAdmin: middleware((ctx) => hasAttendanceAdminAccess(ctx)),
     requireBillingAccess: middleware((ctx) => hasBillingAccess(ctx)),
     requireCrmOutreachAccess: middleware((ctx) => hasCrmOutreachAccess(ctx)),
+    requireSoftwareSubscriptionsR2: middleware((ctx) => hasSoftwareSubscriptionsR2Access(ctx)),
+    requireFleetR2: middleware((ctx) => hasFleetR2Access(ctx)),
+    requireHrCallingR2: middleware((ctx) => hasHrCallingR2Access(ctx)),
   };
 }

@@ -170,10 +170,8 @@ export function parseAllowedSubModules(raw) {
   return [];
 }
 
-export function getEffectiveAllowedSubModules(profile, userMetadata = null) {
-  const fromProfile = parseAllowedSubModules(profile?.allowed_sub_modules);
-  if (fromProfile.length) return fromProfile;
-  return parseAllowedSubModules(userMetadata?.allowed_sub_modules);
+export function getEffectiveAllowedSubModules(profile, _userMetadata = null) {
+  return parseAllowedSubModules(profile?.allowed_sub_modules);
 }
 
 export function hasFullModuleAccess(accessibleModules, moduleKey) {

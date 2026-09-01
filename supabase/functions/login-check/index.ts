@@ -1,5 +1,5 @@
 // Supabase Edge Function: login-check
-// Single source of truth for roles: public.profiles.
+// Single source of truth for roles: public.profiles (never Auth metadata).
 // - Verifies caller JWT
 // - Ensures a profiles row exists (best-effort provisioning for legacy users)
 // - Returns the profile used by the app for access + redirect
@@ -11,6 +11,11 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 import { resolveAuthUser } from '../_shared/resolveAuthUser.ts'
 import { syncAppUsers } from '../_shared/syncAppUsers.ts'
+import {
+  authMetadataHasPrivilegeKeys,
+  nameOnlyUserMetadata,
+  safeSelfSignupProfile,
+} from '../_shared/safeSelfProfile.ts'
 
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -22,16 +27,6 @@ function json(status: number, body: unknown) {
       'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     },
   })
-}
-
-function normalizeRole(role: unknown) {
-  const r = String(role || '').trim()
-  if (!r) return 'executive'
-  // Only allow the 4 roles the app supports.
-  if (r === 'super_admin' || r === 'super_admin_pro' || r === 'admin' || r === 'manager' || r === 'executive') {
-    return r
-  }
-  return 'executive'
 }
 
 Deno.serve(async (req) => {
@@ -54,6 +49,26 @@ Deno.serve(async (req) => {
   const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } })
   const userId = u.id
   const email = u.email ?? null
+  const meta = u.user_metadata ?? {}
+
+  const stripPrivilegeMetadata = async (profileRow) => {
+    const metaRole = String(meta.role || '').trim()
+    const profileRole = String(profileRow?.role || '').trim()
+    const conflict =
+      (metaRole && metaRole !== profileRole) ||
+      (profileRow?.module_access_pending === true &&
+        Array.isArray(meta.allowed_modules) &&
+        meta.allowed_modules.length > 0)
+    if (!authMetadataHasPrivilegeKeys(meta)) return
+    if (profileRow && !conflict && profileRow.module_access_pending !== true) return
+    try {
+      await admin.auth.admin.updateUserById(userId, {
+        user_metadata: nameOnlyUserMetadata(meta, email),
+      })
+    } catch {
+      /* login must not fail if metadata cleanup is unavailable */
+    }
+  }
 
   const readProfile = async () => {
     let res = await admin
@@ -135,45 +150,14 @@ Deno.serve(async (req) => {
       role: existing.role ?? 'executive',
       team: existing.team ?? null,
     })
+    await stripPrivilegeMetadata(existing)
     return json(200, { ok: true, profile: existing })
   }
 
-  // Provision missing profile row (legacy / recreated auth users).
-  const meta = u.user_metadata ?? {}
-  const username =
-    (typeof meta.full_name === 'string' && meta.full_name) ||
-    (typeof meta.username === 'string' && meta.username) ||
-    (email?.split('@')[0] ?? 'user')
-  const team = meta.team ?? null
-  const role = normalizeRole(meta.role)
-  const allowed = Array.isArray(meta.allowed_modules) ? meta.allowed_modules : []
-  const employeeCode =
-    (typeof meta.employee_code === 'string' && meta.employee_code.trim()) ||
-    (typeof meta.emp_code === 'string' && meta.emp_code.trim()) ||
-    null
+  // Missing row: executive stub only. Never copy metadata role / modules / team / employee_code.
+  const profilePayload = safeSelfSignupProfile(userId, email, meta)
 
-  const profilePayload = {
-    id: userId,
-    email,
-    username,
-    team,
-    role,
-    allowed_modules: allowed,
-    module_access_pending: meta.module_access_pending === true,
-    ...(employeeCode ? { employee_code: employeeCode } : {}),
-  }
-
-  let { error: upsertErr } = await admin.from('profiles').upsert(profilePayload, { onConflict: 'id' })
-
-  // Clean up orphan profile row that blocks insertion (same email, different id).
-  if (upsertErr && email) {
-    const { data: orphan } = await admin.from('profiles').select('id').ilike('email', email).maybeSingle()
-    if (orphan?.id && orphan.id !== userId) {
-      await admin.from('profiles').delete().eq('id', orphan.id)
-      const retry = await admin.from('profiles').upsert(profilePayload, { onConflict: 'id' })
-      upsertErr = retry.error
-    }
-  }
+  const { error: upsertErr } = await admin.from('profiles').upsert(profilePayload, { onConflict: 'id' })
 
   if (upsertErr) {
     return json(403, { ok: false, error: `Could not provision profile: ${upsertErr.message}` })
@@ -187,10 +171,11 @@ Deno.serve(async (req) => {
   await syncAppUsers(admin, {
     id: createdProfile.id,
     email: createdProfile.email ?? email,
-    username: createdProfile.username || username,
-    role: createdProfile.role ?? role,
-    team: createdProfile.team ?? team,
+    username: createdProfile.username || profilePayload.username,
+    role: createdProfile.role ?? 'executive',
+    team: createdProfile.team ?? null,
   })
+  await stripPrivilegeMetadata(createdProfile)
 
   return json(200, { ok: true, profile: createdProfile, provisioned: true })
 })

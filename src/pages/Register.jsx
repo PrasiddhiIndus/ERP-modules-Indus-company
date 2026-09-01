@@ -1,19 +1,14 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { ROLES, MODULES as FALLBACK_MODULES } from '../config/roles'
-import { useAppAccessConfig } from '../contexts/AppAccessConfigContext'
 import { INDUS_LOGO_SRC } from '../constants/branding.js'
-import { Mail, Lock, Eye, EyeOff, UserPlus, User, ChevronDown, Shield } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff, UserPlus, User } from 'lucide-react'
 
 const Register = () => {
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [team, setTeam] = useState('')
-  const [role, setRole] = useState(ROLES.EXECUTIVE)
-  const [allowedModules, setAllowedModules] = useState([])
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -21,16 +16,7 @@ const Register = () => {
   const [success, setSuccess] = useState('')
 
   const { signUpWithProfile } = useAuth()
-  const accessCfg = useAppAccessConfig()
   const navigate = useNavigate()
-
-  const modules = (accessCfg?.modules?.length ? accessCfg.modules : FALLBACK_MODULES).filter((m) => m.value !== 'userManagement')
-
-  const toggleModule = (value) => {
-    setAllowedModules((prev) =>
-      prev.includes(value) ? prev.filter((m) => m !== value) : [...prev, value]
-    )
-  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -50,31 +36,14 @@ const Register = () => {
       return
     }
 
-    if (!team) {
-      setError('Please select a team')
-      setLoading(false)
-      return
-    }
-
-    if (role === ROLES.MANAGER && allowedModules.length === 0) {
-      setError('Managers must select at least one additional module')
-      setLoading(false)
-      return
-    }
-
-    const effectiveRole = ROLES.EXECUTIVE;
-
     const { error: signUpError } = await signUpWithProfile(email, password, {
       username,
-      team,
-      role: effectiveRole,
-      allowed_modules: [],
-    });
+    })
 
     if (signUpError) {
       setError(signUpError.message)
     } else {
-      setSuccess('Account created successfully!')
+      setSuccess('Account created. An administrator will assign your modules.')
       setTimeout(() => {
         navigate('/')
       }, 1500)
@@ -101,7 +70,7 @@ const Register = () => {
             </div>
             <h2 className="text-lg font-semibold text-ink">Create Account</h2>
             <p className="text-[12.5px] text-ink-secondary mt-1 font-body">
-              Sign up with username, team and role
+              Name and email only. Role and modules are assigned in User Management.
             </p>
           </div>
 
@@ -156,7 +125,7 @@ const Register = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="login-input w-full pl-10 pr-10 py-2.5 font-body"
-                  placeholder="Password (min 6 characters)"
+                  placeholder="Password (min 12 characters)"
                   required
                 />
                 <button
@@ -192,75 +161,6 @@ const Register = () => {
                 </button>
               </div>
             </div>
-
-            <div>
-              <label className="login-label block mb-2">Team / Module</label>
-              <div className="relative">
-                <select
-                  value={team}
-                  onChange={(e) => setTeam(e.target.value)}
-                  className="login-input w-full pl-4 pr-10 py-2.5 font-body appearance-none"
-                  required
-                >
-                  <option value="">Select team/module</option>
-                  {modules.map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-muted pointer-events-none" strokeWidth={1.5} />
-              </div>
-              <p className="erp-mono-caption text-ink-muted mt-1">
-                This list is synced to backend config ({accessCfg?.source || 'fallback'}).
-              </p>
-            </div>
-
-            <div>
-              <label className="login-label block mb-2">Role</label>
-              <div className="relative">
-                <Shield className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted w-4 h-4 z-10" strokeWidth={1.5} />
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                  className="login-input w-full pl-10 pr-10 py-2.5 font-body appearance-none"
-                  required
-                >
-                  <option value={ROLES.EXECUTIVE}>Executive (only your team module)</option>
-                  <option value={ROLES.MANAGER}>Manager (team + selected modules)</option>
-                  <option value={ROLES.ADMIN}>Admin (full access)</option>
-                  <option value={ROLES.SUPER_ADMIN}>Super Admin (Management)</option>
-                  <option value={ROLES.SUPER_ADMIN_PRO}>Super Admin Pro</option>
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-muted pointer-events-none" strokeWidth={1.5} />
-              </div>
-              <p className="erp-mono-caption text-ink-muted mt-1">
-                Note: Self-registration creates <span className="font-medium text-ink-secondary">Executive</span> accounts by default.
-                Only <span className="font-medium text-ink-secondary">rahul.ifspl@gmail.com</span> is hardcoded as <span className="font-medium text-ink-secondary">Super Admin Pro</span>.
-              </p>
-            </div>
-
-            {role === ROLES.MANAGER && (
-              <div>
-                <label className="login-label block mb-2">
-                  Additional modules (check all that apply)
-                </label>
-                <div className="border border-border rounded-card p-3 space-y-2 max-h-40 overflow-y-auto bg-surface-raised">
-                  {modules.filter((m) => m.value !== team).map((m) => (
-                    <label key={m.value} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={allowedModules.includes(m.value)}
-                        onChange={() => toggleModule(m.value)}
-                        className="rounded border-border text-accent focus:ring-accent"
-                      />
-                      <span className="text-[12.5px] text-ink font-body">{m.label}</span>
-                    </label>
-                  ))}
-                </div>
-                <p className="erp-mono-caption text-ink-muted mt-1">Your team module is always included.</p>
-              </div>
-            )}
 
             <button
               type="submit"
