@@ -510,11 +510,18 @@ function parseRestTableName(url) {
 function looksLikeMissingRelation(status, bodyText = '') {
   if (status === 404) return true
   const text = String(bodyText || '')
-  return (
+  if (
     /PGRST205/i.test(text) ||
     /could not find the table/i.test(text) ||
     /relation .* does not exist/i.test(text) ||
     /schema cache/i.test(text)
+  ) {
+    return true
+  }
+  // Custom schema not in API "Exposed schemas" (projects, billing, …) — 403 PGRST106.
+  return (
+    (status === 403 || status === 406) &&
+    (/PGRST106/i.test(text) || /schema must be one of/i.test(text) || /invalid schema/i.test(text))
   )
 }
 
