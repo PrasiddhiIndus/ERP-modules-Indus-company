@@ -844,7 +844,6 @@ export function EmployeeAttendanceDailyPage() {
         });
         if (!plClSlCheck.ok) {
           toast.error(plClSlCheck.message);
-          return;
         }
 
         if (hasLeaveAnnualLimit(value)) {
@@ -1364,9 +1363,7 @@ export function EmployeeAttendanceDailyPage() {
 
       const plClSlBulkFailures = validatePlClSlMarksForUpserts(yearRegisterRows, upserts);
       if (plClSlBulkFailures.length) {
-        const hit = plClSlBulkFailures[0];
-        toast.error(hit.message);
-        return;
+        toast.error(plClSlBulkFailures[0].message);
       }
 
       setManualMarks(next);
@@ -1592,7 +1589,23 @@ export function EmployeeAttendanceDailyPage() {
                 readOnly={leavingLocked}
                 purplePresent={purplePresent}
                 hoverTitle={cellHoverTitle}
-                onChange={(next) => handleMarkChange(row.empCode, day, next)}
+                onChange={(next) => {
+                  let keepPickerOpen = false;
+                  if (next && monthMeta?.monthKey) {
+                    const registerDate = registerDateFromDay(monthMeta.monthKey, day);
+                    const empYearRows = yearRegisterRows.filter(
+                      (r) =>
+                        normalizeAttendanceEmpCode(r.employee_code) ===
+                        normalizeAttendanceEmpCode(row.empCode)
+                    );
+                    const plClSlCheck = validatePlClSlConsecutiveMark(empYearRows, registerDate, next, {
+                      employeeCode: row.empCode,
+                    });
+                    keepPickerOpen = !plClSlCheck.ok;
+                  }
+                  void handleMarkChange(row.empCode, day, next);
+                  return keepPickerOpen ? false : undefined;
+                }}
               />
               {hasComment ? (
                 <span
@@ -1637,6 +1650,7 @@ export function EmployeeAttendanceDailyPage() {
     registerSortableHeader,
     summaryColumnDefs,
     yearLeaveUsageByEmp,
+    yearRegisterRows,
   ]);
 
   const dayDrawerRows = useMemo(() => {
