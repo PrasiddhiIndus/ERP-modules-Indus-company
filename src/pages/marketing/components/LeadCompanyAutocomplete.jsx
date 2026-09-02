@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Building2 } from 'lucide-react';
+import { Building2, X } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { fetchAllLeadCompanies, rankLeadCompanies } from '../lib/clientContacts';
 
@@ -96,12 +96,27 @@ export default function LeadCompanyAutocomplete({
           }}
           onBlur={scheduleClose}
           placeholder={placeholder}
-          className={`w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 focus:ring-2 focus:ring-purple-500 focus:border-transparent ${inputClassName}`}
+          className={`w-full rounded-lg border border-gray-300 py-2 pl-9 ${value ? 'pr-9' : 'pr-3'} focus:ring-2 focus:ring-purple-500 focus:border-transparent ${inputClassName}`}
           aria-autocomplete="list"
           aria-expanded={open}
           aria-controls={`${id}-listbox`}
           required
         />
+        {value ? (
+          <button
+            type="button"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+            aria-label="Clear client name"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              cancelClose();
+              onChange('');
+              setOpen(true);
+            }}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
       {open && !disabled ? (
         <ul

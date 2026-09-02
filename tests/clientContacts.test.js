@@ -7,6 +7,8 @@ import {
   leadToClientForm,
   fetchAllLeadCompanies,
   rankLeadCompanies,
+  clientFormAfterNameEdit,
+  emptyClientForm,
 } from '../src/pages/marketing/lib/clientContacts';
 
 describe('clientContacts', () => {
@@ -115,5 +117,31 @@ describe('clientContacts', () => {
     expect(ranked).toContain('Tata Chemicals');
     expect(ranked).toContain('Ultratech Cement');
     expect(ranked.indexOf('Cadila Healthcare')).toBeLessThan(ranked.indexOf('Tata Chemicals'));
+  });
+
+  it('clears fetched lead fields when the client name is removed, and keeps a typed name', () => {
+    const filled = leadToClientForm({
+      company: 'Cipla Ltd',
+      project: 'Plant expansion',
+      district: 'Mumbai',
+      project_state: 'Maharashtra',
+      telephone: '022111',
+      email: 'a@cipla.example',
+      contact_person: 'Anita',
+    });
+    const cleared = clientFormAfterNameEdit(filled, '', true);
+    expect(cleared).toEqual(emptyClientForm());
+    const renamed = clientFormAfterNameEdit(filled, 'New Manual Client', true);
+    expect(renamed.client_name).toBe('New Manual Client');
+    expect(renamed.industry).toBe('');
+    expect(renamed.city).toBe('');
+    expect(renamed.contact_persons).toEqual(emptyClientForm().contact_persons);
+    const typedOnly = clientFormAfterNameEdit(
+      { ...emptyClientForm(), city: 'Pune' },
+      'Hand typed Ltd',
+      false
+    );
+    expect(typedOnly.client_name).toBe('Hand typed Ltd');
+    expect(typedOnly.city).toBe('Pune');
   });
 });
