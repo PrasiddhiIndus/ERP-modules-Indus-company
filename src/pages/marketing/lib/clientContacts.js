@@ -16,6 +16,15 @@ export function emptyClientForm() {
   };
 }
 
+/** After a lead fill, changing or clearing the name drops fetched fields. Manual typing only updates the name. */
+export function clientFormAfterNameEdit(prev, nextName, fetchedFromLead) {
+  const typed = String(nextName ?? '');
+  if (!fetchedFromLead) {
+    return { ...(prev || emptyClientForm()), client_name: typed };
+  }
+  return { ...emptyClientForm(), client_name: typed };
+}
+
 function text(value) {
   return String(value ?? '').trim();
 }

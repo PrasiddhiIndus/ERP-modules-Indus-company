@@ -13,6 +13,7 @@ import {
   formatPersonsSummary,
   parseStringList,
   leadToClientForm,
+  clientFormAfterNameEdit,
 } from './lib/clientContacts';
 
 const ClientMaster = () => {
@@ -211,6 +212,12 @@ const ClientMaster = () => {
     if (!lead) return;
     setSourceLead({ id: lead.id, company: lead.company || '' });
     setFormData(leadToClientForm(lead));
+  };
+
+  const handleNewClientNameChange = (next) => {
+    const hadLead = Boolean(sourceLead);
+    if (hadLead) setSourceLead(null);
+    setFormData((prev) => clientFormAfterNameEdit(prev, next, hadLead));
   };
 
   const handleDelete = async (id) => {
@@ -462,18 +469,18 @@ const ClientMaster = () => {
                   ) : (
                     <LeadCompanyAutocomplete
                       value={formData.client_name}
-                      onChange={(next) => setFormData((prev) => ({ ...prev, client_name: next }))}
+                      onChange={handleNewClientNameChange}
                       onSelectLead={applyLead}
-                      placeholder="Click to see all Lead Master companies…"
+                      placeholder="Type a name or pick a company from Lead Master…"
                     />
                   )}
                   {!editingClient && sourceLead ? (
                     <p className="mt-1.5 text-xs text-purple-700">
-                      Filled from Lead Master. Saving this client will remove that lead.
+                      Filled from Lead Master. Clear the name to remove these details, or save to move this lead to Client Master.
                     </p>
                   ) : !editingClient ? (
                     <p className="mt-1.5 text-xs text-gray-500">
-                      Click the name field to see every company from Lead Master. Pick one to fill the form.
+                      Pick a lead to fill the form, or type a new client name and enter the details yourself.
                     </p>
                   ) : null}
                 </div>
