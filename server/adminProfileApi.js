@@ -225,6 +225,93 @@ function normalizeEmployeeCode(raw) {
   return s || null;
 }
 
+function normalizeEmail(raw) {
+  return String(raw ?? '').trim().toLowerCase();
+}
+
+async function findProfileIdByEmail(db, email) {
+  const target = normalizeEmail(email);
+  if (!target) return { id: null, error: null };
+  const res = await fetch(
+    `${db.base}/rest/v1/profiles?email=eq.${encodeURIComponent(target)}&select=id&limit=1`,
+    { headers: serviceRestHeaders(db) }
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    let msg = text || `HTTP ${res.status}`;
+    try {
+      const body = JSON.parse(text);
+      msg = body?.message || body?.error || msg;
+    } catch {
+      /* use raw text */
+    }
+    return { id: null, error: { message: String(msg), status: res.status } };
+  }
+  const rows = text ? JSON.parse(text) : [];
+  const row = Array.isArray(rows) ? rows[0] : rows;
+  return { id: row?.id ?? null, error: null };
+}
+
+/** Updates auth.users.email + profiles.email (login identity). */
+async function applyEmailChange(db, userId, emailRaw) {
+  if (emailRaw === undefined) return { changed: false, email: null, error: null };
+  const newEmail = normalizeEmail(emailRaw);
+  if (!newEmail || !newEmail.includes('@')) {
+    return { changed: false, email: null, error: { message: 'Valid email is required', status: 400 } };
+  }
+
+  const { data: current } = await readProfileViaRest(db, userId, 'email');
+  const currentEmail = normalizeEmail(current?.email);
+  if (currentEmail === newEmail) return { changed: false, email: newEmail, error: null };
+
+  const { id: existingId, error: findErr } = await findProfileIdByEmail(db, newEmail);
+  if (findErr) {
+    return {
+      changed: false,
+      email: null,
+      error: { message: findErr.message || 'Could not verify email availability', status: 500 },
+    };
+  }
+  if (existingId && existingId !== userId) {
+    return {
+      changed: false,
+      email: null,
+      error: { message: 'This email is already registered to another user.', status: 409 },
+    };
+  }
+
+  const { error: authErr } = await db.client.auth.admin.updateUserById(userId, {
+    email: newEmail,
+    email_confirm: true,
+  });
+  if (authErr) {
+    const msg = String(authErr.message || 'Could not update login email');
+    const status =
+      msg.toLowerCase().includes('already') || msg.toLowerCase().includes('registered') ? 409 : 400;
+    return { changed: false, email: null, error: { message: msg, status } };
+  }
+
+  const { data: patched, error: profileErr } = await patchProfileViaRest(db, userId, { email: newEmail });
+  if (profileErr || !patched?.id) {
+    logStep('profiles email patch failed after auth email update', {
+      userId,
+      message: profileErr?.message,
+    });
+    return {
+      changed: true,
+      email: newEmail,
+      error: {
+        message:
+          profileErr?.message ||
+          'Login email was updated but the profile row could not be synced. Contact support.',
+        status: 500,
+      },
+    };
+  }
+
+  return { changed: true, email: newEmail, error: null };
+}
+
 async function readCallerRole(db, callerId) {
   const { data: row, error } = await readProfileViaRest(db, callerId, 'role');
   if (!error && row?.role) return String(row.role).trim();
@@ -307,6 +394,13 @@ export async function adminUpdateProfile(body, jwt, supabaseUrl, serviceRoleKey,
   const id = String(body?.id || '').trim();
   if (!id) {
     const err = new Error('id is required');
+    err.status = 400;
+    throw err;
+  }
+
+  const emailToApply = body.email !== undefined ? normalizeEmail(body.email) : undefined;
+  if (emailToApply !== undefined && (!emailToApply || !emailToApply.includes('@'))) {
+    const err = new Error('Valid email is required');
     err.status = 400;
     throw err;
   }
@@ -420,6 +514,21 @@ export async function adminUpdateProfile(body, jwt, supabaseUrl, serviceRoleKey,
     } catch (metaErr) {
       logStep('auth metadata sync threw (non-fatal)', { id, message: metaErr?.message });
     }
+
+    if (emailToApply !== undefined) {
+      const emailResult = await applyEmailChange(db, id, emailToApply);
+      if (emailResult.error) {
+        const err = new Error(emailResult.error.message);
+        err.status = emailResult.error.status || 500;
+        throw err;
+      }
+    }
+
+    const { data: freshProfile, error: readErr } = await readProfileViaRest(db, id);
+    if (!readErr && freshProfile?.id) {
+      profile = freshProfile;
+    }
+
     return { ok: true, profile, version: 'server-api-5' };
   }
 

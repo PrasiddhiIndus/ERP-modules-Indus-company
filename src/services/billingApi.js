@@ -175,11 +175,13 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
     billingFrequency:
       raw.billing_frequency === 'monthly' || raw.billing_frequency === 'quarterly'
         ? raw.billing_frequency
-        : Number(raw.billing_cycle) >= 75
-          ? 'quarterly'
-          : Number(raw.billing_cycle) > 0
-            ? 'monthly'
-            : c.billingFrequency ?? null,
+        : normalizePoVerticalFromDb(raw.vertical) === 'M&M' && raw.billing_frequency
+          ? String(raw.billing_frequency).trim().toLowerCase()
+          : Number(raw.billing_cycle) >= 75
+            ? 'quarterly'
+            : Number(raw.billing_cycle) > 0
+              ? 'monthly'
+              : c.billingFrequency ?? null,
     remarks: raw.remarks ?? null,
     paymentTerms:
       inferredTerms ??
@@ -718,14 +720,33 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
   const billingFrequencyRaw = String(po.billingFrequency ?? po.billing_frequency ?? '')
     .trim()
     .toLowerCase();
+  const verticalPersisted = normalizePoVerticalForPersist(po.vertical);
+  const isMmVertical = verticalPersisted === 'M&M';
+  const mmKnownBillingFrequencies = new Set([
+    'monthly',
+    'quarterly',
+    'one_time',
+    'half_yearly',
+    'annually',
+  ]);
   const billingFrequencyVal =
     billingFrequencyRaw === 'monthly' || billingFrequencyRaw === 'quarterly'
       ? billingFrequencyRaw
-      : null;
+      : isMmVertical && billingFrequencyRaw
+        ? mmKnownBillingFrequencies.has(billingFrequencyRaw)
+          ? billingFrequencyRaw
+          : billingFrequencyRaw.slice(0, 100)
+        : null;
   // Persist day count when frequency is set (AMC/RM previously forced null and broke quarterly detection).
   const billingCycleVal = (() => {
     if (billingFrequencyVal === 'quarterly') return 90;
     if (billingFrequencyVal === 'monthly') return 30;
+    if (isMmVertical) {
+      if (billingFrequencyVal === 'half_yearly') return 180;
+      if (billingFrequencyVal === 'annually') return 365;
+      if (billingFrequencyVal === 'one_time') return null;
+      if (billingFrequencyVal && !mmKnownBillingFrequencies.has(billingFrequencyVal)) return null;
+    }
     if (isMp && billingCycleRaw != null && billingCycleRaw !== '') {
       return Number(billingCycleRaw) || null;
     }

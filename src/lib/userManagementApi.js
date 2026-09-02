@@ -102,6 +102,12 @@ function profileMatchesPayload(profile, payload) {
     if (expected !== actual) return false;
   }
 
+  if (payload.email !== undefined) {
+    const expected = String(payload.email ?? "").trim().toLowerCase();
+    const actual = String(profile.email ?? "").trim().toLowerCase();
+    if (expected !== actual) return false;
+  }
+
   if (modulesListSignature(profile.allowed_modules) !== modulesListSignature(payload.allowed_modules)) {
     return false;
   }
@@ -134,6 +140,7 @@ export async function persistUserProfile(
     allowed_sub_modules,
     employee_code,
     username,
+    email,
     includeEmployeeCode = true,
     is_active,
   }
@@ -155,6 +162,7 @@ export async function persistUserProfile(
           : undefined,
     includeEmployeeCode,
     ...(typeof is_active === "boolean" ? { is_active } : {}),
+    ...(email !== undefined ? { email: String(email ?? "").trim().toLowerCase() } : {}),
   };
 
 
@@ -187,6 +195,10 @@ export async function persistUserProfile(
 
   if (typeof payload.is_active === "boolean") {
     body.is_active = payload.is_active;
+  }
+
+  if (payload.email !== undefined) {
+    body.email = payload.email;
   }
 
 
@@ -244,10 +256,12 @@ export async function persistUserProfile(
   const localStatus = error?.status;
   const tryEdge =
     error &&
+    localStatus !== 403 &&
+    localStatus !== 409 &&
+    localStatus !== 500 &&
     (!localStatus ||
       localStatus === 401 ||
       localStatus === 404 ||
-      localStatus >= 500 ||
       String(error.message || "").includes("Failed to fetch"));
 
   if (tryEdge) {
@@ -275,6 +289,9 @@ export async function persistUserProfile(
     if (msg.includes("Only Super Admin")) {
       return { ok: false, message: msg };
     }
+    if (localStatus === 409 || msg.includes("already registered")) {
+      return { ok: false, message: msg };
+    }
     return { ok: false, message: msg };
   }
 
@@ -285,23 +302,20 @@ export async function persistUserProfile(
   }
 
   if (data?.ok !== true) {
-
     return {
-
       ok: false,
-
-      message:
-
-        "Profile save did not complete. Redeploy admin-update-profile: supabase functions deploy admin-update-profile",
-
+      message: data?.error
+        ? String(data.error)
+        : "Profile save did not complete. Redeploy admin-update-profile: supabase functions deploy admin-update-profile",
     };
-
   }
-
-
 
   let profile = data?.profile ?? null;
   const preferEmployeeCode = getEmployeeCodeColumnSupported() !== false;
+
+  if (profile?.id && profileMatchesPayload(profile, payload)) {
+    return { ok: true, profile };
+  }
 
   if (!profile?.id || !profileMatchesPayload(profile, payload)) {
     const { data: readBack, error: readErr } = await readSavedProfile(
