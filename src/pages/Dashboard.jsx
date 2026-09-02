@@ -5,7 +5,6 @@ import { supabase } from "../lib/supabase";
 import { fetchCommercialPOs, fetchInvoices } from "../services/billingApi";
 import { getCommercialPOs as getCommercialPOsLocal, getInvoices as getInvoicesLocal } from "../data/billingStore";
 import { fetchFinanceModuleData, invalidateFinanceCache, subscribeFinanceRefresh } from "../services/financeApi";
-import { projectsTable } from "../services/projectsApi";
 import { countPendingLeaveRequests } from "../lib/adminLeaveRequests";
 import { calcSite } from "./finance/lib/calculations";
 import {
@@ -151,15 +150,9 @@ async function loadModuleFootprint() {
   const firePendingP = safeHeadCount(
     supabase.from("tenders").select("id", { count: "exact", head: true }).eq("status", "Pending")
   );
-  const projectsP = (async () => {
-    try {
-      const { count, error } = await projectsTable("enquiries").select("id", { count: "exact", head: true });
-      if (error) return 0;
-      return typeof count === "number" ? count : 0;
-    } catch {
-      return 0;
-    }
-  })();
+  // projects.enquiries needs the `projects` API schema. This host does not expose it
+  // (HEAD /rest/v1/enquiries → 403), so do not probe from the home dashboard.
+  const projectsP = Promise.resolve(0);
   const manpowerP = (async () => {
     try {
       const { data, error } = await supabase
