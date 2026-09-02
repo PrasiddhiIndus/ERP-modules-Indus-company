@@ -51,6 +51,55 @@ const PAYMENT_TERMS_OPTIONS = [
   'Advance (Custom % with PO)',
 ];
 const CUSTOM_PAYMENT_TERM = 'Advance (Custom % with PO)';
+const MM_BILLING_FREQUENCY_OPTIONS = [
+  { value: 'quarterly', label: 'Quarterly' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'one_time', label: 'One time' },
+  { value: 'half_yearly', label: 'Half yearly' },
+  { value: 'annually', label: 'Annually' },
+  { value: 'other', label: 'Other' },
+];
+const MM_BILLING_FREQUENCY_VALUES = new Set(
+  MM_BILLING_FREQUENCY_OPTIONS.map((o) => o.value).filter((v) => v !== 'other')
+);
+const CUSTOM_BILLING_FREQUENCY = 'other';
+
+function billingCycleForMmFrequency(freq) {
+  switch (freq) {
+    case 'quarterly':
+      return 90;
+    case 'monthly':
+      return 30;
+    case 'half_yearly':
+      return 180;
+    case 'annually':
+      return 365;
+    default:
+      return null;
+  }
+}
+
+function resolveMmBillingFrequencyForForm(po) {
+  const raw = String(po.billingFrequency ?? po.billing_frequency ?? '')
+    .trim()
+    .toLowerCase();
+  if (!raw) return { billingFrequency: 'monthly', customBillingFrequency: '' };
+  if (MM_BILLING_FREQUENCY_VALUES.has(raw)) {
+    return { billingFrequency: raw, customBillingFrequency: '' };
+  }
+  return {
+    billingFrequency: CUSTOM_BILLING_FREQUENCY,
+    customBillingFrequency: String(po.billingFrequency ?? po.billing_frequency ?? raw).trim(),
+  };
+}
+
+function resolveMmBillingFrequencyForSave(formData) {
+  if (formData.billingFrequency === CUSTOM_BILLING_FREQUENCY) {
+    return String(formData.customBillingFrequency || '').trim();
+  }
+  return formData.billingFrequency;
+}
+
 const PAGE_SIZE = 10;
 const DEFAULT_SAC = '';
 function poRowDomId(id) {
@@ -288,7 +337,7 @@ const INITIAL_FORM_RM = {
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
   renewalCycles: [],
   newCyclePoWoNumber: '', newCycleTotalContractValue: '',
-  startDate: '', endDate: '', billingType: 'Service', billingCycle: '30', billingFrequency: 'monthly', remarks: '',
+  startDate: '', endDate: '', billingType: 'Service', billingCycle: '30', billingFrequency: 'monthly', customBillingFrequency: '', remarks: '',
   poReceivedDate: '',
   paymentTerms: 'Immediate', customPaymentTermsPercent: '',
   monthlyDutyQtyMode: '',
@@ -635,8 +684,21 @@ const POEntry = ({
       serviceDescription: po.serviceDescription || '', startDate: po.startDate || '', endDate: po.endDate || '',
       poReceivedDate: po.poReceivedDate || '',
       billingType: po.billingType || 'Service',
-      billingCycle: String(po.billingCycle || (po.billingFrequency === 'quarterly' ? '90' : '30')),
-      billingFrequency: po.billingFrequency === 'quarterly' ? 'quarterly' : 'monthly',
+      ...(fixedVertical === 'M&M'
+        ? (() => {
+            const mmFreq = resolveMmBillingFrequencyForForm(po);
+            const cycle = billingCycleForMmFrequency(mmFreq.billingFrequency);
+            return {
+              billingFrequency: mmFreq.billingFrequency,
+              customBillingFrequency: mmFreq.customBillingFrequency,
+              billingCycle: String(po.billingCycle || cycle || ''),
+            };
+          })()
+        : {
+            billingCycle: String(po.billingCycle || (po.billingFrequency === 'quarterly' ? '90' : '30')),
+            billingFrequency: po.billingFrequency === 'quarterly' ? 'quarterly' : 'monthly',
+            customBillingFrequency: '',
+          }),
       remarks: po.remarks || po.paymentTerms || '',
       paymentTerms: po.paymentTerms || 'Immediate',
       customPaymentTermsPercent: po.customPaymentTermsPercent || '',
@@ -974,8 +1036,18 @@ const POEntry = ({
       ratePerCategory: rates.length ? rates : [{ description: 'Other', hsnSac: '', qty: 0, rate: 0, penalty: 0 }], totalContractValue: totalVal,
       sacCode: '', hsnCode: '', serviceDescription: formData.serviceDescription.trim(),
       startDate: formData.startDate || '', endDate: formData.endDate || '', poReceivedDate: formData.poReceivedDate || '', billingType: poType,
-      billingFrequency: formData.billingFrequency === 'quarterly' ? 'quarterly' : 'monthly',
-      billingCycle: formData.billingFrequency === 'quarterly' ? 90 : 30,
+      billingFrequency:
+        fixedVertical === 'M&M'
+          ? resolveMmBillingFrequencyForSave(formData)
+          : formData.billingFrequency === 'quarterly'
+            ? 'quarterly'
+            : 'monthly',
+      billingCycle:
+        fixedVertical === 'M&M'
+          ? billingCycleForMmFrequency(formData.billingFrequency)
+          : formData.billingFrequency === 'quarterly'
+            ? 90
+            : 30,
       remarks: formData.remarks.trim(),
       paymentTerms: formData.paymentTerms || 'Immediate',
       customPaymentTermsPercent:
@@ -1944,24 +2016,59 @@ const POEntry = ({
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Billing frequency
                       </label>
-                      <select
-                        value={formData.billingFrequency === 'quarterly' ? 'quarterly' : 'monthly'}
-                        onChange={(e) => {
-                          const freq = e.target.value === 'quarterly' ? 'quarterly' : 'monthly';
-                          setFormData((p) => ({
-                            ...p,
-                            billingFrequency: freq,
-                            billingCycle: freq === 'quarterly' ? '90' : '30',
-                          }));
-                        }}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                      >
-                        <option value="monthly">Monthly</option>
-                        <option value="quarterly">Quarterly (Indian FY)</option>
-                      </select>
-                      <p className="mt-1 text-[11px] text-gray-500">
-                        Used by Billing Tracker for cycle due dates. Required for AMC — do not leave as monthly if the contract bills quarterly.
-                      </p>
+                      {fixedVertical === 'M&M' ? (
+                        <>
+                          <select
+                            value={formData.billingFrequency}
+                            onChange={(e) => {
+                              const freq = e.target.value;
+                              const cycle = billingCycleForMmFrequency(freq);
+                              setFormData((p) => ({
+                                ...p,
+                                billingFrequency: freq,
+                                billingCycle: cycle != null ? String(cycle) : '',
+                                customBillingFrequency:
+                                  freq === CUSTOM_BILLING_FREQUENCY ? p.customBillingFrequency : '',
+                              }));
+                            }}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                          >
+                            {MM_BILLING_FREQUENCY_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                          {formData.billingFrequency === CUSTOM_BILLING_FREQUENCY ? (
+                            <input
+                              type="text"
+                              value={formData.customBillingFrequency}
+                              onChange={(e) => setFormData((p) => ({ ...p, customBillingFrequency: e.target.value }))}
+                              placeholder="Specify billing frequency"
+                              className="mt-2 w-full border border-gray-300 rounded-lg px-3 py-2"
+                            />
+                          ) : null}
+                        </>
+                      ) : (
+                        <>
+                          <select
+                            value={formData.billingFrequency === 'quarterly' ? 'quarterly' : 'monthly'}
+                            onChange={(e) => {
+                              const freq = e.target.value === 'quarterly' ? 'quarterly' : 'monthly';
+                              setFormData((p) => ({
+                                ...p,
+                                billingFrequency: freq,
+                                billingCycle: freq === 'quarterly' ? '90' : '30',
+                              }));
+                            }}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                          >
+                            <option value="monthly">Monthly</option>
+                            <option value="quarterly">Quarterly (Indian FY)</option>
+                          </select>
+                          <p className="mt-1 text-[11px] text-gray-500">
+                            Used by Billing Tracker for cycle due dates. Required for AMC — do not leave as monthly if the contract bills quarterly.
+                          </p>
+                        </>
+                      )}
                     </div>
                   ) : null}
                   <div>

@@ -438,6 +438,7 @@ const UserManagement = () => {
     sourcesByCode: {},
   });
   const [editForm, setEditForm] = useState({
+    email: "",
     username: "",
     employee_code: "",
     team: "",
@@ -816,6 +817,7 @@ const UserManagement = () => {
     });
     setEditId(row.id);
     const form = {
+      email: row.email ?? "",
       username: row.username ?? "",
       employee_code: row.employee_code ?? "",
       team: row.team ?? "",
@@ -975,8 +977,14 @@ const UserManagement = () => {
     try {
       const newEmpCode = String(editForm.employee_code || "").trim() || null;
       const username = String(editForm.username || "").trim() || null;
+      const email = String(editForm.email || "").trim().toLowerCase();
+      if (!email || !email.includes("@")) {
+        setError("A valid email address is required.");
+        return;
+      }
       const profilePayload = {
         id: editId,
+        email,
         username,
         team: editForm.team || null,
         role: editForm.role,
@@ -1620,6 +1628,21 @@ const UserManagement = () => {
                 <Lock className="w-4 h-4" />
                 Passwords cannot be changed here.
               </p>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email (login)</label>
+                <input
+                  type="email"
+                  value={editForm.email}
+                  onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  placeholder="user@company.com"
+                  autoComplete="off"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Updates the sign-in email in Authentication and the user profile. The user must sign in with this email after you save.
+                </p>
+              </div>
 
               {empCodeSupported !== false && (
                 <div>
