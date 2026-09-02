@@ -55,6 +55,8 @@ type RequestBody = {
   emp_code?: string | null
   /** When provided, updates profiles.is_active (omit = leave unchanged). */
   is_active?: boolean
+  /** Login email — updates auth.users + profiles.email */
+  email?: string
 }
 
 type ProfileRow = {
@@ -131,6 +133,100 @@ function normalizeEmployeeCode(raw: unknown): string | null {
   return s || null
 }
 
+function normalizeEmail(raw: unknown): string {
+  return String(raw ?? '').trim().toLowerCase()
+}
+
+async function findProfileIdByEmail(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  email: string,
+): Promise<{ id: string | null; error: ApiError | null }> {
+  const target = normalizeEmail(email)
+  if (!target) return { id: null, error: null }
+  const base = supabaseUrl.replace(/\/+$/, '')
+  const res = await fetch(
+    `${base}/rest/v1/profiles?email=eq.${encodeURIComponent(target)}&select=id&limit=1`,
+    {
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+      },
+    },
+  )
+  const text = await res.text()
+  if (!res.ok) {
+    let msg = text || `HTTP ${res.status}`
+    try {
+      const body = JSON.parse(text)
+      msg = body?.message || body?.error || msg
+    } catch {
+      /* use raw text */
+    }
+    return { id: null, error: { message: String(msg), status: res.status } }
+  }
+  const rows = text ? JSON.parse(text) : []
+  const row = Array.isArray(rows) ? rows[0] : rows
+  return { id: row?.id ?? null, error: null }
+}
+
+async function applyEmailChange(
+  db: SupabaseClient,
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  userId: string,
+  emailRaw: unknown,
+): Promise<{ error: ApiError | null }> {
+  if (emailRaw === undefined) return { error: null }
+  const newEmail = normalizeEmail(emailRaw)
+  if (!newEmail || !newEmail.includes('@')) {
+    return { error: { message: 'Valid email is required', status: 400 } }
+  }
+
+  const { data: currentRow } = await readProfileViaRest(
+    supabaseUrl,
+    serviceRoleKey,
+    userId,
+    'email',
+  )
+  const currentEmail = normalizeEmail(currentRow?.email)
+  if (currentEmail === newEmail) return { error: null }
+
+  const { id: existingId, error: findErr } = await findProfileIdByEmail(
+    supabaseUrl,
+    serviceRoleKey,
+    newEmail,
+  )
+  if (findErr) return { error: findErr }
+  if (existingId && existingId !== userId) {
+    return { error: { message: 'This email is already registered to another user.', status: 409 } }
+  }
+
+  const { error: authErr } = await db.auth.admin.updateUserById(userId, {
+    email: newEmail,
+    email_confirm: true,
+  })
+  if (authErr) {
+    const msg = authErr.message || 'Could not update login email'
+    const status =
+      msg.toLowerCase().includes('already') || msg.toLowerCase().includes('registered') ? 409 : 400
+    return { error: { message: msg, status } }
+  }
+
+  const profilePatch = await patchProfileViaRest(supabaseUrl, serviceRoleKey, userId, { email: newEmail })
+  if (profilePatch.error) {
+    return {
+      error: {
+        message:
+          profilePatch.error.message ||
+          'Login email was updated but the profile row could not be synced.',
+        status: 500,
+      },
+    }
+  }
+  return { error: null }
+}
+
 function readTargetUserId(body: RequestBody): string {
   return String(body.id ?? body.user_id ?? '').trim()
 }
@@ -169,7 +265,8 @@ function hasAtLeastOneUpdateField(body: RequestBody): boolean {
     body.allowed_modules !== undefined ||
     body.allowed_sub_modules !== undefined ||
     body.employee_code !== undefined ||
-    body.emp_code !== undefined
+    body.emp_code !== undefined ||
+    body.email !== undefined
   )
 }
 
@@ -643,6 +740,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const allowedSub = Array.isArray(body.allowed_sub_modules) ? body.allowed_sub_modules : []
     const employeeCode = readEmployeeCodeFromBody(body)
     const isActive = typeof body.is_active === 'boolean' ? body.is_active : undefined
+    const emailToApply = body.email !== undefined ? normalizeEmail(body.email) : undefined
+    if (emailToApply !== undefined && (!emailToApply || !emailToApply.includes('@'))) {
+      return jsonResponse(400, {
+        ok: false,
+        error: 'Valid email is required',
+        version: FN_VERSION,
+      })
+    }
 
     const { profile, error: saveErr } = await saveProfile(
       db,
@@ -695,11 +800,26 @@ Deno.serve(async (req: Request): Promise<Response> => {
       ...(employeeCode !== undefined ? { employee_code: employeeCode } : {}),
     })
 
+    let finalProfile = profile
+    if (emailToApply !== undefined) {
+      const emailResult = await applyEmailChange(db, supabaseUrl, serviceRoleKey, userId, emailToApply)
+      if (emailResult.error) {
+        const status = emailResult.error.status ?? 400
+        return jsonResponse(status, {
+          ok: false,
+          error: emailResult.error.message,
+          version: FN_VERSION,
+        })
+      }
+      const fresh = await readProfileViaRest(supabaseUrl, serviceRoleKey, userId)
+      if (fresh.data?.id) finalProfile = fresh.data
+    }
+
     logInfo('success', { userId, metaSyncOk: metaSync.ok })
 
     return jsonResponse(200, {
       ok: true,
-      profile,
+      profile: finalProfile,
       meta_sync: metaSync,
       version: FN_VERSION,
     })
