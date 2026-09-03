@@ -101,4 +101,14 @@ SELECT 'indus_one schema exists',
 UNION ALL
 SELECT 'projects schema exists',
   CASE WHEN EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'projects')
+    THEN 'OK' ELSE 'MISSING' END
+UNION ALL
+SELECT 'authenticated read projects.enquiries',
+  CASE WHEN to_regclass('projects.enquiries') IS NOT NULL
+        AND has_table_privilege('authenticated', 'projects.enquiries', 'SELECT')
+    THEN 'OK' ELSE 'MISSING' END
+UNION ALL
+SELECT 'authenticated read projects.enquiry_dropdown_kinds',
+  CASE WHEN to_regclass('projects.enquiry_dropdown_kinds') IS NOT NULL
+        AND has_table_privilege('authenticated', 'projects.enquiry_dropdown_kinds', 'SELECT')
     THEN 'OK' ELSE 'MISSING' END;

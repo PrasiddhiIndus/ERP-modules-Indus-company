@@ -72,6 +72,7 @@ import {
   mergeManualRowsIntoRegisterCache,
   toRegisterDbEmployeeCode,
   normalizeAttendanceEmpCode,
+  normalizeRegisterMarkForDb,
   computeDayAttendanceBreakdown,
   registerMarkStatusLabel,
 } from "../../../lib/attendanceDaily";
@@ -82,6 +83,7 @@ import {
   REGISTER_LEAVE_ANNUAL_LIMITS,
   aggregateLeaveUsageByEmployee,
   buildInsufficientLeaveBalanceMessage,
+  buildInsufficientCompOffBalanceMessage,
   collectRegisterHolidayDates,
   dispatchLeaveLimitAlertsChanged,
   findAllLeaveLimitExceeded,
@@ -94,6 +96,7 @@ import {
   validatePlClSlMarksForUpserts,
 } from "../../../lib/attendanceLeaveLimits";
 import { fetchLeaveBalancesForYear } from "../../../lib/leaveManagement";
+import { fetchCompOffAvailableBalance, formatCompOffError } from "../../../lib/compOffBalance";
 import { subscribeLeaveWorkflowRealtime } from "../../../lib/adminLeaveRequests";
 import { subscribeTourWorkflowRealtime } from "../../../lib/adminTourRequests";
 import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
@@ -846,6 +849,30 @@ export function EmployeeAttendanceDailyPage() {
           toast.error(plClSlCheck.message);
         }
 
+        if (
+          value &&
+          normalizeRegisterMarkForDb(value) === "CO" &&
+          normalizeRegisterMarkForDb(oldMark) !== "CO"
+        ) {
+          const code = normalizeAttendanceEmpCode(empCodeKey);
+          try {
+            const availableCo = await fetchCompOffAvailableBalance(supabase, code);
+            const coBalanceMsg = buildInsufficientCompOffBalanceMessage({
+              employeeName: employeeNameByCode.get(code) || employeeNameByCode.get(empCodeKey),
+              empCode: code || empCodeKey,
+              mark: value,
+              availableCo,
+            });
+            if (coBalanceMsg) {
+              toast.warning(coBalanceMsg);
+              dispatchLeaveLimitAlertsChanged();
+              return;
+            }
+          } catch (err) {
+            console.warn("[co-balance] availability check failed:", err);
+          }
+        }
+
         if (hasLeaveAnnualLimit(value)) {
           const projected = projectLeaveUsageAfterMark(
             yearRegisterRows,
@@ -962,7 +989,8 @@ export function EmployeeAttendanceDailyPage() {
         });
         dispatchLeaveLimitAlertsChanged();
       } catch (err) {
-        toast.error(formatAttendanceSupabaseError(err));
+        const coMsg = formatCompOffError(err);
+        toast.error(/insufficient c\/o/i.test(coMsg) ? coMsg : formatAttendanceSupabaseError(err));
         try {
           const registerData = await loadRegisterMarksForMonth(supabase, monthMeta, {
             masterCodeMap: masterRegisterCodeMap,

@@ -451,7 +451,12 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       setFormData((prev) => ({ ...prev, [name]: files[0] || null }));
       return;
     }
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormData((prev) => {
+      if (name === "resultAmount") {
+        return { ...prev, resultAmount: value, approxValue: value };
+      }
+      return { ...prev, [name]: value };
+    });
   };
 
   const syncAssignedToFields = (assignedToList) => {
@@ -583,8 +588,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       required.push(
         ["contractDurationValue", "Contract Duration"],
         ["workingHoursShift", "Working Hours / Shift"],
-        ["applicableStateMw", "Applicable State (for MW)"],
-        ["submissionBidDeadline", "Submission / Bid Deadline"]
+        ["applicableStateMw", "Applicable State (for MW)"]
       );
     }
 
@@ -1439,7 +1443,6 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         <div className="mt-5">
           <Field
             label="Submission / Bid Deadline"
-            required
             hint="Reminder alerts use Timeline Settings on the Commercial Dashboard."
           >
             <FormDateTimeInput

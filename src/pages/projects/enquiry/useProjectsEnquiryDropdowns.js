@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { projectsTable } from '../../../services/projectsApi';
+import { projectsErrorMsg, projectsTable } from '../../../services/projectsApi';
 
 export function useProjectsEnquiryDropdowns() {
   const [kinds, setKinds] = useState([]);
@@ -34,7 +34,7 @@ export function useProjectsEnquiryDropdowns() {
 
       setKinds(enriched);
     } catch (err) {
-      setError(err?.message || 'Failed to load dropdown options.');
+      setError(projectsErrorMsg(err, 'Load enquiry dropdowns'));
       setKinds([]);
     } finally {
       setLoading(false);

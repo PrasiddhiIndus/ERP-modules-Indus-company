@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { AlertTriangle, FileSpreadsheet, Loader2, Upload, X } from 'lucide-react';
-import { projectsTable } from '../../../services/projectsApi';
+import { projectsErrorMsg, projectsTable } from '../../../services/projectsApi';
 import {
   downloadEnquiryImportTemplate,
   parseEnquiryImportRows,
@@ -115,7 +115,7 @@ export default function EnquiryImportPanel({ databaseFields, allFields, onImport
       for (let i = 0; i < pending.payloads.length; i += BATCH_SIZE) {
         const batch = pending.payloads.slice(i, i + BATCH_SIZE).map((p) => ({ data: p.data }));
         const { error } = await projectsTable('enquiries').insert(batch);
-        if (error) { insertErrors.push(error.message); break; }
+        if (error) { insertErrors.push(projectsErrorMsg(error, 'Import enquiries')); break; }
         inserted += batch.length;
       }
       if (insertErrors.length) onError?.(insertErrors[0]);
@@ -123,7 +123,7 @@ export default function EnquiryImportPanel({ databaseFields, allFields, onImport
       setPending(null);
       if (inserted > 0) onImported?.();
     } catch (err) {
-      onError?.(err?.message || 'Import failed.');
+      onError?.(projectsErrorMsg(err, 'Import enquiries'));
     } finally {
       setConfirming(false);
     }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { projectsTable } from '../../../services/projectsApi';
+import { projectsErrorMsg, projectsTable } from '../../../services/projectsApi';
 
 export function useEnquiryFieldDefinitions() {
   const [fields, setFields] = useState([]);
@@ -21,7 +21,7 @@ export function useEnquiryFieldDefinitions() {
       if (e) throw e;
       setFields(data || []);
     } catch (err) {
-      setError(err?.message || 'Failed to load field definitions.');
+      setError(projectsErrorMsg(err, 'Load enquiry fields'));
       setFields([]);
     } finally {
       setLoading(false);

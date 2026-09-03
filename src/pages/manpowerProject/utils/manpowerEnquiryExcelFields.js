@@ -404,7 +404,10 @@ export function getExcelInquiryFields(row) {
     clientName: row?.client || "",
     location,
     descriptionOfWork: row?.manpower_required || meta.descriptionOfWork || "",
-    approxValue: row?.project_estimation ?? meta.approxValue ?? meta.estimatedValueClient ?? meta.resultAmount ?? "",
+    approxValue:
+      meta.resultAmount !== "" && meta.resultAmount != null
+        ? String(meta.resultAmount)
+        : row?.project_estimation ?? meta.approxValue ?? meta.estimatedValueClient ?? "",
     enquiryAssignedTo: (() => {
       const list = parseAssignedToList(row?.handled_by, meta);
       return list.length ? formatAssignedToList(list) : row?.handled_by || meta.enquiryAssignedTo || meta.receivedBy || "";
@@ -658,11 +661,13 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
     : {};
 
   const projectEstimation =
-    form.approxValue === "" || form.approxValue == null
-      ? form.estimatedValueClient === "" || form.estimatedValueClient == null
-        ? null
-        : String(form.estimatedValueClient)
-      : String(form.approxValue);
+    form.resultAmount !== "" && form.resultAmount != null
+      ? String(form.resultAmount)
+      : form.approxValue === "" || form.approxValue == null
+        ? form.estimatedValueClient === "" || form.estimatedValueClient == null
+          ? null
+          : String(form.estimatedValueClient)
+        : String(form.approxValue);
 
   return {
     client: String(form.clientName || "").trim(),

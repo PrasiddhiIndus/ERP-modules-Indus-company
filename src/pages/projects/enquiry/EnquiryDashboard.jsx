@@ -30,7 +30,7 @@ import {
   X,
 } from 'lucide-react';
 import { DateInput } from '../../../components/DateInput';
-import { flattenEnquiryRow, getEnquiryFieldValue, projectsTable } from '../../../services/projectsApi';
+import { flattenEnquiryRow, getEnquiryFieldValue, projectsErrorMsg, projectsTable } from '../../../services/projectsApi';
 import { formatDateDdMmYyyy, normalizeToIsoDate } from '../../../utils/dateDisplay';
 import { getRowStatusValue, STATUS_LEGEND } from './enquiryStatusStyles';
 import { useProjectsEnquiryDropdowns } from './useProjectsEnquiryDropdowns';
@@ -330,7 +330,7 @@ export default function EnquiryDashboard() {
       if (e) throw e;
       setRows(data || []);
     } catch (err) {
-      setError(err?.message || 'Failed to load enquiry data.');
+      setError(projectsErrorMsg(err, 'Load enquiries'));
     } finally {
       setLoading(false);
     }
