@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2, Plus, Tag, Trash2 } from 'lucide-react';
-import { projectsTable } from '../../../services/projectsApi';
+import { projectsErrorMsg, projectsTable } from '../../../services/projectsApi';
 import { peInput, peLabel, slugifyKindKey } from './enquiryConstants';
 import { useProjectsEnquiryDropdowns } from './useProjectsEnquiryDropdowns';
 
@@ -44,7 +44,7 @@ export default function EnquiryDropdown() {
       await fetchDropdowns();
       if (data?.id) setActiveKindId(data.id);
     } catch (err) {
-      setLocalError(err?.message || 'Could not add dropdown kind.');
+      setLocalError(projectsErrorMsg(err, 'Add dropdown kind'));
     } finally {
       setAddingKind(false);
     }
@@ -67,7 +67,7 @@ export default function EnquiryDropdown() {
       setNewValue('');
       await fetchDropdowns();
     } catch (err) {
-      setLocalError(err?.message || 'Could not add dropdown value.');
+      setLocalError(projectsErrorMsg(err, 'Add dropdown value'));
     } finally {
       setAdding(false);
     }
@@ -82,7 +82,7 @@ export default function EnquiryDropdown() {
       if (delError) throw delError;
       await fetchDropdowns();
     } catch (err) {
-      setLocalError(err?.message || 'Could not delete option.');
+      setLocalError(projectsErrorMsg(err, 'Delete option'));
     } finally {
       setDeletingId(null);
     }
@@ -103,16 +103,14 @@ export default function EnquiryDropdown() {
       await fetchDropdowns();
       setActiveKindId(null);
     } catch (err) {
-      setLocalError(err?.message || 'Could not delete kind.');
+      setLocalError(projectsErrorMsg(err, 'Delete kind'));
     }
   };
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto">
       <p className="text-sm text-slate-600 mb-4">
-        Add dropdown <strong>kinds</strong> (categories) and <strong>values</strong>. Link kinds to fields in{' '}
-        <code className="text-xs bg-slate-100 px-1 rounded">projects.enquiry_field_definitions</code> (field type
-        dropdown). Entry and Database forms load options dynamically.
+        Add dropdown <strong>kinds</strong> (categories) and <strong>values</strong>. Link kinds to enquiry form fields that use a dropdown. Entry and Database forms load options dynamically.
       </p>
 
       {(error || localError) && (

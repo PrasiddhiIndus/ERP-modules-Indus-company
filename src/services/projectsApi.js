@@ -9,6 +9,22 @@ import { normalizeToIsoDate } from '../utils/dateDisplay';
 
 export const PROJECTS_SCHEMA = 'projects';
 
+/** Clear error for Enquiry Master when schema grants or API exposure are missing. */
+export function projectsErrorMsg(error, context = 'Load') {
+  const msg = error?.message || String(error);
+  const code = error?.code;
+  if (code === 'PGRST106' || /schema must be one of|PGRST106/i.test(msg)) {
+    return `${context} failed: Projects data is not exposed. In Supabase Dashboard → Settings → API → Exposed schemas, add "projects".`;
+  }
+  if (/permission denied for (schema|table)/i.test(msg) || /42501/.test(String(code))) {
+    return `${context} failed: No access to enquiry data. Run migration 20260902140000_projects_enquiry_grants_ensure.sql, then add "projects" under Exposed schemas in API settings.`;
+  }
+  if (/relation .* does not exist/i.test(msg)) {
+    return `${context} failed: Enquiry tables are missing. Run migration 20260902140000_projects_enquiry_grants_ensure.sql and expose the projects schema in API settings.`;
+  }
+  return msg || `${context} failed.`;
+}
+
 export function projectsTable(name) {
   return supabase.schema(PROJECTS_SCHEMA).from(name);
 }

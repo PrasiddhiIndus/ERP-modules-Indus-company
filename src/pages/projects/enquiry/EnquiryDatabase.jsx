@@ -4,10 +4,19 @@ import {
   flattenEnquiryRow,
   getEnquiryFieldValue,
   packEnquiryUpdate,
+  projectsErrorMsg,
   projectsTable,
 } from '../../../services/projectsApi';
 import { formatDateDdMmYyyy, normalizeToIsoDate } from '../../../utils/dateDisplay';
-import { formatDisplayDate } from './enquiryConstants';
+import EnquiryExportModal from './EnquiryExportModal';
+import {
+  displayTableCellValue,
+  exportEnquiryDatabaseCsv,
+  getEnquiryTableWidth,
+  getTableColumnLayout,
+  isCompactTableColumn,
+  isTableColumnLeftAligned,
+} from './enquiryDatabaseExport';
 import EnquiryImportPanel from './EnquiryImportPanel';
 import { getRowStatusValue, getStatusBg, STATUS_LEGEND } from './enquiryStatusStyles';
 import { useEnquiryFieldDefinitions } from './useEnquiryFieldDefinitions';
@@ -16,12 +25,6 @@ import EnquiryFieldInput from './EnquiryFieldInput';
 
 const inputCls =
   'w-full min-h-[42px] py-2.5 px-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500';
-
-function displayCellValue(field, row) {
-  const v = getEnquiryFieldValue(row, field.field_key);
-  if (field.field_type === 'date') return formatDisplayDate(v);
-  return v == null || v === '' ? '—' : v;
-}
 
 function SortIndicator({ fieldKey, sortConfig }) {
   const active = sortConfig.key === fieldKey;
@@ -45,6 +48,7 @@ export default function EnquiryDatabase() {
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const editableFields = useMemo(() => databaseFields.filter((f) => !f.read_only), [databaseFields]);
 
@@ -58,7 +62,7 @@ export default function EnquiryDatabase() {
       if (e) throw e;
       setRows(data || []);
     } catch (err) {
-      setError(err?.message || 'Failed to load enquiries.');
+      setError(projectsErrorMsg(err, 'Load enquiries'));
     } finally {
       setLoading(false);
     }
@@ -141,7 +145,7 @@ export default function EnquiryDatabase() {
       await fetchRows();
       cancelEdit();
     } catch (err) {
-      setError(err?.message || 'Could not update enquiry.');
+      setError(projectsErrorMsg(err, 'Update enquiry'));
     } finally {
       setSaving(false);
     }
@@ -154,29 +158,17 @@ export default function EnquiryDatabase() {
       if (e) throw e;
       await fetchRows();
     } catch (err) {
-      setError(err?.message || 'Could not delete enquiry.');
+      setError(projectsErrorMsg(err, 'Delete enquiry'));
     }
   };
 
-  const exportCsv = () => {
-    const headers = databaseFields.map((f) => f.label);
-    const lines = [headers.join(',')];
-    for (const row of sortedFiltered) {
-      const cells = databaseFields.map((col) => {
-        let v = getEnquiryFieldValue(row, col.field_key);
-        if (col.field_type === 'date') v = formatDisplayDate(v);
-        const s = v == null ? '' : String(v).replace(/"/g, '""');
-        return `"${s}"`;
-      });
-      lines.push(cells.join(','));
-    }
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `projects-enquiry-database-${formatDateDdMmYyyy(new Date())}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleExport = (selectedKeys) => {
+    exportEnquiryDatabaseCsv(
+      sortedFiltered,
+      databaseFields,
+      selectedKeys,
+      `projects-enquiry-database-${formatDateDdMmYyyy(new Date()).replace(/\//g, '-')}.csv`
+    );
   };
 
   const tableLoading = loading || fieldsLoading;
@@ -275,7 +267,7 @@ export default function EnquiryDatabase() {
           </button>
           <button
             type="button"
-            onClick={exportCsv}
+            onClick={() => setExportOpen(true)}
             disabled={!sortedFiltered.length || !databaseFields.length}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
           >
@@ -284,6 +276,13 @@ export default function EnquiryDatabase() {
           </button>
         </div>
       </div>
+
+      <EnquiryExportModal
+        open={exportOpen}
+        databaseFields={databaseFields}
+        onClose={() => setExportOpen(false)}
+        onExport={handleExport}
+      />
 
       {/* Edit panel */}
       {editingId && editDraft && (
@@ -341,28 +340,51 @@ export default function EnquiryDatabase() {
               <div className="p-12 text-center text-gray-500 text-sm">No enquiry records found.</div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-0 text-xs border-collapse">
+                <table
+                  className="text-xs border-collapse"
+                  style={{ tableLayout: 'fixed', width: getEnquiryTableWidth(databaseFields) }}
+                >
                   <thead>
                     <tr>
-                      <th className="px-2 py-2.5 text-center font-bold text-black border-b border-gray-200 bg-info-soft whitespace-nowrap w-11">
+                      <th
+                        style={{ width: 44, minWidth: 44, maxWidth: 44 }}
+                        className="font-bold text-black border-b border-gray-200 bg-info-soft whitespace-normal leading-[1.15] break-words text-center px-1 py-2 align-middle"
+                      >
                         S.No
                       </th>
-                      {databaseFields.map((col) => (
-                        <th
-                          key={col.id}
-                          className="px-2 py-2.5 text-center font-bold text-black border-b border-gray-200 bg-info-soft whitespace-nowrap"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => toggleSort(col.field_key)}
-                            className="inline-flex items-center font-bold text-black text-xs"
+                      {databaseFields.map((col) => {
+                        const layout = getTableColumnLayout(col);
+                        return (
+                          <th
+                            key={col.id}
+                            style={layout.style}
+                            className={`font-bold text-black border-b border-gray-200 bg-info-soft ${layout.headerClass} ${
+                              isTableColumnLeftAligned(col) && !layout.compact && !layout.wrapContent
+                                ? 'text-left'
+                                : 'text-center'
+                            }`}
                           >
-                            {col.label}
-                            <SortIndicator fieldKey={col.field_key} sortConfig={sortConfig} />
-                          </button>
-                        </th>
-                      ))}
-                      <th className="px-2 py-2.5 text-center font-bold text-black border-b border-gray-200 bg-info-soft whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => toggleSort(col.field_key)}
+                              className={`w-full font-bold text-black text-[11px] leading-[1.15] ${
+                                layout.compact || layout.wrapContent
+                                  ? 'flex flex-col items-center gap-0.5 whitespace-normal break-words text-center'
+                                  : `inline-flex items-center gap-0.5 whitespace-nowrap ${
+                                      isTableColumnLeftAligned(col) ? '' : 'mx-auto'
+                                    }`
+                              }`}
+                            >
+                              <span>{col.label}</span>
+                              <SortIndicator fieldKey={col.field_key} sortConfig={sortConfig} />
+                            </button>
+                          </th>
+                        );
+                      })}
+                      <th
+                        style={{ width: 68, minWidth: 68, maxWidth: 68 }}
+                        className="font-bold text-black border-b border-gray-200 bg-info-soft whitespace-normal leading-[1.15] break-words text-center px-1 py-2 align-middle"
+                      >
                         Actions
                       </th>
                     </tr>
@@ -377,38 +399,58 @@ export default function EnquiryDatabase() {
                           className="border-b border-black/5 transition-colors"
                         >
                           <td
-                            className="px-2 py-2 text-center align-top text-gray-600 tabular-nums border-r border-black/5"
-                            style={{ backgroundColor: 'inherit' }}
+                            className="py-2 text-center align-top text-gray-600 tabular-nums border-r border-black/5 whitespace-nowrap px-1"
+                            style={{ backgroundColor: bg, width: 44 }}
                           >
                             {idx + 1}
                           </td>
-                          {databaseFields.map((col) => (
-                            <td
-                              key={col.id}
-                              className="px-2 py-2 text-center align-top text-gray-800 border-r border-black/5 last:border-r-0"
-                              style={{ backgroundColor: 'inherit' }}
-                            >
-                              {col.field_type === 'textarea' ? (
-                                <span
-                                  className="line-clamp-2 max-w-[200px] text-left block"
-                                  title={String(getEnquiryFieldValue(row, col.field_key) || '')}
-                                >
-                                  {displayCellValue(col, row)}
-                                </span>
-                              ) : (
-                                displayCellValue(col, row)
-                              )}
-                            </td>
-                          ))}
+                          {databaseFields.map((col) => {
+                            const left = isTableColumnLeftAligned(col);
+                            const layout = getTableColumnLayout(col);
+                            const value = displayTableCellValue(col, row);
+                            const compact = isCompactTableColumn(col);
+                            const wrapContent = layout.wrapContent;
+                            return (
+                              <td
+                                key={col.id}
+                                style={{ ...layout.style, backgroundColor: bg }}
+                                className={`py-2 align-top text-gray-800 border-r border-black/5 ${layout.cellClass} ${
+                                  (left && !compact) || wrapContent ? 'text-left' : 'text-center'
+                                }`}
+                              >
+                                {col.field_type === 'textarea' ? (
+                                  <span
+                                    className="line-clamp-3 block whitespace-normal break-words"
+                                    title={String(getEnquiryFieldValue(row, col.field_key) || '')}
+                                  >
+                                    {value}
+                                  </span>
+                                ) : wrapContent ? (
+                                  <span className="block break-all whitespace-normal">{value}</span>
+                                ) : (
+                                  <span
+                                    className={`block ${
+                                      compact || col.field_type === 'date' || col.field_key === 'serial_number'
+                                        ? 'truncate whitespace-nowrap'
+                                        : 'whitespace-normal break-words'
+                                    }`}
+                                    title={String(getEnquiryFieldValue(row, col.field_key) || '')}
+                                  >
+                                    {value}
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          })}
                           <td
-                            className="px-2 py-2 whitespace-nowrap text-center border-l border-black/5"
-                            style={{ backgroundColor: 'inherit' }}
+                            className="py-2 whitespace-nowrap text-center border-l border-black/5 px-1"
+                            style={{ backgroundColor: bg, width: 68 }}
                           >
-                            <div className="inline-flex gap-1">
+                            <div className="inline-flex gap-0.5">
                               <button
                                 type="button"
                                 onClick={() => startEdit(row)}
-                                className="p-1.5 rounded text-blue-700 hover:bg-blue-100"
+                                className="p-1 rounded text-blue-700 hover:bg-blue-100"
                                 title="Edit"
                               >
                                 <Pencil className="h-3.5 w-3.5" />
@@ -416,7 +458,7 @@ export default function EnquiryDatabase() {
                               <button
                                 type="button"
                                 onClick={() => deleteRow(row.id)}
-                                className="p-1.5 rounded text-rose-700 hover:bg-rose-100"
+                                className="p-1 rounded text-rose-700 hover:bg-rose-100"
                                 title="Delete"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />

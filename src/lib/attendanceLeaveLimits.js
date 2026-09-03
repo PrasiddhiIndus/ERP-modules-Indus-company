@@ -422,6 +422,28 @@ export function buildInsufficientLeaveBalanceMessage({
   return `${who} is not having ${leaveType} leave balance (or any other leave balance). Kindly use LWP.`;
 }
 
+/**
+ * Block CO mark when C/O credit ledger has insufficient available balance.
+ * @param {number} availableCo - from get_comp_off_available_balance RPC
+ * @returns {string|null}
+ */
+export function buildInsufficientCompOffBalanceMessage({
+  employeeName,
+  empCode,
+  mark,
+  availableCo,
+} = {}) {
+  const m = normalizeRegisterMarkForDb(mark);
+  if (m !== "CO") return null;
+  const available = Number(availableCo);
+  if (Number.isFinite(available) && available >= 1) return null;
+  const who = employeeName
+    ? `${employeeName}${empCode ? ` (${empCode})` : ""}`
+    : empCode || "This employee";
+  const availText = Number.isFinite(available) ? formatBalanceDays(available) : "0";
+  return `${who} has insufficient C/O balance (${availText} available). C/O is earned by working on Week Off, NH, or PH.`;
+}
+
 export function indexLeaveBalancesByEmployeeCode(rows) {
   const byCode = {};
   for (const row of rows || []) {

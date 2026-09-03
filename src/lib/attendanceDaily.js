@@ -4035,6 +4035,12 @@ export function formatAttendanceSupabaseError(err) {
     /violates foreign key/i.test(msg) ||
     /employee_code_fkey/i.test(msg)
   ) {
+    if (/comp_off_deductions_register_id|register_id_fkey|comp_off/i.test(msg + details)) {
+      return (
+        "Could not update C/O balance when clearing this mark. Apply migration " +
+        "20260903100000_comp_off_restore_and_remaining.sql, then try again."
+      );
+    }
     return (
       "This employee code is not on Employee Master (or employee_code is empty there). " +
       "Open Employee Master, set employee_code to the same value as eTimeOffice / raw attendance (e.g. 9750), then save the mark again."
