@@ -226,7 +226,7 @@ export function RegisterMarkPicker({
   };
 
   const pick = (next) => {
-    onChange(next);
+    if (onChange(next) === false) return;
     close();
   };
 

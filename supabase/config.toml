@@ -1,4 +1,7 @@
 # Gateway JWT verification can fail for ES256 signing keys; validate inside the function instead.
+[api]
+schemas = ["public", "graphql_public", "billing", "finance", "indus_one", "projects"]
+
 [functions.login-check]
 verify_jwt = false
 

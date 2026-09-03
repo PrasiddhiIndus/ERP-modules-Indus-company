@@ -14,6 +14,7 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { fetchActiveEmployees, normalizeAttendanceEmpCode } from "../../../lib/attendanceDaily";
 import { downloadLeaveBalanceSampleSheet, ledgerDisplayRowToEditForm } from "../../../lib/leaveLedgerExcel";
 import { LeaveBalanceImportModal } from "./LeaveBalanceImportModal";
+import EmployeeCoBalanceTab from "./EmployeeCoBalanceTab";
 import { canEditLeaveBalances } from "./leaveBalanceAccess";
 import {
   DEFAULT_ANNUAL_ENTITLEMENTS,
@@ -37,6 +38,7 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 const LEAVE_TABS = [
   { id: "overview", label: "Overview & Rules" },
   { id: "ledger", label: "Yearly Balance Ledger" },
+  { id: "coff", label: "C/O Balances" },
   { id: "encash", label: "PL Encashment Preferences" },
 ];
 
@@ -1065,6 +1067,16 @@ export function EmployeeLeaveManagementPage() {
               />
             </div>
           </SectionCard>
+        )}
+
+        {activeTab === "coff" && (
+          <EmployeeCoBalanceTab
+            employees={employees}
+            year={year}
+            onYearChange={setYear}
+            loadingEmployees={loading}
+            canEditBalances={canEditBalances}
+          />
         )}
 
         {activeTab === "encash" && (

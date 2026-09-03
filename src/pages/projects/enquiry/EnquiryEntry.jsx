@@ -4,6 +4,7 @@ import {
   applyEnquiryDefaults,
   buildEmptyFormFromFields,
   buildEnquiryDataPayload,
+  projectsErrorMsg,
   projectsTable,
 } from '../../../services/projectsApi';
 import { peLabel, SECTION_LABELS, todayIsoDate } from './enquiryConstants';
@@ -76,10 +77,16 @@ export default function EnquiryEntry() {
       setMessage({ type: 'success', text: 'Enquiry saved successfully.' });
       handleClear();
     } catch (err) {
-      setMessage({ type: 'error', text: err?.message || 'Could not save enquiry.' });
+      setMessage({ type: 'error', text: projectsErrorMsg(err, 'Save enquiry') });
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleFormKeyDown = (e) => {
+    if (e.key !== 'Enter') return;
+    if (e.target.tagName === 'TEXTAREA') return;
+    e.preventDefault();
   };
 
   const loading = fieldsLoading || dropdownLoading;
@@ -108,10 +115,6 @@ export default function EnquiryEntry() {
       {configError && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           {configError}
-          <span className="block text-xs mt-1 text-amber-800">
-            Run migration <code className="text-[11px]">20260527120000_projects_enquiry_master.sql</code> and expose the{' '}
-            <strong>projects</strong> schema in Supabase API settings.
-          </span>
         </div>
       )}
 
@@ -120,12 +123,14 @@ export default function EnquiryEntry() {
           <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="space-y-6">
           <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-white flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">Enquiry Entry</h2>
-                <p className="text-sm text-slate-500 mt-0.5">Fields loaded from projects.enquiry_field_definitions</p>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Use <strong>Input New Enquiry Data</strong> to save — Enter in a field will not register the enquiry.
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button

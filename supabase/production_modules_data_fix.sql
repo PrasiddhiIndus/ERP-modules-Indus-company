@@ -5,7 +5,7 @@
 --   Marketing, Commercial, Admin, Fire Tender, Finance/P&L, etc.
 --
 -- ALSO in Supabase Dashboard → Settings → API → Exposed schemas, enable:
---   public, billing, finance, indus_one
+--   public, billing, finance, indus_one, projects
 -- =============================================================================
 
 -- ── 1) Schema usage + table grants ───────────────────────────────────────────
@@ -27,6 +27,11 @@ CREATE SCHEMA IF NOT EXISTS indus_one;
 GRANT USAGE ON SCHEMA indus_one TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA indus_one TO authenticated;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA indus_one TO authenticated;
+
+CREATE SCHEMA IF NOT EXISTS projects;
+GRANT USAGE ON SCHEMA projects TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA projects TO authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA projects TO authenticated;
 
 -- Re-apply billing access helper: run manually in SQL Editor if Commercial PO is empty:
 --   supabase/migrations/20260624120000_billing_schema_grants_ensure.sql

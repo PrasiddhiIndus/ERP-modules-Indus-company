@@ -196,3 +196,10 @@ from (
 ) as f(field_key, label, field_type, section, show_in_entry, show_in_database, read_only, required, sort_order, entry_hint, default_value, kind_key)
 left join projects.enquiry_dropdown_kinds dk on dk.kind_key = f.kind_key
 on conflict (field_key) do nothing;
+
+-- Privileges must be granted AFTER tables exist. The GRANT ALL at the top of
+-- this file ran on an empty schema, so authenticated never received table rights
+-- ("permission denied for table enquiries").
+grant usage on schema projects to postgres, anon, authenticated, service_role;
+grant select, insert, update, delete on all tables in schema projects to authenticated, service_role;
+grant usage, select on all sequences in schema projects to authenticated, service_role;
