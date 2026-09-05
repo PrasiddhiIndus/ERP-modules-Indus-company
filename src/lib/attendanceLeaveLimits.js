@@ -8,6 +8,7 @@ import {
   normalizeRegisterMarkForDb,
   registerPresentDayCredit,
 } from "./attendanceDaily";
+import { availableLeaveWithProbationAccrual } from "./leaveManagement";
 
 export { registerPresentDayCredit, isRegisterEffectivePresentMark } from "./attendanceDaily";
 
@@ -376,6 +377,9 @@ function unusedLeaveBalance(balanceRow, leaveType) {
   const field = LEAVE_BALANCE_UNUSED_FIELDS[leaveType];
   if (!field) return null;
   if (!balanceRow) return 0;
+  if (leaveType === "CL" || leaveType === "SL") {
+    return availableLeaveWithProbationAccrual(balanceRow, leaveType);
+  }
   const n = Number(balanceRow[field]);
   return Number.isFinite(n) ? n : 0;
 }

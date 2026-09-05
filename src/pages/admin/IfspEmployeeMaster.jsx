@@ -1278,6 +1278,16 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           }
           throw error;
         }
+        try {
+          const { syncEmployeeHierarchyToIndusOne } = await import('../../lib/employeeHierarchySync');
+          await syncEmployeeHierarchyToIndusOne(supabase, {
+            employeeCode: formData.employee_code,
+            l1ManagerCode: hierarchyCheck.fields.l1_manager_code,
+            l2ManagerCode: hierarchyCheck.fields.l2_manager_code,
+          });
+        } catch (syncErr) {
+          console.warn('[hierarchy-sync] Indus One sync after employee update:', syncErr?.message || syncErr);
+        }
         toast.success('Employee updated.');
         await fetchEmployees();
       } else {
@@ -1317,6 +1327,16 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             throw new Error('That employee ID or code is already in use. Please save again to get the next available ID.');
           }
           throw error;
+        }
+        try {
+          const { syncEmployeeHierarchyToIndusOne } = await import('../../lib/employeeHierarchySync');
+          await syncEmployeeHierarchyToIndusOne(supabase, {
+            employeeCode: formData.employee_code,
+            l1ManagerCode: hierarchyCheck.fields.l1_manager_code,
+            l2ManagerCode: hierarchyCheck.fields.l2_manager_code,
+          });
+        } catch (syncErr) {
+          console.warn('[hierarchy-sync] Indus One sync after employee create:', syncErr?.message || syncErr);
         }
         toast.success('Employee added.');
         await fetchEmployees();

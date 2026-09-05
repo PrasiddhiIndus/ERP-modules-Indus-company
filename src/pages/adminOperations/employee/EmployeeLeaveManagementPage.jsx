@@ -11,7 +11,7 @@ import {
 import { supabase } from "../../../lib/supabase";
 import { toast } from "../../../lib/toast";
 import { useAuth } from "../../../contexts/AuthContext";
-import { fetchActiveEmployees, normalizeAttendanceEmpCode } from "../../../lib/attendanceDaily";
+import { fetchActiveEmployees, fetchInactiveEmployeesWithDateOfLeaving, isInactiveEmployeeVisibleOnLeaveLedger, normalizeAttendanceEmpCode } from "../../../lib/attendanceDaily";
 import { downloadLeaveBalanceSampleSheet, ledgerDisplayRowToEditForm } from "../../../lib/leaveLedgerExcel";
 import { LeaveBalanceImportModal } from "./LeaveBalanceImportModal";
 import EmployeeCoBalanceTab from "./EmployeeCoBalanceTab";
@@ -231,6 +231,7 @@ export function EmployeeLeaveManagementPage() {
   const [year, setYear] = useState(YEAR_DEFAULT);
 
   const [employees, setEmployees] = useState([]);
+  const [inactiveEmployees, setInactiveEmployees] = useState([]);
   const [rules, setRules] = useState({
     pl_carry_forward_max: 7,
     sl_carry_forward_max: 8,
@@ -298,14 +299,16 @@ export function EmployeeLeaveManagementPage() {
     let cancelled = false;
     (async () => {
       try {
-        const [emps, r, prefs] = await Promise.all([
+        const [emps, inactiveEmps, r, prefs] = await Promise.all([
           fetchActiveEmployees(supabase),
+          fetchInactiveEmployeesWithDateOfLeaving(supabase),
           getLeaveCarryForwardRules(supabase),
           fetchPlEncashPrefs(supabase),
         ]);
         if (cancelled) return;
 
         setEmployees(emps || []);
+        setInactiveEmployees(inactiveEmps || []);
         setRules({
           pl_carry_forward_max: Number(r.pl_carry_forward_max || 0),
           sl_carry_forward_max: Number(r.sl_carry_forward_max || 0),
@@ -382,13 +385,14 @@ export function EmployeeLeaveManagementPage() {
 
   const departmentOptions = useMemo(() => {
     const set = new Set();
-    for (const e of employees || []) {
+    for (const e of [...(employees || []), ...(inactiveEmployees || [])]) {
       const d = String(e.department || "").trim();
       if (d) set.add(d);
     }
     return [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-  }, [employees]);
+  }, [employees, inactiveEmployees]);
 
+  /** Encash / sample sheets stay active-only. */
   const filteredEmployees = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return (employees || []).filter((e) => {
@@ -398,6 +402,37 @@ export function EmployeeLeaveManagementPage() {
       return hay.includes(needle);
     });
   }, [employees, search, departmentFilter]);
+
+  /**
+   * Yearly Balance Ledger: active + inactive through the calendar month after date of leaving
+   * (hidden from the second month after leaving onward).
+   */
+  const ledgerEmployees = useMemo(() => {
+    const activeCodes = new Set(
+      (employees || []).map((e) => normalizeAttendanceEmpCode(e.empCode)).filter(Boolean)
+    );
+    const visibleInactive = (inactiveEmployees || [])
+      .filter((e) => {
+        const code = normalizeAttendanceEmpCode(e.empCode);
+        if (!code || activeCodes.has(code)) return false;
+        return isInactiveEmployeeVisibleOnLeaveLedger(e.dateOfLeaving, year);
+      })
+      .map((e) => ({ ...e, masterStatus: "Inactive" }));
+    return [
+      ...(employees || []).map((e) => ({ ...e, masterStatus: "Active" })),
+      ...visibleInactive,
+    ];
+  }, [employees, inactiveEmployees, year]);
+
+  const filteredLedgerEmployees = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return (ledgerEmployees || []).filter((e) => {
+      if (departmentFilter && String(e.department || "").trim() !== departmentFilter) return false;
+      if (!needle) return true;
+      const hay = [e.employeeName, e.empCode, e.employeeId, e.department].join(" ").toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [ledgerEmployees, search, departmentFilter]);
 
   const balanceByCode = useMemo(() => {
     const out = {};
@@ -424,9 +459,8 @@ export function EmployeeLeaveManagementPage() {
   );
 
   const balancesRows = useMemo(() => {
-    // Ledger shows only active employees from employee master (filteredEmployees).
-    // Do not inject balance-only rows for inactive / unknown codes.
-    return (filteredEmployees || [])
+    // Active + inactive still within leaving month + 1 for the selected year.
+    return (filteredLedgerEmployees || [])
       .map((e) => {
         const code = normalizeAttendanceEmpCode(e.empCode);
         if (!code) return null;
@@ -450,6 +484,8 @@ export function EmployeeLeaveManagementPage() {
           empCode: code || e.empCode,
           employeeName: e.employeeName,
           department: e.department || "",
+          masterStatus: e.masterStatus || "Active",
+          dateOfLeaving: e.dateOfLeaving || "",
           ...mapLedgerLeaveFields(b),
           opening_pl: b.opening_pl ?? 0,
           used_pl: b.used_pl ?? 0,
@@ -468,7 +504,7 @@ export function EmployeeLeaveManagementPage() {
       })
       .filter(Boolean)
       .sort((a, b) => String(a.empCode || "").localeCompare(String(b.empCode || ""), undefined, { numeric: true }));
-  }, [filteredEmployees, balanceByCode, registerUsageByCode]);
+  }, [filteredLedgerEmployees, balanceByCode, registerUsageByCode]);
 
   const ledgerRows = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -658,7 +694,12 @@ export function EmployeeLeaveManagementPage() {
       {
         key: "employeeName",
         label: sortLabel("Employee", "employeeName"),
-        render: (r) => r.employeeName || "—",
+        render: (r) => (
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            <span>{r.employeeName || "—"}</span>
+            {r.masterStatus === "Inactive" ? <StatusChip label="Inactive" severity="medium" /> : null}
+          </span>
+        ),
         headerClassName: "min-w-[220px]",
         cellClassName: "min-w-[220px]",
       },
@@ -749,14 +790,14 @@ export function EmployeeLeaveManagementPage() {
 
   const ledgerTabDescriptions = {
     opening: canEditBalances
-      ? "Opening leave balances by type. Click Edit on a row to change values inline, then Save."
-      : "Opening leave balances by type (read-only).",
+      ? "Opening leave balances by type. Inactive employees appear through the month after their leaving date. Click Edit on a row to change values inline, then Save."
+      : "Opening leave balances by type (read-only). Inactive employees appear through the month after their leaving date.",
     used: canEditBalances
-      ? "Leave days used during the year. Click Edit on a row to adjust values inline, then Save."
-      : "Leave days used during the year (read-only; updates automatically from the attendance register).",
+      ? "Leave days used during the year. Inactive employees appear through the month after their leaving date. Click Edit on a row to adjust values inline, then Save."
+      : "Leave days used during the year (read-only; updates automatically from the attendance register). Inactive employees appear through the month after their leaving date.",
     balance: canEditBalances
-      ? "Current leave balance by type. Click Edit to adjust balance inline (opening is updated to match)."
-      : "Current leave balance by type (read-only).",
+      ? "Current leave balance by type. Inactive employees appear through the month after their leaving date. Click Edit to adjust balance inline (opening is updated to match)."
+      : "Current leave balance by type (read-only). Inactive employees appear through the month after their leaving date.",
   };
 
   const handleImportComplete = useCallback(
@@ -848,7 +889,15 @@ export function EmployeeLeaveManagementPage() {
         {error ? <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</div> : null}
 
         <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <MetricCard label="Employees" value={filteredEmployees.length} hint="After search / department filter" />
+          <MetricCard
+            label="Employees"
+            value={activeTab === "ledger" ? filteredLedgerEmployees.length : filteredEmployees.length}
+            hint={
+              activeTab === "ledger"
+                ? "Active + inactive through month after leaving"
+                : "After search / department filter"
+            }
+          />
           <MetricCard label="PL Encash Selected" value={totalEncashSelected} tone="bg-emerald-50/50" />
           <MetricCard label="PL Carry Cap" value={fmtNum(rules.pl_carry_forward_max)} />
           <MetricCard label="SL Carry Cap" value={fmtNum(rules.sl_carry_forward_max)} />
