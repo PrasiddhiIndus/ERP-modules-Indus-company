@@ -1049,7 +1049,7 @@ const UserManagement = () => {
         if (masterId) {
           const hierarchyResult = await saveEmployeeHierarchyManagers(supabase, {
             employeeMasterId: masterId,
-            empCode: masterEmpCode,
+            empCode: masterEmpCode || newEmpCode,
             employeeId: masterEmployeeId,
             l1Code: editForm.l1_manager_code,
             l2Code: editForm.l2_manager_code,
@@ -1060,6 +1060,8 @@ const UserManagement = () => {
             warnings.push(
               hierarchyResult.message || "Profile saved, but L1/L2 managers could not be updated."
             );
+          } else if (hierarchyResult.syncWarning) {
+            warnings.push(hierarchyResult.syncWarning);
           }
         } else if (hasManagerEdits) {
           warnings.push(

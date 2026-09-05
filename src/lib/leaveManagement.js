@@ -131,19 +131,138 @@ export async function upsertPlEncashPrefs(supabase, prefs) {
 
 const fetchLeaveBalancesInflight = new Map();
 
-export async function fetchLeaveBalancesForYear(supabase, year) {
+/** Run month-start probation CL/SL accrual for the calendar month of asOf (idempotent). */
+export async function runProbationLeaveMonthStartAccrual(supabaseClient, asOfDate = null) {
+  const client = supabaseClient || supabase;
+  const args = {};
+  if (asOfDate) args.p_as_of = String(asOfDate).slice(0, 10);
+  const { data, error } = await client.schema("indus_one").rpc("run_probation_leave_month_start_accrual", args);
+  if (error) throw error;
+  return Number(data || 0);
+}
+
+/** Raw probation monthly accrual rows for a year. */
+export async function fetchProbationLeaveAccruals(supabaseClient, year) {
+  const client = supabaseClient || supabase;
+  const { data, error } = await client.schema("indus_one").rpc("fetch_probation_leave_accruals", {
+    p_year: Number(year),
+  });
+  if (error) throw error;
+  return data || [];
+}
+
+function accrualMonthKey(accrualMonth) {
+  return String(accrualMonth || "").slice(0, 7);
+}
+
+/**
+ * Attach probation accrual totals to yearly balance rows (in-memory only).
+ * Does not change opening/used/unused stored columns.
+ */
+export function enrichLeaveBalancesWithProbationAccruals(balanceRows, accrualRows, asOfDate = new Date()) {
+  const asOf = asOfDate instanceof Date ? asOfDate : new Date(asOfDate);
+  const asOfMonthKey = `${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, "0")}`;
+
+  const byEmp = new Map();
+  for (const row of accrualRows || []) {
+    const code = normalizeAttendanceEmpCode(row.employee_code);
+    if (!code) continue;
+    const mk = accrualMonthKey(row.accrual_month);
+    if (!mk || mk > asOfMonthKey) continue;
+    if (!byEmp.has(code)) {
+      byEmp.set(code, { CL: 0, SL: 0, byMonth: {} });
+    }
+    const bucket = byEmp.get(code);
+    const lt = String(row.leave_type || "").toUpperCase();
+    const amt = Number(row.amount || 0);
+    if (lt !== "CL" && lt !== "SL") continue;
+    bucket[lt] += amt;
+    if (!bucket.byMonth[mk]) bucket.byMonth[mk] = { CL: 0, SL: 0 };
+    bucket.byMonth[mk][lt] += amt;
+  }
+
+  return (balanceRows || []).map((row) => {
+    const code = normalizeAttendanceEmpCode(row.employee_code);
+    const acc = byEmp.get(code) || { CL: 0, SL: 0, byMonth: {} };
+    return {
+      ...row,
+      probation_accrued_cl: acc.CL,
+      probation_accrued_sl: acc.SL,
+      probation_accrual_by_month: acc.byMonth,
+    };
+  });
+}
+
+/** Available CL/SL including eligible probation monthly accruals (opening + accrued - used). */
+export function availableLeaveWithProbationAccrual(balanceRow, leaveTypeCode) {
+  const code = String(leaveTypeCode || "").trim().toUpperCase();
+  if (code === "CL") {
+    return Math.max(
+      0,
+      Number(balanceRow?.opening_cl || 0) +
+        Number(balanceRow?.probation_accrued_cl || 0) -
+        Number(balanceRow?.used_cl || 0)
+    );
+  }
+  if (code === "SL") {
+    return Math.max(
+      0,
+      Number(balanceRow?.opening_sl || 0) +
+        Number(balanceRow?.probation_accrued_sl || 0) -
+        Number(balanceRow?.used_sl || 0)
+    );
+  }
+  const fields = LEAVE_TYPE_BALANCE_FIELDS[code];
+  if (!fields) return 0;
+  return Math.max(0, Number(balanceRow?.[fields.unused] || 0));
+}
+
+function probationAccruedThroughMonth(balanceRow, leaveTypeCode, month) {
+  const code = String(leaveTypeCode || "").trim().toUpperCase();
+  if (code !== "CL" && code !== "SL") return 0;
+  const year = Number(balanceRow?.year);
+  const byMonth = balanceRow?.probation_accrual_by_month || {};
+  let sum = 0;
+  for (let m = 1; m <= Number(month || 0); m += 1) {
+    const mk = `${year}-${String(m).padStart(2, "0")}`;
+    sum += Number(byMonth[mk]?.[code] || 0);
+  }
+  return sum;
+}
+
+export async function fetchLeaveBalancesForYear(supabaseClient, year) {
+  const client = supabaseClient || supabase;
   const key = String(year);
   const inflight = fetchLeaveBalancesInflight.get(key);
   if (inflight) return inflight;
 
   const promise = (async () => {
-    const { data, error } = await supabase
+    const y = Number(year);
+    const now = new Date();
+    // Lazy month-start accrual for the current calendar month only (idempotent; no past backfill).
+    if (Number.isFinite(y) && y === now.getFullYear()) {
+      try {
+        await runProbationLeaveMonthStartAccrual(client);
+      } catch (err) {
+        console.warn("[probation-accrual] month-start run skipped:", err?.message || err);
+      }
+    }
+
+    const { data, error } = await client
       .schema("indus_one")
       .from("employee_leave_balances_yearly")
       .select("*")
-      .eq("year", year);
+      .eq("year", y);
     if (error) throw error;
-    return data || [];
+
+    let accruals = [];
+    try {
+      accruals = await fetchProbationLeaveAccruals(client, y);
+    } catch (err) {
+      console.warn("[probation-accrual] fetch skipped:", err?.message || err);
+    }
+
+    return enrichLeaveBalancesWithProbationAccruals(data || [], accruals, now);
   })().finally(() => {
     fetchLeaveBalancesInflight.delete(key);
   });
@@ -782,7 +901,8 @@ export function computeMonthlyAvailableBalance(balanceRow, leaveTypeCode, month,
     balanceRow?.[fields.entitlement] ?? DEFAULT_ANNUAL_ENTITLEMENTS[code] ?? 0
   );
   const used = Number(usedTotals?.[fields.used] || 0);
-  const pool = opening + entitlementAccruedThroughMonth(entitlement, month);
+  const probationAccrued = probationAccruedThroughMonth(balanceRow, code, month);
+  const pool = opening + entitlementAccruedThroughMonth(entitlement, month) + probationAccrued;
   return Math.max(0, pool - used);
 }
 

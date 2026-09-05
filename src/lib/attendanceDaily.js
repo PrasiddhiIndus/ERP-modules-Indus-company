@@ -3982,6 +3982,46 @@ export function isInactiveEmployeeRelevantForRegisterMonth(dateOfLeaving, fromDa
   return isEmployeeRelevantForRegisterMonth(dol, fromDate, toDate);
 }
 
+/**
+ * Leave Balance Ledger: inactive employees stay visible through the calendar month
+ * after their date of leaving; hidden from the second month after leaving onward.
+ *
+ * Example: left 2026-09-05 → visible in Sep and Oct 2026; hidden from Nov 2026.
+ * When viewing a past ledger year, include if the leaving window overlaps that year.
+ */
+export function isInactiveEmployeeVisibleOnLeaveLedger(dateOfLeaving, ledgerYear, asOfDate = new Date()) {
+  const dol = normalizeDbDate(dateOfLeaving);
+  if (!dol) return false;
+
+  const leaveY = Number(dol.slice(0, 4));
+  const leaveM = Number(dol.slice(5, 7));
+  if (!leaveY || !leaveM) return false;
+
+  let lastVisibleY = leaveY;
+  let lastVisibleM = leaveM + 1;
+  if (lastVisibleM > 12) {
+    lastVisibleM = 1;
+    lastVisibleY += 1;
+  }
+
+  const year = Number(ledgerYear);
+  if (!Number.isFinite(year)) return false;
+  // Leaving window must touch the selected ledger year
+  if (leaveY !== year && lastVisibleY !== year) return false;
+
+  const asOf = asOfDate instanceof Date ? asOfDate : new Date(asOfDate);
+  if (Number.isNaN(asOf.getTime())) return false;
+
+  // Historical year view: keep them for that year's ledger
+  if (asOf.getFullYear() > year) return true;
+
+  const asOfY = asOf.getFullYear();
+  const asOfM = asOf.getMonth() + 1;
+  if (asOfY < lastVisibleY) return true;
+  if (asOfY > lastVisibleY) return false;
+  return asOfM <= lastVisibleM;
+}
+
 /** Inactive (removed/deactivated) employees still on master — shown when they have month activity. */
 export async function fetchInactiveEmployeesFromMaster(supabase) {
   const { data, error } = await supabase
