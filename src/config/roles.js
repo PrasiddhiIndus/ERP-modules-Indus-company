@@ -475,6 +475,7 @@ export const NAV_MODULE_TREE = [
       },
       { value: "hr.attendance",          label: "Attendance",         pathPrefix: "/app/attendance" },
       { value: "hr.salary-management",   label: "Salary Management",  pathPrefix: "/app/hr/payroll/salary" },
+      { value: "hr.payroll-module",      label: "HR Payroll",         pathPrefix: "/app/hr/payroll-ops" },
       { value: "hr.people-management",   label: "People Management",  pathPrefix: "/app/people-management" },
       { value: "hr.site-iom",            label: "Site Employee IOM",  pathPrefix: "/app/hr/site-iom" },
     ],
@@ -661,7 +662,7 @@ export const MODULES = NAV_MODULE_TREE.map(({ value, label }) => ({ value, label
 /** Path prefixes that belong to each module (for route guard). */
 export const MODULE_PATH_PREFIXES = {
   overview: ["/app/dashboard"],
-  hr: ["/app/hr", "/app/hr/payroll/salary", "/app/attendance", "/app/salary", "/app/people-management", "/app/hr/site-iom"],
+  hr: ["/app/hr", "/app/hr/payroll/salary", "/app/hr/payroll-ops", "/app/attendance", "/app/salary", "/app/people-management", "/app/hr/site-iom"],
   compliance: ["/app/ifsp-employee-compliance", "/app/general-compliance", "/app/compliance"],
   admin: ["/app/admin", "/app/ifsp-employee", "/app/store-inventory", "/app/gate-pass"],
   // Legacy bucket: Sales historically owned /manpower + /commercial routes.

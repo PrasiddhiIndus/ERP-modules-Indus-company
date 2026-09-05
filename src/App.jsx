@@ -107,6 +107,14 @@ import {
   SalaryReportsExports,
   SalaryEmployeeExit,
   SalaryFullFinalSettlement,
+  HrPayrollOpsLayout,
+  HrPayrollOpsDashboard,
+  HrPayrollOpsSites,
+  HrPayrollOpsProcessSalary,
+  HrPayrollOpsSalaryHistory,
+  HrPayrollOpsReports,
+  HrPayrollOpsCompliance,
+  HrPayrollOpsSiteSetup,
   // NAV_HIDDEN employee admin pages (Aug 2026)
   // EmployeeOnboardingPage,
   EmployeeAttendanceInputsPage,
@@ -459,6 +467,16 @@ function App() {
               <Route path="loans" element={<Navigate to="../compliance/loans" replace />} />
               <Route path="register" element={<Navigate to="../reports-exports" replace />} />
               <Route path="outputs" element={<Navigate to="../payslips" replace />} />
+            </Route>
+            <Route path="hr/payroll-ops" element={<HrPayrollOpsLayout />}>
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<HrPayrollOpsDashboard />} />
+              <Route path="sites" element={<HrPayrollOpsSites />} />
+              <Route path="process-salary" element={<HrPayrollOpsProcessSalary />} />
+              <Route path="salary-history" element={<HrPayrollOpsSalaryHistory />} />
+              <Route path="reports" element={<HrPayrollOpsReports />} />
+              <Route path="compliance" element={<HrPayrollOpsCompliance />} />
+              <Route path="site-setup" element={<HrPayrollOpsSiteSetup />} />
             </Route>
             <Route path="hr/site-iom" element={<HrSiteIom />} />
             <Route path="people-management" element={<PeopleManagement />} />

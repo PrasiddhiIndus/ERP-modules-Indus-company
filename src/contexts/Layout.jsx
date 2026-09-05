@@ -9,6 +9,13 @@ import { canAccessCompliance } from "../pages/compliance/payroll/complianceAcces
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import { SALARY_SUB_NAV, HR_SALARY_BASE, HR_SALARY_DASHBOARD, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
+import {
+  PAYROLL_OPS_SUB_NAV,
+  HR_PAYROLL_OPS_BASE,
+  HR_PAYROLL_OPS_DASHBOARD,
+  payrollOpsNavIsActive,
+  payrollOpsNavPath,
+} from "../pages/hr/payrollOps/payrollOpsNav";
 import { OPERATIONS_NAV, operationsNavHref, operationsNavIsActive } from "../pages/operations/navConfig";
 import { MARKETING_NAV_ITEMS } from "../pages/marketing/marketingNav";
 import PoApprovalBell from "../components/PoApprovalBell";
@@ -200,6 +207,7 @@ const Layout = () => {
   const [adminGateOpen, setAdminGateOpen] = useState(false);
   const [adminMiscOpen, setAdminMiscOpen] = useState(false);
   const [hrSalaryOpen, setHrSalaryOpen] = useState(false);
+  const [hrPayrollOpsOpen, setHrPayrollOpsOpen] = useState(false);
   const [manpowerOperationsOpen, setManpowerOperationsOpen] = useState(false);
   const [manpowerConfigOpen, setManpowerConfigOpen] = useState(false);
 
@@ -216,6 +224,7 @@ const Layout = () => {
   useEffect(() => {
     if (pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/salary") || pathname.startsWith("/app/people-management") || pathname.startsWith("/app/hr/payroll/salary")) setHrAdminOpen(true);
     if (pathname.startsWith("/app/hr/payroll/salary")) setHrSalaryOpen(true);
+    if (pathname.startsWith("/app/hr/payroll-ops")) setHrPayrollOpsOpen(true);
     if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance") || pathname === "/app/compliance" || pathname.startsWith("/app/compliance/")) setComplianceOpen(true);
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
     if (pathname.startsWith("/app/marketing")) setMarketingOpen(true);
@@ -416,6 +425,48 @@ const Layout = () => {
                           key={item.to}
                           to={salaryNavPath(item.to).replace(/^\/app\//, "")}
                           className={() => subNavClass({ isActive: salaryNavIsActive(item, location) })}
+                        >
+                          <span className="type-meta type-truncate">{item.label}</span>
+                        </NavLink>
+                      ))}
+                    </div>
+                  )}
+                  </>
+                  )}
+                  {(canSub("hr.payroll-module") || canSub("hr.salary-management")) && (
+                  <>
+                  <div className="flex items-stretch w-full rounded-md hover:bg-surface transition-colors">
+                    <NavLink
+                      to={payrollOpsNavPath(HR_PAYROLL_OPS_DASHBOARD)}
+                      className={() => {
+                        const path = pathname.replace(/\/$/, "");
+                        const active =
+                          path === `/app/${HR_PAYROLL_OPS_BASE}/${HR_PAYROLL_OPS_DASHBOARD}` ||
+                          path === `/app/${HR_PAYROLL_OPS_BASE}`;
+                        return `${subLinkBase} flex-1 min-w-0 rounded-md ${active ? activeClass : "text-ink-strong"}`;
+                      }}
+                      onClick={() => setHrPayrollOpsOpen(true)}
+                    >
+                      <Calculator className="w-4 h-4 shrink-0 text-teal-700" />
+                      <span className="text-xs font-medium text-left leading-tight">HR Payroll</span>
+                    </NavLink>
+                    <button
+                      type="button"
+                      onClick={() => setHrPayrollOpsOpen(!hrPayrollOpsOpen)}
+                      className="flex items-center px-1.5 rounded-md hover:bg-surface-sunken shrink-0 self-stretch"
+                      aria-expanded={hrPayrollOpsOpen}
+                      aria-label="Toggle HR payroll menu"
+                    >
+                      <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${hrPayrollOpsOpen ? "rotate-180" : ""}`} />
+                    </button>
+                  </div>
+                  {hrPayrollOpsOpen && (
+                    <div className="space-y-0.5 ml-2 border-l border-border pl-2">
+                      {PAYROLL_OPS_SUB_NAV.map((item) => (
+                        <NavLink
+                          key={item.to}
+                          to={payrollOpsNavPath(item.to).replace(/^\/app\//, "")}
+                          className={() => subNavClass({ isActive: payrollOpsNavIsActive(item, location) })}
                         >
                           <span className="type-meta type-truncate">{item.label}</span>
                         </NavLink>
