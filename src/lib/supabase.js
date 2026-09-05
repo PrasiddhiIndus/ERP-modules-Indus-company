@@ -855,13 +855,29 @@ export async function fetchPublicAppAccessConfig() {
   }
 }
 
+function createMemoryAuthStorage() {
+  const map = new Map()
+  return {
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => {
+      map.set(key, String(value))
+    },
+    removeItem: (key) => {
+      map.delete(key)
+    },
+  }
+}
+
+const isBrowser = typeof window !== 'undefined'
+const authStorage = isBrowser && window.localStorage ? window.localStorage : createMemoryAuthStorage()
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   global: { fetch: customFetch },
   auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    storage: window.localStorage,
+    persistSession: isBrowser,
+    autoRefreshToken: isBrowser,
+    detectSessionInUrl: isBrowser,
+    storage: authStorage,
     storageKey: SUPABASE_AUTH_STORAGE_KEY,
   },
 })

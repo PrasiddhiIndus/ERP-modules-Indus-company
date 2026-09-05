@@ -590,6 +590,13 @@ describe('register employee month visibility (DOL)', () => {
   });
 });
 
+describe('node-safe supabase imports', () => {
+  it('can load leave management without a browser window', async () => {
+    const { DEFAULT_ANNUAL_ENTITLEMENTS } = await import('../src/lib/leaveManagement.js');
+    expect(DEFAULT_ANNUAL_ENTITLEMENTS.PL).toBe(18);
+  });
+});
+
 describe('createAuthMiddleware', () => {
   it('exports required guards', () => {
     const guards = createAuthMiddleware({
