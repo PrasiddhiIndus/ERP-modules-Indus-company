@@ -235,6 +235,7 @@ export async function fetchManagerCandidates(supabase) {
 
 /**
  * Update L1/L2 on admin_ifsp_employee_master (same source as Employee Master / leave routing).
+ * Then syncs profiles + open Indus One requests (manager codes only — no status/workflow changes).
  */
 export async function saveEmployeeHierarchyManagers(
   supabase,
@@ -279,8 +280,30 @@ export async function saveEmployeeHierarchyManagers(
     return { ok: false, message: error.message || "Unable to save manager hierarchy." };
   }
 
+  // DB trigger also syncs; RPC is a reliable backup (User Management + Employee Master).
+  let syncWarning = null;
+  try {
+    const { syncEmployeeHierarchyToIndusOne } = await import("./employeeHierarchySync");
+    await syncEmployeeHierarchyToIndusOne(supabase, {
+      employeeCode: empCode,
+      l1ManagerCode: hierarchyCheck.fields.l1_manager_code,
+      l2ManagerCode: hierarchyCheck.fields.l2_manager_code,
+    });
+  } catch (syncErr) {
+    const msg = String(syncErr?.message || syncErr || "");
+    console.warn("[hierarchy-sync] Indus One sync after save:", msg);
+    if (/could not find the function|schema cache|does not exist/i.test(msg)) {
+      syncWarning =
+        "L1/L2 saved on Employee Master, but Indus One sync is not available yet. Apply migration 20260904140000_sync_employee_hierarchy_to_indus_one.sql.";
+    } else {
+      syncWarning =
+        "L1/L2 saved on Employee Master, but Indus One profile/request sync did not complete. Refresh and retry, or re-save L1/L2.";
+    }
+  }
+
   return {
     ok: true,
+    syncWarning,
     fields: {
       l1_manager_code: hierarchyCheck.fields.l1_manager_code,
       l1_manager_name: hierarchyCheck.fields.l1_manager_name,
