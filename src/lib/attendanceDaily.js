@@ -263,24 +263,29 @@ export function isRegisterSummaryLeaveMark(mark) {
 }
 
 /**
- * Register summary leave credit for P/PL, P/CL, P/SL — display/count as 1 full day.
- * Does not affect balance deduction (still 0.5 via registerPlSlClLeaveDayWeight).
+ * Present-summary display credit for P/PL, P/CL, P/SL — count as 1 present day in Total present.
+ * Leave balance deduction remains 0.5 via registerPlSlClLeaveDayWeight / leaveDayFraction.
  */
 export function registerCompositePaidLeaveSummaryCredit(mark) {
   const composite = canonicalRegisterCompositeMark(mark);
   return composite ? 1 : 0;
 }
 
-/** Leave-day credit for register summary (P/SL|P/CL|P/PL = 1; HD / LWP/* composites = 0.5; full leave = 1). */
+/** Leave-day credit for register summary (HD / P/* / LWP/* half-day marks = 0.5; full leave = 1). */
 export function registerSummaryLeaveCredit(mark) {
-  const compositeCredit = registerCompositePaidLeaveSummaryCredit(mark);
-  if (compositeCredit > 0) return compositeCredit;
-
   const m = String(mark ?? "").trim();
   const canonical = normalizeRegisterMarkForDb(m) || m;
   if (!isRegisterSummaryLeaveMark(m) && !isRegisterSummaryLeaveMark(canonical)) return 0;
   const eff = canonical || m;
-  if (eff === "HD" || isRegisterLwpCompositeMark(eff) || isRegisterLwpCompositeMark(m)) return 0.5;
+  if (
+    eff === "HD" ||
+    isRegisterCompositeHalfDayMark(eff) ||
+    isRegisterCompositeHalfDayMark(m) ||
+    isRegisterLwpCompositeMark(eff) ||
+    isRegisterLwpCompositeMark(m)
+  ) {
+    return 0.5;
+  }
   return 1;
 }
 
@@ -335,10 +340,8 @@ export function registerPresentDayCreditForCell(mark, { year, month, day } = {})
   return 0;
 }
 
-/** Leave credit for a day cell (PL/CL/SL on weekoff → 0; P/* composites → 1). */
+/** Leave credit for a day cell (PL/CL/SL on weekoff → 0; P/* half-day composites → 0.5). */
 export function registerSummaryLeaveCreditForCell(mark, { year, month, day } = {}) {
-  const compositeCredit = registerCompositePaidLeaveSummaryCredit(mark);
-  if (compositeCredit > 0) return compositeCredit;
   if (isPlClSlOnWeekoffDate(mark, { year, month, day })) return 0;
   return registerSummaryLeaveCredit(mark);
 }
