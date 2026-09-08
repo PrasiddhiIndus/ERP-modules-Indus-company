@@ -13,7 +13,6 @@ import { formatINRPlain } from "./salaryData";
 import { departmentInSelection } from "../../../lib/employeeMasterDepartments";
 import { RegisterDepartmentFilter } from "../employee/RegisterDepartmentFilter";
 import {
-  DEFAULT_MONTH_DAYS,
   getMonthRunByKey,
   getMonthRunWithLines,
   monthKey,
@@ -29,6 +28,7 @@ import {
   findSavedMonthLine,
   decorateScopeLine,
   workingDaysMonToSat,
+  capPresentDaysToWorkingDays,
   getRunSheetNo,
   getMonthHoldIds,
   setMonthHoldIds,
@@ -587,9 +587,12 @@ function EmployeeSalaryDetailPage({
               <input
                 type="number"
                 step="0.5"
+                min={0}
+                max={monthDays}
                 className={`${detailInput} max-w-none`}
                 value={line.present_days ?? ""}
                 placeholder="—"
+                title={`Monday–Saturday present and paid leave, excluding Sundays. Max ${monthDays} for this month.`}
                 onChange={(e) => patch({ present_days: e.target.value })}
                 disabled={locked}
                 readOnly={locked}
@@ -1001,9 +1004,12 @@ function ScopeSalarySheetTable({
                     <input
                       type="number"
                       step="0.5"
+                      min={0}
+                      max={Number(line.total_days) > 0 ? line.total_days : undefined}
                       className={numIn}
                       value={line.present_days ?? ""}
                       placeholder="—"
+                      title="Monday–Saturday present and paid leave. Sundays excluded; capped at working days."
                       onChange={(e) => onUpdateLine(line.id, { present_days: e.target.value })}
                     />
                   )}
@@ -1154,17 +1160,25 @@ function hasLoadedPresentDays(line) {
   return line?.present_days != null && line.present_days !== "";
 }
 
-function overlayLoadedPresentDays(built, prev, payKey) {
+function overlayLoadedPresentDays(built, prev, payKey, monthDays) {
   const prevById = new Map();
   for (const row of prev || []) {
     const id = String(row.employee_master_id || "");
     if (id) prevById.set(id, row);
   }
   return (built || []).map((line) => {
-    if (hasLoadedPresentDays(line)) return line;
+    if (hasLoadedPresentDays(line)) {
+      return {
+        ...line,
+        present_days: capPresentDaysToWorkingDays(line.present_days, monthDays),
+      };
+    }
     const prevRow = prevById.get(String(line.employee_master_id));
     if (prevRow?.pay_month_key === payKey && hasLoadedPresentDays(prevRow)) {
-      return { ...line, present_days: prevRow.present_days };
+      return {
+        ...line,
+        present_days: capPresentDaysToWorkingDays(prevRow.present_days, monthDays),
+      };
     }
     return line;
   });
@@ -1183,7 +1197,7 @@ function mergeScopePlaceholders(employeesForSheet, { prev, savedMonthLines, mont
     const sameMonth = Boolean(prevRow && prevRow.pay_month_key === payKey);
     if (sameMonth && hasLoadedPresentDays(prevRow)) {
       return decorateScopeLine(
-        { ...prevRow, total_days: monthDays, pay_month_key: payKey },
+        { ...prevRow, total_days: monthDays, pay_month_key: payKey, present_days: capPresentDaysToWorkingDays(prevRow.present_days, monthDays) },
         e,
         { pay_month_key: payKey, identityStats }
       );
@@ -1682,7 +1696,7 @@ export default function SalaryProcessing() {
         if (!cancelled) {
           const payKey = monthKey(year, month);
           setScopeLines((prev) =>
-            overlayLoadedPresentDays(built, prev, payKey)
+            overlayLoadedPresentDays(built, prev, payKey, monthDays)
           );
         }
       } catch (err) {
@@ -1892,7 +1906,7 @@ export default function SalaryProcessing() {
       setDirty(false);
       setQ("");
       setEditorOpen(true);
-      setMonthDays(Number(r.month_days) || DEFAULT_MONTH_DAYS);
+      setMonthDays(workingDaysMonToSat(r.pay_year, r.pay_month));
     } catch (err) {
       console.error(err);
       toast.error(err?.message || "Could not open salary sheet.");
@@ -2268,9 +2282,12 @@ export default function SalaryProcessing() {
                     <input
                       type="number"
                       step="0.5"
+                      min={0}
+                      max={monthDays}
                       className={numIn}
                       value={line.present_days ?? ""}
                       placeholder="—"
+                      title={`Monday–Saturday present and paid leave. Sundays excluded; max ${monthDays}.`}
                       onChange={(e) => updateLine(line.id, { present_days: e.target.value })}
                     />
                   </td>
@@ -2425,7 +2442,7 @@ export default function SalaryProcessing() {
       <PageTaskHeader
         className="mb-0"
         title="Salary Processing"
-        subtitle="Build monthly salary sheets from Employee Master. P.Days = Daily Register Total Present for the selected pay month."
+        subtitle="Build monthly salary sheets from Employee Master. P.Days = present and paid leave on working days (Sundays excluded), capped at this month’s working days (26/27, February 24)."
       >
         <button
           type="button"
@@ -2453,6 +2470,9 @@ export default function SalaryProcessing() {
         On Processed, select employees and click Processed to lock them for this month
         (green rows). Locked staff stay on the day they were processed and cannot be changed.
         Open a row to view the salary form — locked records are view only.
+        P.Days count present and paid leave from Monday to Saturday only. Sundays are not
+        counted. If attendance is higher than the month’s working days (26/27, or 24 in
+        February), P.Days is held at that month’s slab.
       </CollapsibleHelp>
 
       <SectionCard
@@ -2465,7 +2485,7 @@ export default function SalaryProcessing() {
               value={month}
               onChange={(e) => setMonth(Number(e.target.value))}
               aria-label="Pay month"
-              title="Pay month — P.Days from this month’s attendance register (usually last month)"
+              title="Pay month — P.Days from this month’s attendance (working days + paid leave, Sundays excluded)"
             >
               {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                 <option key={m} value={m}>
@@ -2587,18 +2607,19 @@ export default function SalaryProcessing() {
               </select>
             </label>
             <label className="text-[10px] uppercase tracking-wide text-slate-500 space-y-0.5">
-              <span className="block">Days</span>
+              <span className="block">Working days</span>
               <input
                 type="number"
                 min={1}
-                max={31}
+                max={workingDaysMonToSat(year, month)}
                 className={`${selectIn} w-14`}
                 value={monthDays}
-                title="Monday to Saturday working days in the selected month (Sundays excluded)"
+                title="Monday to Saturday working days in the selected month (Sundays excluded). Typical 26/27; February 24."
                 onChange={(e) => {
+                  const calendar = workingDaysMonToSat(year, month);
                   const n = Number(e.target.value);
                   setMonthDays(
-                    Number.isFinite(n) && n > 0 ? n : workingDaysMonToSat(year, month)
+                    Number.isFinite(n) && n > 0 ? Math.min(n, calendar) : calendar
                   );
                 }}
               />
