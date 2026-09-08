@@ -2207,9 +2207,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
       clientPincode: String(partyPinMeta.billToPin || buyerPinMeta.pin || ''),
       client_pincode: String(partyPinMeta.billToPin || buyerPinMeta.pin || ''),
       clientShipToPincode: partyPinMeta.shipToPin || null,
-      client_ship_to_pincode: partyPinMeta.billToShipToPinSame
-        ? null
-        : partyPinMeta.shipToPin || null,
+      // Manpower / Training: always persist ship-to pin so Consignee block shows pincode.
+      // R&M family keeps prior behavior (null when same as bill-to).
+      client_ship_to_pincode: isRmVertical
+        ? partyPinMeta.billToShipToPinSame
+          ? null
+          : partyPinMeta.shipToPin || null
+        : partyPinMeta.shipToPin || partyPinMeta.billToPin || null,
       gstin: displayPO.gstin,
       buyerPin: buyerPinMeta.pin || null,
       buyer_pin: buyerPinMeta.pin || null,
@@ -2266,7 +2270,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
         }));
         return lines;
       })(),
-      clientShippingAddress: invoicePartyAddresses.clientShippingAddress,
+      clientShippingAddress:
+        invoicePartyAddresses.shipToAddress ||
+        invoicePartyAddresses.clientShippingAddress ||
+        invoicePartyAddresses.billToAddress ||
+        null,
       shipToDiffers: invoicePartyAddresses.shipToDiffers,
       placeOfSupply: displayPO.placeOfSupply || displayPO.place_of_supply || null,
       termsCustomText: displayPO.invoiceTermsText || null,
@@ -2418,9 +2426,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
       clientPincode: String(partyPinMeta.billToPin || buyerPinMeta.pin || ''),
       client_pincode: String(partyPinMeta.billToPin || buyerPinMeta.pin || ''),
       clientShipToPincode: partyPinMeta.shipToPin || null,
-      client_ship_to_pincode: partyPinMeta.billToShipToPinSame
-        ? null
-        : partyPinMeta.shipToPin || null,
+      // Manpower / Training: always persist ship-to pin so Consignee block shows pincode.
+      // R&M family keeps prior behavior (null when same as bill-to).
+      client_ship_to_pincode: isRmVertical
+        ? partyPinMeta.billToShipToPinSame
+          ? null
+          : partyPinMeta.shipToPin || null
+        : partyPinMeta.shipToPin || partyPinMeta.billToPin || null,
       gstin: displayPO.gstin,
       buyerPin: buyerPinMeta.pin || null,
       buyer_pin: buyerPinMeta.pin || null,
@@ -2482,7 +2494,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
         return lines;
       })(),
       // Snapshots from PO (or existing invoice) — used by PDF + shared HTML preview
-      clientShippingAddress: invoicePartyAddresses.clientShippingAddress,
+      clientShippingAddress:
+        invoicePartyAddresses.shipToAddress ||
+        invoicePartyAddresses.clientShippingAddress ||
+        invoicePartyAddresses.billToAddress ||
+        null,
       shipToDiffers: invoicePartyAddresses.shipToDiffers,
       placeOfSupply: displayPO.placeOfSupply || displayPO.place_of_supply || null,
       termsCustomText: displayPO.invoiceTermsText || null,

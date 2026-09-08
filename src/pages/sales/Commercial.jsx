@@ -29,7 +29,7 @@ const CommercialInner = () => {
   }, [location.pathname]);
 
   const tabs = [
-    { id: 'po-entry', label: 'PO Entry', component: POEntry },
+    { id: 'po-entry', label: 'Contract Management', component: POEntry },
     { id: 'contact-log', label: 'Contact Log', component: ContactLog },
   ];
 

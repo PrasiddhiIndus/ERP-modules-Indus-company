@@ -105,13 +105,14 @@ export default function InvoiceHtmlPreview({
   const buyerAddress = viewInv.clientAddress || viewInv.billingAddress || '–';
   const shipToRaw = viewInv.clientShippingAddress || viewInv.client_shipping_address;
   const shipAddress =
-    shipToRaw && String(shipToRaw).trim() && viewInv.shipToDiffers !== false
+    shipToRaw && String(shipToRaw).trim()
       ? String(shipToRaw).trim()
       : buyerAddress;
   const buyerGstin = viewInv.gstin || '–';
   const buyerNameLine = 'M/s ' + (buyerName.startsWith('M/s') ? buyerName.slice(3).trim() : buyerName);
 
   const partyPins = resolveInvoicePartyPincodes({
+    po,
     invoice: viewInv,
     billPinResolved:
       viewInv.buyerPin ??

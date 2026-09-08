@@ -481,18 +481,31 @@ const ManageInvoices = ({ onNavigateTab }) => {
         billPinResolved: pinMeta.pin,
         invoice: inv,
       });
+      const verticalKey = String(po.vertical || po.poVertical || '')
+        .trim()
+        .toLowerCase();
+      const isRmFamilyPo =
+        verticalKey === 'rm' ||
+        verticalKey === 'mm' ||
+        verticalKey === 'amc' ||
+        verticalKey === 'iev' ||
+        verticalKey === 'projects' ||
+        verticalKey === 'm&m' ||
+        verticalKey === 'm and m';
       return enrichInvoiceWithPo(
         {
           ...inv,
           clientLegalName: po.legalName || inv.clientLegalName || inv.client_name,
           clientAddress: parties.billToAddress || inv.clientAddress || inv.client_address,
-          clientShippingAddress: parties.clientShippingAddress,
+          clientShippingAddress: parties.shipToAddress || parties.clientShippingAddress,
           shipToDiffers: parties.shipToDiffers,
           clientPincode: String(partyPins.billToPin || pinMeta.pin || inv.clientPincode || inv.client_pincode || ''),
           clientShipToPincode: partyPins.shipToPin || null,
-          client_ship_to_pincode: partyPins.billToShipToPinSame
-            ? null
-            : partyPins.shipToPin || inv.client_ship_to_pincode || null,
+          client_ship_to_pincode: isRmFamilyPo
+            ? partyPins.billToShipToPinSame
+              ? null
+              : partyPins.shipToPin || inv.client_ship_to_pincode || null
+            : partyPins.shipToPin || partyPins.billToPin || inv.client_ship_to_pincode || null,
           buyerPin: pinMeta.pin ?? inv.buyerPin ?? inv.buyer_pin,
           buyerPincode: pinMeta.pin ?? inv.buyerPincode ?? inv.buyer_pincode,
           placeOfSupply: po.placeOfSupply || po.place_of_supply || inv.placeOfSupply || inv.place_of_supply,

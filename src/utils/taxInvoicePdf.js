@@ -430,11 +430,12 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   const buyerAddress = viewInv.clientAddress || viewInv.billingAddress || '–';
   const shipToRaw = viewInv.clientShippingAddress || viewInv.client_shipping_address;
   const shipAddress =
-    shipToRaw && String(shipToRaw).trim() && viewInv.shipToDiffers !== false
+    shipToRaw && String(shipToRaw).trim()
       ? String(shipToRaw).trim()
       : buyerAddress;
   const buyerGstin = viewInv.gstin || '–';
   const partyPins = resolveInvoicePartyPincodes({
+    po: options.po || null,
     invoice: viewInv,
     billPinResolved:
       inv.buyerPin ??
