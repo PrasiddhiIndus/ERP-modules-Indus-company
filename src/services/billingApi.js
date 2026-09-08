@@ -128,12 +128,17 @@ const UNIFIED_PO_CLIENT_DEFAULTS = {
   customDutyPattern: null,
   withFireTender: false,
   relieverScope: null,
+  accommodationScope: null,
+  transportationScope: null,
+  manpowerDetails: [],
   poCopyFiles: [],
   scopeOfWorkFiles: [],
   penaltyClauseFiles: [],
   customPaymentTermsPercent: null,
   poType: null,
   billingWithoutPo: false,
+  actualMobilizationDate: null,
+  paymentTermsNote: null,
 };
 
 function normalizePoDocumentFiles(raw) {
@@ -148,6 +153,21 @@ function normalizePoDocumentFiles(raw) {
       storage: f?.storage ? String(f.storage) : null,
     }))
     .filter((f) => f.name || f.path);
+}
+
+function normalizeManpowerDetails(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((row) => ({
+    designation: String(row?.designation || ''),
+    noOfManpower:
+      row?.noOfManpower != null && String(row.noOfManpower).trim() !== ''
+        ? String(row.noOfManpower)
+        : row?.no_of_manpower != null && String(row.no_of_manpower).trim() !== ''
+          ? String(row.no_of_manpower)
+          : '',
+    dutyPattern: String(row?.dutyPattern || row?.duty_pattern || ''),
+    customDutyPattern: String(row?.customDutyPattern || row?.custom_duty_pattern || ''),
+  }));
 }
 
 function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
@@ -205,9 +225,14 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
     customDutyPattern: raw.custom_duty_pattern ?? null,
     withFireTender: !!raw.with_fire_tender,
     relieverScope: raw.reliever_scope ?? null,
+    accommodationScope: raw.accommodation_scope ?? null,
+    transportationScope: raw.transportation_scope ?? null,
+    manpowerDetails: normalizeManpowerDetails(raw.manpower_details),
     poCopyFiles: normalizePoDocumentFiles(raw.po_copy_files),
     scopeOfWorkFiles: normalizePoDocumentFiles(raw.scope_of_work_files),
     penaltyClauseFiles: normalizePoDocumentFiles(raw.penalty_clause_files),
+    actualMobilizationDate: raw.actual_mobilization_date ?? null,
+    paymentTermsNote: raw.payment_terms_note ?? null,
     panNumber: raw.pan_number ?? null,
     contactEmail: raw.contact_email ?? null,
     poType: raw.po_type ?? raw.billing_type ?? null,
@@ -680,6 +705,10 @@ const PO_WO_PRESERVE_ON_PARTIAL_UPDATE = [
   'duty_pattern',
   'custom_duty_pattern',
   'reliever_scope',
+  'accommodation_scope',
+  'transportation_scope',
+  'actual_mobilization_date',
+  'payment_terms_note',
 ];
 
 function isBlankPersistedText(v) {
@@ -756,6 +785,9 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     return null;
   })();
   const paymentTermsVal = isMp ? String(po.paymentTerms ?? po.payment_terms ?? '').trim() || null : null;
+  const paymentTermsNoteVal = isMp
+    ? String(po.paymentTermsNote ?? po.payment_terms_note ?? '').trim() || null
+    : null;
   const monthlyDutyVal =
     isMp && po.monthlyDutyQtyMode && String(po.monthlyDutyQtyMode).trim()
       ? String(po.monthlyDutyQtyMode).trim()
@@ -791,6 +823,19 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     isMp && po.relieverScope != null && String(po.relieverScope).trim()
       ? String(po.relieverScope).trim()
       : null;
+  const accommodationScopeVal =
+    isMp && po.accommodationScope != null && String(po.accommodationScope).trim()
+      ? String(po.accommodationScope).trim()
+      : null;
+  const transportationScopeVal =
+    isMp && po.transportationScope != null && String(po.transportationScope).trim()
+      ? String(po.transportationScope).trim()
+      : null;
+  const manpowerDetailsVal = isMp
+    ? normalizeManpowerDetails(po.manpowerDetails).filter(
+        (row) => row.designation || row.noOfManpower || row.dutyPattern || row.customDutyPattern
+      )
+    : [];
 
   const poReceivedVal =
     isRm && po.poReceivedDate && String(po.poReceivedDate).trim() ? po.poReceivedDate : null;
@@ -828,6 +873,9 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     custom_duty_pattern: customDutyPatternVal,
     with_fire_tender: isMp ? !!po.withFireTender : false,
     reliever_scope: relieverScopeVal,
+    accommodation_scope: accommodationScopeVal,
+    transportation_scope: transportationScopeVal,
+    manpower_details: manpowerDetailsVal,
     po_copy_files: isMp ? normalizePoDocumentFiles(po.poCopyFiles) : [],
     scope_of_work_files: isMp ? normalizePoDocumentFiles(po.scopeOfWorkFiles) : [],
     penalty_clause_files: isMp ? normalizePoDocumentFiles(po.penaltyClauseFiles) : [],
@@ -836,11 +884,16 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     service_description: po.serviceDescription || null,
     start_date: po.startDate && String(po.startDate).trim() ? po.startDate : null,
     end_date: po.endDate && String(po.endDate).trim() ? po.endDate : null,
+    actual_mobilization_date:
+      isMp && po.actualMobilizationDate && String(po.actualMobilizationDate).trim()
+        ? po.actualMobilizationDate
+        : null,
     po_type: poType,
     billing_type: poType,
     billing_cycle: billingCycleVal,
     billing_frequency: billingFrequencyVal,
     payment_terms: paymentTermsVal,
+    payment_terms_note: paymentTermsNoteVal,
     po_received_date: poReceivedVal,
     payment_term_mode: isRm ? rmTerms.payment_term_mode : null,
     payment_term_days: isRm ? rmTerms.payment_term_days : null,
@@ -974,7 +1027,7 @@ async function persistPoWoRow(payload, poIdInput) {
     const msg = String(poError?.message || '');
     if (
       !strippedPoTypeBundle.has('bundle') &&
-      /po_type|payment_term_mode|payment_term_days|advance_percent|total_contract_month|monthly_contract_value|monthly_value|billing_without_po|duty_pattern|with_fire_tender|reliever_scope|po_copy_files|scope_of_work_files|penalty_clause_files/i.test(
+      /po_type|payment_term_mode|payment_term_days|advance_percent|total_contract_month|monthly_contract_value|monthly_value|billing_without_po|duty_pattern|with_fire_tender|reliever_scope|accommodation_scope|transportation_scope|manpower_details|po_copy_files|scope_of_work_files|penalty_clause_files/i.test(
         msg
       )
     ) {
@@ -992,6 +1045,9 @@ async function persistPoWoRow(payload, poIdInput) {
         custom_duty_pattern,
         with_fire_tender,
         reliever_scope,
+        accommodation_scope,
+        transportation_scope,
+        manpower_details,
         po_copy_files,
         scope_of_work_files,
         penalty_clause_files,

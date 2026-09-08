@@ -532,7 +532,7 @@ const CommercialMtDashboard = () => {
             />
             <QuickActionLink
               to={`${MT_BASE}/po-entry`}
-              label="PO / WO Entry"
+              label="Contract Management"
               hint="Create or update contracts"
               icon={FilePlus2}
               tone="border-sky-100 bg-sky-50/50 hover:bg-sky-50"
