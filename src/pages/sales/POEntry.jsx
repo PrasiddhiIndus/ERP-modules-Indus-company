@@ -2021,7 +2021,7 @@ const POEntry = () => {
       manpowerDetails: (formData.manpowerDetails || [])
         .map((row) => ({
           designation: String(row.designation || '').trim(),
-          noOfManpower: String(row.noOfManpower || '').trim(),
+          noOfManpower: String(row.noOfManpower || '').replace(/\D/g, '').trim(),
           dutyPattern: String(row.dutyPattern || '').trim(),
           customDutyPattern:
             row.dutyPattern === DUTY_PATTERN_CUSTOM
@@ -3392,11 +3392,18 @@ const POEntry = () => {
                             </td>
                             <td className="px-3 py-2">
                               <input
-                                type="number"
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
                                 value={row.noOfManpower || ''}
-                                onChange={(e) => updateManpowerDetailRow(idx, 'noOfManpower', e.target.value)}
+                                onChange={(e) =>
+                                  updateManpowerDetailRow(
+                                    idx,
+                                    'noOfManpower',
+                                    String(e.target.value || '').replace(/\D/g, '')
+                                  )
+                                }
                                 className="border border-gray-300 rounded px-2 py-1 w-full"
-                                min="0"
                                 placeholder="Qty"
                               />
                             </td>

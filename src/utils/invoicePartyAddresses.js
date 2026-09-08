@@ -16,12 +16,13 @@ export function resolveInvoicePartyAddresses(billingAddress, shippingAddress) {
     billToAddress &&
     shipRaw.toLowerCase() !== billToAddress.toLowerCase()
   );
-  const clientShippingAddress = shipToDiffers ? shipRaw : shipRaw || null;
+  const shipToAddress = shipToDiffers ? shipRaw : billToAddress;
 
   return {
     billToAddress,
-    shipToAddress: shipToDiffers ? shipRaw : billToAddress,
+    shipToAddress,
     shipToDiffers,
-    clientShippingAddress,
+    // Always keep a concrete ship-to value for invoice print (falls back to bill-to when same).
+    clientShippingAddress: shipToAddress || null,
   };
 }
