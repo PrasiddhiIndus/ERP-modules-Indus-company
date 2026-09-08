@@ -1,4 +1,3 @@
-import { Client } from '@microsoft/microsoft-graph-client';
 import {
   buildGraphMessagePayload,
   getMicrosoftGraphMailConfig,
@@ -20,6 +19,23 @@ function httpError(message, status = 500) {
   const err = new Error(message);
   err.status = status;
   return err;
+}
+
+async function createGraphClient(getToken) {
+  let Client;
+  try {
+    ({ Client } = await import('@microsoft/microsoft-graph-client'));
+  } catch {
+    throw httpError(
+      'Mail package is missing. Run npm install in the project root, then restart the API.',
+      503
+    );
+  }
+  return Client.initWithMiddleware({
+    authProvider: {
+      getAccessToken: getToken,
+    },
+  });
 }
 
 function withTimeout(promise, timeoutMs, label) {
@@ -99,14 +115,6 @@ async function fetchAccessToken(config) {
   }
 }
 
-function createGraphClient(getToken) {
-  return Client.initWithMiddleware({
-    authProvider: {
-      getAccessToken: getToken,
-    },
-  });
-}
-
 function resolveReplyTo(from, notificationEmail) {
   const sender = String(from || '').trim().toLowerCase();
   if (!sender || sender === notificationEmail) {
@@ -166,7 +174,7 @@ export async function sendMail({
 
   try {
     const accessToken = await fetchAccessToken(config);
-    const client = createGraphClient(async () => accessToken);
+    const client = await createGraphClient(async () => accessToken);
     const sendPath = `/users/${encodeURIComponent(config.notificationEmail)}/sendMail`;
 
     await withTimeout(

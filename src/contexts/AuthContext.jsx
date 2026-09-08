@@ -192,7 +192,6 @@ export const AuthProvider = ({ children }) => {
       void ensureFreshCachedSession({ refreshIfWithinSeconds: 300 }).then((fresh) => {
         if (cancelled || !fresh?.user) return;
         if (userRef.current !== fresh.user.id) applySessionUser(fresh.user);
-        void hydrateSupabaseAuthFromCache(supabase);
       });
     }, 60_000);
 

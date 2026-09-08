@@ -333,6 +333,8 @@ export function isInvalidRefreshTokenError(message) {
     msg.includes('refresh token not found') ||
     msg.includes('refresh_token_not_found') ||
     msg.includes('token_not_found') ||
+    msg.includes('session from session_id claim') ||
+    msg.includes('session_id claim in jwt does not exist') ||
     (msg.includes('refresh') &&
       msg.includes('token') &&
       (msg.includes('invalid') || msg.includes('not found') || msg.includes('revoked')))

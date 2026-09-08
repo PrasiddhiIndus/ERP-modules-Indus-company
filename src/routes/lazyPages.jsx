@@ -73,6 +73,13 @@ export const HrCallingMasterConversion = lazy(() => import("../pages/hr/callingM
 export const HrCallingMasterDropdowns = lazy(() => import("../pages/hr/callingMaster/CallingMasterDropdownPage"));
 export const HrCallingMasterEntry = lazy(() => import("../pages/hr/callingMaster/CallingMasterEntry"));
 export const HrSiteIom = lazy(() => import("../pages/hr/siteIom/SiteIomPage"));
+export const HrSiteAttendance = lazy(() => import("../pages/hr/siteAttendance/SiteAttendanceLayout"));
+export const HrSiteAttendanceDashboard = lazy(() => import("../pages/hr/siteAttendance/DashboardPage"));
+export const HrSiteAttendanceSites = lazy(() => import("../pages/hr/siteAttendance/SiteMasterPage"));
+export const HrSiteAttendancePeople = lazy(() => import("../pages/hr/siteAttendance/PeopleMasterPage"));
+export const HrSiteAttendanceEntry = lazy(() => import("../pages/hr/siteAttendance/AttendanceEntryPage"));
+export const HrSiteAttendanceAdminView = lazy(() => import("../pages/hr/siteAttendance/AdminAttendanceViewPage"));
+export const HrSiteAttendanceSummary = lazy(() => import("../pages/hr/siteAttendance/SummaryPage"));
 export const Procurement = lazy(() => import("../pages/procurement/Procurement"));
 export const Operations = lazy(() => import("../pages/operations/Operations"));
 export const ProjectsBilling = lazy(() => import("../pages/projectsBilling/ProjectsBilling"));
