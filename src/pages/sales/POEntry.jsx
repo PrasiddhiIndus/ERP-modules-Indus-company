@@ -952,7 +952,6 @@ const initialForm = {
   lumpSumBillingMode: '',
   lumpSumTruckCumulateFinalInvoiceLines: false,
   invoiceTermsText: '',
-  paymentTermsNote: '',
   sellerCin: '', sellerPan: '', msmeRegistrationNo: '', msmeClause: '',
   gstSupplyType: 'intra',
   isSez: 'no',
@@ -1508,7 +1507,6 @@ const POEntry = () => {
       lumpSumTruckCumulateFinalInvoiceLines:
         (po.billingType || po.poType) === 'Lump Sum' && isTruckCumulateMode(rawLumpSumBillingMode),
       invoiceTermsText: po.invoiceTermsText || '',
-      paymentTermsNote: po.paymentTermsNote || po.payment_terms_note || '',
       sellerCin: po.sellerCin || '',
       sellerPan: po.sellerPan || '',
       msmeRegistrationNo: po.msmeRegistrationNo || '',
@@ -2040,7 +2038,6 @@ const POEntry = () => {
       monthlyDutyQtyMode: null,
       lumpSumBillingMode: null,
       invoiceTermsText: formData.invoiceTermsText.trim(),
-      paymentTermsNote: String(formData.paymentTermsNote || '').trim() || null,
       sellerCin: (formData.sellerCin || '').trim(),
       sellerPan: (formData.sellerPan || '').trim(),
       msmeRegistrationNo: (formData.msmeRegistrationNo || '').trim(),
@@ -3258,7 +3255,7 @@ const POEntry = () => {
                 {canPaymentTerms ? (
                 <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment due</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
                     <select
                       value={formData.paymentTerms}
                       onChange={(e) => {
@@ -3280,7 +3277,7 @@ const POEntry = () => {
                   </div>
                   {formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM ? (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Manual payment due</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Manual payment terms</label>
                       <input
                         type="text"
                         value={formData.customPaymentTerms}
@@ -3290,19 +3287,6 @@ const POEntry = () => {
                       />
                     </div>
                   ) : null}
-                  <div className={formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM ? 'md:col-span-2' : ''}>
-                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-payment-terms-text">
-                      Payment terms
-                    </label>
-                    <input
-                      id="sales-po-payment-terms-text"
-                      type="text"
-                      value={formData.paymentTermsNote || ''}
-                      onChange={(e) => setFormData((p) => ({ ...p, paymentTermsNote: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                      placeholder="e.g. As per PO / WO"
-                    />
-                  </div>
                 </div>
                 ) : null}
                 </>
@@ -3310,7 +3294,7 @@ const POEntry = () => {
                 {canPaymentTerms && !canPoFinancials ? (
                 <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment due</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
                     <select
                       value={formData.paymentTerms}
                       onChange={(e) => {
@@ -3332,7 +3316,7 @@ const POEntry = () => {
                   </div>
                   {formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM ? (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Manual payment due</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Manual payment terms</label>
                       <input
                         type="text"
                         value={formData.customPaymentTerms}
@@ -3342,19 +3326,6 @@ const POEntry = () => {
                       />
                     </div>
                   ) : null}
-                  <div className={formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM ? 'md:col-span-2' : ''}>
-                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-payment-terms-text-alt">
-                      Payment terms
-                    </label>
-                    <input
-                      id="sales-po-payment-terms-text-alt"
-                      type="text"
-                      value={formData.paymentTermsNote || ''}
-                      onChange={(e) => setFormData((p) => ({ ...p, paymentTermsNote: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                      placeholder="e.g. As per PO / WO"
-                    />
-                  </div>
                 </div>
                 ) : null}
                 {canManpowerDetails ? (
@@ -3508,7 +3479,7 @@ const POEntry = () => {
               ) : null}
               {showTimelinesSection ? (
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
-                <h4 className="text-sm font-semibold text-gray-900 mb-4">5. Timelines & Rules</h4>
+                <h4 className="text-sm font-semibold text-gray-900 mb-4">5. Billing Configuration &amp; Terms</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {canBillingType && String(formData.vertical || '').trim().toLowerCase() !== 'training' ? (
                     <div>
@@ -3820,10 +3791,7 @@ const POEntry = () => {
                   {canPoFinancials ? <PoViewField label="Total contract value" value={formatPoCurrency(poForView.totalContractValue ?? poForView.total_contract_value)} /> : null}
                   {canPoFinancials ? <PoViewField label="Monthly value" value={formatPoCurrency(poForView.monthlyValue ?? poForView.monthly_value)} /> : null}
                   {canBillingType ? <PoViewField label="Billing type" value={poForView.billingType || poForView.poType || poForView.po_type} /> : null}
-                  {canPaymentTerms ? <PoViewField label="Payment due" value={poForView.paymentTerms || poForView.payment_terms} /> : null}
-                  {canPaymentTerms ? (
-                    <PoViewField label="Payment terms" value={poForView.paymentTermsNote || poForView.payment_terms_note} />
-                  ) : null}
+                  {canPaymentTerms ? <PoViewField label="Payment terms" value={poForView.paymentTerms || poForView.payment_terms} /> : null}
                   {(canPoFinancials || canTaxInvoicePrint) ? (
                     <PoViewField label="Invoice payment terms" value={poForView.invoiceTermsText} className="text-sm text-gray-900 sm:col-span-2" />
                   ) : null}

@@ -138,7 +138,6 @@ const UNIFIED_PO_CLIENT_DEFAULTS = {
   poType: null,
   billingWithoutPo: false,
   actualMobilizationDate: null,
-  paymentTermsNote: null,
 };
 
 function normalizePoDocumentFiles(raw) {
@@ -232,7 +231,6 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
     scopeOfWorkFiles: normalizePoDocumentFiles(raw.scope_of_work_files),
     penaltyClauseFiles: normalizePoDocumentFiles(raw.penalty_clause_files),
     actualMobilizationDate: raw.actual_mobilization_date ?? null,
-    paymentTermsNote: raw.payment_terms_note ?? null,
     panNumber: raw.pan_number ?? null,
     contactEmail: raw.contact_email ?? null,
     poType: raw.po_type ?? raw.billing_type ?? null,
@@ -708,7 +706,6 @@ const PO_WO_PRESERVE_ON_PARTIAL_UPDATE = [
   'accommodation_scope',
   'transportation_scope',
   'actual_mobilization_date',
-  'payment_terms_note',
 ];
 
 function isBlankPersistedText(v) {
@@ -785,9 +782,6 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     return null;
   })();
   const paymentTermsVal = isMp ? String(po.paymentTerms ?? po.payment_terms ?? '').trim() || null : null;
-  const paymentTermsNoteVal = isMp
-    ? String(po.paymentTermsNote ?? po.payment_terms_note ?? '').trim() || null
-    : null;
   const monthlyDutyVal =
     isMp && po.monthlyDutyQtyMode && String(po.monthlyDutyQtyMode).trim()
       ? String(po.monthlyDutyQtyMode).trim()
@@ -893,7 +887,6 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     billing_cycle: billingCycleVal,
     billing_frequency: billingFrequencyVal,
     payment_terms: paymentTermsVal,
-    payment_terms_note: paymentTermsNoteVal,
     po_received_date: poReceivedVal,
     payment_term_mode: isRm ? rmTerms.payment_term_mode : null,
     payment_term_days: isRm ? rmTerms.payment_term_days : null,
