@@ -129,6 +129,16 @@ export function hasHrCallingR2Access(ctx) {
   );
 }
 
+/** Commercial / Billing PO documents (Manpower PO entry). */
+export function hasCommercialPoR2Access(ctx) {
+  if (isSuperAdminRole(ctx)) return true;
+  if (hasAssignedModuleOrSub(ctx, 'billing') || hasAssignedModuleOrSub(ctx, 'commercial')) return true;
+  if (hasAssignedModuleOrSub(ctx, 'commercialmt') || hasAssignedModuleOrSub(ctx, 'commercialrm')) return true;
+  return subModulesLower(ctx).some((s) =>
+    BILLING_SUB_MODULE_PREFIXES.some((prefix) => s.startsWith(prefix))
+  );
+}
+
 function projectRefFromUrl(url) {
   const m = String(url || '').match(/https?:\/\/([^.]+)\.supabase\.co/i);
   return m ? m[1] : '';
@@ -457,5 +467,6 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     requireSoftwareSubscriptionsR2: middleware((ctx) => hasSoftwareSubscriptionsR2Access(ctx)),
     requireFleetR2: middleware((ctx) => hasFleetR2Access(ctx)),
     requireHrCallingR2: middleware((ctx) => hasHrCallingR2Access(ctx)),
+    requireCommercialPoR2: middleware((ctx) => hasCommercialPoR2Access(ctx) || hasBillingAccess(ctx)),
   };
 }
