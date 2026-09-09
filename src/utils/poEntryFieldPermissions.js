@@ -39,7 +39,7 @@ export const PO_ENTRY_FIELD = {
   PENALTY_CLAUSE: 'penaltyClause',
   MATERIAL_CODE_REQUIRED: 'materialCodeRequired',
   WITH_FIRE_TENDER: 'withFireTender',
-  /** Commercial: entire Timelines & Rules section */
+  /** Commercial: entire Billing Configuration & Terms section */
   TIMELINES_RULES: 'timelinesRules',
   /** Commercial: entire Documents section */
   DOCUMENTS: 'documents',
@@ -182,7 +182,7 @@ const FIELD_TO_CLIENT_KEYS = {
     'lumpSumBillingMode',
     'lumpSumTruckCumulateFinalInvoiceLines',
   ],
-  [F.PAYMENT_TERMS]: ['paymentTerms', 'customPaymentTerms', 'paymentTermMode', 'paymentTermDays', 'paymentTermsNote'],
+  [F.PAYMENT_TERMS]: ['paymentTerms', 'customPaymentTerms', 'paymentTermMode', 'paymentTermDays'],
   [F.REMARKS]: ['remarks'],
   [F.DUTY_PATTERN]: ['dutyPattern', 'customDutyPattern'],
   [F.MANPOWER_DETAILS]: ['manpowerDetails'],
@@ -234,7 +234,7 @@ const FIELD_TO_DB_COLUMNS = {
   [F.ACTUAL_MOBILIZATION_DATE]: ['actual_mobilization_date'],
   [F.END_DATE]: ['end_date'],
   [F.BILLING_TYPE]: ['po_type', 'billing_type', 'monthly_duty_qty_mode', 'lump_sum_billing_mode'],
-  [F.PAYMENT_TERMS]: ['payment_terms', 'payment_terms_note'],
+  [F.PAYMENT_TERMS]: ['payment_terms'],
   [F.REMARKS]: ['remarks'],
   [F.DUTY_PATTERN]: ['duty_pattern', 'custom_duty_pattern'],
   [F.MANPOWER_DETAILS]: ['manpower_details'],
@@ -335,7 +335,6 @@ const CREATE_CLIENT_DEFAULTS = {
   customPaymentTerms: '',
   paymentTermMode: null,
   paymentTermDays: null,
-  paymentTermsNote: '',
   materialCodeRequired: false,
   withFireTender: false,
   poCopyFiles: [],
