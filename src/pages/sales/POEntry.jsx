@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle, ChevronLeft, ChevronRight, Paperclip, Eye, Share2, Link2, ExternalLink } from 'lucide-react';
+import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle, ChevronLeft, ChevronRight, Paperclip, Eye, Share2, Link2, Download } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from '../../config/roles';
@@ -43,7 +43,7 @@ import {
   getCommercialPoActorDisplayName,
   PO_APPROVAL_STATUS as APPROVAL_STATUS,
 } from '../../utils/commercialPoApproval';
-import { presignCommercialPoR2Get, createCommercialPoShareLink } from '../../lib/commercialPoR2';
+import { createCommercialPoShareLink, viewCommercialPoR2File, downloadCommercialPoR2File } from '../../lib/commercialPoR2';
 import {
   PO_ENTRY_FIELD,
   canEditPoEntryField,
@@ -84,14 +84,25 @@ function PoViewDocumentList({ title, files }) {
     return createCommercialPoShareLink(file.path);
   };
 
-  const openFile = async (file, key) => {
+  const viewFile = async (file, key) => {
     if (!file?.path) return;
     setBusyKey(key);
     try {
-      const url = await presignCommercialPoR2Get(file.path);
-      window.open(url, '_blank', 'noopener,noreferrer');
+      await viewCommercialPoR2File(file.path);
     } catch (err) {
       toast.warning(err?.message || 'Could not open file.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const downloadFile = async (file, key) => {
+    if (!file?.path) return;
+    setBusyKey(key);
+    try {
+      await downloadCommercialPoR2File(file.path, file.name);
+    } catch (err) {
+      toast.warning(err?.message || 'Could not download file.');
     } finally {
       setBusyKey('');
     }
@@ -169,13 +180,23 @@ function PoViewDocumentList({ title, files }) {
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={() => openFile(file, key)}
+                    onClick={() => viewFile(file, key)}
                     disabled={!file.path || busy}
                     className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                    title="Open file"
+                    title="View file"
                   >
-                    <ExternalLink className="h-3 w-3" />
-                    Open
+                    <Eye className="h-3 w-3" />
+                    View
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadFile(file, key)}
+                    disabled={!file.path || busy}
+                    className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                    title="Download file"
+                  >
+                    <Download className="h-3 w-3" />
+                    Download
                   </button>
                   <button
                     type="button"
@@ -361,33 +382,113 @@ function fileMetaForPersist(files) {
 function PoDocumentUploadField({ id, label, files, onChange }) {
   const inputRef = useRef(null);
   const list = Array.isArray(files) ? files : [];
+  const [busyKey, setBusyKey] = useState('');
+
+  const openLocalFile = (fileMeta, mode) => {
+    const blob = fileMeta?.file instanceof File ? fileMeta.file : null;
+    if (!blob) return;
+    const objectUrl = URL.createObjectURL(blob);
+    if (mode === 'download') {
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = fileMeta.name || blob.name || 'download';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } else {
+      window.open(objectUrl, '_blank', 'noopener,noreferrer');
+    }
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  };
+
+  const viewFile = async (fileMeta, key) => {
+    setBusyKey(key);
+    try {
+      if (fileMeta?.path) {
+        await viewCommercialPoR2File(fileMeta.path);
+      } else if (fileMeta?.file instanceof File) {
+        openLocalFile(fileMeta, 'view');
+      } else {
+        toast.warning('File is not available yet. Save the PO first.');
+      }
+    } catch (err) {
+      toast.warning(err?.message || 'Could not open file.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const downloadFile = async (fileMeta, key) => {
+    setBusyKey(key);
+    try {
+      if (fileMeta?.path) {
+        await downloadCommercialPoR2File(fileMeta.path, fileMeta.name);
+      } else if (fileMeta?.file instanceof File) {
+        openLocalFile(fileMeta, 'download');
+      } else {
+        toast.warning('File is not available yet. Save the PO first.');
+      }
+    } catch (err) {
+      toast.warning(err?.message || 'Could not download file.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor={id}>
         {label}
       </label>
       <div className="space-y-2">
-        {list.map((file, index) => (
-          <div
-            key={file.key || `${file.name}-${index}`}
-            className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
-          >
-            <div className="min-w-0 flex items-center gap-2 text-sm text-gray-700">
-              <Paperclip className="h-4 w-4 shrink-0 text-gray-500" />
-              <span className="truncate" title={file.name}>
-                {file.name}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => onChange(list.filter((_, i) => i !== index))}
-              className="inline-flex items-center gap-1 text-xs font-medium text-rose-600 hover:text-rose-700"
+        {list.map((file, index) => {
+          const key = file.key || `${file.name}-${index}`;
+          const busy = busyKey === key;
+          const canOpen = Boolean(file.path || file.file instanceof File);
+          return (
+            <div
+              key={key}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
             >
-              <Trash2 className="h-3.5 w-3.5" />
-              Remove
-            </button>
-          </div>
-        ))}
+              <div className="min-w-0 flex items-center gap-2 text-sm text-gray-700">
+                <Paperclip className="h-4 w-4 shrink-0 text-gray-500" />
+                <span className="truncate" title={file.name}>
+                  {file.name}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => viewFile(file, key)}
+                  disabled={!canOpen || busy}
+                  className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                  title="View"
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  View
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadFile(file, key)}
+                  disabled={!canOpen || busy}
+                  className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                  title="Download"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Download
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChange(list.filter((_, i) => i !== index))}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-rose-600 hover:text-rose-700"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Remove
+                </button>
+              </div>
+            </div>
+          );
+        })}
         <input
           ref={inputRef}
           id={id}
@@ -3134,6 +3235,29 @@ const POEntry = () => {
                     />
                   </div>
                   ) : null}
+                  {canPaymentTerms ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
+                    <select
+                      value={formData.paymentTerms}
+                      onChange={(e) => {
+                        const selectedTerm = e.target.value;
+                        setFormData((p) => ({
+                          ...p,
+                          paymentTerms: selectedTerm,
+                          customPaymentTerms:
+                            selectedTerm === CUSTOM_MT_PAYMENT_TERM ? p.customPaymentTerms : '',
+                        }));
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    >
+                      {MT_PAYMENT_TERMS_OPTIONS.map((term) => (
+                        <option key={term} value={term}>{term}</option>
+                      ))}
+                      <option value={CUSTOM_MT_PAYMENT_TERM}>{CUSTOM_MT_PAYMENT_TERM}</option>
+                    </select>
+                  </div>
+                  ) : null}
                   {canStartDate ? (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">PO Start Date</label>
@@ -3204,29 +3328,6 @@ const POEntry = () => {
                       Auto-calculated as total contract value ÷ (contract duration in years × 12). Editable if needed.
                     </p>
                   </div>
-                  {canPaymentTerms ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
-                    <select
-                      value={formData.paymentTerms}
-                      onChange={(e) => {
-                        const selectedTerm = e.target.value;
-                        setFormData((p) => ({
-                          ...p,
-                          paymentTerms: selectedTerm,
-                          customPaymentTerms:
-                            selectedTerm === CUSTOM_MT_PAYMENT_TERM ? p.customPaymentTerms : '',
-                        }));
-                      }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    >
-                      {MT_PAYMENT_TERMS_OPTIONS.map((term) => (
-                        <option key={term} value={term}>{term}</option>
-                      ))}
-                      <option value={CUSTOM_MT_PAYMENT_TERM}>{CUSTOM_MT_PAYMENT_TERM}</option>
-                    </select>
-                  </div>
-                  ) : null}
                   {canPaymentTerms && formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM ? (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Manual payment terms</label>
@@ -3609,18 +3710,6 @@ const POEntry = () => {
                       />
                     </div>
                   ) : null}
-                </div>
-                ) : null}
-                {(canPoFinancials || canTaxInvoicePrint) ? (
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
-                  <textarea
-                    value={formData.invoiceTermsText}
-                    onChange={(e) => setFormData((p) => ({ ...p, invoiceTermsText: e.target.value }))}
-                    rows={4}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm"
-                    placeholder="One line per numbered point, or leave blank to use the default template for the PO vertical."
-                  />
                 </div>
                 ) : null}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
