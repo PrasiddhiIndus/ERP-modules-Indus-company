@@ -3204,6 +3204,41 @@ const POEntry = () => {
                       Auto-calculated as total contract value ÷ (contract duration in years × 12). Editable if needed.
                     </p>
                   </div>
+                  {canPaymentTerms ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
+                    <select
+                      value={formData.paymentTerms}
+                      onChange={(e) => {
+                        const selectedTerm = e.target.value;
+                        setFormData((p) => ({
+                          ...p,
+                          paymentTerms: selectedTerm,
+                          customPaymentTerms:
+                            selectedTerm === CUSTOM_MT_PAYMENT_TERM ? p.customPaymentTerms : '',
+                        }));
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    >
+                      {MT_PAYMENT_TERMS_OPTIONS.map((term) => (
+                        <option key={term} value={term}>{term}</option>
+                      ))}
+                      <option value={CUSTOM_MT_PAYMENT_TERM}>{CUSTOM_MT_PAYMENT_TERM}</option>
+                    </select>
+                  </div>
+                  ) : null}
+                  {canPaymentTerms && formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM ? (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Manual payment terms</label>
+                      <input
+                        type="text"
+                        value={formData.customPaymentTerms}
+                        onChange={(e) => setFormData((p) => ({ ...p, customPaymentTerms: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        placeholder="e.g. Net 7, 50% advance"
+                      />
+                    </div>
+                  ) : null}
                   {isLumpSumMode ? (
                     <>
                       <div>
@@ -3251,43 +3286,6 @@ const POEntry = () => {
                       ))}
                     </div>
                   </div>
-                ) : null}
-                {canPaymentTerms ? (
-                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
-                    <select
-                      value={formData.paymentTerms}
-                      onChange={(e) => {
-                        const selectedTerm = e.target.value;
-                        setFormData((p) => ({
-                          ...p,
-                          paymentTerms: selectedTerm,
-                          customPaymentTerms:
-                            selectedTerm === CUSTOM_MT_PAYMENT_TERM ? p.customPaymentTerms : '',
-                        }));
-                      }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    >
-                      {MT_PAYMENT_TERMS_OPTIONS.map((term) => (
-                        <option key={term} value={term}>{term}</option>
-                      ))}
-                      <option value={CUSTOM_MT_PAYMENT_TERM}>{CUSTOM_MT_PAYMENT_TERM}</option>
-                    </select>
-                  </div>
-                  {formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM ? (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Manual payment terms</label>
-                      <input
-                        type="text"
-                        value={formData.customPaymentTerms}
-                        onChange={(e) => setFormData((p) => ({ ...p, customPaymentTerms: e.target.value }))}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                        placeholder="e.g. Net 7, 50% advance"
-                      />
-                    </div>
-                  ) : null}
-                </div>
                 ) : null}
                 </>
                 ) : null}
