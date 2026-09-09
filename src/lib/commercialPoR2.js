@@ -59,18 +59,51 @@ export async function uploadCommercialPoFileToR2({ file, poId, folder }) {
   return String(objectKey);
 }
 
-export async function presignCommercialPoR2Get(objectKey) {
+export async function presignCommercialPoR2Get(objectKey, { download = false, fileName } = {}) {
   const res = await commercialPoR2Fetch('/presign-get', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ objectKey }),
+    body: JSON.stringify({
+      objectKey,
+      download: Boolean(download),
+      ...(fileName ? { fileName } : {}),
+    }),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.message || `Download link failed (${res.status}).`);
   if (!body.getUrl) throw new Error('Missing download URL.');
   return body.getUrl;
+}
+
+function fileLabelFromCommercialPoKey(objectKey, fallbackName = '') {
+  if (fallbackName) return String(fallbackName);
+  const s = String(objectKey || '');
+  const i = s.lastIndexOf('/');
+  const tail = i >= 0 ? s.slice(i + 1) : s;
+  const m = tail.match(/^\d+-(.+)$/);
+  return m ? m[1] : tail || 'download';
+}
+
+/** Open PO document in a new tab (inline). */
+export async function viewCommercialPoR2File(objectKey) {
+  const url = await presignCommercialPoR2Get(objectKey, { download: false });
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+/** Trigger browser download via presigned R2 URL (Content-Disposition: attachment). */
+export async function downloadCommercialPoR2File(objectKey, fileName) {
+  const label = fileLabelFromCommercialPoKey(objectKey, fileName);
+  const url = await presignCommercialPoR2Get(objectKey, { download: true, fileName: label });
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = label;
+  a.rel = 'noopener noreferrer';
+  a.target = '_blank';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 /** Short temporary share URL (in-memory code; no DB). Valid ~24h; opens redirect to R2. */
