@@ -801,10 +801,11 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
           ? Math.round((totalContractValueVal / totalContractMonthVal) * 100) / 100
           : null)
       : null;
-  const monthlyValueVal =
-    isMp && po.monthlyValue != null && String(po.monthlyValue).trim() !== ''
-      ? Number(po.monthlyValue)
-      : null;
+  const monthlyValueVal = (() => {
+    if (!isMp || po.monthlyValue == null || String(po.monthlyValue).trim() === '') return null;
+    const n = Number(po.monthlyValue);
+    return Number.isFinite(n) ? n : null;
+  })();
   const dutyPatternVal =
     isMp && po.dutyPattern != null && String(po.dutyPattern).trim()
       ? String(po.dutyPattern).trim()
@@ -888,8 +889,19 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     billing_frequency: billingFrequencyVal,
     payment_terms: paymentTermsVal,
     po_received_date: poReceivedVal,
-    payment_term_mode: isRm ? rmTerms.payment_term_mode : null,
-    payment_term_days: isRm ? rmTerms.payment_term_days : null,
+    payment_term_mode: isRm
+      ? rmTerms.payment_term_mode
+      : isMp
+        ? po.paymentTermMode ?? po.payment_term_mode ?? null
+        : null,
+    payment_term_days: (() => {
+      if (isRm) return rmTerms.payment_term_days;
+      if (!isMp) return null;
+      const raw = po.paymentTermDays ?? po.payment_term_days;
+      if (raw == null || String(raw).trim() === '') return null;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : null;
+    })(),
     advance_percent: isRm ? rmTerms.advance_percent : null,
     custom_advance_percent: customAdvVal,
     remarks: po.remarks || null,
@@ -959,18 +971,30 @@ async function resolveAndUploadPoDocumentFiles(poId, folder, files) {
       continue;
     }
     if (fileBlob) {
-      const objectKey = await uploadCommercialPoFileToR2({
-        file: fileBlob,
-        poId,
-        folder,
-      });
-      out.push({
-        name: name || fileBlob.name,
-        size: size || fileBlob.size,
-        type: type || fileBlob.type || '',
-        path: objectKey,
-        storage: 'r2',
-      });
+      try {
+        const objectKey = await uploadCommercialPoFileToR2({
+          file: fileBlob,
+          poId,
+          folder,
+        });
+        out.push({
+          name: name || fileBlob.name,
+          size: size || fileBlob.size,
+          type: type || fileBlob.type || '',
+          path: objectKey,
+          storage: 'r2',
+        });
+      } catch (uploadErr) {
+        console.warn(`PO document upload failed (${folder}/${name || fileBlob.name}):`, uploadErr);
+        // Keep metadata so the PO still saves; user can re-upload later.
+        out.push({
+          name: name || fileBlob.name,
+          size: size || fileBlob.size,
+          type: type || fileBlob.type || '',
+          path: existingPath,
+          storage: item?.storage || null,
+        });
+      }
       continue;
     }
     if (name) out.push({ name, size, type, path: existingPath, storage: item?.storage || null });
@@ -1121,8 +1145,8 @@ export async function saveCommercialPOs(list, options = {}) {
               : existingRow?.penalty_clause_files ?? penaltyClauseFiles,
           });
         } catch (docErr) {
-          console.warn('PO document upload/save:', docErr);
-          throw docErr;
+          // PO row already saved — do not roll back the whole entry for attachment failures.
+          console.warn('PO document upload/save (non-fatal):', docErr);
         }
       }
     }

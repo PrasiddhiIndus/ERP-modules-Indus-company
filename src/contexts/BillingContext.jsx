@@ -505,6 +505,13 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
 
   const setCommercialPOs = useCallback(
     (updater) => {
+      // Deferred promise so callers can await DB persist even if React defers the updater.
+      let resolvePersist;
+      let rejectPersist;
+      const persistPromise = new Promise((resolve, reject) => {
+        resolvePersist = resolve;
+        rejectPersist = reject;
+      });
       setCommercialPOsFull((prevAll) => {
         const scoped = commercialModuleScope;
         const sliceForUpdater = scoped
@@ -549,39 +556,62 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
           const { __poEntryFieldAcl: _acl, ...rest } = row;
           return rest;
         };
-        next = (next || []).map(stripAcl);
+        // File blobs must stay on toPersist for R2 upload; strip before React/local state.
+        const stripFileBlobs = (row) => {
+          if (!row || typeof row !== 'object') return row;
+          const stripDocs = (files) =>
+            (Array.isArray(files) ? files : []).map(({ file: _f, ...meta }) => meta);
+          return {
+            ...row,
+            poCopyFiles: stripDocs(row.poCopyFiles),
+            scopeOfWorkFiles: stripDocs(row.scopeOfWorkFiles),
+            penaltyClauseFiles: stripDocs(row.penaltyClauseFiles),
+          };
+        };
+        const toPersistWithFiles = (toPersist || []).map(stripAcl);
+        next = (next || []).map(stripAcl).map(stripFileBlobs);
         Promise.resolve()
           .then(async () => {
             // Persist deletes first so removed rows don't reappear after realtime refresh.
             if (removedIds.length) await deleteCommercialPOsDb(removedIds);
             // Only upsert POs that changed in the active commercial scope.
-            if (toPersist.length) {
+            if (toPersistWithFiles.length) {
               await saveCommercialPOsDb(
-                toPersist,
+                toPersistWithFiles,
                 scoped ? { moduleContext: toModuleContext(scoped) } : {}
               );
             }
             const reloadOk = await loadFromDb();
             // If fetch/filter lagged, keep freshly saved rows visible in the scoped module.
-            if (reloadOk && scoped && toPersist.length) {
-              setCommercialPOsFull((prevAll) => {
-                const scopedRows = prevAll.filter(
+            if (reloadOk && scoped && toPersistWithFiles.length) {
+              setCommercialPOsFull((prevAllInner) => {
+                const scopedRows = prevAllInner.filter(
                   (p) => getCommercialPoModuleType(p) === scoped
                 );
                 const scopedIds = new Set(scopedRows.map((p) => String(p.id)));
-                const missing = toPersist.filter((p) => !scopedIds.has(String(p.id)));
-                if (!missing.length) return prevAll;
-                const others = prevAll.filter((p) => getCommercialPoModuleType(p) !== scoped);
+                const missing = toPersistWithFiles
+                  .filter((p) => !scopedIds.has(String(p.id)))
+                  .map(stripFileBlobs);
+                if (!missing.length) return prevAllInner;
+                const others = prevAllInner.filter((p) => getCommercialPoModuleType(p) !== scoped);
                 return [...others, ...scopedRows, ...missing];
               });
             }
+            return { ok: true, persisted: toPersistWithFiles.length };
           })
-          .then(() => setUseDb(true))
+          .then((result) => {
+            setUseDb(true);
+            resolvePersist(result);
+            return result;
+          })
           .catch((e) => {
             console.warn('Billing DB save POs failed:', e);
             setBillingError(e?.message || 'Could not save to database. Data saved locally.');
             setUseDb(false);
             saveCommercialPOsLocal(next);
+            rejectPersist(
+              e instanceof Error ? e : new Error(e?.message || 'Could not save PO to database.')
+            );
           });
         setContactHistoryState((byPo) => {
           const nextByPo = {};
@@ -593,6 +623,7 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
         });
         return next;
       });
+      return persistPromise;
     },
     [commercialModuleScope, loadFromDb]
   );

@@ -243,8 +243,31 @@ const DUTY_PATTERN_OPTIONS = [
 ];
 const RELIEVER_SCOPE_OPTIONS = [
   'In IFSPL scope',
-  'In inclusive instrength',
+  'Inclusive In-Strength',
 ];
+const ACCOMMODATION_TRANSPORT_SCOPE_OPTIONS = [
+  'In IFSPL Scope',
+  'In Client Scope',
+  'Not Applicable',
+];
+
+function normalizeRelieverScopeValue(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (/inclusive\s*in[\s-]*strength/i.test(s)) return 'Inclusive In-Strength';
+  return s;
+}
+
+function normalizeAccommodationTransportScopeValue(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (/^in\s+ifspl\s+scope$/i.test(s)) return 'In IFSPL Scope';
+  if (/^in\s+client\s+scope$/i.test(s)) return 'In Client Scope';
+  if (/^not\s+applicable$/i.test(s)) return 'Not Applicable';
+  // Legacy value removed from Accommodation / Transportation.
+  if (/inclusive\s*in[\s-]*strength/i.test(s)) return '';
+  return s;
+}
 const emptyManpowerDetailRow = () => ({
   designation: '',
   noOfManpower: '',
@@ -1062,7 +1085,7 @@ const initialForm = {
 
 const POEntry = () => {
   const location = useLocation();
-  const { commercialPOs, setCommercialPOs, setInvoices } = useBilling();
+  const { commercialPOs, setCommercialPOs, setInvoices, billingError, clearBillingError } = useBilling();
   const { user, userProfile, accessibleModules } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
@@ -1077,6 +1100,8 @@ const POEntry = () => {
   const [contactError, setContactError] = useState('');
   const [gstTypeError, setGstTypeError] = useState('');
   const [saveError, setSaveError] = useState('');
+  const [savingPo, setSavingPo] = useState(false);
+  const pendingCreateIdRef = useRef(null);
   const [sortConfig, setSortConfig] = useState({ key: 'modified', direction: 'desc' });
 
   const fyForOc = formData.ocFyEdit || getFinancialYear();
@@ -1096,6 +1121,7 @@ const POEntry = () => {
   const canPincodeBillTo = canPoField(PO_ENTRY_FIELD.PINCODE_BILL_TO);
   const canShippingAddress = canPoField(PO_ENTRY_FIELD.SHIPPING_ADDRESS);
   const canPincodeShipTo = canPoField(PO_ENTRY_FIELD.PINCODE_SHIP_TO);
+  const canLocationName = canPoField(PO_ENTRY_FIELD.LOCATION_NAME);
   const canGstin = canPoField(PO_ENTRY_FIELD.GSTIN);
   const canPanNumber = canPoField(PO_ENTRY_FIELD.PAN_NUMBER);
   const canPlaceOfSupply = canPoField(PO_ENTRY_FIELD.PLACE_OF_SUPPLY);
@@ -1103,6 +1129,7 @@ const POEntry = () => {
   const canOcNumber = canPoField(PO_ENTRY_FIELD.OC_NUMBER);
   const canPoFinancials = canPoField(PO_ENTRY_FIELD.PO_FINANCIALS);
   const canTaxInvoicePrint = canPoField(PO_ENTRY_FIELD.TAX_INVOICE_PRINT);
+  const canTaxService = canPoField(PO_ENTRY_FIELD.TAX_SERVICE);
   const canStartDate = canPoField(PO_ENTRY_FIELD.START_DATE);
   const canActualMobilizationDate = canPoField(PO_ENTRY_FIELD.ACTUAL_MOBILIZATION_DATE);
   const canEndDate = canPoField(PO_ENTRY_FIELD.END_DATE);
@@ -1123,6 +1150,7 @@ const POEntry = () => {
     canLegalName ||
     canBillingAddress ||
     canPincodeBillTo ||
+    canLocationName ||
     canShippingAddress ||
     canPincodeShipTo ||
     canGstin ||
@@ -1446,6 +1474,7 @@ const POEntry = () => {
       ? buildWithoutPoDummyIds({ verticalLabel: nextVertical, ocSeries: nextSeries })
       : { ocNumber: '', poWoNumber: '' };
     setEditId(null);
+    pendingCreateIdRef.current = null;
     setFormData({
       ...initialForm,
       vertical: nextVertical,
@@ -1465,6 +1494,7 @@ const POEntry = () => {
 
   const handleOpenEdit = (po) => {
     setEditId(po.id);
+    pendingCreateIdRef.current = null;
     const cycles = Array.isArray(po.renewalCycles) ? po.renewalCycles : [];
     const rawLumpSumBillingMode = po.lumpSumBillingMode || po.lump_sum_billing_mode || 'normal';
     const parsed = parseStructuredOcMt(po.ocNumber);
@@ -1559,9 +1589,13 @@ const POEntry = () => {
         const hasSavedMonthly = savedMonthly !== '' && savedMonthly != null;
         return {
           ...duty,
-          relieverScope: po.relieverScope || po.reliever_scope || '',
-          accommodationScope: po.accommodationScope || po.accommodation_scope || '',
-          transportationScope: po.transportationScope || po.transportation_scope || '',
+          relieverScope: normalizeRelieverScopeValue(po.relieverScope || po.reliever_scope || ''),
+          accommodationScope: normalizeAccommodationTransportScopeValue(
+            po.accommodationScope || po.accommodation_scope || ''
+          ),
+          transportationScope: normalizeAccommodationTransportScopeValue(
+            po.transportationScope || po.transportation_scope || ''
+          ),
           monthlyValue: hasSavedMonthly ? String(savedMonthly) : (calc === '' ? '' : String(calc)),
           monthlyValueManual: hasSavedMonthly,
         };
@@ -1850,8 +1884,13 @@ const POEntry = () => {
     );
   };
 
-  const savePO = () => {
-    if (canGstin && formData.gstin && !validateGSTIN(formData.gstin)) { setGstinError('Fix GSTIN before saving'); return; }
+  const savePO = async () => {
+    if (savingPo) return;
+    if (canGstin && formData.gstin && !validateGSTIN(formData.gstin)) {
+      setGstinError('Fix GSTIN before saving');
+      toast.warning('Fix GSTIN before saving.');
+      return;
+    }
     const contactPersons = normalizeContactPersonsList(formData.contactPersons, formData);
     const primaryContact = syncPrimaryContactFields(contactPersons);
     if (canContactPoc) {
@@ -1860,6 +1899,7 @@ const POEntry = () => {
       );
       if (invalidContactNumber) {
         setContactError('Contact Number must be exactly 10 digits.');
+        toast.warning('Contact Number must be exactly 10 digits.');
         return;
       }
     }
@@ -1872,10 +1912,13 @@ const POEntry = () => {
       const gstErr = validateGstSupplyTypeForState(formData.placeOfSupply, formData.billingAddress, resolvedGst);
       if (gstErr) {
         setGstTypeError(gstErr);
+        toast.warning(gstErr);
         return;
       }
     }
     setGstTypeError('');
+    setSaveError('');
+    if (typeof clearBillingError === 'function') clearBillingError();
     const isWithoutPo = formData.poBasis === PO_BASIS_WITHOUT_PO;
     const dummies = buildWithoutPoDummyIds({
       verticalLabel: formData.vertical || 'Manpower',
@@ -1887,6 +1930,7 @@ const POEntry = () => {
       const trimmedManualOc = (formData.ocNumber || '').trim();
       if (canOcNumber && !trimmedManualOc) {
         setSaveError('Enter OC number.');
+        toast.warning('Enter OC number.');
         return;
       }
       ocNum = trimmedManualOc;
@@ -1925,6 +1969,7 @@ const POEntry = () => {
       );
       if (poSaveConflict) {
         setSaveError(poSaveConflict.message);
+        toast.warning(poSaveConflict.message);
         return;
       }
     }
@@ -1932,20 +1977,22 @@ const POEntry = () => {
       formData.totalContractValue === '' || formData.totalContractValue == null;
     if (canPaymentTerms && formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM && !String(formData.customPaymentTerms || '').trim()) {
       setSaveError('Enter payment terms or choose a preset.');
+      toast.warning('Enter payment terms or choose a preset.');
       return;
     }
     if (canPoFinancials && !isWithoutPo && !trimmedPoWoNumber) {
-      setSaveError(
-        editId
-          ? 'Enter PO/WO number in New PO Number (renewal).'
-          : priorActivePo
-            ? 'Enter the new active PO/WO number.'
-            : 'Enter PO/WO number.'
-      );
+      const msg = editId
+        ? 'Enter PO/WO number in New PO Number (renewal).'
+        : priorActivePo
+          ? 'Enter the new active PO/WO number.'
+          : 'Enter PO/WO number.';
+      setSaveError(msg);
+      toast.warning(msg);
       return;
     }
     if (canPoFinancials && isWithoutPo && !trimmedPoWoNumber) {
       setSaveError('Could not assign dummy PO/WO identifier.');
+      toast.warning('Could not assign dummy PO/WO identifier.');
       return;
     }
     const trainingSelected = isTrainingVertical(formData.vertical);
@@ -1985,7 +2032,11 @@ const POEntry = () => {
       formData.newCycleTotalContractValue != null;
     // Renewal cycle is optional until contract end; ignore new-cycle fields until then.
     const addingRenewalCycle = Boolean(canPoFinancials && editId && canAddNewCycle && hasNewCycle);
-    const newId = editId ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`);
+    const newId =
+      editId ??
+      pendingCreateIdRef.current ??
+      (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`);
+    if (!editId) pendingCreateIdRef.current = newId;
     const nowIso = new Date().toISOString();
     const historyPrev = Array.isArray(prevPo?.updateHistory) ? [...prevPo.updateHistory] : [];
     const nextSnapshot = {
@@ -2049,9 +2100,14 @@ const POEntry = () => {
         : row
     );
     const historyWithContacts = withContactPersonsHistorySnapshot(historyPrev, contactPersons);
+    const monthlyValueNum =
+      formData.monthlyValue === '' || formData.monthlyValue == null
+        ? null
+        : Number(formData.monthlyValue);
     const po = {
       id: newId, siteId: formData.siteId.trim() || `SITE-${String(newId).slice(0, 8)}`,
-      locationName: formData.locationName.trim() || formData.legalName, legalName: formData.legalName.trim(),
+      locationName: formData.locationName.trim() || formData.legalName.trim() || '',
+      legalName: formData.legalName.trim(),
       billingAddress: formData.billingAddress.trim(),
       shippingAddress:
         showSameAsShipControls && formData.billToShipToPinSame !== false
@@ -2114,9 +2170,9 @@ const POEntry = () => {
       advancePercent: null,
       dutyPattern: null,
       customDutyPattern: null,
-      relieverScope: String(formData.relieverScope || '').trim() || null,
-      accommodationScope: String(formData.accommodationScope || '').trim() || null,
-      transportationScope: String(formData.transportationScope || '').trim() || null,
+      relieverScope: normalizeRelieverScopeValue(formData.relieverScope) || null,
+      accommodationScope: normalizeAccommodationTransportScopeValue(formData.accommodationScope) || null,
+      transportationScope: normalizeAccommodationTransportScopeValue(formData.transportationScope) || null,
       manpowerDetails: (formData.manpowerDetails || [])
         .map((row) => ({
           designation: String(row.designation || '').trim(),
@@ -2128,10 +2184,7 @@ const POEntry = () => {
               : '',
         }))
         .filter((row) => row.designation || row.noOfManpower || row.dutyPattern || row.customDutyPattern),
-      monthlyValue:
-        formData.monthlyValue === '' || formData.monthlyValue == null
-          ? null
-          : Number(formData.monthlyValue),
+      monthlyValue: Number.isFinite(monthlyValueNum) ? monthlyValueNum : null,
       withFireTender: !!formData.withFireTender,
       poCopyFiles: fileMetaForPersist(formData.poCopyFiles),
       scopeOfWorkFiles: fileMetaForPersist(formData.scopeOfWorkFiles),
@@ -2180,29 +2233,43 @@ const POEntry = () => {
       prevPo,
       userProfile,
     });
-    if (editId) {
-      setCommercialPOs((prev) => prev.map((p) => (p.id === editId ? poToSave : p)));
-    } else {
-      const supersedeId = priorActivePo?.id;
-      setCommercialPOs((prev) => {
-        const next = supersedeId
-          ? prev.map((p) =>
-              p.id === supersedeId
-                ? {
-                    ...p,
-                    status: COMMERCIAL_PO_STATUS_SUPERSEDED,
-                    updated_at: nowIso,
-                    updatedAt: nowIso,
-                  }
-                : p
-            )
-          : prev;
-        return [...next, poToSave];
-      });
+
+    setSavingPo(true);
+    try {
+      if (editId) {
+        await setCommercialPOs((prev) => prev.map((p) => (p.id === editId ? poToSave : p)));
+      } else {
+        const supersedeId = priorActivePo?.id;
+        await setCommercialPOs((prev) => {
+          const withoutSelf = (prev || []).filter((p) => String(p.id) !== String(poToSave.id));
+          const next = supersedeId
+            ? withoutSelf.map((p) =>
+                p.id === supersedeId
+                  ? {
+                      ...p,
+                      status: COMMERCIAL_PO_STATUS_SUPERSEDED,
+                      updated_at: nowIso,
+                      updatedAt: nowIso,
+                    }
+                  : p
+              )
+            : withoutSelf;
+          return [...next, poToSave];
+        });
+      }
+      setSaveError('');
+      pendingCreateIdRef.current = null;
+      setShowForm(false);
+      setEditId(null);
+      setFormData(initialForm);
+      toast.success(editId ? 'PO/WO updated.' : 'PO/WO saved.');
+    } catch (err) {
+      const msg = err?.message || 'Could not save PO/WO to the database.';
+      setSaveError(msg);
+      toast.warning(msg);
+    } finally {
+      setSavingPo(false);
     }
-    setSaveError('');
-    setShowForm(false);
-    setFormData(initialForm);
   };
 
   const deletePO = (id) => { if (window.confirm('Delete this PO? Billing may be affected.')) setCommercialPOs((prev) => prev.filter((p) => p.id !== id)); };
@@ -2259,6 +2326,20 @@ const POEntry = () => {
           <Plus className="h-5 w-5" /> Add PO/WO
         </button>
       </div>
+      {billingError ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <p className="min-w-0">{billingError}</p>
+          {typeof clearBillingError === 'function' ? (
+            <button
+              type="button"
+              onClick={clearBillingError}
+              className="shrink-0 text-amber-800 font-medium underline"
+            >
+              Dismiss
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm text-emerald-950">
         <p className="min-w-0 leading-snug">
           <span className="font-semibold">Next — Billing:</span> After you <strong>send for approval</strong> and the PO is{' '}
@@ -2660,7 +2741,11 @@ const POEntry = () => {
               </div>
               <button
                 type="button"
-                onClick={() => setShowForm(false)}
+                onClick={() => {
+                  pendingCreateIdRef.current = null;
+                  setSaveError('');
+                  setShowForm(false);
+                }}
                 className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
                 aria-label="Close"
                 title="Close"
@@ -2693,7 +2778,7 @@ const POEntry = () => {
                   {canBillingAddress ? (
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Address (with State)</label><input type="text" value={formData.billingAddress} onChange={(e) => { const v = e.target.value; setFormData((p) => ({ ...p, billingAddress: v })); if (canPlaceOfSupply) { const msg = validateGstSupplyTypeForState(formData.placeOfSupply, v, resolveGstSupplyTypeFromForm({ isSez: formData.isSez, placeOfSupply: formData.placeOfSupply })); setGstTypeError(msg); } }} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full address including State" /></div>
                   ) : null}
-                  {(canPincodeBillTo || canPincodeShipTo || showShipToAddressFields) ? (
+                  {(canPincodeBillTo || canLocationName || canPincodeShipTo || showShipToAddressFields) ? (
                   <PoClientPincodeFields
                     formData={formData}
                     setFormData={setFormData}
@@ -2704,6 +2789,23 @@ const POEntry = () => {
                     showShipTo={canPincodeShipTo}
                     sameAsLabel="Bill address is same as ship address"
                     clearShippingAddressOnSame
+                    billToBeside={
+                      canLocationName && canPincodeBillTo ? (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-location">
+                            Location
+                          </label>
+                          <input
+                            id="sales-po-location"
+                            type="text"
+                            value={formData.locationName}
+                            onChange={(e) => setFormData((p) => ({ ...p, locationName: e.target.value }))}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                            placeholder="Site / location (shown in PO / WO Management)"
+                          />
+                        </div>
+                      ) : null
+                    }
                     shipToAddressBeside={
                       showShipToAddressFields ? (
                         <div>
@@ -2726,6 +2828,21 @@ const POEntry = () => {
                       ) : null
                     }
                   />
+                  ) : null}
+                  {canLocationName && !canPincodeBillTo ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-location-only">
+                      Location
+                    </label>
+                    <input
+                      id="sales-po-location-only"
+                      type="text"
+                      value={formData.locationName}
+                      onChange={(e) => setFormData((p) => ({ ...p, locationName: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      placeholder="Site / location (shown in PO / WO Management)"
+                    />
+                  </div>
                   ) : null}
                   {canGstin ? (
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">GSTIN (15-digit)</label><input type="text" value={formData.gstin} onChange={(e) => { const gstin = e.target.value.toUpperCase(); const panFromGstin = extractPanFromGstin(gstin); setFormData((p) => ({ ...p, gstin, ...(panFromGstin && canPanNumber ? { panNumber: panFromGstin } : {}) })); setGstinError(''); }} onBlur={handleGstinBlur} maxLength={15} className={`w-full border rounded-lg px-3 py-2 ${gstinError ? 'border-red-500' : 'border-gray-300'}`} placeholder="e.g. 27AABCU9603R1ZM" />{gstinError && <p className="text-red-600 text-xs mt-1">{gstinError}</p>}</div>
@@ -3217,47 +3334,6 @@ const POEntry = () => {
                     />
                   </div>
                   ) : null}
-                  {canActualMobilizationDate ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-actual-mobilization-date">
-                      Actual mobilization date
-                    </label>
-                    <FormDateInput
-                      id="sales-po-actual-mobilization-date"
-                      value={formData.actualMobilizationDate}
-                      onChange={(e) =>
-                        setFormData((p) => ({
-                          ...p,
-                          actualMobilizationDate: e.target.value,
-                        }))
-                      }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  ) : null}
-                  {canPaymentTerms ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
-                    <select
-                      value={formData.paymentTerms}
-                      onChange={(e) => {
-                        const selectedTerm = e.target.value;
-                        setFormData((p) => ({
-                          ...p,
-                          paymentTerms: selectedTerm,
-                          customPaymentTerms:
-                            selectedTerm === CUSTOM_MT_PAYMENT_TERM ? p.customPaymentTerms : '',
-                        }));
-                      }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    >
-                      {MT_PAYMENT_TERMS_OPTIONS.map((term) => (
-                        <option key={term} value={term}>{term}</option>
-                      ))}
-                      <option value={CUSTOM_MT_PAYMENT_TERM}>{CUSTOM_MT_PAYMENT_TERM}</option>
-                    </select>
-                  </div>
-                  ) : null}
                   {canStartDate ? (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">PO Start Date</label>
@@ -3328,6 +3404,62 @@ const POEntry = () => {
                       Auto-calculated as total contract value ÷ (contract duration in years × 12). Editable if needed.
                     </p>
                   </div>
+                  {canPaymentTerms ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
+                    <select
+                      value={formData.paymentTerms}
+                      onChange={(e) => {
+                        const selectedTerm = e.target.value;
+                        setFormData((p) => ({
+                          ...p,
+                          paymentTerms: selectedTerm,
+                          customPaymentTerms:
+                            selectedTerm === CUSTOM_MT_PAYMENT_TERM ? p.customPaymentTerms : '',
+                        }));
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    >
+                      {MT_PAYMENT_TERMS_OPTIONS.map((term) => (
+                        <option key={term} value={term}>{term}</option>
+                      ))}
+                      <option value={CUSTOM_MT_PAYMENT_TERM}>{CUSTOM_MT_PAYMENT_TERM}</option>
+                    </select>
+                  </div>
+                  ) : null}
+                  {canActualMobilizationDate ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-actual-mobilization-date">
+                      Actual mobilization date
+                    </label>
+                    <FormDateInput
+                      id="sales-po-actual-mobilization-date"
+                      value={formData.actualMobilizationDate}
+                      onChange={(e) =>
+                        setFormData((p) => ({
+                          ...p,
+                          actualMobilizationDate: e.target.value,
+                        }))
+                      }
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    />
+                  </div>
+                  ) : null}
+                  {(canTaxService || canPoFinancials) ? (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-description-of-work">
+                      Description of work
+                    </label>
+                    <textarea
+                      id="sales-po-description-of-work"
+                      value={formData.serviceDescription}
+                      onChange={(e) => setFormData((p) => ({ ...p, serviceDescription: e.target.value }))}
+                      rows={3}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      placeholder="Describe the scope / nature of work"
+                    />
+                  </div>
+                  ) : null}
                   {canPaymentTerms && formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM ? (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Manual payment terms</label>
@@ -3548,7 +3680,7 @@ const POEntry = () => {
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     >
                       <option value="">Select accommodation</option>
-                      {RELIEVER_SCOPE_OPTIONS.map((opt) => (
+                      {ACCOMMODATION_TRANSPORT_SCOPE_OPTIONS.map((opt) => (
                         <option key={opt} value={opt}>{opt}</option>
                       ))}
                     </select>
@@ -3566,7 +3698,7 @@ const POEntry = () => {
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     >
                       <option value="">Select transportation</option>
-                      {RELIEVER_SCOPE_OPTIONS.map((opt) => (
+                      {ACCOMMODATION_TRANSPORT_SCOPE_OPTIONS.map((opt) => (
                         <option key={opt} value={opt}>{opt}</option>
                       ))}
                     </select>
@@ -3791,14 +3923,30 @@ const POEntry = () => {
               ) : null}
             </div>
             <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-2 bg-white sticky bottom-0">
-              {saveError && <p className="text-sm text-red-600 mr-auto self-center">{saveError}</p>}
-              <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+              {(saveError || billingError) && (
+                <p className="text-sm text-red-600 mr-auto self-center max-w-[55%]">
+                  {saveError || billingError}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  pendingCreateIdRef.current = null;
+                  setSaveError('');
+                  setShowForm(false);
+                }}
+                disabled={savingPo}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
               <button
                 type="button"
                 onClick={savePO}
+                disabled={savingPo}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {editId ? 'Update' : 'Save'} PO/WO
+                {savingPo ? 'Saving…' : editId ? 'Update' : 'Save'} PO/WO
               </button>
             </div>
           </div>
@@ -3829,6 +3977,7 @@ const POEntry = () => {
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
                   {canLegalName ? <PoViewField label="Legal name" value={poForView.legalName} /> : null}
                   {canLegalName ? <PoViewField label="Site ID" value={poForView.siteId} /> : null}
+                  {canLocationName ? <PoViewField label="Location" value={poForView.locationName || poForView.location_name} /> : null}
                   {canGstin ? <PoViewField label="GSTIN" value={poForView.gstin} className="text-sm font-mono text-gray-900" /> : null}
                   {canPlaceOfSupply ? <PoViewField label="Place of supply" value={poForView.placeOfSupply} /> : null}
                   {canPlaceOfSupply ? (
@@ -3879,15 +4028,37 @@ const POEntry = () => {
                   {canPoFinancials ? <PoViewField label="Monthly value" value={formatPoCurrency(poForView.monthlyValue ?? poForView.monthly_value)} /> : null}
                   {canBillingType ? <PoViewField label="Billing type" value={poForView.billingType || poForView.poType || poForView.po_type} /> : null}
                   {canPaymentTerms ? <PoViewField label="Payment terms" value={poForView.paymentTerms || poForView.payment_terms} /> : null}
+                  {(canTaxService || canPoFinancials) ? (
+                    <PoViewField
+                      label="Description of work"
+                      value={poForView.serviceDescription || poForView.service_description}
+                      className="text-sm text-gray-900 sm:col-span-2"
+                    />
+                  ) : null}
                   {(canPoFinancials || canTaxInvoicePrint) ? (
                     <PoViewField label="Invoice payment terms" value={poForView.invoiceTermsText} className="text-sm text-gray-900 sm:col-span-2" />
                   ) : null}
-                  {canRelieverScope ? <PoViewField label="Reliever scope" value={poForView.relieverScope || poForView.reliever_scope} /> : null}
+                  {canRelieverScope ? (
+                    <PoViewField
+                      label="Reliever scope"
+                      value={normalizeRelieverScopeValue(poForView.relieverScope || poForView.reliever_scope)}
+                    />
+                  ) : null}
                   {canAccommodationScope ? (
-                    <PoViewField label="Accommodation" value={poForView.accommodationScope || poForView.accommodation_scope} />
+                    <PoViewField
+                      label="Accommodation"
+                      value={normalizeAccommodationTransportScopeValue(
+                        poForView.accommodationScope || poForView.accommodation_scope
+                      )}
+                    />
                   ) : null}
                   {canTransportationScope ? (
-                    <PoViewField label="Transportation" value={poForView.transportationScope || poForView.transportation_scope} />
+                    <PoViewField
+                      label="Transportation"
+                      value={normalizeAccommodationTransportScopeValue(
+                        poForView.transportationScope || poForView.transportation_scope
+                      )}
+                    />
                   ) : null}
                   {canWithFireTender ? (
                   <PoViewField
