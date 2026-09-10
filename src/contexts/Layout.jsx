@@ -63,6 +63,7 @@ import {
   Wallet,
   UserX,
   ClipboardList,
+  Building2,
   PhoneCall,
   Layers,
   FileSpreadsheet,
@@ -486,6 +487,19 @@ const Layout = () => {
                   >
                     <FileText className="w-4 h-4 shrink-0 text-violet-600" />
                     <span className="type-meta type-truncate">Site Employee IOM</span>
+                  </NavLink>
+                  )}
+                  {canSub("hr.site-attendance") && (
+                  <NavLink
+                    to="hr/site-attendance"
+                    className={() =>
+                      subNavClass({
+                        isActive: pathname.startsWith("/app/hr/site-attendance"),
+                      })
+                    }
+                  >
+                    <Building2 className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <span className="type-meta type-truncate">Site Attendance</span>
                   </NavLink>
                   )}
                   {canSub("hr.people-management") && (

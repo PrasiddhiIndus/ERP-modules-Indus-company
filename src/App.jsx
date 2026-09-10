@@ -61,6 +61,13 @@ import {
   HrCallingMasterDropdowns,
   HrCallingMasterEntry,
   HrSiteIom,
+  HrSiteAttendance,
+  HrSiteAttendanceDashboard,
+  HrSiteAttendanceSites,
+  HrSiteAttendancePeople,
+  HrSiteAttendanceEntry,
+  HrSiteAttendanceAdminView,
+  HrSiteAttendanceSummary,
   Procurement,
   Operations,
   ProjectsBilling,
@@ -479,6 +486,16 @@ function App() {
               <Route path="site-setup" element={<HrPayrollOpsSiteSetup />} />
             </Route>
             <Route path="hr/site-iom" element={<HrSiteIom />} />
+            <Route path="hr/site-attendance" element={<HrSiteAttendance />}>
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<HrSiteAttendanceDashboard />} />
+              <Route path="sites" element={<HrSiteAttendanceSites />} />
+              <Route path="people" element={<HrSiteAttendancePeople />} />
+              <Route path="attendance" element={<HrSiteAttendanceEntry />} />
+              <Route path="admin-view" element={<HrSiteAttendanceAdminView />} />
+              <Route path="summary" element={<HrSiteAttendanceSummary />} />
+              <Route path="hr-managers" element={<Navigate to="sites" replace />} />
+            </Route>
             <Route path="people-management" element={<PeopleManagement />} />
             
             {/* Compliance — Rahul, Bency, Latha, Vivek, Vaisakh only */}
