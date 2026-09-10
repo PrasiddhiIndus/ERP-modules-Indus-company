@@ -3,7 +3,7 @@ import { normalizePoPincode } from '../utils/poPincodeFields';
 
 /**
  * Bill-to pincode + optional ship-to pincode (Client Identity on PO/WO forms).
- * Optional `shipToAddressBeside` renders to the right of ship-to pincode.
+ * Optional `billToBeside` / `shipToAddressBeside` render to the right of the matching pincode.
  */
 export default function PoClientPincodeFields({
   formData,
@@ -17,6 +17,8 @@ export default function PoClientPincodeFields({
   sameAsLabel = 'Bill address is same as ship address',
   /** When true, checking "same as" also clears shippingAddress (MT contract form). */
   clearShippingAddressOnSame = false,
+  /** Optional node shown beside bill-to pincode (e.g. Location). */
+  billToBeside = null,
   /** Optional node shown beside ship-to pincode (e.g. Consignee / Ship-to address). */
   shipToAddressBeside = null,
 }) {
@@ -25,6 +27,28 @@ export default function PoClientPincodeFields({
   const showShipToInput = showShipTo && (!showBillTo || !billToShipToPinSame);
   const showSameCheckbox = showBillTo && showShipTo;
   const showShipToAddress = Boolean(shipToAddressBeside) && (showShipToInput || !showShipTo);
+  const showBillToBeside = Boolean(billToBeside) && showBillTo;
+
+  const billToPincodeField = showBillTo ? (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor={billToInputId}>
+        Pincode (Bill-to)
+      </label>
+      <input
+        id={billToInputId}
+        type="text"
+        inputMode="numeric"
+        maxLength={6}
+        value={formData.pincode}
+        disabled={disabled}
+        onChange={(e) =>
+          setFormData((p) => ({ ...p, pincode: normalizePoPincode(e.target.value) }))
+        }
+        className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500"
+        placeholder="6-digit pincode for invoice / e-invoice"
+      />
+    </div>
+  ) : null;
 
   const shipToPincodeField = showShipToInput ? (
     <div>
@@ -54,26 +78,14 @@ export default function PoClientPincodeFields({
 
   return (
     <>
-      {showBillTo ? (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor={billToInputId}>
-            Pincode (Bill-to)
-          </label>
-          <input
-            id={billToInputId}
-            type="text"
-            inputMode="numeric"
-            maxLength={6}
-            value={formData.pincode}
-            disabled={disabled}
-            onChange={(e) =>
-              setFormData((p) => ({ ...p, pincode: normalizePoPincode(e.target.value) }))
-            }
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500"
-            placeholder="6-digit pincode for invoice / e-invoice"
-          />
+      {showBillToBeside ? (
+        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+          {billToPincodeField}
+          {billToBeside}
         </div>
-      ) : null}
+      ) : (
+        billToPincodeField
+      )}
       {showSameCheckbox ? (
         <div className="md:col-span-2 flex items-center gap-2 pt-1">
           <input
