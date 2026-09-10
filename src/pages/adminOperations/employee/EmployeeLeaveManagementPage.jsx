@@ -20,8 +20,10 @@ import {
   DEFAULT_ANNUAL_ENTITLEMENTS,
   buildLeaveBalanceDbRow,
   fetchLeaveBalancesForYear,
-  fetchLeaveUsageFromDailyRegister,
+  fetchLeaveUsageBreakdownFromDailyRegister,
   fetchPlEncashPrefs,
+  getUsedLeaveForMonth,
+  getUsedLeaveThroughMonth,
   formatLeaveBalanceError,
   getLeaveCarryForwardRules,
   mergeSavedLeaveBalanceRow,
@@ -35,6 +37,36 @@ import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
 
 const YEAR_DEFAULT = new Date().getFullYear();
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+const LEDGER_MONTH_OPTIONS = [
+  { value: "", label: "All months" },
+  { value: "1", label: "January" },
+  { value: "2", label: "February" },
+  { value: "3", label: "March" },
+  { value: "4", label: "April" },
+  { value: "5", label: "May" },
+  { value: "6", label: "June" },
+  { value: "7", label: "July" },
+  { value: "8", label: "August" },
+  { value: "9", label: "September" },
+  { value: "10", label: "October" },
+  { value: "11", label: "November" },
+  { value: "12", label: "December" },
+];
+
+function parseLedgerMonth(value) {
+  const month = Number(value);
+  return Number.isInteger(month) && month >= 1 && month <= 12 ? month : 0;
+}
+
+function leaveLedgerAsOfDate(year, month) {
+  if (!month) return new Date();
+  const lastDay = new Date(Number(year), Number(month), 0);
+  return Number.isNaN(lastDay.getTime()) ? new Date() : lastDay;
+}
+
+function ledgerMonthLabel(month) {
+  return LEDGER_MONTH_OPTIONS.find((opt) => Number(opt.value) === Number(month))?.label || "";
+}
 const LEAVE_TABS = [
   { id: "overview", label: "Overview & Rules" },
   { id: "ledger", label: "Yearly Balance Ledger" },
@@ -229,6 +261,8 @@ export function EmployeeLeaveManagementPage() {
   const [activeTab, setActiveTab] = useState("overview");
 
   const [year, setYear] = useState(YEAR_DEFAULT);
+  const [ledgerMonth, setLedgerMonth] = useState("");
+  const selectedLedgerMonth = parseLedgerMonth(ledgerMonth);
 
   const [employees, setEmployees] = useState([]);
   const [inactiveEmployees, setInactiveEmployees] = useState([]);
@@ -241,6 +275,7 @@ export function EmployeeLeaveManagementPage() {
   const [plEncashPrefs, setPlEncashPrefs] = useState({});
   const [balances, setBalances] = useState([]);
   const [registerUsageByCode, setRegisterUsageByCode] = useState({});
+  const [registerUsageByEmpMonth, setRegisterUsageByEmpMonth] = useState({});
 
   const [search, setSearch] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
@@ -261,12 +296,13 @@ export function EmployeeLeaveManagementPage() {
     try {
       if (showLoading) setLoading(true);
       setError("");
-      const [rows, usageByCode] = await Promise.all([
+      const [rows, usage] = await Promise.all([
         fetchLeaveBalancesForYear(supabase, year),
-        fetchLeaveUsageFromDailyRegister(supabase, year),
+        fetchLeaveUsageBreakdownFromDailyRegister(supabase, year),
       ]);
       setBalances(rows || []);
-      setRegisterUsageByCode(usageByCode || {});
+      setRegisterUsageByCode(usage?.yearTotals || {});
+      setRegisterUsageByEmpMonth(usage?.byEmpMonth || {});
       // Used/unused only — never runs carry-forward / encash year-close logic.
       // Do this after the ledger is on screen so a slow upsert cannot blank the page.
       if (syncUsage) {
@@ -274,10 +310,11 @@ export function EmployeeLeaveManagementPage() {
           await syncLiveLeaveUsageFromRegister(supabase, year);
           const [syncedRows, syncedUsage] = await Promise.all([
             fetchLeaveBalancesForYear(supabase, year),
-            fetchLeaveUsageFromDailyRegister(supabase, year),
+            fetchLeaveUsageBreakdownFromDailyRegister(supabase, year),
           ]);
           setBalances(syncedRows || []);
-          setRegisterUsageByCode(syncedUsage || {});
+          setRegisterUsageByCode(syncedUsage?.yearTotals || {});
+          setRegisterUsageByEmpMonth(syncedUsage?.byEmpMonth || {});
         } catch (syncErr) {
           console.warn("Live leave usage sync skipped:", syncErr);
         }
@@ -339,7 +376,7 @@ export function EmployeeLeaveManagementPage() {
     setLedgerEditingId(null);
     setLedgerEditDraft({});
     ledgerEditDraftRef.current = {};
-  }, [ledgerSubTab, year]);
+  }, [ledgerSubTab, year, ledgerMonth]);
 
   useEffect(() => {
     if (ledgerEditingId) return undefined;
@@ -415,14 +452,18 @@ export function EmployeeLeaveManagementPage() {
       .filter((e) => {
         const code = normalizeAttendanceEmpCode(e.empCode);
         if (!code || activeCodes.has(code)) return false;
-        return isInactiveEmployeeVisibleOnLeaveLedger(e.dateOfLeaving, year);
+        return isInactiveEmployeeVisibleOnLeaveLedger(
+          e.dateOfLeaving,
+          year,
+          leaveLedgerAsOfDate(year, selectedLedgerMonth)
+        );
       })
       .map((e) => ({ ...e, masterStatus: "Inactive" }));
     return [
       ...(employees || []).map((e) => ({ ...e, masterStatus: "Active" })),
       ...visibleInactive,
     ];
-  }, [employees, inactiveEmployees, year]);
+  }, [employees, inactiveEmployees, year, selectedLedgerMonth]);
 
   const filteredLedgerEmployees = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -459,16 +500,14 @@ export function EmployeeLeaveManagementPage() {
   );
 
   const balancesRows = useMemo(() => {
-    // Active + inactive still within leaving month + 1 for the selected year.
+    // Active + inactive still within leaving month + 1 for the selected year/month.
     return (filteredLedgerEmployees || [])
       .map((e) => {
         const code = normalizeAttendanceEmpCode(e.empCode);
         if (!code) return null;
         const stored = balanceByCode[code] || {};
         const liveUsed = registerUsageByCode[code] || {};
-        // Prefer live register counts for used so marking PL/CL/SL updates the ledger immediately.
-        const b = {
-          ...stored,
+        const yearUsed = {
           used_pl: Number(liveUsed.used_pl ?? stored.used_pl ?? 0),
           used_sl: Number(liveUsed.used_sl ?? stored.used_sl ?? 0),
           used_cl: Number(liveUsed.used_cl ?? stored.used_cl ?? 0),
@@ -479,6 +518,15 @@ export function EmployeeLeaveManagementPage() {
           used_coff: Number(liveUsed.used_coff ?? stored.used_coff ?? 0),
           used_paternity: Number(liveUsed.used_paternity ?? stored.used_paternity ?? 0),
         };
+        const displayUsed = selectedLedgerMonth
+          ? getUsedLeaveForMonth(registerUsageByEmpMonth, code, selectedLedgerMonth)
+          : yearUsed;
+        const balanceUsed = selectedLedgerMonth
+          ? getUsedLeaveThroughMonth(registerUsageByEmpMonth, code, selectedLedgerMonth)
+          : yearUsed;
+        const usedFields = mapLedgerLeaveFields({ ...stored, ...displayUsed });
+        const balanceFields = mapLedgerLeaveFields({ ...stored, ...balanceUsed });
+        const b = { ...stored, ...displayUsed };
         return {
           id: code || e.empCode || e.employeeId || e.employeeName || "unknown-employee",
           empCode: code || e.empCode,
@@ -486,7 +534,16 @@ export function EmployeeLeaveManagementPage() {
           department: e.department || "",
           masterStatus: e.masterStatus || "Active",
           dateOfLeaving: e.dateOfLeaving || "",
-          ...mapLedgerLeaveFields(b),
+          ...usedFields,
+          balance_cl: balanceFields.balance_cl,
+          balance_pl: balanceFields.balance_pl,
+          balance_sl: balanceFields.balance_sl,
+          balance_sbel: balanceFields.balance_sbel,
+          balance_spla: balanceFields.balance_spla,
+          balance_splb: balanceFields.balance_splb,
+          balance_splm: balanceFields.balance_splm,
+          balance_coff: balanceFields.balance_coff,
+          balance_paternity: balanceFields.balance_paternity,
           opening_pl: b.opening_pl ?? 0,
           used_pl: b.used_pl ?? 0,
           carried_pl: b.carried_pl ?? 0,
@@ -504,7 +561,7 @@ export function EmployeeLeaveManagementPage() {
       })
       .filter(Boolean)
       .sort((a, b) => String(a.empCode || "").localeCompare(String(b.empCode || ""), undefined, { numeric: true }));
-  }, [filteredLedgerEmployees, balanceByCode, registerUsageByCode]);
+  }, [filteredLedgerEmployees, balanceByCode, registerUsageByCode, registerUsageByEmpMonth, selectedLedgerMonth]);
 
   const ledgerRows = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -562,17 +619,11 @@ export function EmployeeLeaveManagementPage() {
   useEffect(() => {
     setEncashPage(1);
     setBalancesPage(1);
-  }, [search, departmentFilter, year, encashPageSize, balancesPageSize]);
+  }, [search, departmentFilter, year, ledgerMonth, encashPageSize, balancesPageSize]);
 
   useEffect(() => {
     setBalancesPage(1);
   }, [ledgerSort.key, ledgerSort.direction, ledgerSubTab]);
-
-  useEffect(() => {
-    setLedgerEditingId(null);
-    setLedgerEditDraft({});
-    ledgerEditDraftRef.current = {};
-  }, [ledgerSubTab, year]);
 
   useEffect(() => {
     const validKeys = new Set([
@@ -722,6 +773,9 @@ export function EmployeeLeaveManagementPage() {
       cellClassName: "min-w-[120px]",
       render: (r) => {
         if (!canEditBalances) return <span className="text-[11px] text-gray-400">View only</span>;
+        if (selectedLedgerMonth && ledgerSubTab !== "opening") {
+          return <span className="text-[11px] text-gray-400">Month view</span>;
+        }
         if (ledgerEditingId === r.id) {
           return (
             <div className="flex flex-wrap items-center gap-2">
@@ -762,8 +816,10 @@ export function EmployeeLeaveManagementPage() {
       importOpen,
       ledgerEditSaving,
       ledgerEditingId,
+      ledgerSubTab,
       loading,
       saveLedgerEdit,
+      selectedLedgerMonth,
       startLedgerEdit,
     ]
   );
@@ -788,14 +844,21 @@ export function EmployeeLeaveManagementPage() {
     [canEditBalances, ledgerActionsColumn, ledgerEmployeeColumns, ledgerLeaveColumnsForTab]
   );
 
+  const ledgerMonthName = ledgerMonthLabel(selectedLedgerMonth);
+  const ledgerPeriodLabel = selectedLedgerMonth ? `${year} · ${ledgerMonthName}` : String(year);
+
   const ledgerTabDescriptions = {
     opening: canEditBalances
       ? "Opening leave balances by type. Inactive employees appear through the month after their leaving date. Click Edit on a row to change values inline, then Save."
       : "Opening leave balances by type (read-only). Inactive employees appear through the month after their leaving date.",
-    used: canEditBalances
+    used: selectedLedgerMonth
+      ? `Leave days used in ${ledgerMonthName} ${year} (from the attendance register). Inactive employees appear through the month after their leaving date.`
+      : canEditBalances
       ? "Leave days used during the year. Inactive employees appear through the month after their leaving date. Click Edit on a row to adjust values inline, then Save."
       : "Leave days used during the year (read-only; updates automatically from the attendance register). Inactive employees appear through the month after their leaving date.",
-    balance: canEditBalances
+    balance: selectedLedgerMonth
+      ? `Leave remaining at the end of ${ledgerMonthName} ${year} (opening minus used from January through ${ledgerMonthName}). Inactive employees appear through the month after their leaving date.`
+      : canEditBalances
       ? "Current leave balance by type. Inactive employees appear through the month after their leaving date. Click Edit to adjust balance inline (opening is updated to match)."
       : "Current leave balance by type (read-only). Inactive employees appear through the month after their leaving date.",
   };
@@ -833,9 +896,10 @@ export function EmployeeLeaveManagementPage() {
     });
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, `Leave Ledger ${year}`);
-    XLSX.writeFile(wb, `leave-balance-ledger-${year}-${ledgerSubTab}.xlsx`);
-  }, [ledgerRows, ledgerSubTab, year]);
+    XLSX.utils.book_append_sheet(wb, ws, `Leave Ledger ${ledgerPeriodLabel}`);
+    const monthSuffix = selectedLedgerMonth ? `-${String(selectedLedgerMonth).padStart(2, "0")}` : "";
+    XLSX.writeFile(wb, `leave-balance-ledger-${year}${monthSuffix}-${ledgerSubTab}.xlsx`);
+  }, [ledgerPeriodLabel, ledgerRows, ledgerSubTab, selectedLedgerMonth, year]);
 
   const balanceTotals = useMemo(
     () =>
@@ -894,7 +958,9 @@ export function EmployeeLeaveManagementPage() {
             value={activeTab === "ledger" ? filteredLedgerEmployees.length : filteredEmployees.length}
             hint={
               activeTab === "ledger"
-                ? "Active + inactive through month after leaving"
+                ? selectedLedgerMonth
+                  ? `Active + inactive through ${ledgerMonthName} ${year}`
+                  : "Active + inactive through month after leaving"
                 : "After search / department filter"
             }
           />
@@ -990,7 +1056,7 @@ export function EmployeeLeaveManagementPage() {
         )}
 
         {activeTab === "ledger" && (
-          <SectionCard title={`Yearly Leave Balance Ledger (${year})`} right={null} className="mt-4">
+          <SectionCard title={`Yearly Leave Balance Ledger (${ledgerPeriodLabel})`} right={null} className="mt-4">
             <FilterBar>
               <div className="flex flex-col gap-0.5">
                 <label className="text-[10px] font-semibold text-gray-500 uppercase">Search employee</label>
@@ -1024,6 +1090,20 @@ export function EmployeeLeaveManagementPage() {
                   onChange={(e) => setYear(Number(e.target.value))}
                   className="w-[120px]"
                 />
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <label className="text-[10px] font-semibold text-gray-500 uppercase">Month</label>
+                <TinySelect
+                  value={ledgerMonth}
+                  onChange={(e) => setLedgerMonth(e.target.value)}
+                  className="min-w-[150px]"
+                >
+                  {LEDGER_MONTH_OPTIONS.map((opt) => (
+                    <option key={opt.value || "all"} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </TinySelect>
               </div>
               <button
                 type="button"

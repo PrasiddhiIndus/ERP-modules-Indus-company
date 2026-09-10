@@ -749,11 +749,14 @@ const customFetch = async (url, options = {}) => {
         }
         probeResolve?.({ ok: false, missing: true })
       } else if (import.meta.env.DEV) {
+        const skipAuthUserProbe =
+          pathLog.includes('auth/v1/user') &&
+          (res.status === 403 || /session_id claim in JWT does not exist/i.test(detail))
         const skipStagingBillingNoise =
           import.meta.env.MODE === 'staging' &&
           res.status === 406 &&
           pathLog.includes('po_wo')
-        if (!skipStagingBillingNoise) {
+        if (!skipAuthUserProbe && !skipStagingBillingNoise) {
           console.warn(`[Supabase fetch] ${method} ${pathLog} → HTTP ${res.status}`, detail || '(no body)')
         }
         probeResolve?.({ ok: false, missing: false })
@@ -875,7 +878,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   global: { fetch: customFetch },
   auth: {
     persistSession: isBrowser,
-    autoRefreshToken: isBrowser,
+    // REST refresh in customFetch already rotates tokens. supabase-js auto-refresh
+    // with a stale in-memory refresh token revokes the session (403 session_id).
+    autoRefreshToken: false,
     detectSessionInUrl: isBrowser,
     storage: authStorage,
     storageKey: SUPABASE_AUTH_STORAGE_KEY,

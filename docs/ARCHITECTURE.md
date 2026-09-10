@@ -2,6 +2,8 @@
 
 This document describes how the Indus ERP React app is organized. **URLs, module flows, and business steps are unchanged** — this is structure and performance only.
 
+For the full system architecture (Node API, Supabase, Whitebooks, eTimeOffice, R2, modules, and working flows), see [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md).
+
 ## Entry & routing
 
 | Path | Role |

@@ -1254,6 +1254,46 @@ app.get('/api/debug/invoice/:id', requireAdmin, (req, res) => {
   return res.json(snap);
 });
 
+app.get('/api/hr/site-attendance/status', requireHrOrAdmin, async (_req, res) => {
+  try {
+    const supabase = getSupabaseServiceClient(getSupabaseUrlForServer, getSupabaseServiceRoleKeyForServer);
+    const tables = [
+      'sites',
+      'people',
+      'site_assignments',
+      'attendance',
+      'designation_master',
+      'site_designations',
+      'site_supervisors',
+      'hr_managers',
+      'site_hr_managers',
+      'summary_remarks',
+      'site_grid_placements',
+    ];
+    const results = [];
+    for (const table of tables) {
+      const { count, error } = await supabase.from(table).select('id', { count: 'exact', head: true });
+      results.push({
+        table,
+        ok: !error,
+        count: error ? null : count ?? 0,
+        error: error?.message || null,
+      });
+    }
+    return res.json({
+      ok: results.every((r) => r.ok),
+      project: getSupabaseProjectRefFromUrl(getSupabaseUrlForServer()),
+      tables: results,
+    });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    return res.status(status).json({
+      ok: false,
+      message: err?.message || 'Unable to check site attendance tables.',
+    });
+  }
+});
+
 app.get('/api/admin/attendance/status', (_req, res) => {
   try {
     const c = etimeCfg(getRequiredEnv);

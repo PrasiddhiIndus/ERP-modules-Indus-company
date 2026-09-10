@@ -9,6 +9,7 @@ import {
   UserPlus,
   Users,
   Wallet,
+  Building2,
 } from "lucide-react";
 import { PageTaskHeader, SectionCard } from "../adminOperations/components/AdminUi";
 
@@ -40,6 +41,13 @@ const HR_MODULES = [
     hint: "Site salary runs, history, reports, and compliance",
     icon: Calculator,
     accent: "text-teal-700 bg-teal-50",
+  },
+  {
+    to: "/app/hr/site-attendance",
+    label: "Site Attendance",
+    hint: "Contract-site roster, daily marks, and monthly summaries",
+    icon: Building2,
+    accent: "text-indigo-700 bg-indigo-50",
   },
   {
     to: "/app/people-management",

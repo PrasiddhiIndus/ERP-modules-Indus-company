@@ -22,6 +22,8 @@ INDUS ERP CORE is a modular ERP platform covering business workflows across:
 
 The system is built as a React + Supabase application with route-level access control and module-wise data models.
 
+**Full system architecture (APIs, external connections, working model):** [docs/SYSTEM_ARCHITECTURE.md](./docs/SYSTEM_ARCHITECTURE.md)
+
 ---
 
 ## 2) Technology Stack
@@ -307,9 +309,11 @@ Designed as enterprise, multi-layer inventory architecture:
 
 ## 14) Current Documentation Policy
 
-This file is the **single authoritative Markdown document** for the project.
+This file is the **handover and operations** reference (stack, billing process, troubleshooting, IT notes).
 
-Any future technical, process, or module documentation updates should be made here under appropriate sections to keep one unified source for engineering and IT teams.
+The detailed system architecture — runtime topology, APIs, external connections, access model, and module working flows — lives in **[docs/SYSTEM_ARCHITECTURE.md](./docs/SYSTEM_ARCHITECTURE.md)**. Frontend folder layout and how to add a page: **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)**.
+
+Keep those three in sync when architecture or process changes.
 
 ---
 

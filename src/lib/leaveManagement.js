@@ -337,56 +337,103 @@ function emptyUsedLeaveTotals() {
   };
 }
 
+function usedWeightsFromMark(mark) {
+  return {
+    used_pl: markWeightForPl(mark),
+    used_sl: markWeightForSl(mark),
+    used_cl: markWeightForCl(mark),
+    used_sbel: markWeightForSbel(mark),
+    used_spla: markWeightForSpla(mark),
+    used_splb: markWeightForSplb(mark),
+    used_splm: markWeightForSplm(mark),
+    used_coff: markWeightForCoff(mark),
+    used_paternity: markWeightForPaternity(mark),
+  };
+}
+
+function hasUsedLeaveWeight(weights) {
+  return Object.values(weights || {}).some((n) => Number(n) > 0);
+}
+
+function addUsedLeaveWeights(target, weights) {
+  if (!target || !weights) return;
+  target.used_pl += Number(weights.used_pl || 0);
+  target.used_sl += Number(weights.used_sl || 0);
+  target.used_cl += Number(weights.used_cl || 0);
+  target.used_sbel += Number(weights.used_sbel || 0);
+  target.used_spla += Number(weights.used_spla || 0);
+  target.used_splb += Number(weights.used_splb || 0);
+  target.used_splm += Number(weights.used_splm || 0);
+  target.used_coff += Number(weights.used_coff || 0);
+  target.used_paternity += Number(weights.used_paternity || 0);
+}
+
+function registerMonthFromDate(registerDate) {
+  const month = Number(String(registerDate || "").slice(5, 7));
+  return Number.isInteger(month) && month >= 1 && month <= 12 ? month : 0;
+}
+
 function buildUsedLeaveTotalsByEmployee(registerRows) {
   const usedByEmp = {};
   for (const row of registerRows || []) {
     const emp_code = normalizeAttendanceEmpCode(row.employee_code);
     if (!emp_code) continue;
-    const m = row.mark;
-
-    const plW = markWeightForPl(m);
-    const slW = markWeightForSl(m);
-    const clW = markWeightForCl(m);
-    const sbelW = markWeightForSbel(m);
-    const splaW = markWeightForSpla(m);
-    const splbW = markWeightForSplb(m);
-    const splmW = markWeightForSplm(m);
-    const coffW = markWeightForCoff(m);
-    const paternityW = markWeightForPaternity(m);
-
-    if (
-      plW === 0 &&
-      slW === 0 &&
-      clW === 0 &&
-      sbelW === 0 &&
-      splaW === 0 &&
-      splbW === 0 &&
-      splmW === 0 &&
-      coffW === 0 &&
-      paternityW === 0
-    ) {
-      continue;
-    }
-
+    const weights = usedWeightsFromMark(row.mark);
+    if (!hasUsedLeaveWeight(weights)) continue;
     if (!usedByEmp[emp_code]) usedByEmp[emp_code] = emptyUsedLeaveTotals();
-    usedByEmp[emp_code].used_pl += plW;
-    usedByEmp[emp_code].used_sl += slW;
-    usedByEmp[emp_code].used_cl += clW;
-    usedByEmp[emp_code].used_sbel += sbelW;
-    usedByEmp[emp_code].used_spla += splaW;
-    usedByEmp[emp_code].used_splb += splbW;
-    usedByEmp[emp_code].used_splm += splmW;
-    usedByEmp[emp_code].used_coff += coffW;
-    usedByEmp[emp_code].used_paternity += paternityW;
+    addUsedLeaveWeights(usedByEmp[emp_code], weights);
   }
   return usedByEmp;
 }
 
-export async function fetchLeaveUsageFromDailyRegister(supabase, year) {
+function buildUsedLeaveTotalsByEmployeeAndMonth(registerRows) {
+  const byEmpMonth = {};
+  for (const row of registerRows || []) {
+    const emp_code = normalizeAttendanceEmpCode(row.employee_code);
+    const month = registerMonthFromDate(row.register_date);
+    if (!emp_code || !month) continue;
+    const weights = usedWeightsFromMark(row.mark);
+    if (!hasUsedLeaveWeight(weights)) continue;
+    if (!byEmpMonth[emp_code]) byEmpMonth[emp_code] = {};
+    if (!byEmpMonth[emp_code][month]) byEmpMonth[emp_code][month] = emptyUsedLeaveTotals();
+    addUsedLeaveWeights(byEmpMonth[emp_code][month], weights);
+  }
+  return byEmpMonth;
+}
+
+export function getUsedLeaveForMonth(byEmpMonth, empCode, month) {
+  const code = normalizeAttendanceEmpCode(empCode);
+  const m = Number(month);
+  if (!code || !Number.isInteger(m) || m < 1 || m > 12) return emptyUsedLeaveTotals();
+  const found = byEmpMonth?.[code]?.[m];
+  return found ? { ...emptyUsedLeaveTotals(), ...found } : emptyUsedLeaveTotals();
+}
+
+export function getUsedLeaveThroughMonth(byEmpMonth, empCode, throughMonth) {
+  const code = normalizeAttendanceEmpCode(empCode);
+  const cap = Number(throughMonth);
+  const out = emptyUsedLeaveTotals();
+  if (!code || !Number.isInteger(cap) || cap < 1) return out;
+  const months = byEmpMonth?.[code] || {};
+  for (let m = 1; m <= Math.min(cap, 12); m += 1) {
+    addUsedLeaveWeights(out, months[m]);
+  }
+  return out;
+}
+
+export async function fetchLeaveUsageBreakdownFromDailyRegister(supabase, year) {
   const y = Number(year);
-  if (!Number.isFinite(y) || y < 1900) return {};
+  if (!Number.isFinite(y) || y < 1900) return { yearTotals: {}, byEmpMonth: {} };
   const registerRows = await fetchRegisterMarksForYear(supabase, y);
-  return buildUsedLeaveTotalsByEmployee(registerRows);
+  return {
+    yearTotals: buildUsedLeaveTotalsByEmployee(registerRows),
+    byEmpMonth: buildUsedLeaveTotalsByEmployeeAndMonth(registerRows),
+  };
+}
+
+export async function fetchLeaveUsageFromDailyRegister(supabase, year) {
+  const { yearTotals } = await fetchLeaveUsageBreakdownFromDailyRegister(supabase, year);
+  return yearTotals;
 }
 
 function openingMinusUsed(opening, used) {
