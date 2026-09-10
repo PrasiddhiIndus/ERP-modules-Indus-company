@@ -854,7 +854,7 @@ const Layout = () => {
                   )}
                   <NavLink to="/app/commercial/manpower-training/po-entry" className={subNavClass}>
                     <FileCheck className="w-4 h-4 shrink-0 text-accent" />
-                    <span className="type-meta type-truncate">PO Entry</span>
+                    <span className="type-meta type-truncate">Contract Management</span>
                   </NavLink>
                   <NavLink to="/app/commercial/manpower-training/contact-log" className={subNavClass}>
                     <ClipboardCheck className="w-4 h-4 shrink-0 text-indigo-600" />

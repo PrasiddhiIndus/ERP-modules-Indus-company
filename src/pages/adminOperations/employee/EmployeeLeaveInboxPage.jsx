@@ -30,7 +30,7 @@ const STATUS_KPI = [
   { id: "pending", label: "Pending", tone: "border-amber-200 bg-amber-50/40" },
   { id: "approved", label: "Approved", tone: "border-sky-200 bg-sky-50/40" },
   { id: "rejected", label: "Rejected", tone: "border-red-200 bg-red-50/40" },
-  { id: "cancelled", label: "Cancelled", tone: "border-gray-200" },
+  { id: "withdrawn", label: "Withdrawn", tone: "border-gray-200" },
   { id: "all", label: "All requests", tone: "border-accent/20 bg-indigo-50/30" },
 ];
 
@@ -49,8 +49,10 @@ function statusDisplayLabel(status) {
   const s = String(status || "").toLowerCase();
   if (s === "approved") return "Approved";
   if (s === "rejected") return "Rejected";
-  if (s === "cancelled" || s === "canceled") return "Cancelled";
-  if (s === "withdrawn" || s === "withdraw") return "Withdrawn";
+  // Indus One: status cancelled/withdrawn → label Withdrawn (overall may still be REJECTED).
+  if (s === "cancelled" || s === "canceled" || s === "withdrawn" || s === "withdraw") {
+    return "Withdrawn";
+  }
   return "Pending";
 }
 
@@ -62,21 +64,14 @@ function statusChipSeverity(status) {
   return "warning";
 }
 
-/** Who approved or rejected; name only, blank while pending. */
+/** Who decided; name only for approved/rejected. Blank while pending or withdrawn/cancelled. */
 function decisionByLabel(row) {
   const status = String(row?.status || "").toLowerCase();
-  const l2Approved = String(row?.l2_status || "").toLowerCase() === "approved";
-  const l1Approved = String(row?.l1_status || "").toLowerCase() === "approved";
-  const name = String(
-    row?.approver_name ||
-      (l2Approved ? row?.l2_action_by_name : "") ||
-      (l1Approved ? row?.l1_action_by_name : "") ||
-      ""
-  ).trim();
+  if (status !== "approved" && status !== "rejected") return "—";
+  const name = String(row?.approver_name || "").trim();
   if (!name) return "—";
   if (status === "approved") return `Approved by ${name}`;
-  if (status === "rejected") return `Rejected by ${name}`;
-  return "—";
+  return `Rejected by ${name}`;
 }
 
 export function EmployeeLeavesPage() {
@@ -139,7 +134,8 @@ export function EmployeeLeavesPage() {
           toDate,
           page,
           pageSize,
-          forceRefresh: silent,
+          // Always re-read after filter/realtime/manual refresh so status matches leave_requests.
+          forceRefresh: true,
         });
         if (seq !== loadSeqRef.current) return;
         setRows(result.rows);

@@ -31,6 +31,7 @@ import {
   getMonthHoldIds,
   getScopeLineDraft,
   applyScopeLineDraft,
+  resolveSalaryMonthWorkingDays,
 } from "./salaryMonthProcessing";
 import { fetchSalaryStructureMapForMonth } from "./salaryData";
 import { applySalarySheetToEmployeeMasters, seedSalaryDeductionsForMonth } from "../../admin/employeeMaster/deductions/deductionsStore";
@@ -566,7 +567,7 @@ export async function mockProcessSalaryMonth({
     sourceEmployees = (employees || []).filter((emp) =>
       isEmployeeOnRollForPayMonth(emp.date_of_joining, year, month)
     );
-    const days = Number(monthDays) > 0 ? Number(monthDays) : DEFAULT_MONTH_DAYS;
+    const days = resolveSalaryMonthWorkingDays(year, month, monthDays);
     const scopedRaw = filterEmployeesByMode(sourceEmployees, {
       processMode: mode,
       employeeIds,
@@ -618,7 +619,8 @@ export async function mockProcessSalaryMonth({
       const present = presentDaysFromRegisterMap(
         presentMap,
         [emp.employee_code, emp.employee_id],
-        0
+        0,
+        days
       );
       let line = buildSheetLineFromSources({
         employee: emp,

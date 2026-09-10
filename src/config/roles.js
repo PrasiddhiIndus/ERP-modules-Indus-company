@@ -514,7 +514,7 @@ export const NAV_MODULE_TREE = [
       { value: "commercialMt.internal-quotation",label: "Internal Quotation",         pathPrefix: "/app/manpower/internal-quotation" },
       { value: "commercialMt.quotation",         label: "Quotation",                  pathPrefix: "/app/manpower/quotation" },
       { value: "commercialMt.configuration",     label: "Manpower Configuration",     pathPrefix: "/app/manpower/configuration" },
-      { value: "commercialMt.po-entry",          label: "PO Entry",                   pathPrefix: "/app/commercial/manpower-training/po-entry" },
+      { value: "commercialMt.po-entry",          label: "Contract Management",        pathPrefix: "/app/commercial/manpower-training/po-entry" },
       { value: "commercialMt.contact-log",       label: "Contact Log",                pathPrefix: "/app/commercial/manpower-training/contact-log" },
     ],
   },

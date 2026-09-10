@@ -17,7 +17,7 @@ export const ROUTE_MODULE_MAP = [
   ['/app/billing/notifications', 'Billing · Reminders'],
   ['/app/billing/tracker', 'Billing · Cycle tracker'],
   ['/app/billing', 'Billing'],
-  ['/app/commercial/manpower-training/po-entry', 'Commercial MT · PO entry'],
+  ['/app/commercial/manpower-training/po-entry', 'Commercial MT · Contract management'],
   ['/app/commercial/manpower-training/contact-log', 'Commercial MT · Contact log'],
   ['/app/commercial/manpower-training', 'Commercial MT'],
   ['/app/commercial/rm-mm-amc-iev/po-entry', 'Commercial RM · PO entry'],

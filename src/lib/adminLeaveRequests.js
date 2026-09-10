@@ -38,13 +38,12 @@ const LMS_LEAVE_TABLE = INDUS_ONE_LEAVE_TABLES.lmsRequests;
 const ADMIN_LEAVE_TABLE = INDUS_ONE_LEAVE_TABLES.adminRequests;
 const PAGE_SIZE_DEFAULT = 50;
 
-/** Status filter dropdown (Leave Approvals). */
+/** Status filter dropdown (Leave Approvals) — labels match Indus One (cancelled leave = Withdrawn). */
 export const LEAVE_STATUS_FILTER_OPTIONS = [
   { value: "all", label: "All" },
   { value: "pending", label: "Pending" },
   { value: "approved", label: "Approved" },
   { value: "rejected", label: "Rejected" },
-  { value: "cancelled", label: "Cancelled" },
   { value: "withdrawn", label: "Withdrawn" },
 ];
 
@@ -147,8 +146,48 @@ export function isLeaveFullyApproved(row) {
   return effectiveLeaveWorkflowStatus(row) === "approved";
 }
 
+/**
+ * Indus One source of truth (`leaveModificationState.isWithdrawnLeave`).
+ * Table: `indus_one.leave_requests` / `admin_leave_requests`.
+ * Withdraw finalize sets overall REJECTED (and a trigger may rewrite status → rejected)
+ * while keeping original L1/L2 APPROVED — that is Withdrawn, not Rejected.
+ */
+export function isWithdrawnLeave(request) {
+  const status = String(request?.status || "").toLowerCase();
+  if (status === "cancelled" || status === "canceled" || status === "withdrawn" || status === "withdraw") {
+    return true;
+  }
+
+  const overall = String(request?.overall_status || "").toUpperCase();
+  if (overall !== "REJECTED" && status !== "rejected") return false;
+
+  const l1 = String(request?.l1_status || "").toUpperCase();
+  const l2 = String(request?.l2_status || "").toUpperCase();
+  // Genuine leave rejection marks a level REJECTED — that is not a withdrawal.
+  if (l1 === "REJECTED" || l2 === "REJECTED") return false;
+
+  return l1 === "APPROVED" || l2 === "APPROVED";
+}
+
+/** Indus One `isRejectedLeave` — genuine reject only (not approved withdrawal). */
+export function isRejectedLeave(request) {
+  if (isWithdrawnLeave(request)) return false;
+  const overall = String(request?.overall_status || "").toUpperCase();
+  const status = String(request?.status || "").toLowerCase();
+  const l1 = String(request?.l1_status || "").toUpperCase();
+  const l2 = String(request?.l2_status || "").toUpperCase();
+  return (
+    overall === "REJECTED" ||
+    status === "rejected" ||
+    l1 === "REJECTED" ||
+    l2 === "REJECTED"
+  );
+}
+
 function inboxStatusBucket(status) {
   const s = adminStatusFromLms(status);
+  // Indus One treats cancelled leave as Withdrawn in the UI.
+  if (s === "cancelled" || s === "withdrawn") return "withdrawn";
   if (TERMINAL_STATUSES.includes(s)) return s;
   return "pending";
 }
@@ -159,12 +198,6 @@ function firstNonEmpty(...values) {
     if (s) return s;
   }
   return null;
-}
-
-/** Status fields Indus One may set; L1 approval often lands here before overall_status. */
-function leaveRowStatusCandidates(row) {
-  if (!row) return [];
-  return [row.status, row.overall_status, row.l1_status, row.l2_status];
 }
 
 function isOpenLmsStatus(status) {
@@ -486,6 +519,7 @@ async function applyLeaveDecision(id, { lmsExpectedStatuses, adminExpectedStatus
 
   if (lmsRow.status === targetStatus) {
     await reconcileLeaveBalanceForRequest(supabase, adminRow || lmsRow);
+    invalidateLeaveInboxCache();
     return finishDecisionRow(lmsRow);
   }
 
@@ -503,6 +537,7 @@ async function applyLeaveDecision(id, { lmsExpectedStatuses, adminExpectedStatus
       );
     }
     await reconcileLeaveBalanceForRequest(supabase, adminRow || lmsSynced);
+    invalidateLeaveInboxCache();
     return finishDecisionRow(lmsSynced);
   }
 
@@ -535,6 +570,7 @@ async function applyLeaveDecision(id, { lmsExpectedStatuses, adminExpectedStatus
   }
 
   await reconcileLeaveBalanceForRequest(supabase, adminUpdated);
+  invalidateLeaveInboxCache();
   return finishDecisionRow(lmsSynced);
 }
 
@@ -551,17 +587,41 @@ function rowMatchesDateRange(row, fromDate, toDate) {
 }
 
 /**
- * Merge LMS leave_requests + admin_leave_requests by id (read-only inbox).
- * Indus One often marks leave_requests.status / l1_status approved while the
- * admin row still has status/overall_status pending (waiting on L2). Show the
- * decided status from either table so the list matches what managers already approved.
+ * Inbox display status — same rules as Indus One `mapAdminLeaveRow` + `displayLeaveStatus`
+ * (via `isWithdrawnLeave` / `isRejectedLeave` on leave_requests / admin_leave_requests).
  */
-function resolveInboxDisplayStatus(...statuses) {
-  const mapped = statuses.map((s) => adminStatusFromLms(s)).filter(Boolean);
-  if (mapped.some((s) => s === "approved")) return "approved";
-  if (mapped.some((s) => s === "rejected")) return "rejected";
-  if (mapped.some((s) => s === "cancelled")) return "cancelled";
-  if (mapped.some((s) => s === "withdrawn")) return "withdrawn";
+function inboxDisplayStatusFromRow(row) {
+  if (!row) return null;
+
+  if (isWithdrawnLeave(row)) return "withdrawn";
+  if (isRejectedLeave(row)) return "rejected";
+
+  const rawStatus = adminStatusFromLms(row.status);
+  const overall = adminStatusFromLms(row.overall_status);
+
+  if (overall === "approved" || rawStatus === "approved") return "approved";
+  if (overall === "cancelled" || overall === "withdrawn") return "withdrawn";
+  if (rawStatus === "pending" || overall === "pending") return "pending";
+  return rawStatus || overall || null;
+}
+
+function leaveStatusFieldsFromRow(row) {
+  if (!row) return null;
+  return {
+    status: row.status,
+    overall_status: row.overall_status,
+    l1_status: row.l1_status,
+    l2_status: row.l2_status,
+  };
+}
+
+function resolveInboxDisplayStatus(adminRow, lmsRow) {
+  const candidates = [inboxDisplayStatusFromRow(adminRow), inboxDisplayStatusFromRow(lmsRow)].filter(
+    Boolean
+  );
+  if (candidates.some((s) => s === "withdrawn")) return "withdrawn";
+  if (candidates.some((s) => s === "rejected")) return "rejected";
+  if (candidates.some((s) => s === "approved")) return "approved";
   return "pending";
 }
 
@@ -572,13 +632,15 @@ function mergeLmsAndAdminLeaveRows(lmsRows, adminRows) {
     if (!row?.id) continue;
     byId.set(row.id, {
       ...row,
-      status: resolveInboxDisplayStatus(...leaveRowStatusCandidates(row)),
+      status: resolveInboxDisplayStatus(leaveStatusFieldsFromRow(row), null),
       overall_status: normalizeWorkflowStatus(row.overall_status) || null,
       leave_type_code: leaveTypeCodeFromRow(row),
       approver_name: firstNonEmpty(row.approver_name, row.l2_action_by_name, row.l1_action_by_name),
       decided_at: row.decided_at || row.l2_action_at || row.l1_action_at || null,
       _admin_status: row.status,
       _admin_overall: row.overall_status,
+      _admin_l1: row.l1_status,
+      _admin_l2: row.l2_status,
       _from_admin: true,
     });
   }
@@ -589,7 +651,7 @@ function mergeLmsAndAdminLeaveRows(lmsRows, adminRows) {
     if (!existing) {
       byId.set(row.id, {
         ...row,
-        status: resolveInboxDisplayStatus(...leaveRowStatusCandidates(row)),
+        status: resolveInboxDisplayStatus(null, leaveStatusFieldsFromRow(row)),
         overall_status:
           normalizeWorkflowStatus(row.overall_status) || adminStatusFromLms(row.status),
         leave_type_code: leaveTypeCodeFromRow(row),
@@ -597,6 +659,19 @@ function mergeLmsAndAdminLeaveRows(lmsRows, adminRows) {
       });
       continue;
     }
+
+    const adminSource = {
+      status: existing._admin_status,
+      overall_status: existing._admin_overall,
+      l1_status: firstNonEmpty(existing._admin_l1, existing.l1_status, row.l1_status),
+      l2_status: firstNonEmpty(existing._admin_l2, existing.l2_status, row.l2_status),
+    };
+    const lmsSource = {
+      status: row.status,
+      overall_status: row.overall_status,
+      l1_status: firstNonEmpty(row.l1_status, existing._admin_l1, existing.l1_status),
+      l2_status: firstNonEmpty(row.l2_status, existing._admin_l2, existing.l2_status),
+    };
 
     byId.set(row.id, {
       ...row,
@@ -608,14 +683,12 @@ function mergeLmsAndAdminLeaveRows(lmsRows, adminRows) {
       days: existing.days ?? row.days,
       submitted_at: existing.submitted_at || row.submitted_at,
       user_id: existing.user_id || row.user_id,
-      status: resolveInboxDisplayStatus(
-        ...leaveRowStatusCandidates(existing),
-        existing._admin_status,
-        existing._admin_overall,
-        ...leaveRowStatusCandidates(row)
-      ),
+      // Keep tier fields for isWithdrawnLeave (same as Indus One history mapping).
+      l1_status: lmsSource.l1_status,
+      l2_status: lmsSource.l2_status,
+      status: resolveInboxDisplayStatus(adminSource, lmsSource),
       overall_status:
-        normalizeWorkflowStatus(existing.overall_status) ||
+        normalizeWorkflowStatus(existing._admin_overall) ||
         normalizeWorkflowStatus(row.overall_status) ||
         adminStatusFromLms(row.status),
       approver_name: firstNonEmpty(
@@ -776,6 +849,10 @@ let leaveInboxInflight = null;
 let leaveInboxCache = { at: 0, payload: null };
 const LEAVE_INBOX_CACHE_MS = 30_000;
 
+function invalidateLeaveInboxCache() {
+  leaveInboxCache = { at: 0, payload: null };
+}
+
 function countInboxStatuses(merged) {
   const counts = { pending: 0, approved: 0, rejected: 0, cancelled: 0, withdrawn: 0, all: merged.length };
   for (const row of merged) {
@@ -900,7 +977,8 @@ export async function fetchLeaveRequests(opts = {}) {
     );
   }
 
-  const tab = normalizeWorkflowStatus(status);
+  const tabRaw = normalizeWorkflowStatus(status);
+  const tab = tabRaw === "cancelled" ? "withdrawn" : tabRaw;
   if (tab && tab !== "all") {
     merged = merged.filter((row) => inboxStatusBucket(row.status) === tab);
   }
