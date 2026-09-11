@@ -1,10 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle, ChevronLeft, ChevronRight, Paperclip, Eye, Share2, Link2, Download } from 'lucide-react';
+import { FileCheck, Plus, Search, Pencil, Trash2, History, ChevronLeft, ChevronRight, Paperclip, Eye, Share2, Link2, Download } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from '../../config/roles';
-import { formatDateDdMmYyyy, formatDateTimeDdMmYyyy } from "../../utils/dateDisplay";
+import { formatDateDdMmYyyy, formatDateTimeDdMmYyyy, normalizeToIsoDate } from "../../utils/dateDisplay";
 import { isValidDateInputValue, normalizeDateInputValue } from '../../utils/dateInput';
 import {
   COMMERCIAL_MODULE_MANPOWER_TRAINING,
@@ -39,7 +38,6 @@ import {
   shipToPincodeForPoSave,
 } from '../../utils/poPincodeFields';
 import {
-  getApprovalBadge,
   getCommercialPoActorDisplayName,
   PO_APPROVAL_STATUS as APPROVAL_STATUS,
 } from '../../utils/commercialPoApproval';
@@ -296,6 +294,16 @@ function addCalendarMonths(date, months) {
   return new Date(date.getFullYear(), monthIndex, Math.min(date.getDate(), lastDay));
 }
 
+/** Parse PO date fields to a local calendar Date (avoids UTC/ISO datetime parse bugs). */
+function parsePoLocalDate(value) {
+  const iso = normalizeToIsoDate(value);
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+  return dt;
+}
+
 /**
  * Exact calendar-month count from `from` to `to` when `to` is an N-month
  * anniversary of `from`. Returns null when not an exact anniversary.
@@ -333,42 +341,51 @@ function fractionalCalendarMonthsInclusive(start, end) {
 }
 
 /**
- * Contract duration in years from Start Date to End Date (inclusive).
- * Exact 12-calendar-month spans are 1 year, including both:
- *   - same-day anniversary (01/04/2026–01/04/2027)
- *   - day-before anniversary / FY-style (01/04/2026–31/03/2027, 01/01–31/12)
- * Partial spans use calendar months (not days÷365) so leap years and month lengths are correct.
+ * Contract duration in calendar months (inclusive start→end).
+ * FY-style spans count cleanly: 01/04/2024 → 31/03/2027 = 36 months
+ * (end+1 day = 01/04/2027 anniversary).
  */
-function contractDurationYears(startDate, endDate) {
-  const sRaw = String(startDate || '').trim();
-  const eRaw = String(endDate || '').trim();
-  if (!sRaw || !eRaw) return null;
-  const s = new Date(`${sRaw}T00:00:00`);
-  const e = new Date(`${eRaw}T00:00:00`);
-  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e < s) return null;
-
-  // Same calendar day N months later (e.g. 01/04/2026 → 01/04/2027 = 12 months).
-  const monthsOnEnd = exactCalendarMonths(s, e);
-  if (monthsOnEnd != null && monthsOnEnd > 0) return monthsOnEnd / 12;
+function contractDurationMonths(startDate, endDate) {
+  const s = parsePoLocalDate(startDate);
+  const e = parsePoLocalDate(endDate);
+  if (!s || !e || e < s) return null;
 
   // Inclusive span ending the day before the anniversary
   // (e.g. 01/04/2026 → 31/03/2027; end+1 = 01/04/2027 = 12 months).
   const endExclusive = new Date(e.getFullYear(), e.getMonth(), e.getDate() + 1);
   const monthsOnExclusive = exactCalendarMonths(s, endExclusive);
-  if (monthsOnExclusive != null && monthsOnExclusive > 0) return monthsOnExclusive / 12;
+  if (monthsOnExclusive != null && monthsOnExclusive > 0) return monthsOnExclusive;
+
+  // Same calendar day N months later (e.g. 01/04/2026 → 01/04/2027 = 12 months).
+  const monthsOnEnd = exactCalendarMonths(s, e);
+  if (monthsOnEnd != null && monthsOnEnd > 0) return monthsOnEnd;
+
+  // Start on 1st + end on last day of a month → whole months to the next 1st.
+  if (s.getDate() === 1) {
+    const lastDayOfEndMonth = new Date(e.getFullYear(), e.getMonth() + 1, 0).getDate();
+    if (e.getDate() === lastDayOfEndMonth && endExclusive.getDate() === 1) {
+      const whole =
+        (endExclusive.getFullYear() - s.getFullYear()) * 12 +
+        (endExclusive.getMonth() - s.getMonth());
+      if (whole > 0) return whole;
+    }
+  }
 
   const months = fractionalCalendarMonthsInclusive(s, e);
   if (months == null || months <= 0) return null;
-  return months / 12;
+  const rounded = Math.round(months);
+  // Snap near-whole months so leap/month-length noise does not skew monthly value.
+  if (Math.abs(months - rounded) < 0.02) return rounded;
+  return months;
 }
 
-/** Monthly Value = Total Contract Value ÷ (Contract Duration in Years × 12). */
+/** Monthly Value = Total Contract Value ÷ Contract Duration (months). */
 function computeMonthlyValueFromContract(totalContractValue, startDate, endDate) {
-  const years = contractDurationYears(startDate, endDate);
-  if (!years || years <= 0) return '';
+  const months = contractDurationMonths(startDate, endDate);
+  if (!months || months <= 0) return '';
   const total = Number(totalContractValue);
   if (!Number.isFinite(total)) return '';
-  return Math.round((total / (years * 12)) * 100) / 100;
+  return Math.round((total / months) * 100) / 100;
 }
 
 function resolveDutyPatternForForm(saved, customSaved = '') {
@@ -569,6 +586,20 @@ const DEFAULT_SAC = '';
 function poRowDomId(id) {
   return `po-row-${String(id || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 }
+
+/** Calendar days from today to contract end (end − today). Null if end date missing/invalid. */
+function renewalDaysLeftFromEnd(endDate) {
+  const raw = String(endDate || '').trim();
+  if (!raw) return null;
+  const end = new Date(raw);
+  if (Number.isNaN(end.getTime())) return null;
+  const today = new Date();
+  const endDay = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+  const todayDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.round((endDay - todayDay) / 86400000);
+}
+
+const RENEWAL_DAYS_ALERT_THRESHOLD = 30;
 
 const SUPPLEMENTARY_STATUS = {
   PENDING: 'pending',
@@ -785,79 +816,6 @@ function clearedPoApprovalFields() {
     rejectedByName: null,
     rejectedAt: null,
   };
-}
-
-function normalizeRatesForMaterialCompare(rates) {
-  return (rates || []).map((r) => ({
-    description: String(r.description || '').trim().toLowerCase(),
-    hsnSac: String(r.hsnSac ?? r.hsn_sac ?? '').trim(),
-    materialCode: String(r.materialCode ?? r.material_code ?? '').trim(),
-    qty: Number(r.qty) || 0,
-    rate: Number(r.rate) || 0,
-    penalty: Number(r.penalty) || 0,
-  }));
-}
-
-function readPoField(obj, keys) {
-  for (const key of keys) {
-    const value = obj?.[key];
-    if (value != null && String(value).trim() !== '') return String(value).trim();
-  }
-  return '';
-}
-
-function hasMaterialManpowerPoChanges(prevPo, nextSnapshot, { addingRenewalCycle = false } = {}) {
-  if (!prevPo || !nextSnapshot) return true;
-  if (addingRenewalCycle) return true;
-  const comparableFields = [
-    ['poWoNumber', 'po_wo_number'],
-    ['totalContractValue', 'total_contract_value'],
-    ['startDate', 'start_date'],
-    ['endDate', 'end_date'],
-    ['billingType', 'billing_type', 'poType', 'po_type'],
-    ['legalName', 'legal_name'],
-    ['gstin'],
-    ['ocNumber', 'oc_number'],
-    ['serviceDescription', 'service_description'],
-    ['paymentTerms', 'payment_terms'],
-    ['vertical'],
-    ['sacCode', 'sac_code'],
-    ['hsnCode', 'hsn_code'],
-    ['poDate', 'po_date'],
-    ['billingWithoutPo', 'billing_without_po'],
-  ];
-  for (const keys of comparableFields) {
-    if (readPoField(prevPo, keys) !== readPoField(nextSnapshot, keys)) return true;
-  }
-  const prevRates = JSON.stringify(normalizeRatesForMaterialCompare(prevPo.ratePerCategory));
-  const nextRates = JSON.stringify(normalizeRatesForMaterialCompare(nextSnapshot.ratePerCategory));
-  return prevRates !== nextRates;
-}
-
-function resolvePoApprovalFieldsForSave({ editId, prevPo, nextSnapshot, addingRenewalCycle = false }) {
-  if (!editId || !prevPo) {
-    return {
-      approvalStatus: prevPo?.approvalStatus ?? prevPo?.approval_status ?? APPROVAL_STATUS.DRAFT,
-      approvalSentAt: prevPo?.approvalSentAt ?? prevPo?.approval_sent_at ?? null,
-    };
-  }
-  const priorStatus = normalizePoApprovalStatus(prevPo);
-  const inWorkflow = [
-    APPROVAL_STATUS.SENT,
-    APPROVAL_STATUS.APPROVED,
-    APPROVAL_STATUS.REJECTED,
-  ].includes(priorStatus);
-  if (!inWorkflow) return clearedPoApprovalFields();
-  if (hasMaterialManpowerPoChanges(prevPo, nextSnapshot, { addingRenewalCycle })) {
-    return clearedPoApprovalFields();
-  }
-  return preservePoApprovalFieldsFromPrevious(prevPo);
-}
-
-function getLatestCycle(cycles, fallback) {
-  const arr = Array.isArray(cycles) ? cycles.filter(Boolean) : [];
-  if (arr.length) return arr[arr.length - 1];
-  return fallback;
 }
 
 function validateGSTIN(value) {
@@ -1086,7 +1044,7 @@ const initialForm = {
 const POEntry = () => {
   const location = useLocation();
   const { commercialPOs, setCommercialPOs, setInvoices, billingError, clearBillingError } = useBilling();
-  const { user, userProfile, accessibleModules } = useAuth();
+  const { user, userProfile } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [listPoBasisFilter, setListPoBasisFilter] = useState('');
@@ -1102,15 +1060,11 @@ const POEntry = () => {
   const [saveError, setSaveError] = useState('');
   const [savingPo, setSavingPo] = useState(false);
   const pendingCreateIdRef = useRef(null);
+  const renewalAlertShownRef = useRef(false);
   const [sortConfig, setSortConfig] = useState({ key: 'modified', direction: 'desc' });
 
   const fyForOc = formData.ocFyEdit || getFinancialYear();
 
-  const canApproveCommercialPOs = userCanApproveInModules(
-    userProfile,
-    accessibleModules,
-    COMMERCIAL_MT_APPROVER_MODULE_KEYS
-  );
   const currentActorName = getCommercialPoActorDisplayName(userProfile, user);
   const poFieldAclLabel = poEntryAclDepartmentLabel(userProfile);
   const canPoField = (field) => canEditPoEntryField(userProfile, field);
@@ -1290,68 +1244,11 @@ const POEntry = () => {
     );
   };
 
-  const approveSupplementaryBill = (po) => {
-    if (!canApproveCommercialPOs || !po) return;
-    const nowIso = new Date().toISOString();
-    setCommercialPOs((prev) =>
-      prev.map((p) =>
-        p.id === po.id
-          ? {
-              ...p,
-              supplementaryRequestStatus: SUPPLEMENTARY_STATUS.APPROVED,
-              supplementaryApprovedAt: nowIso,
-              updateHistory: Array.isArray(p.updateHistory)
-                ? [...p.updateHistory, { at: nowIso, summary: 'Post-contract billing approved — bill on this OC using Create Invoice' }]
-                : [{ at: nowIso, summary: 'Post-contract billing approved — bill on this OC using Create Invoice' }],
-            }
-          : p
-      )
-    );
-  };
-
-  const rejectSupplementaryBill = (po) => {
-    if (!canApproveCommercialPOs || !po) return;
-    const nowIso = new Date().toISOString();
-    setCommercialPOs((prev) =>
-      prev.map((p) =>
-        p.id === po.id
-          ? {
-              ...p,
-              supplementaryRequestStatus: SUPPLEMENTARY_STATUS.REJECTED,
-              supplementaryApprovedAt: null,
-              updateHistory: Array.isArray(p.updateHistory)
-                ? [...p.updateHistory, { at: nowIso, summary: 'Post-contract billing request rejected' }]
-                : [{ at: nowIso, summary: 'Post-contract billing request rejected' }],
-            }
-          : p
-      )
-    );
-  };
-
   const TextCell = ({ value, className = '' }) => {
     const display = value ?? '';
     return (
       <span className={`block min-w-0 truncate ${className}`} title={typeof display === 'string' ? display : String(display)}>
         {display || '–'}
-      </span>
-    );
-  };
-
-  const MultilineBadgeText = ({ text }) => {
-    const t = String(text || '');
-    const parts =
-      t.includes('Approved by ') ? ['Approved by', t.replace('Approved by ', '')]
-      : t.includes('Rejected by ') ? ['Rejected by', t.replace('Rejected by ', '')]
-      : t.includes('Pending Commercial Manager approval') ? ['Pending', 'Commercial Manager approval']
-      : [t];
-
-    return (
-      <span className="block text-center leading-tight whitespace-normal">
-        {parts.map((p, i) => (
-          <span key={`${p}-${i}`} className="block">
-            {p}
-          </span>
-        ))}
       </span>
     );
   };
@@ -1398,6 +1295,7 @@ const POEntry = () => {
         p.ocNumber?.toLowerCase().includes(s) ||
         p.poWoNumber?.toLowerCase().includes(s) ||
         p.legalName?.toLowerCase().includes(s) ||
+        p.locationName?.toLowerCase().includes(s) ||
         p.siteId?.toLowerCase().includes(s)
     );
   }, [commercialPOs, searchTerm, departmentFilter, manpowerBillingTypeFilter, listPoBasisFilter]);
@@ -1408,11 +1306,15 @@ const POEntry = () => {
       const getValue = (po) => {
         switch (sortConfig.key) {
           case 'ocNumber': return String(po.ocNumber || '').toLowerCase();
-          case 'siteLocation': return String([po.siteId, po.locationName].filter(Boolean).join(' ') || '').toLowerCase();
+          case 'siteLocation': return String(po.locationName || '').toLowerCase();
           case 'client': return String(po.legalName || '').toLowerCase();
           case 'poWo': return String(po.poWoNumber || '').toLowerCase();
-          case 'startEnd': return new Date(po.startDate || po.endDate || 0).getTime() || 0;
-          case 'status': return String(po.approvalStatus || '').toLowerCase();
+          case 'startDate': return new Date(po.startDate || po.start_date || 0).getTime() || 0;
+          case 'endDate': return new Date(po.endDate || po.end_date || 0).getTime() || 0;
+          case 'renewalDaysLeft': {
+            const days = renewalDaysLeftFromEnd(po.endDate || po.end_date);
+            return days == null ? Number.POSITIVE_INFINITY : days;
+          }
           case 'created': return poCreatedTime(po);
           case 'modified':
           default: return poModifiedTime(po);
@@ -1427,6 +1329,36 @@ const POEntry = () => {
       return result * dir;
     });
   }, [filteredList, sortConfig]);
+
+  const renewalDueSoonList = useMemo(
+    () =>
+      filteredList.filter((po) => {
+        const days = renewalDaysLeftFromEnd(po.endDate || po.end_date);
+        return days != null && days >= 0 && days <= RENEWAL_DAYS_ALERT_THRESHOLD;
+      }),
+    [filteredList]
+  );
+
+  useEffect(() => {
+    if (renewalAlertShownRef.current) return;
+    if (!renewalDueSoonList.length) return;
+    renewalAlertShownRef.current = true;
+    const count = renewalDueSoonList.length;
+    const preview = renewalDueSoonList
+      .slice(0, 3)
+      .map((po) => {
+        const days = renewalDaysLeftFromEnd(po.endDate || po.end_date);
+        const oc = po.ocNumber || po.oc_number || 'PO/WO';
+        return `${oc} (${days}d)`;
+      })
+      .join(', ');
+    toast.warning(
+      `Renewal due within ${RENEWAL_DAYS_ALERT_THRESHOLD} days`,
+      count === 1
+        ? preview
+        : `${count} contracts need renewal soon: ${preview}${count > 3 ? '…' : ''}`
+    );
+  }, [renewalDueSoonList]);
 
   const [page, setPage] = useState(1);
   useEffect(() => { setPage(1); }, [searchTerm, departmentFilter, manpowerBillingTypeFilter, listPoBasisFilter, sortConfig]);
@@ -1580,13 +1512,20 @@ const POEntry = () => {
           po.dutyPattern || po.duty_pattern || '',
           po.customDutyPattern || po.custom_duty_pattern || ''
         );
-        const startDate = po.startDate || '';
-        const endDate = po.endDate || '';
-        const totalContractValue = po.totalContractValue ?? '';
+        const startDate = po.startDate || po.start_date || '';
+        const endDate = po.endDate || po.end_date || '';
+        const totalContractValue = po.totalContractValue ?? po.total_contract_value ?? '';
         const savedMonthly =
           po.monthlyValue ?? po.monthly_value ?? null;
         const calc = computeMonthlyValueFromContract(totalContractValue, startDate, endDate);
         const hasSavedMonthly = savedMonthly !== '' && savedMonthly != null;
+        // Prefer fresh calc from dates + total so stale/wrong saved monthly is corrected.
+        const monthlyValue =
+          calc !== ''
+            ? String(calc)
+            : hasSavedMonthly
+              ? String(savedMonthly)
+              : '';
         return {
           ...duty,
           relieverScope: normalizeRelieverScopeValue(po.relieverScope || po.reliever_scope || ''),
@@ -1596,8 +1535,8 @@ const POEntry = () => {
           transportationScope: normalizeAccommodationTransportScopeValue(
             po.transportationScope || po.transportation_scope || ''
           ),
-          monthlyValue: hasSavedMonthly ? String(savedMonthly) : (calc === '' ? '' : String(calc)),
-          monthlyValueManual: hasSavedMonthly,
+          monthlyValue,
+          monthlyValueManual: false,
         };
       })(),
       withFireTender: !!(po.withFireTender ?? po.with_fire_tender),
@@ -1725,163 +1664,6 @@ const POEntry = () => {
       const calc = computeMonthlyValueFromContract(total, next.startDate, next.endDate);
       return { ...next, monthlyValue: calc === '' ? '' : String(calc) };
     });
-  };
-
-  const sendToApproval = (id) => {
-    const nowIso = new Date().toISOString();
-    setCommercialPOs((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              approvalStatus: APPROVAL_STATUS.SENT,
-              approvalSentAt: nowIso,
-              updateHistory: [
-                ...(Array.isArray(p.updateHistory) ? p.updateHistory : []),
-                {
-                  at: nowIso,
-                  event: 'po_sent_for_approval',
-                  summary: 'PO sent for approval',
-                  actorUserId: user?.id || null,
-                  actorName: currentActorName,
-                },
-              ],
-            }
-          : p
-      )
-    );
-  };
-
-  const approvePO = (id) => {
-    if (!canApproveCommercialPOs) return;
-    const nowIso = new Date().toISOString();
-    const prev = commercialPOs;
-    const target = prev.find((p) => p.id === id);
-    if (!target) return;
-
-    const next = prev.map((p) => {
-      if (p.id !== id) return p;
-      const cycles = Array.isArray(p.renewalCycles) ? [...p.renewalCycles] : [];
-      const latestIdx = cycles.length ? cycles.length - 1 : -1;
-      const latest = latestIdx >= 0 ? { ...cycles[latestIdx] } : null;
-      if (latest && !latest.approved_at) {
-        latest.approved_at = nowIso;
-        cycles[latestIdx] = latest;
-      }
-      const hasActiveRenewal = latest && latest.po_wo_number && latest.total_contract_value != null;
-      return {
-        ...p,
-        approvalStatus: APPROVAL_STATUS.APPROVED,
-        approvedByUserId: user?.id || null,
-        approvedByName: currentActorName,
-        approvedAt: nowIso,
-        ...(cycles.length ? { renewalCycles: cycles } : {}),
-        ...(hasActiveRenewal
-          ? {
-              poWoNumber: latest.po_wo_number,
-              totalContractValue: Number(latest.total_contract_value) || 0,
-              startDate: latest.start_date || p.startDate,
-              endDate: latest.end_date || p.endDate,
-              supplementaryRequestStatus: null,
-              supplementaryReason: null,
-              supplementaryRequestedAt: null,
-              supplementaryApprovedAt: null,
-            }
-          : {}),
-        updateHistory: Array.isArray(p.updateHistory)
-          ? [
-              ...p.updateHistory,
-              {
-                at: nowIso,
-                event: 'po_approved',
-                summary: hasActiveRenewal ? `PO renewed and approved (${latest.po_wo_number})` : `PO approved by ${currentActorName}`,
-                actorUserId: user?.id || null,
-                actorName: currentActorName,
-              },
-            ]
-          : [
-              {
-                at: nowIso,
-                event: 'po_approved',
-                summary: hasActiveRenewal ? `PO renewed and approved (${latest?.po_wo_number || ''})` : `PO approved by ${currentActorName}`,
-                actorUserId: user?.id || null,
-                actorName: currentActorName,
-              },
-            ],
-      };
-    });
-
-    const latest = getLatestCycle(target?.renewalCycles, null);
-    let nextWithSupp = next;
-    if (latest?.po_wo_number && latest?.total_contract_value != null) {
-      nextWithSupp = next.map((p) => {
-        if (!p.isSupplementary) return p;
-        if (String(p.supplementaryParentPoId || '') !== String(id)) return p;
-        return {
-          ...p,
-          poWoNumber: latest.po_wo_number,
-          totalContractValue: Number(latest.total_contract_value) || 0,
-          startDate: latest.start_date || p.startDate,
-          endDate: latest.end_date || p.endDate,
-          updateHistory: Array.isArray(p.updateHistory)
-            ? [...p.updateHistory, { at: nowIso, summary: `Legacy supplementary row aligned to renewed PO/WO ${latest.po_wo_number}` }]
-            : [{ at: nowIso, summary: `Legacy supplementary row aligned to renewed PO/WO ${latest.po_wo_number}` }],
-        };
-      });
-
-      const legacySupp = prev.find(
-        (p) => p.isSupplementary && String(p.supplementaryParentPoId || '') === String(id)
-      );
-      setInvoices((invs) =>
-        invs.map((inv) => {
-          const parentMatch = String(inv.poId) === String(id);
-          const legacySuppMatch = legacySupp && String(inv.poId) === String(legacySupp.id);
-          if (!parentMatch && !legacySuppMatch) return inv;
-          const mockPoHit = typeof inv.poWoNumber === 'string' && inv.poWoNumber.includes('-SUPP-');
-          const shouldRoll = legacySuppMatch || inv.isPostContractBuffer || (parentMatch && mockPoHit);
-          if (!shouldRoll) return inv;
-          return {
-            ...inv,
-            poId: id,
-            poWoNumber: latest.po_wo_number,
-            billingDurationFrom: latest.start_date || inv.billingDurationFrom,
-            billingDurationTo: latest.end_date || inv.billingDurationTo,
-            isPostContractBuffer: false,
-            updated_at: nowIso,
-          };
-        })
-      );
-    }
-
-    setCommercialPOs(nextWithSupp);
-  };
-
-  const rejectPO = (id) => {
-    if (!canApproveCommercialPOs) return;
-    const nowIso = new Date().toISOString();
-    setCommercialPOs((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              approvalStatus: APPROVAL_STATUS.REJECTED,
-              rejectedByUserId: user?.id || null,
-              rejectedByName: currentActorName,
-              rejectedAt: nowIso,
-              updateHistory: [
-                ...(Array.isArray(p.updateHistory) ? p.updateHistory : []),
-                {
-                  at: nowIso,
-                  event: 'po_rejected',
-                  summary: `PO rejected by ${currentActorName}`,
-                  actorUserId: user?.id || null,
-                  actorName: currentActorName,
-                },
-              ],
-            }
-          : p
-      )
-    );
   };
 
   const savePO = async () => {
@@ -2039,46 +1821,13 @@ const POEntry = () => {
     if (!editId) pendingCreateIdRef.current = newId;
     const nowIso = new Date().toISOString();
     const historyPrev = Array.isArray(prevPo?.updateHistory) ? [...prevPo.updateHistory] : [];
-    const nextSnapshot = {
-      poWoNumber: trimmedPoWoNumber,
-      totalContractValue: totalVal,
-      startDate: formData.startDate || '',
-      endDate: formData.endDate || '',
-      billingType: poType,
-      legalName: formData.legalName.trim(),
-      gstin: formData.gstin.trim().toUpperCase(),
-      ocNumber: ocNum,
-      serviceDescription: formData.serviceDescription.trim(),
-      paymentTerms: mtPayment.paymentTerms || formData.paymentTerms.trim() || null,
-      vertical:
-        formData.vertical ||
-        (formData.ocNumber && formData.ocNumber.split('-')[1]) ||
-        'Manpower',
-      sacCode: String(formData.sacCode || formData.hsnCode || '').trim(),
-      hsnCode: String(formData.hsnCode || formData.sacCode || '').trim(),
-      poDate: formData.poDate || null,
-      billingWithoutPo: isWithoutPo,
-      ratePerCategory: rates.length ? rates : [{ description: 'Other', hsnSac: '', materialCode: '', qty: 0, rate: 0, penalty: 0 }],
-    };
-    const approvalFields = resolvePoApprovalFieldsForSave({
-      editId,
-      prevPo,
-      nextSnapshot,
-      addingRenewalCycle,
-    });
+    const approvalFields = editId
+      ? preservePoApprovalFieldsFromPrevious(prevPo)
+      : clearedPoApprovalFields();
     if (editId && prevPo) {
-      const materialChanged = hasMaterialManpowerPoChanges(prevPo, nextSnapshot, { addingRenewalCycle });
-      const inWorkflow = [
-        APPROVAL_STATUS.SENT,
-        APPROVAL_STATUS.APPROVED,
-        APPROVAL_STATUS.REJECTED,
-      ].includes(normalizePoApprovalStatus(prevPo));
       historyPrev.push({
         at: nowIso,
-        summary:
-          inWorkflow && materialChanged
-            ? 'PO/WO updated — requires Commercial approval again'
-            : 'PO/WO updated',
+        summary: 'PO/WO updated',
       });
     }
     const contactHistorySourcePo = editId ? prevPo : priorActivePo;
@@ -2100,10 +1849,18 @@ const POEntry = () => {
         : row
     );
     const historyWithContacts = withContactPersonsHistorySnapshot(historyPrev, contactPersons);
-    const monthlyValueNum =
-      formData.monthlyValue === '' || formData.monthlyValue == null
-        ? null
-        : Number(formData.monthlyValue);
+    const monthlyValueNum = (() => {
+      if (!formData.monthlyValueManual) {
+        const recalc = computeMonthlyValueFromContract(totalVal, formData.startDate, formData.endDate);
+        if (recalc !== '') {
+          const n = Number(recalc);
+          return Number.isFinite(n) ? n : null;
+        }
+      }
+      if (formData.monthlyValue === '' || formData.monthlyValue == null) return null;
+      const n = Number(formData.monthlyValue);
+      return Number.isFinite(n) ? n : null;
+    })();
     const po = {
       id: newId, siteId: formData.siteId.trim() || `SITE-${String(newId).slice(0, 8)}`,
       locationName: formData.locationName.trim() || formData.legalName.trim() || '',
@@ -2342,8 +2099,8 @@ const POEntry = () => {
       ) : null}
       <div className="rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm text-emerald-950">
         <p className="min-w-0 leading-snug">
-          <span className="font-semibold">Next — Billing:</span> After you <strong>send for approval</strong> and the PO is{' '}
-          <strong>approved</strong>, open <strong>Billing</strong>, choose the <strong>same vertical</strong> (team-wise dropdown), then{' '}
+          <span className="font-semibold">Next — Billing:</span> After saving the PO/WO, open{' '}
+          <strong>Billing</strong>, choose the <strong>same vertical</strong> (team-wise dropdown), then{' '}
           <strong>Create Invoice</strong>.
         </p>
         <Link
@@ -2358,7 +2115,7 @@ const POEntry = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
           <input
             type="text"
-            placeholder="Search by OC, PO number, client, site..."
+            placeholder="Search by OC, PO number, client, location..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
@@ -2432,10 +2189,11 @@ const POEntry = () => {
             <option value="created">Last created</option>
             <option value="ocNumber">OC number</option>
             <option value="client">Client</option>
-            <option value="siteLocation">Site / Location</option>
+            <option value="siteLocation">Location</option>
             <option value="poWo">PO/WO</option>
-            <option value="startEnd">Start-End</option>
-            <option value="status">Status</option>
+            <option value="startDate">Start date</option>
+            <option value="endDate">End date</option>
+            <option value="renewalDaysLeft">Renewal days left</option>
           </select>
         </div>
         <div className="shrink-0 w-full sm:w-36">
@@ -2478,7 +2236,7 @@ const POEntry = () => {
                     </th>
                     <th className="hidden md:table-cell px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[14%] lg:w-[13%]">
                       <button type="button" onClick={() => toggleSort('siteLocation')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
-                        Site / Location {renderSortIndicator('siteLocation')}
+                        Location {renderSortIndicator('siteLocation')}
                       </button>
                     </th>
                     <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[14%] md:w-[12%] lg:w-[10%]">
@@ -2486,29 +2244,38 @@ const POEntry = () => {
                         PO/WO {renderSortIndicator('poWo')}
                       </button>
                     </th>
-                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[13%] md:w-[11%] lg:w-[11%]">
-                      <button type="button" onClick={() => toggleSort('startEnd')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
-                        Start-End {renderSortIndicator('startEnd')}
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[10%] md:w-[9%] lg:w-[8%]">
+                      <button type="button" onClick={() => toggleSort('startDate')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        Start {renderSortIndicator('startDate')}
                       </button>
                     </th>
-                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[28%] md:w-[24%] lg:w-[15%]">
-                      <button type="button" onClick={() => toggleSort('status')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
-                        Status {renderSortIndicator('status')}
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[10%] md:w-[9%] lg:w-[8%]">
+                      <button type="button" onClick={() => toggleSort('endDate')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        End {renderSortIndicator('endDate')}
                       </button>
                     </th>
-                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[19%] md:w-[19%] lg:w-[13%]">
+                    <th className="px-1 sm:px-1.5 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[11%] md:w-[10%] lg:w-[9%]">
+                      <button type="button" onClick={() => toggleSort('renewalDaysLeft')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black leading-tight">
+                        Renewal days left {renderSortIndicator('renewalDaysLeft')}
+                      </button>
+                    </th>
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[16%] md:w-[16%] lg:w-[12%]">
                       Actions
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 bg-white">
                   {paginatedList.map((po, rowIdx) => {
-                    const siteLocation = [po.siteId, po.locationName].filter(Boolean).join(' – ');
-                    const approval = getApprovalBadge(po.approvalStatus, po);
+                    const locationOnly = String(po.locationName || po.location_name || '').trim();
                     const isHighlighted = highlightedPoId && String(po.id) === String(highlightedPoId);
                     const startDateFmt =
-                      formatDateDdMmYyyy(cleanCellText(po.startDate)) || '–';
-                    const endDateFmt = formatDateDdMmYyyy(cleanCellText(po.endDate)) || '–';
+                      formatDateDdMmYyyy(cleanCellText(po.startDate || po.start_date)) || '–';
+                    const endDateFmt = formatDateDdMmYyyy(cleanCellText(po.endDate || po.end_date)) || '–';
+                    const daysLeft = renewalDaysLeftFromEnd(po.endDate || po.end_date);
+                    const renewalUrgent =
+                      daysLeft != null &&
+                      daysLeft >= 0 &&
+                      daysLeft <= RENEWAL_DAYS_ALERT_THRESHOLD;
                     return (
                       <tr
                         id={poRowDomId(po.id)}
@@ -2541,84 +2308,67 @@ const POEntry = () => {
                           <TextCell value={po.legalName} className="text-center" />
                         </td>
                         <td className="hidden md:table-cell px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-700 min-w-0 text-center">
-                          <TextCell value={siteLocation} className="text-center" />
+                          <TextCell value={locationOnly} className="text-center" />
                         </td>
                         <td className="px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-700 text-center">
                           <TextCell value={po.poWoNumber} className="text-center" />
                         </td>
                         <td className="px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-700 text-center">
-                          <div className="flex flex-col items-center justify-center gap-0.5 leading-none text-center min-w-0">
-                            <span
-                              className="font-mono tabular-nums tracking-tight truncate max-w-full"
-                              title={po.startDate ? formatDateDdMmYyyy(cleanCellText(po.startDate)) || String(po.startDate) : ''}
-                            >
-                              {startDateFmt}
-                            </span>
-                            <span className="text-gray-400 select-none font-mono text-[9px] leading-none">
-                              -
-                            </span>
-                            <span
-                              className="font-mono tabular-nums tracking-tight truncate max-w-full"
-                              title={po.endDate ? formatDateDdMmYyyy(cleanCellText(po.endDate)) || String(po.endDate) : ''}
-                            >
-                              {endDateFmt}
-                            </span>
-                          </div>
+                          <span
+                            className="font-mono tabular-nums tracking-tight truncate max-w-full block"
+                            title={po.startDate || po.start_date ? formatDateDdMmYyyy(cleanCellText(po.startDate || po.start_date)) || String(po.startDate || po.start_date) : ''}
+                          >
+                            {startDateFmt}
+                          </span>
                         </td>
                         <td className="px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-700 text-center">
-                          <div className="flex flex-col items-center justify-center gap-1 min-w-0">
-                            <span
-                              className={`inline-flex items-center justify-center px-1.5 py-1 text-[9px] sm:text-[10.5px] font-semibold rounded-full ${approval.cls} whitespace-normal text-center leading-tight max-w-full`}
-                              title={approval.label}
-                            >
-                              <MultilineBadgeText text={approval.label} />
+                          <span
+                            className="font-mono tabular-nums tracking-tight truncate max-w-full block"
+                            title={po.endDate || po.end_date ? formatDateDdMmYyyy(cleanCellText(po.endDate || po.end_date)) || String(po.endDate || po.end_date) : ''}
+                          >
+                            {endDateFmt}
+                          </span>
+                        </td>
+                        <td
+                          className="px-1 sm:px-1.5 py-2 text-[10px] sm:text-xs text-center align-middle text-gray-700"
+                          title={
+                            daysLeft == null
+                              ? 'No end date'
+                              : daysLeft < 0
+                                ? `Expired ${Math.abs(daysLeft)} day(s) ago`
+                                : `${daysLeft} day(s) left until renewal / contract end`
+                          }
+                        >
+                          {daysLeft == null ? (
+                            <span className="text-gray-400">–</span>
+                          ) : renewalUrgent ? (
+                            <span className="inline-flex items-center justify-center min-w-[2.5rem] px-2 py-1 rounded-md border border-red-300 bg-red-100 text-red-800 font-bold font-mono tabular-nums shadow-sm">
+                              {daysLeft}
                             </span>
-                            {(po.revisedPO || po.renewalPending) && (
-                              <span
-                                className="text-[11px] sm:text-xs leading-tight text-center"
-                                title={`${po.revisedPO ? 'PO Updated' : ''}${po.revisedPO && po.renewalPending ? ' · ' : ''}${po.renewalPending ? 'Renewal Due' : ''}`}
-                              >
-                                {po.revisedPO && <span className="block text-amber-700 font-semibold">PO Updated</span>}
-                                {po.renewalPending && <span className="block text-orange-700 font-semibold">Renewal Due</span>}
-                              </span>
-                            )}
-                          </div>
+                          ) : (
+                            <span
+                              className={[
+                                'font-mono tabular-nums',
+                                daysLeft < 0 ? 'text-gray-400' : 'text-gray-700',
+                              ].join(' ')}
+                            >
+                              {daysLeft}
+                            </span>
+                          )}
                         </td>
                         <td className="px-1 sm:px-2 py-1.5 text-center min-w-0">
                           <div className="flex items-center justify-center gap-1 flex-wrap">
                             {!po.isSupplementary && (
                               <>
                                 {po.supplementaryRequestStatus === SUPPLEMENTARY_STATUS.PENDING ? (
-                                  <>
-                                    <button
-                                      type="button"
-                                      disabled
-                                      className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 opacity-80 cursor-not-allowed"
-                                      title="Post-contract billing request pending"
-                                    >
-                                      S
-                                    </button>
-                                    {canApproveCommercialPOs ? (
-                                      <>
-                                        <button
-                                          type="button"
-                                          onClick={() => approveSupplementaryBill(po)}
-                                          className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                                          title="Approve post-contract billing"
-                                        >
-                                          <CheckCircle className="w-4 h-4" />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => rejectSupplementaryBill(po)}
-                                          className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-                                          title="Reject post-contract billing request"
-                                        >
-                                          <XCircle className="w-4 h-4" />
-                                        </button>
-                                      </>
-                                    ) : null}
-                                  </>
+                                  <button
+                                    type="button"
+                                    disabled
+                                    className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 opacity-80 cursor-not-allowed"
+                                    title="Post-contract billing request pending"
+                                  >
+                                    S
+                                  </button>
                                 ) : (
                                   <button
                                     type="button"
@@ -2639,36 +2389,6 @@ const POEntry = () => {
                                     S
                                   </button>
                                 )}
-                              </>
-                            )}
-                            {po.approvalStatus === APPROVAL_STATUS.DRAFT && (
-                              <button
-                                type="button"
-                                onClick={() => sendToApproval(po.id)}
-                                className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
-                                title="Send to approval"
-                              >
-                                <Send className="w-4 h-4" />
-                              </button>
-                            )}
-                            {canApproveCommercialPOs && po.approvalStatus === APPROVAL_STATUS.SENT && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => approvePO(po.id)}
-                                  className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                                  title="Commercial Manager Approve"
-                                >
-                                  <CheckCircle className="w-4 h-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => rejectPO(po.id)}
-                                  className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-                                  title="Commercial Manager Reject"
-                                >
-                                  <XCircle className="w-4 h-4" />
-                                </button>
                               </>
                             )}
                             <button
@@ -2801,7 +2521,7 @@ const POEntry = () => {
                             value={formData.locationName}
                             onChange={(e) => setFormData((p) => ({ ...p, locationName: e.target.value }))}
                             className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                            placeholder="Site / location (shown in PO / WO Management)"
+                            placeholder="Location (shown in PO / WO Management)"
                           />
                         </div>
                       ) : null
@@ -2840,7 +2560,7 @@ const POEntry = () => {
                       value={formData.locationName}
                       onChange={(e) => setFormData((p) => ({ ...p, locationName: e.target.value }))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                      placeholder="Site / location (shown in PO / WO Management)"
+                      placeholder="Location (shown in PO / WO Management)"
                     />
                   </div>
                   ) : null}
@@ -3398,10 +3118,10 @@ const POEntry = () => {
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
                       min="0"
                       step="0.01"
-                      placeholder="Total ÷ (years × 12)"
+                      placeholder="Total ÷ contract months"
                     />
                     <p className="text-[11px] text-gray-500 mt-1">
-                      Auto-calculated as total contract value ÷ (contract duration in years × 12). Editable if needed.
+                      Auto-calculated as total contract value ÷ contract duration in months (e.g. 01/04/2024–31/03/2027 = 36). Editable if needed.
                     </p>
                   </div>
                   {canPaymentTerms ? (
@@ -4025,7 +3745,22 @@ const POEntry = () => {
                     />
                   ) : null}
                   {canPoFinancials ? <PoViewField label="Total contract value" value={formatPoCurrency(poForView.totalContractValue ?? poForView.total_contract_value)} /> : null}
-                  {canPoFinancials ? <PoViewField label="Monthly value" value={formatPoCurrency(poForView.monthlyValue ?? poForView.monthly_value)} /> : null}
+                  {canPoFinancials ? (
+                    <PoViewField
+                      label="Monthly value"
+                      value={formatPoCurrency(
+                        (() => {
+                          const calc = computeMonthlyValueFromContract(
+                            poForView.totalContractValue ?? poForView.total_contract_value,
+                            poForView.startDate || poForView.start_date,
+                            poForView.endDate || poForView.end_date
+                          );
+                          if (calc !== '') return calc;
+                          return poForView.monthlyValue ?? poForView.monthly_value;
+                        })()
+                      )}
+                    />
+                  ) : null}
                   {canBillingType ? <PoViewField label="Billing type" value={poForView.billingType || poForView.poType || poForView.po_type} /> : null}
                   {canPaymentTerms ? <PoViewField label="Payment terms" value={poForView.paymentTerms || poForView.payment_terms} /> : null}
                   {(canTaxService || canPoFinancials) ? (
@@ -4075,7 +3810,6 @@ const POEntry = () => {
                 <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Contract status</p>
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
                   <PoViewField label="Contract status" value={poForView.status || '–'} />
-                  <PoViewField label="Approval" value={getApprovalBadge(poForView.approvalStatus, poForView)?.label || poForView.approvalStatus || '–'} />
                   {canBillingBasic ? (
                   <PoViewField
                     label="Billing basis"
