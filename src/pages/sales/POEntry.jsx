@@ -2274,8 +2274,7 @@ const POEntry = () => {
                     const daysLeft = renewalDaysLeftFromEnd(po.endDate || po.end_date);
                     const renewalUrgent =
                       daysLeft != null &&
-                      daysLeft >= 0 &&
-                      daysLeft <= RENEWAL_DAYS_ALERT_THRESHOLD;
+                      (daysLeft < 0 || daysLeft <= RENEWAL_DAYS_ALERT_THRESHOLD);
                     return (
                       <tr
                         id={poRowDomId(po.id)}
@@ -2346,12 +2345,7 @@ const POEntry = () => {
                               {daysLeft}
                             </span>
                           ) : (
-                            <span
-                              className={[
-                                'font-mono tabular-nums',
-                                daysLeft < 0 ? 'text-gray-400' : 'text-gray-700',
-                              ].join(' ')}
-                            >
+                            <span className="font-mono tabular-nums text-gray-700">
                               {daysLeft}
                             </span>
                           )}
