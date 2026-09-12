@@ -1417,7 +1417,9 @@ const Layout = () => {
             </NavLink>
             )}
 
-            {(userProfile?.role === ROLES.SUPER_ADMIN || userProfile?.role === ROLES.SUPER_ADMIN_PRO) && (
+            {(userProfile?.role === ROLES.SUPER_ADMIN ||
+              userProfile?.role === ROLES.SUPER_ADMIN_PRO ||
+              can("itIs")) && (
             <NavLink to="software-subscriptions-reminders" className={topNavClass}>
               <Bell className="w-4 h-4 shrink-0" />
               <span className="type-body-medium type-truncate">Software subscriptions/reminders</span>
@@ -1522,7 +1524,13 @@ const Layout = () => {
           </div>
         </header>
 
-        <main className="erp-app-shell flex-1 overflow-y-auto px-5 py-5 sm:px-8 sm:py-7">
+        <main
+          className={
+            pathname.startsWith("/app/software-subscriptions-reminders")
+              ? "erp-app-shell flex-1 overflow-y-auto px-3 py-4 sm:px-4 sm:py-5"
+              : "erp-app-shell flex-1 overflow-y-auto px-5 py-5 sm:px-8 sm:py-7"
+          }
+        >
           <Suspense fallback={<PageLoader />}>
             <Outlet />
           </Suspense>
