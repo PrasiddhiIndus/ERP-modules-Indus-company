@@ -19,7 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import { ROLES } from "../config/roles";
+import { ROLES, canSeeSubModule } from "../config/roles";
 import { supabase } from "../lib/supabase";
 import {
   deleteSoftwareSubR2Object,
@@ -140,9 +140,10 @@ function daysUntil(dateValue) {
 }
 
 function reminderState(row) {
-  const remainingDays = daysUntil(row.next_payment_date);
-  const reminderWindow = Number(row.reminder_days_before ?? 7);
-  const status = String(row.payment_status || "").toLowerCase();
+  const remainingDays = daysUntil(row?.next_payment_date);
+  const reminderWindowRaw = Number(row?.reminder_days_before ?? 7);
+  const reminderWindow = Number.isFinite(reminderWindowRaw) ? Math.max(0, reminderWindowRaw) : 7;
+  const status = String(row?.payment_status || "").toLowerCase();
   const paymentPending = status !== "paid" && status !== "cancelled";
 
   if (!paymentPending || remainingDays === null) {
@@ -273,7 +274,7 @@ function groupAttachmentsByMonth(attachments) {
 }
 
 const SoftwareSubscriptions = () => {
-  const { user, userProfile } = useAuth();
+  const { user, userProfile, accessibleModules, permissionsReady } = useAuth();
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -293,9 +294,17 @@ const SoftwareSubscriptions = () => {
   const [fxLoading, setFxLoading] = useState(false);
   const [fxError, setFxError] = useState("");
 
+  const role = String(userProfile?.role || "").trim().toLowerCase().replace(/\s+/g, "_");
   const canUseModule =
-    userProfile?.role === ROLES.SUPER_ADMIN ||
-    userProfile?.role === ROLES.SUPER_ADMIN_PRO;
+    Boolean(permissionsReady) &&
+    (role === ROLES.SUPER_ADMIN ||
+      role === ROLES.SUPER_ADMIN_PRO ||
+      role === "superadmin" ||
+      role === "superadmin_pro" ||
+      accessibleModules?.has("itIs") ||
+      canSeeSubModule(userProfile, accessibleModules, "itIs.subscriptions", user));
+  // Authorized users get full CRUD on this page (view / create / update / delete).
+  const canManageSubscriptions = canUseModule;
 
   const fetchUsdInrRate = async () => {
     if (!canUseModule) return;
@@ -325,24 +334,47 @@ const SoftwareSubscriptions = () => {
     setError("");
     try {
       // List uses invoice_attachments JSON only — skip the heavy invoice_files join until edit.
-      const { data, error: queryError } = await supabase
+      let queryError = null;
+      let data = null;
+      const primary = await supabase
         .from(TABLE_NAME)
         .select(SUBSCRIPTION_LIST_COLUMNS)
-        .order("next_payment_date", { ascending: true, nullsFirst: false })
+        .order("next_payment_date", { ascending: true })
         .order("created_at", { ascending: false });
+      data = primary.data;
+      queryError = primary.error;
+
+      // Older DBs may lack optional columns — retry a minimal select.
+      if (queryError && /column|schema cache|PGRST204|could not find/i.test(String(queryError.message || ""))) {
+        const fallback = await supabase
+          .from(TABLE_NAME)
+          .select(
+            "id, tool_service, description, purchase_price_first_year, monthly_cost_ongoing, yearly_cost_ongoing, currency, monthly_cost_inr, yearly_cost_inr, credit_card, invoices, payment_type, next_payment_date, payment_status, reminder_days_before, notes, created_at"
+          )
+          .order("next_payment_date", { ascending: true })
+          .order("created_at", { ascending: false });
+        data = fallback.data;
+        queryError = fallback.error;
+      }
 
       if (queryError) throw queryError;
 
       const rows = (data || []).map((row) => ({
         ...row,
         invoice_attachments: parseAttachments(row.invoice_attachments),
+        billing_type: row.billing_type || "prepaid",
       }));
 
       setSubscriptions(rows);
     } catch (err) {
+      const msg = String(err?.message || err || "");
+      const permissionDenied = /permission|rls|policy|not authorized|42501/i.test(msg);
       setError(
-        `${err?.message || "Unable to load software subscriptions."} ` +
-          `Run the software subscriptions Supabase migration if this table is not available yet.`
+        permissionDenied
+          ? "You can open this page, but the database is blocking subscription data for your account. Ask Super Admin to apply the latest software-subscriptions access migration and grant IT/IS or Software Subscriptions (View / Update / Delete) in User Management."
+          : msg
+            ? `Unable to load software subscriptions: ${msg}`
+            : "Unable to load software subscriptions."
       );
       setSubscriptions([]);
     } finally {
@@ -351,10 +383,16 @@ const SoftwareSubscriptions = () => {
   };
 
   useEffect(() => {
+    if (!permissionsReady) return;
+    if (!canUseModule) {
+      setSubscriptions([]);
+      setLoading(false);
+      return;
+    }
     fetchSubscriptions();
     fetchUsdInrRate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canUseModule]);
+  }, [canUseModule, permissionsReady]);
 
   useEffect(() => {
     setForm((prev) => {
@@ -776,24 +814,32 @@ const SoftwareSubscriptions = () => {
     }
   };
 
+  if (!permissionsReady) {
+    return (
+      <div className="w-full py-6 text-sm text-slate-500">
+        Loading access…
+      </div>
+    );
+  }
+
   if (!canUseModule) {
     return (
-      <div className="p-6">
+      <div className="w-full py-2">
         <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-amber-800">
-          Only Super Admin can access Software subscriptions/reminders.
+          You do not have access to Software subscriptions/reminders. Ask Super Admin to grant the IT/IS module or the Software Subscriptions sub-module in User Management (full View / Update / Delete).
         </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
+    <div className="w-full max-w-none space-y-5 px-0 py-1">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="p-2 rounded-xl bg-indigo-100">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className="p-2 rounded-xl bg-indigo-100 shrink-0">
             <Bell className="w-6 h-6 text-indigo-700" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold text-slate-900">Software subscriptions/reminders</h1>
             <p className="text-sm text-slate-500">
               Entry, tracking, and payment reminders for all company software subscriptions.
@@ -815,7 +861,7 @@ const SoftwareSubscriptions = () => {
             fetchUsdInrRate();
           }}
           disabled={loading || fxLoading}
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 shrink-0"
         >
           <RefreshCw className={`w-4 h-4 ${loading || fxLoading ? "animate-spin" : ""}`} />
           Refresh
@@ -1165,7 +1211,7 @@ const SoftwareSubscriptions = () => {
             ) : null}
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || !canManageSubscriptions}
               className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
             >
               {editingId ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
@@ -1189,8 +1235,8 @@ const SoftwareSubscriptions = () => {
             </span>
           ) : null}
         </div>
-        <div className="max-h-[min(70vh,52rem)] overflow-auto">
-          <table className="min-w-[1180px] w-full border-collapse text-left text-sm">
+        <div className="max-h-[min(70vh,52rem)] overflow-x-auto overflow-y-auto">
+          <table className="w-full min-w-[1100px] border-collapse text-left text-sm table-auto">
             <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 shadow-sm backdrop-blur-sm">
               <tr>
                 <th className="whitespace-nowrap px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">
@@ -1257,10 +1303,13 @@ const SoftwareSubscriptions = () => {
               ) : (
                 subscriptions.map((row, idx) => {
                   const reminder = reminderState(row);
+                  const attachments = Array.isArray(row.invoice_attachments)
+                    ? row.invoice_attachments
+                    : parseAttachments(row.invoice_attachments);
                   return (
-                    <tr key={row.id} className="align-top transition-colors even:bg-slate-50/60 hover:bg-indigo-50/50">
+                    <tr key={row.id || `sub-${idx}`} className="align-top transition-colors even:bg-slate-50/60 hover:bg-indigo-50/50">
                       <td className="whitespace-nowrap px-3 py-2.5 text-center tabular-nums">{idx + 1}</td>
-                      <td className="whitespace-nowrap px-3 py-2.5 font-semibold text-slate-900">{row.tool_service}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5 font-semibold text-slate-900">{row.tool_service || "—"}</td>
                       <td
                         className="max-w-[11rem] px-3 py-2.5 text-slate-600"
                         title={row.description || undefined}
@@ -1300,12 +1349,9 @@ const SoftwareSubscriptions = () => {
                           ) : (
                             <span className="line-clamp-2 break-all">{row.invoices || "—"}</span>
                           )}
-                          {(Array.isArray(row.invoice_attachments)
-                            ? row.invoice_attachments
-                            : parseAttachments(row.invoice_attachments)
-                          ).map((attachment) => (
+                          {attachments.map((attachment, attIdx) => (
                             <button
-                              key={attachment.path || attachment.name}
+                              key={attachment.path || attachment.name || `att-${attIdx}`}
                               type="button"
                               onClick={() => openInvoiceAttachment(attachment)}
                               className="flex max-w-full items-center gap-1.5 truncate rounded-md border border-transparent text-left text-[11px] font-medium text-indigo-700 hover:border-indigo-100 hover:bg-indigo-50/80"
@@ -1373,7 +1419,8 @@ const SoftwareSubscriptions = () => {
                           <button
                             type="button"
                             onClick={() => deleteSubscription(row)}
-                            className="rounded-lg border border-slate-200 bg-white p-2 text-red-700 shadow-sm hover:border-red-200 hover:bg-red-50"
+                            disabled={!canManageSubscriptions || saving}
+                            className="rounded-lg border border-slate-200 bg-white p-2 text-red-700 shadow-sm hover:border-red-200 hover:bg-red-50 disabled:opacity-40"
                             title="Delete"
                           >
                             <Trash2 className="h-4 w-4" />

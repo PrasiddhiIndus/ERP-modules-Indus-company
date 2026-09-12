@@ -28,6 +28,20 @@ function normalizeErpModuleKey(raw) {
   if (t === 'dahej-hr' || t === 'hr') return 'hr';
   if (t === 'administration' || t === 'management' || t === 'admin') return 'admin';
   if (t === 'payroll') return 'payroll';
+  // IT/IS — Software Subscriptions / Reminders (align with UI roles.js + RLS)
+  if (
+    t === 'itis' ||
+    t === 'it_is' ||
+    t === 'it/is' ||
+    t === 'it-is' ||
+    t === 'information system' ||
+    t === 'information systems' ||
+    t === 'softwaresubscriptions' ||
+    t === 'software_subscriptions' ||
+    t === 'software-subscriptions'
+  ) {
+    return 'itis';
+  }
   return t;
 }
 
@@ -105,10 +119,19 @@ function subModulesLower(ctx) {
   return parseModules(ctx.profile?.allowed_sub_modules).map((s) => String(s || '').toLowerCase());
 }
 
-/** Software subscription invoices: Super Admin or IT/IS (same as the UI). */
+/** Software subscription invoices: Super Admin or IT/IS (same as the UI / RLS). */
 export function hasSoftwareSubscriptionsR2Access(ctx) {
   if (isSuperAdminRole(ctx)) return true;
-  return hasAssignedModuleOrSub(ctx, 'itIs');
+  if (hasAssignedModuleOrSub(ctx, 'itIs')) return true;
+  // Explicit legacy / alternate keys after normalize
+  if (hasAssignedModuleOrSub(ctx, 'softwareSubscriptions')) return true;
+  return subModulesLower(ctx).some(
+    (s) =>
+      s === 'itis.subscriptions' ||
+      s === 'softwaresubscriptions' ||
+      s.startsWith('itis.') ||
+      s.startsWith('softwaresubscriptions.')
+  );
 }
 
 /** Fleet / vehicle papers: Operations or Fleet — shared board, not uploader-only. */
