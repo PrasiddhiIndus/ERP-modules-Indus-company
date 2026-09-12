@@ -644,7 +644,7 @@ export const NAV_MODULE_TREE = [
     value: "itIs",
     label: "IT/IS",
     subModules: [
-      { value: "itIs.subscriptions", label: "Software Subscriptions",  pathPrefix: "/app/software-subscriptions-reminders" },
+      { value: "itIs.subscriptions", label: "Software Subscriptions (View / Update / Delete)",  pathPrefix: "/app/software-subscriptions-reminders" },
       { value: "itIs.api-health",    label: "API Health",              pathPrefix: "/app/api-health" },
     ],
   },

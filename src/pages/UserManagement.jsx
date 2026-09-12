@@ -941,6 +941,9 @@ const UserManagement = () => {
 
       const next = { ...prev, allowed_sub_modules: newSubModules };
 
+      // Software Subscriptions grant = full View / Update / Delete (no separate CRUD toggles).
+      // Keep parent IT/IS module unchecked so API Health is not auto-granted; sub-module alone is enough.
+
       if (willAdd && String(subValue).startsWith("billing.")) {
         setEditBillingVerticals((bv) => {
           if (bv.baselineCodes.length > 0 || bv.selectedCodes.length > 0) return bv;
