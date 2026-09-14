@@ -23,10 +23,10 @@ import {
   COMMERCIAL_PO_STATUS_SUPERSEDED,
   findCommercialPoSaveConflict,
   getLatestPoForSiteOc,
+  getPosForSiteOc,
 } from '../../utils/commercialPoSaveValidation';
 import {
   buildContactHistoryLogForSave,
-  contactHistoryRowsForDisplay,
 } from '../../utils/commercialContactHistory';
 import ClientLegalNameAutocomplete from '../../components/commercial/ClientLegalNameAutocomplete';
 import PoClientPincodeFields from '../../components/PoClientPincodeFields';
@@ -63,12 +63,25 @@ function resolvePoDutyPatternLabel(po) {
   return pattern || '–';
 }
 
-function PoViewField({ label, value, className = 'text-sm text-gray-900' }) {
+function PoViewField({ label, value, className = 'text-sm font-medium text-gray-900', wide = false }) {
   return (
-    <div>
-      <dt className="text-xs text-gray-500">{label}</dt>
-      <dd className={className}>{value != null && String(value).trim() !== '' ? value : '–'}</dd>
+    <div className={wide ? 'sm:col-span-2 lg:col-span-3' : undefined}>
+      <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</dt>
+      <dd className={`mt-1 leading-snug break-words ${className}`}>
+        {value != null && String(value).trim() !== '' ? value : '–'}
+      </dd>
     </div>
+  );
+}
+
+function PoViewSection({ title, children }) {
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+      <div className="border-b border-gray-100 bg-slate-50/80 px-4 py-2.5 sm:px-5">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-600">{title}</h4>
+      </div>
+      <div className="px-4 py-3.5 sm:px-5 sm:py-4">{children}</div>
+    </section>
   );
 }
 
@@ -154,8 +167,8 @@ function PoViewDocumentList({ title, files }) {
   };
 
   return (
-    <div className="min-w-0">
-      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">{title}</p>
+    <div className="min-w-0 rounded-lg border border-gray-200 bg-slate-50/60 p-3">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 mb-2">{title}</p>
       {list.length === 0 ? (
         <p className="text-sm text-gray-400">No files attached.</p>
       ) : (
@@ -167,7 +180,7 @@ function PoViewDocumentList({ title, files }) {
             return (
               <li
                 key={key}
-                className="min-w-0 rounded-lg border border-gray-200 bg-white px-2.5 py-2"
+                className="min-w-0 rounded-lg border border-gray-200 bg-white px-2.5 py-2 shadow-sm"
               >
                 <div className="flex items-start gap-2 min-w-0">
                   <Paperclip className="h-3.5 w-3.5 shrink-0 text-gray-500 mt-0.5" />
@@ -272,6 +285,36 @@ const emptyManpowerDetailRow = () => ({
   dutyPattern: '',
   customDutyPattern: '',
 });
+const emptyRateCategoryRow = () => ({
+  description: '',
+  hsnSac: '',
+  materialCode: '',
+  qty: '',
+  rate: '',
+  penalty: '',
+});
+
+/** Align Rate per Category rows to Manpower details: Description ← Designation, Qty ← No. of manpower. */
+function applyManpowerRowToRateRow(rateRow, mpRow) {
+  const base = rateRow && typeof rateRow === 'object' ? rateRow : emptyRateCategoryRow();
+  return {
+    ...base,
+    description: String(mpRow?.designation ?? ''),
+    qty: String(mpRow?.noOfManpower ?? '').replace(/\D/g, ''),
+  };
+}
+
+function syncRateRowFromManpowerAtIndex(ratePerCategory, manpowerDetails, idx) {
+  const rates = Array.isArray(ratePerCategory) ? [...ratePerCategory] : [];
+  const mp = Array.isArray(manpowerDetails) ? manpowerDetails : [];
+  while (rates.length < mp.length) {
+    rates.push(emptyRateCategoryRow());
+  }
+  if (idx >= 0 && idx < mp.length) {
+    rates[idx] = applyManpowerRowToRateRow(rates[idx], mp[idx]);
+  }
+  return rates.length ? rates : [emptyRateCategoryRow()];
+}
 const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum', 'Custom Calculator'];
 const MANPOWER_BILLING_TYPE_FILTERS = [
   { value: 'Per Day', label: 'Daily' },
@@ -707,6 +750,7 @@ function normalizeContactNumber(value) {
 }
 
 const CONTACT_PERSONS_HISTORY_EVENT = '__contact_persons__';
+const RATES_HISTORY_EVENT = '__rates__';
 
 function emptyContactPerson() {
   return { name: '', designation: '', contactNumber: '', email: '' };
@@ -761,10 +805,61 @@ function withContactPersonsHistorySnapshot(updateHistory, contactPersons) {
   return cleaned;
 }
 
+function normalizeRateRowsForHistory(rows) {
+  return (Array.isArray(rows) ? rows : []).map((r) => ({
+    description: String(r?.description ?? r?.designation ?? '').trim(),
+    hsnSac: String(r?.hsnSac ?? r?.hsn_sac ?? r?.sacHsn ?? r?.sac_hsn ?? '').trim(),
+    materialCode: String(r?.materialCode ?? r?.material_code ?? '').trim(),
+    qty: r?.qty ?? r?.quantity ?? '',
+    rate: r?.rate ?? '',
+    penalty: r?.penalty ?? '',
+  }));
+}
+
+function ratesHistoryFingerprint(rows) {
+  return JSON.stringify(normalizeRateRowsForHistory(rows));
+}
+
+/** Append a rates snapshot when rates change (kept for History modal; hidden from update log). */
+function appendRatesHistoryIfChanged(updateHistory, nextRates, prevRates, at) {
+  const rows = Array.isArray(updateHistory) ? [...updateHistory] : [];
+  const nextNorm = normalizeRateRowsForHistory(nextRates);
+  if (!nextNorm.length) return rows;
+  if (prevRates != null && ratesHistoryFingerprint(prevRates) === ratesHistoryFingerprint(nextNorm)) {
+    return rows;
+  }
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const entry = rows[i];
+    if (entry && typeof entry === 'object' && entry.event === RATES_HISTORY_EVENT) {
+      if (ratesHistoryFingerprint(entry.ratePerCategory) === ratesHistoryFingerprint(nextNorm)) {
+        return rows;
+      }
+      break;
+    }
+  }
+  rows.push({
+    event: RATES_HISTORY_EVENT,
+    at: at || new Date().toISOString(),
+    ratePerCategory: nextNorm,
+  });
+  return rows;
+}
+
+function collectRatesHistorySnapshots(po) {
+  return (Array.isArray(po?.updateHistory) ? po.updateHistory : [])
+    .filter((entry) => entry && typeof entry === 'object' && entry.event === RATES_HISTORY_EVENT)
+    .map((entry) => ({
+      at: entry.at || null,
+      rates: normalizeRateRowsForHistory(entry.ratePerCategory),
+    }))
+    .filter((entry) => entry.rates.length > 0);
+}
+
 function isHiddenPoHistoryEntry(entry) {
   return (
     isCommercialModuleMarker(entry) ||
-    (entry && typeof entry === 'object' && entry.event === CONTACT_PERSONS_HISTORY_EVENT)
+    (entry && typeof entry === 'object' && entry.event === CONTACT_PERSONS_HISTORY_EVENT) ||
+    (entry && typeof entry === 'object' && entry.event === RATES_HISTORY_EVENT)
   );
 }
 
@@ -1012,7 +1107,7 @@ const initialForm = {
   vendorCode: '',
   poWoNumber: '', poDate: '', pincode: '', shipToPincode: '', billToShipToPinSame: true,
   materialCodeRequired: false, paymentTerms: '30 Days', customPaymentTerms: '',
-  ratePerCategory: [{ description: '', hsnSac: '', materialCode: '', qty: '', rate: '', penalty: '' }],
+  ratePerCategory: [emptyRateCategoryRow()],
   manpowerDetails: [emptyManpowerDetailRow()],
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
   renewalCycles: [],
@@ -1059,6 +1154,8 @@ const POEntry = () => {
   const [gstTypeError, setGstTypeError] = useState('');
   const [saveError, setSaveError] = useState('');
   const [savingPo, setSavingPo] = useState(false);
+  const [siteOcSaveConfirmOpen, setSiteOcSaveConfirmOpen] = useState(false);
+  const skipSiteOcConfirmRef = useRef(false);
   const pendingCreateIdRef = useRef(null);
   const renewalAlertShownRef = useRef(false);
   const [sortConfig, setSortConfig] = useState({ key: 'modified', direction: 'desc' });
@@ -1407,6 +1504,8 @@ const POEntry = () => {
       : { ocNumber: '', poWoNumber: '' };
     setEditId(null);
     pendingCreateIdRef.current = null;
+    skipSiteOcConfirmRef.current = false;
+    setSiteOcSaveConfirmOpen(false);
     setFormData({
       ...initialForm,
       vertical: nextVertical,
@@ -1486,7 +1585,7 @@ const POEntry = () => {
             rate: r.rate ?? '',
             penalty: r.penalty ?? r.category_penalty ?? '',
           }))
-        : [{ description: '', hsnSac: '', materialCode: '', qty: '', rate: '', penalty: '' }],
+        : [emptyRateCategoryRow()],
       manpowerDetails: Array.isArray(po.manpowerDetails) && po.manpowerDetails.length
         ? po.manpowerDetails.map((row) => ({
             designation: row.designation || '',
@@ -1595,6 +1694,8 @@ const POEntry = () => {
     setContactError('');
     setGstTypeError('');
     setSaveError('');
+    skipSiteOcConfirmRef.current = false;
+    setSiteOcSaveConfirmOpen(false);
     setShowForm(true);
   };
 
@@ -1606,7 +1707,7 @@ const POEntry = () => {
   const addRateRow = () =>
     setFormData((prev) => ({
       ...prev,
-      ratePerCategory: [...prev.ratePerCategory, { description: '', hsnSac: '', materialCode: '', qty: '', rate: '', penalty: '' }],
+      ratePerCategory: [...prev.ratePerCategory, emptyRateCategoryRow()],
     }));
   const updateRateRow = (idx, field, value) =>
     setFormData((prev) => ({ ...prev, ratePerCategory: prev.ratePerCategory.map((r, i) => (i === idx ? { ...r, [field]: value } : r)) }));
@@ -1615,14 +1716,21 @@ const POEntry = () => {
     setFormData((prev) => ({ ...prev, ratePerCategory: prev.ratePerCategory.filter((_, i) => i !== idx) }));
   };
   const addManpowerDetailRow = () =>
-    setFormData((prev) => ({
-      ...prev,
-      manpowerDetails: [...(prev.manpowerDetails || []), emptyManpowerDetailRow()],
-    }));
+    setFormData((prev) => {
+      const nextManpower = [...(prev.manpowerDetails || []), emptyManpowerDetailRow()];
+      const rates = Array.isArray(prev.ratePerCategory) ? [...prev.ratePerCategory] : [];
+      while (rates.length < nextManpower.length) {
+        rates.push(emptyRateCategoryRow());
+      }
+      return {
+        ...prev,
+        manpowerDetails: nextManpower,
+        ratePerCategory: rates,
+      };
+    });
   const updateManpowerDetailRow = (idx, field, value) =>
-    setFormData((prev) => ({
-      ...prev,
-      manpowerDetails: (prev.manpowerDetails || []).map((row, i) =>
+    setFormData((prev) => {
+      const nextManpower = (prev.manpowerDetails || []).map((row, i) =>
         i === idx
           ? {
               ...row,
@@ -1632,14 +1740,39 @@ const POEntry = () => {
                 : {}),
             }
           : row
-      ),
-    }));
+      );
+      const next =
+        field === 'designation' || field === 'noOfManpower'
+          ? {
+              ...prev,
+              manpowerDetails: nextManpower,
+              ratePerCategory: syncRateRowFromManpowerAtIndex(
+                prev.ratePerCategory,
+                nextManpower,
+                idx
+              ),
+            }
+          : { ...prev, manpowerDetails: nextManpower };
+      return next;
+    });
   const removeManpowerDetailRow = (idx) => {
     if ((formData.manpowerDetails || []).length <= 1) return;
-    setFormData((prev) => ({
-      ...prev,
-      manpowerDetails: (prev.manpowerDetails || []).filter((_, i) => i !== idx),
-    }));
+    setFormData((prev) => {
+      const nextManpower = (prev.manpowerDetails || []).filter((_, i) => i !== idx);
+      const rates = Array.isArray(prev.ratePerCategory) ? [...prev.ratePerCategory] : [];
+      // Drop the aligned rate row when removing a manpower line (keep at least one rate row).
+      const nextRates =
+        rates.length > 1 && idx < rates.length
+          ? rates.filter((_, i) => i !== idx)
+          : rates.length
+            ? rates
+            : [emptyRateCategoryRow()];
+      return {
+        ...prev,
+        manpowerDetails: nextManpower,
+        ratePerCategory: nextRates.length ? nextRates : [emptyRateCategoryRow()],
+      };
+    });
   };
   const handleDateInputChange = (field, value) => {
     if (!isValidDateInputValue(value)) return;
@@ -1849,6 +1982,12 @@ const POEntry = () => {
         : row
     );
     const historyWithContacts = withContactPersonsHistorySnapshot(historyPrev, contactPersons);
+    const historyWithRates = appendRatesHistoryIfChanged(
+      historyWithContacts,
+      rates,
+      editId ? prevPo?.ratePerCategory : null,
+      nowIso
+    );
     const monthlyValueNum = (() => {
       if (!formData.monthlyValueManual) {
         const recalc = computeMonthlyValueFromContract(totalVal, formData.startDate, formData.endDate);
@@ -1956,7 +2095,7 @@ const POEntry = () => {
       revisedPO: formData.revisedPO, renewalPending: formData.renewalPending,
       status: formData.endDate && new Date(formData.endDate) < new Date() ? 'expired' : 'active',
       ...approvalFields,
-      updateHistory: editId ? historyWithContacts : withContactPersonsHistorySnapshot([], contactPersons),
+      updateHistory: historyWithRates,
       created_at: prevPo?.created_at || prevPo?.createdAt || nowIso,
       createdAt: prevPo?.createdAt || prevPo?.created_at || nowIso,
       updated_at: nowIso,
@@ -1990,6 +2129,17 @@ const POEntry = () => {
       prevPo,
       userProfile,
     });
+
+    // Soft confirm only: another PO/WO already exists for this Site + OC (hard rules unchanged).
+    const existingForSiteOc = getPosForSiteOc(commercialPOs, siteIdForSave, conflictOc, {
+      excludePoId: editId,
+    });
+    if (existingForSiteOc.length > 0 && !skipSiteOcConfirmRef.current) {
+      setSiteOcSaveConfirmOpen(true);
+      return;
+    }
+    skipSiteOcConfirmRef.current = false;
+    setSiteOcSaveConfirmOpen(false);
 
     setSavingPo(true);
     try {
@@ -2032,10 +2182,18 @@ const POEntry = () => {
   const deletePO = (id) => { if (window.confirm('Delete this PO? Billing may be affected.')) setCommercialPOs((prev) => prev.filter((p) => p.id !== id)); };
   const poForHistory = viewHistoryPoId ? commercialPOs.find((p) => p.id === viewHistoryPoId) : null;
   const poForView = viewPoId ? commercialPOs.find((p) => p.id === viewPoId) : null;
-  const poContactHistoryRows = useMemo(
-    () => (poForHistory ? contactHistoryRowsForDisplay(poForHistory) : []),
-    [poForHistory]
-  );
+  const poRatesHistorySnapshots = useMemo(() => {
+    if (!poForHistory) return [];
+    const snapshots = collectRatesHistorySnapshots(poForHistory);
+    const currentFp = ratesHistoryFingerprint(poForHistory.ratePerCategory);
+    // Prefer prior snapshots only (current rates shown separately).
+    if (!snapshots.length) return [];
+    const last = snapshots[snapshots.length - 1];
+    if (last && ratesHistoryFingerprint(last.rates) === currentFp) {
+      return snapshots.slice(0, -1);
+    }
+    return snapshots;
+  }, [poForHistory]);
   const poNumberHistoryRows = useMemo(() => {
     if (!poForHistory) return [];
     const siteId = poForHistory.siteId || poForHistory.site_id || '';
@@ -3646,6 +3804,8 @@ const POEntry = () => {
                 type="button"
                 onClick={() => {
                   pendingCreateIdRef.current = null;
+                  skipSiteOcConfirmRef.current = false;
+                  setSiteOcSaveConfirmOpen(false);
                   setSaveError('');
                   setShowForm(false);
                 }}
@@ -3666,33 +3826,102 @@ const POEntry = () => {
           </div>
         </div>
       )}
-      {viewPoId && poForView && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full p-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">View PO/WO</h3>
-                <p className="text-sm text-gray-500 font-mono mt-0.5">{poForView.ocNumber || '–'}</p>
-              </div>
+      {siteOcSaveConfirmOpen ? (
+        <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/50 flex items-center justify-center p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sales-po-site-oc-confirm-title"
+            className="bg-white rounded-xl shadow-xl max-w-md w-full p-5"
+          >
+            <h3 id="sales-po-site-oc-confirm-title" className="text-lg font-semibold text-gray-900 mb-2">
+              Existing PO/WO found
+            </h3>
+            <p className="text-sm text-gray-700 mb-5">
+              A PO/WO already exists for this Site and OC Number. Do you want to continue?
+            </p>
+            <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setViewPoId(null)}
-                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 shrink-0"
-                aria-label="Close"
+                onClick={() => {
+                  skipSiteOcConfirmRef.current = false;
+                  setSiteOcSaveConfirmOpen(false);
+                }}
+                disabled={savingPo}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
               >
-                ×
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  skipSiteOcConfirmRef.current = true;
+                  setSiteOcSaveConfirmOpen(false);
+                  void savePO();
+                }}
+                disabled={savingPo}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Continue
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+      {viewPoId && poForView && (
+        <div className="fixed inset-0 z-50 flex items-stretch justify-center p-2 sm:items-center sm:p-4 bg-black/50">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sales-po-view-title"
+            className="bg-slate-50 rounded-xl sm:rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-6xl max-h-[96vh] sm:max-h-[92vh] flex flex-col overflow-hidden"
+          >
+            <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3.5 sm:px-6 sm:py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 id="sales-po-view-title" className="text-lg sm:text-xl font-semibold text-slate-900 tracking-tight">
+                    View PO/WO
+                  </h3>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="inline-flex max-w-full items-center rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-xs sm:text-sm text-slate-800 truncate" title={poForView.ocNumber || ''}>
+                      {poForView.ocNumber || '–'}
+                    </span>
+                    {canPoFinancials ? (
+                      <span className="inline-flex max-w-full items-center rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 font-mono text-xs sm:text-sm text-blue-900 truncate" title={poForView.poWoNumber || poForView.po_wo_number || ''}>
+                        {poForView.poWoNumber || poForView.po_wo_number || '–'}
+                      </span>
+                    ) : null}
+                    {(canBillingBasic || canRemarks) ? (
+                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                        {poForView.status || '–'}
+                      </span>
+                    ) : null}
+                    {canBillingBasic ? (
+                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-medium text-slate-600">
+                        {isPoWithoutPoBilling(poForView) ? 'Without PO' : 'With PO'}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setViewPoId(null)}
+                  className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 shrink-0"
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
 
-            <div className="space-y-4">
+            <div className="flex-1 overflow-y-auto px-3 py-3 sm:px-5 sm:py-4 space-y-3 sm:space-y-3.5">
               {(canLegalName || canGstin || canPlaceOfSupply || canBillingAddress || canShippingAddress) ? (
-              <section className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Client & site</p>
-                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+              <PoViewSection title="Client & site">
+                <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-3.5">
                   {canLegalName ? <PoViewField label="Legal name" value={poForView.legalName} /> : null}
-                  {canLegalName ? <PoViewField label="Site ID" value={poForView.siteId} /> : null}
+                  {canLegalName ? <PoViewField label="Site ID" value={poForView.siteId} className="text-sm font-mono font-medium text-gray-900" /> : null}
                   {canLocationName ? <PoViewField label="Location" value={poForView.locationName || poForView.location_name} /> : null}
-                  {canGstin ? <PoViewField label="GSTIN" value={poForView.gstin} className="text-sm font-mono text-gray-900" /> : null}
+                  {canGstin ? <PoViewField label="GSTIN" value={poForView.gstin} className="text-sm font-mono font-medium text-gray-900" /> : null}
                   {canPlaceOfSupply ? <PoViewField label="Place of supply" value={poForView.placeOfSupply} /> : null}
                   {canPlaceOfSupply ? (
                     <PoViewField
@@ -3706,18 +3935,17 @@ const POEntry = () => {
                       value={gstSupplyTypeDisplayLabel(poForView.gstSupplyType)}
                     />
                   ) : null}
-                  {canBillingAddress ? <PoViewField label="Billing address" value={poForView.billingAddress} className="text-sm text-gray-900 sm:col-span-2" /> : null}
-                  {canShippingAddress ? <PoViewField label="Ship-to address" value={poForView.shippingAddress} className="text-sm text-gray-900 sm:col-span-2" /> : null}
+                  {canBillingAddress ? <PoViewField label="Billing address" value={poForView.billingAddress} wide /> : null}
+                  {canShippingAddress ? <PoViewField label="Ship-to address" value={poForView.shippingAddress} wide /> : null}
                 </dl>
-              </section>
+              </PoViewSection>
               ) : null}
 
               {(canOcNumber || canPoFinancials || canPoDate || canManpowerDetails || canRelieverScope || canAccommodationScope || canTransportationScope || canWithFireTender || canBillingType || canPaymentTerms || canTaxInvoicePrint) ? (
-              <section className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">PO / financials</p>
-                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+              <PoViewSection title="PO / financials">
+                <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-3.5">
                   {canOcNumber ? <PoViewField label="Line" value={poDepartmentLabel(poForView)} /> : null}
-                  {canPoFinancials ? <PoViewField label="PO / WO number" value={poForView.poWoNumber || poForView.po_wo_number} className="text-sm font-mono text-gray-900" /> : null}
+                  {canPoFinancials ? <PoViewField label="PO / WO number" value={poForView.poWoNumber || poForView.po_wo_number} className="text-sm font-mono font-medium text-gray-900" /> : null}
                   {canOcNumber ? <PoViewField label="Vendor code" value={poForView.vendorCode || poForView.vendor_code} /> : null}
                   {canPoDate ? <PoViewField label="PO date" value={formatDateDdMmYyyy(poForView.poDate || poForView.po_date)} /> : null}
                   {canActualMobilizationDate ? (
@@ -3736,9 +3964,16 @@ const POEntry = () => {
                     <PoViewField
                       label="PO period"
                       value={`${formatDateDdMmYyyy(poForView.startDate || poForView.start_date) || '—'} to ${formatDateDdMmYyyy(poForView.endDate || poForView.end_date) || '—'}`}
+                      wide
                     />
                   ) : null}
-                  {canPoFinancials ? <PoViewField label="Total contract value" value={formatPoCurrency(poForView.totalContractValue ?? poForView.total_contract_value)} /> : null}
+                  {canPoFinancials ? (
+                    <PoViewField
+                      label="Total contract value"
+                      value={formatPoCurrency(poForView.totalContractValue ?? poForView.total_contract_value)}
+                      className="text-base font-semibold tabular-nums text-slate-900"
+                    />
+                  ) : null}
                   {canPoFinancials ? (
                     <PoViewField
                       label="Monthly value"
@@ -3753,6 +3988,7 @@ const POEntry = () => {
                           return poForView.monthlyValue ?? poForView.monthly_value;
                         })()
                       )}
+                      className="text-sm font-semibold tabular-nums text-slate-900"
                     />
                   ) : null}
                   {canBillingType ? <PoViewField label="Billing type" value={poForView.billingType || poForView.poType || poForView.po_type} /> : null}
@@ -3761,11 +3997,11 @@ const POEntry = () => {
                     <PoViewField
                       label="Description of work"
                       value={poForView.serviceDescription || poForView.service_description}
-                      className="text-sm text-gray-900 sm:col-span-2"
+                      wide
                     />
                   ) : null}
                   {(canPoFinancials || canTaxInvoicePrint) ? (
-                    <PoViewField label="Invoice payment terms" value={poForView.invoiceTermsText} className="text-sm text-gray-900 sm:col-span-2" />
+                    <PoViewField label="Invoice payment terms" value={poForView.invoiceTermsText} wide />
                   ) : null}
                   {canRelieverScope ? (
                     <PoViewField
@@ -3796,13 +4032,12 @@ const POEntry = () => {
                   />
                   ) : null}
                 </dl>
-              </section>
+              </PoViewSection>
               ) : null}
 
               {(canBillingBasic || canRemarks) ? (
-              <section className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Contract status</p>
-                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+              <PoViewSection title="Contract status">
+                <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-3.5">
                   <PoViewField label="Contract status" value={poForView.status || '–'} />
                   {canBillingBasic ? (
                   <PoViewField
@@ -3810,61 +4045,63 @@ const POEntry = () => {
                     value={isPoWithoutPoBilling(poForView) ? 'Without PO' : 'With PO'}
                   />
                   ) : null}
-                  {canRemarks ? <PoViewField label="Remarks" value={poForView.remarks} className="text-sm text-gray-900 sm:col-span-2" /> : null}
+                  {canRemarks ? <PoViewField label="Remarks" value={poForView.remarks} wide /> : null}
                 </dl>
-              </section>
+              </PoViewSection>
               ) : null}
 
               {canPoFinancials && Array.isArray(poForView.ratePerCategory) && poForView.ratePerCategory.length > 0 ? (
-                <section className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Rates</p>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full border border-gray-200 bg-white text-sm">
-                      <thead className="bg-gray-50">
+                <PoViewSection title="Rates">
+                  <div className="overflow-x-auto rounded-lg border border-gray-200">
+                    <table className="min-w-full bg-white text-sm">
+                      <thead className="bg-slate-50">
                         <tr>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Description</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th>
+                          <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Description</th>
+                          <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-24">Qty</th>
+                          <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-36">Rate (₹)</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-200">
+                      <tbody className="divide-y divide-gray-100">
                         {poForView.ratePerCategory.map((row, i) => (
-                          <tr key={i}>
-                            <td className="px-3 py-2">{row.description || row.designation || '–'}</td>
-                            <td className="px-3 py-2 tabular-nums">{row.qty ?? row.quantity ?? '–'}</td>
-                            <td className="px-3 py-2 tabular-nums">{row.rate != null ? Number(row.rate).toLocaleString('en-IN') : '–'}</td>
+                          <tr key={i} className="hover:bg-slate-50/80">
+                            <td className="px-3 py-2.5 text-gray-900">{row.description || row.designation || '–'}</td>
+                            <td className="px-3 py-2.5 text-right tabular-nums text-gray-800">{row.qty ?? row.quantity ?? '–'}</td>
+                            <td className="px-3 py-2.5 text-right tabular-nums font-medium text-gray-900">{row.rate != null ? Number(row.rate).toLocaleString('en-IN') : '–'}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                </section>
+                </PoViewSection>
               ) : null}
 
               {showDocumentsSection ? (
-              <section className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Documents</p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 min-w-0">
+              <PoViewSection title="Documents">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 min-w-0">
                   {canPoCopy ? <PoViewDocumentList title="PO copy" files={poForView.poCopyFiles || poForView.po_copy_files} /> : null}
                   {canScopeOfWork ? <PoViewDocumentList title="Scope of work" files={poForView.scopeOfWorkFiles || poForView.scope_of_work_files} /> : null}
                   {canPenaltyClause ? <PoViewDocumentList title="Penalty clause" files={poForView.penaltyClauseFiles || poForView.penalty_clause_files} /> : null}
                 </div>
-              </section>
+              </PoViewSection>
               ) : null}
             </div>
 
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 onClick={() => {
                   setViewPoId(null);
                   handleOpenEdit(poForView);
                 }}
-                className="px-4 py-2 border border-blue-200 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100"
+                className="px-4 py-2 border border-blue-200 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 text-sm font-medium"
               >
                 Edit PO/WO
               </button>
-              <button type="button" onClick={() => setViewPoId(null)} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+              <button
+                type="button"
+                onClick={() => setViewPoId(null)}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium text-slate-700"
+              >
                 Close
               </button>
             </div>
@@ -3872,157 +4109,208 @@ const POEntry = () => {
         </div>
       )}
       {viewHistoryPoId && poForHistory && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 max-h-[85vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">History – {poForHistory.ocNumber}</h3>
-
-            <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 mb-4 text-sm text-gray-800">
-              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Current PO on file</p>
-              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
-                <div>
-                  <dt className="text-xs text-gray-500">PO / WO Number</dt>
-                  <dd className="font-mono font-medium">{poForHistory.poWoNumber || poForHistory.po_wo_number || '–'}</dd>
+        <div className="fixed inset-0 z-50 flex items-stretch justify-center p-2 sm:items-center sm:p-4 bg-black/50">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sales-po-history-title"
+            className="bg-slate-50 rounded-xl sm:rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-5xl max-h-[96vh] sm:max-h-[90vh] flex flex-col overflow-hidden"
+          >
+            <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3.5 sm:px-6 sm:py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 id="sales-po-history-title" className="text-lg sm:text-xl font-semibold text-slate-900 tracking-tight">
+                    History
+                  </h3>
+                  <p className="mt-1 font-mono text-xs sm:text-sm text-slate-600 truncate" title={poForHistory.ocNumber || ''}>
+                    {poForHistory.ocNumber || '–'}
+                  </p>
                 </div>
-                <div>
-                  <dt className="text-xs text-gray-500">Service period</dt>
-                  <dd>
-                    {formatDateDdMmYyyy(poForHistory.startDate || poForHistory.start_date) || '—'}{' '}
-                    to {formatDateDdMmYyyy(poForHistory.endDate || poForHistory.end_date) || '—'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-gray-500">Name</dt>
-                  <dd>{poForHistory.currentCoordinator || '–'}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-gray-500">Designation</dt>
-                  <dd>
-                    {poForHistory.contactDesignation ||
-                      normalizeContactPersonsList(
-                        poForHistory.contactPersons || readContactPersonsFromHistory(poForHistory.updateHistory),
-                        poForHistory
-                      )[0]?.designation ||
-                      '–'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-gray-500">Contact Number</dt>
-                  <dd className="font-mono tabular-nums">{poForHistory.contactNumber || '–'}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-gray-500">Email ID</dt>
-                  <dd>{poForHistory.contactEmail || '–'}</dd>
-                </div>
-              </dl>
+                <button
+                  type="button"
+                  onClick={() => setViewHistoryPoId(null)}
+                  className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 shrink-0"
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
             </div>
 
-            {poNumberHistoryRows.length > 0 ? (
-              <>
-                <p className="text-sm font-medium text-gray-700 mb-2">PO number history</p>
-                <div className="overflow-x-auto mb-4">
-                  <table className="min-w-full border border-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">PO / WO Number</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Start date</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">End date</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {poNumberHistoryRows.map((entry, i) => (
-                        <tr key={`${entry.poWoNumber}-${i}`}>
-                          <td className="px-3 py-2 text-sm font-mono">
-                            {entry.poWoNumber || '–'}
-                            {entry.isCurrentOnRow ? (
-                              <span className="ml-2 text-[10px] font-sans font-medium text-amber-700">current</span>
-                            ) : null}
-                          </td>
-                          <td className="px-3 py-2 text-sm">{formatDateDdMmYyyy(entry.startDate) || '–'}</td>
-                          <td className="px-3 py-2 text-sm">{formatDateDdMmYyyy(entry.endDate) || '–'}</td>
+            <div className="flex-1 overflow-y-auto px-3 py-3 sm:px-5 sm:py-4 space-y-3.5">
+              <PoViewSection title="Current PO on file">
+                <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-3.5">
+                  <PoViewField
+                    label="PO / WO number"
+                    value={poForHistory.poWoNumber || poForHistory.po_wo_number}
+                    className="text-sm font-mono font-medium text-gray-900"
+                  />
+                  <PoViewField
+                    label="Service period"
+                    value={`${formatDateDdMmYyyy(poForHistory.startDate || poForHistory.start_date) || '—'} to ${formatDateDdMmYyyy(poForHistory.endDate || poForHistory.end_date) || '—'}`}
+                    wide
+                  />
+                  <PoViewField
+                    label="Total contract value"
+                    value={formatPoCurrency(poForHistory.totalContractValue ?? poForHistory.total_contract_value)}
+                    className="text-sm font-semibold tabular-nums text-slate-900"
+                  />
+                  <PoViewField
+                    label="Billing type"
+                    value={poForHistory.billingType || poForHistory.poType || poForHistory.po_type}
+                  />
+                </dl>
+              </PoViewSection>
+
+              {poNumberHistoryRows.length > 0 ? (
+                <PoViewSection title="PO number history">
+                  <div className="overflow-x-auto rounded-lg border border-gray-200">
+                    <table className="min-w-full bg-white text-sm">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">PO / WO number</th>
+                          <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Start date</th>
+                          <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">End date</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            ) : null}
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {poNumberHistoryRows.map((entry, i) => (
+                          <tr key={`${entry.poWoNumber}-${i}`} className="hover:bg-slate-50/80">
+                            <td className="px-3 py-2.5 font-mono text-gray-900">
+                              {entry.poWoNumber || '–'}
+                              {entry.isCurrentOnRow ? (
+                                <span className="ml-2 inline-flex align-middle rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-sans font-medium text-amber-800">
+                                  current
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className="px-3 py-2.5 text-gray-800">{formatDateDdMmYyyy(entry.startDate) || '–'}</td>
+                            <td className="px-3 py-2.5 text-gray-800">{formatDateDdMmYyyy(entry.endDate) || '–'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </PoViewSection>
+              ) : null}
 
-            <p className="text-sm font-medium text-gray-700 mb-2">PO update log</p>
-            <ul className="text-sm text-gray-600 list-disc pl-5 mb-4 space-y-1">
-              {(poForHistory.updateHistory || []).filter((h) => !isHiddenPoHistoryEntry(h)).length === 0 && (
-                <li className="list-none text-gray-400">No PO updates recorded yet.</li>
-              )}
-              {(poForHistory.updateHistory || []).filter((h) => !isHiddenPoHistoryEntry(h)).map((h, i) => (
-                <li key={i}><span className="font-mono text-xs">{h.at ? formatDateTimeDdMmYyyy(h.at) : '–'}</span> — {h.summary || '—'}</li>
-              ))}
-            </ul>
-            <p className="text-sm font-medium text-gray-700 mb-2">Contact persons</p>
-            <div className="overflow-x-auto mb-4">
-              <table className="min-w-full border border-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Name</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Designation</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Contact Number</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Email ID</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {normalizeContactPersonsList(
-                    poForHistory.contactPersons || readContactPersonsFromHistory(poForHistory.updateHistory),
-                    poForHistory
-                  ).map((row, i) => (
-                    <tr key={`poc-${i}`}>
-                      <td className="px-3 py-2 text-sm">{row.name || '–'}</td>
-                      <td className="px-3 py-2 text-sm">{row.designation || '–'}</td>
-                      <td className="px-3 py-2 text-sm font-mono tabular-nums">{row.contactNumber || '–'}</td>
-                      <td className="px-3 py-2 text-sm">{row.email || '–'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="text-sm font-medium text-gray-700 mb-2">Contact history</p>
-            <div className="overflow-x-auto">
-              <table className="min-w-full border border-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Name</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Designation</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Contact Number</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Email ID</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">From</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">To</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {poContactHistoryRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-3 text-sm text-gray-400 text-center">
-                        No contact history recorded yet.
-                      </td>
-                    </tr>
+              <PoViewSection title="Rates (current)">
+                {Array.isArray(poForHistory.ratePerCategory) && poForHistory.ratePerCategory.length > 0 ? (
+                  <div className="overflow-x-auto rounded-lg border border-gray-200">
+                    <table className="min-w-full bg-white text-sm">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Description</th>
+                          <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">SAC/HSN</th>
+                          <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-24">Qty</th>
+                          <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-32">Rate (₹)</th>
+                          <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-32">Penalty (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {normalizeRateRowsForHistory(poForHistory.ratePerCategory).map((row, i) => (
+                          <tr key={`cur-rate-${i}`} className="hover:bg-slate-50/80">
+                            <td className="px-3 py-2.5 text-gray-900">{row.description || '–'}</td>
+                            <td className="px-3 py-2.5 font-mono text-xs text-gray-700">{row.materialCode || row.hsnSac || '–'}</td>
+                            <td className="px-3 py-2.5 text-right tabular-nums text-gray-800">{row.qty !== '' && row.qty != null ? row.qty : '–'}</td>
+                            <td className="px-3 py-2.5 text-right tabular-nums font-medium text-gray-900">
+                              {row.rate !== '' && row.rate != null ? Number(row.rate).toLocaleString('en-IN') : '–'}
+                            </td>
+                            <td className="px-3 py-2.5 text-right tabular-nums text-gray-800">
+                              {row.penalty !== '' && row.penalty != null && Number(row.penalty) !== 0
+                                ? Number(row.penalty).toLocaleString('en-IN')
+                                : '–'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400">No rates on file.</p>
+                )}
+              </PoViewSection>
+
+              <PoViewSection title="Rates history">
+                {poRatesHistorySnapshots.length === 0 ? (
+                  <p className="text-sm text-gray-400">No prior rate changes recorded yet.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {[...poRatesHistorySnapshots].reverse().map((snap, idx) => (
+                      <div key={`rate-hist-${snap.at || idx}-${idx}`} className="rounded-lg border border-gray-200 overflow-hidden">
+                        <div className="bg-slate-50 px-3 py-2 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                            Snapshot {poRatesHistorySnapshots.length - idx}
+                          </p>
+                          <p className="text-xs font-mono text-slate-500">
+                            {snap.at ? formatDateTimeDdMmYyyy(snap.at) : '–'}
+                          </p>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full bg-white text-sm">
+                            <thead className="bg-white">
+                              <tr>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Description</th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">SAC/HSN</th>
+                                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-24">Qty</th>
+                                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-32">Rate (₹)</th>
+                                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-32">Penalty (₹)</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {snap.rates.map((row, i) => (
+                                <tr key={`snap-${idx}-${i}`}>
+                                  <td className="px-3 py-2 text-gray-900">{row.description || '–'}</td>
+                                  <td className="px-3 py-2 font-mono text-xs text-gray-700">{row.materialCode || row.hsnSac || '–'}</td>
+                                  <td className="px-3 py-2 text-right tabular-nums text-gray-800">{row.qty !== '' && row.qty != null ? row.qty : '–'}</td>
+                                  <td className="px-3 py-2 text-right tabular-nums font-medium text-gray-900">
+                                    {row.rate !== '' && row.rate != null ? Number(row.rate).toLocaleString('en-IN') : '–'}
+                                  </td>
+                                  <td className="px-3 py-2 text-right tabular-nums text-gray-800">
+                                    {row.penalty !== '' && row.penalty != null && Number(row.penalty) !== 0
+                                      ? Number(row.penalty).toLocaleString('en-IN')
+                                      : '–'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </PoViewSection>
+
+              <PoViewSection title="PO update log">
+                <ul className="text-sm text-gray-700 space-y-2">
+                  {(poForHistory.updateHistory || []).filter((h) => !isHiddenPoHistoryEntry(h)).length === 0 ? (
+                    <li className="text-gray-400">No PO updates recorded yet.</li>
                   ) : (
-                    poContactHistoryRows.map((h, i) => (
-                      <tr key={i}>
-                        <td className="px-3 py-2 text-sm">{h.name || '–'}</td>
-                        <td className="px-3 py-2 text-sm">{h.designation || '–'}</td>
-                        <td className="px-3 py-2 text-sm">{h.number || '–'}</td>
-                        <td className="px-3 py-2 text-sm">{h.email || '–'}</td>
-                        <td className="px-3 py-2 text-sm">{formatDateDdMmYyyy(h.from) || '–'}</td>
-                        <td className="px-3 py-2 text-sm">{h.to ? formatDateDdMmYyyy(h.to) : 'Current'}</td>
-                      </tr>
-                    ))
+                    (poForHistory.updateHistory || [])
+                      .filter((h) => !isHiddenPoHistoryEntry(h))
+                      .map((h, i) => (
+                        <li key={i} className="flex flex-wrap gap-x-2 gap-y-0.5 border-b border-gray-100 pb-2 last:border-0 last:pb-0">
+                          <span className="font-mono text-xs text-slate-500 shrink-0">
+                            {h.at ? formatDateTimeDdMmYyyy(h.at) : '–'}
+                          </span>
+                          <span className="text-slate-800">{h.summary || '—'}</span>
+                        </li>
+                      ))
                   )}
-                </tbody>
-              </table>
+                </ul>
+              </PoViewSection>
             </div>
-            {poContactHistoryRows.some((h) => h.isCurrentFallback) ? (
-              <p className="text-xs text-amber-700 mt-2">
-                Showing current coordinator from the PO record. Save the PO once to persist contact history in the database.
-              </p>
-            ) : null}
-            <div className="mt-4 flex justify-end"><button type="button" onClick={() => setViewHistoryPoId(null)} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button></div>
+
+            <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setViewHistoryPoId(null)}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium text-slate-700"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
