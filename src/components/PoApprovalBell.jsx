@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCircle, Send, XCircle, X, AlertTriangle, Clock3 } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, X, AlertTriangle, Clock3 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { isStagingSupabaseProject } from '../lib/stagingProject';
@@ -46,7 +46,6 @@ import {
   writePurplePresentSeen,
 } from './AdminPurplePresentBell';
 
-const PENDING_STATUSES = new Set(['sent_for_approval', 'pending_approval']);
 const DECISION_STATUSES = new Set(['approved', 'rejected']);
 
 function seenStorageKey(userId) {
@@ -139,19 +138,8 @@ function buildNotifications(pos, user, userProfile, accessibleModules) {
       isApproverRole &&
       userCanApproveInModules(userProfile, accessibleModules, approverKeysForPo(po))
     ) {
-      if (PENDING_STATUSES.has(status)) {
-        const at = po.approvalSentAt || po.approval_sent_at || po.updated_at || '';
-        notifications.push({
-          key: `manager-pending:${po.id}:${at}`,
-          at,
-          source: 'po',
-          icon: Send,
-          iconClass: 'text-indigo-700 bg-indigo-100',
-          title: 'PO approval required',
-          message: `${poLabel}${poNo ? ` · ${poNo}` : ''}${client ? ` · ${client}` : ''}`,
-          route: routeForPo(po),
-        });
-      } else if (status === 'rejected') {
+      // PO approval pending notifications removed (approval workflow disabled).
+      if (status === 'rejected') {
         const at = latestDecisionTime(po, status);
         notifications.push({
           key: `manager-rejected:${po.id}:${at}`,
