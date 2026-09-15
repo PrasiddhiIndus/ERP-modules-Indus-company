@@ -6,9 +6,10 @@ export const ADMIN_OPS_NAV = [
     flat: true,
     items: [
       { label: "Dashboard", path: "dashboard" },
+      { label: "Recruitment", path: "recruitment" },
       { label: "Employee Master", path: "employee-master" },
-      // NAV_HIDDEN (Aug 2026): Onboarding — re-enable when ready
-      // { label: "Onboarding", path: "employee-onboarding" },
+      { label: "Onboarding", path: "employee-onboarding" },
+      { label: "Policies & Terms", path: "employee-policies" },
       { label: "Raw Attendance Data", path: "employee-attendance-inputs" },
       { label: "Daily Attendance Register", path: "employee-attendance-daily" },
       { label: "National / Public Holidays", path: "employee-national-holidays" },
@@ -20,8 +21,7 @@ export const ADMIN_OPS_NAV = [
       // { label: "Compliance & Documents", path: "employee-compliance" },
       // NAV_HIDDEN: Salary Inputs
       // { label: "Salary Inputs", path: "employee-salary-inputs" },
-      // NAV_HIDDEN: Exit & F&F
-      // { label: "Exit & F&F", path: "employee-exit" },
+      { label: "F & F", path: "employee-exit" },
       { label: "Alerts & Notifications", path: "alerts" },
       { label: "Reports & Analytics", path: "reports" },
       // Single entry — modules switch on the Salary Admin page itself

@@ -25,6 +25,7 @@ import {
 } from "../../adminOperations/components/AdminUi";
 import { CALLING_MASTER_RECORDS_EVENT, journeyStatusSeverity } from "./callingMasterConfig";
 import { CallingActionBar, CallingActionBtn, CallingActionMenu } from "./CallingTableActions";
+import { useRecruitmentUi } from "./recruitmentUiContext";
 import OfferDetailsFields, {
   emptyOfferDetailValues,
   offerDetailsFromCandidate,
@@ -85,6 +86,7 @@ function toOfferLetterPayload(row) {
 }
 
 export default function CallingMasterOfferPage() {
+  const ui = useRecruitmentUi();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -161,7 +163,8 @@ export default function CallingMasterOfferPage() {
   const openModal = (row, mode) => {
     const details = offerDetailsFromCandidate(row);
     if (!details.siteCode) {
-      details.siteCode = deriveSiteCodeFromName(row.siteSuitable || row.siteFullName);
+      const siteName = ui.scope === "admin" ? row.siteFullName : row.siteSuitable || row.siteFullName;
+      details.siteCode = deriveSiteCodeFromName(siteName);
     }
     setActiveRow(row);
     setForm(details);
@@ -242,7 +245,8 @@ export default function CallingMasterOfferPage() {
     setCodeError("");
     const details = offerDetailsFromCandidate(row);
     if (!details.siteCode) {
-      details.siteCode = deriveSiteCodeFromName(row.siteSuitable || row.siteFullName);
+      const siteName = ui.scope === "admin" ? row.siteFullName : row.siteSuitable || row.siteFullName;
+      details.siteCode = deriveSiteCodeFromName(siteName);
     }
     const missing = missingOfferFields(details);
     if (missing.length) {
@@ -352,10 +356,13 @@ export default function CallingMasterOfferPage() {
     },
     {
       key: "siteSuitable",
-      label: "Site",
+      label: ui.scope === "admin" ? "Team" : "Site",
       widthClassName: "w-[156px] min-w-[156px] max-w-[156px]",
       render: (row) => {
-        const text = row.siteFullName || row.siteSuitable || "—";
+        const text =
+          ui.scope === "admin"
+            ? row.siteSuitable || "—"
+            : row.siteFullName || row.siteSuitable || "—";
         return (
           <span className="block truncate" title={text === "—" ? undefined : text}>
             {text}
@@ -581,6 +588,7 @@ export default function CallingMasterOfferPage() {
             showRegisterSummary
             candidateName={activeRow?.candidateName}
             siteSuitable={activeRow?.siteSuitable}
+            suitabilityLabel={ui.siteSuitableLabel}
           />
         </div>
       </Modal>
@@ -625,7 +633,14 @@ export default function CallingMasterOfferPage() {
           <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">
             <p className="font-medium text-slate-900">{generateRow?.candidateName || "—"}</p>
             <p>Designation: {generateDetails?.designation || "—"}</p>
-            <p>Site: {generateDetails?.siteFullName || generateRow?.siteSuitable || "—"}</p>
+            {ui.scope === "admin" ? (
+              <p>Team: {generateRow?.siteSuitable || "—"}</p>
+            ) : (
+              <p>Site: {generateDetails?.siteFullName || generateRow?.siteSuitable || "—"}</p>
+            )}
+            {ui.scope === "admin" && generateDetails?.siteFullName ? (
+              <p>Site: {generateDetails.siteFullName}</p>
+            ) : null}
           </div>
 
           {generateAlreadyAssigned ? (

@@ -27,6 +27,7 @@ import {
 import { CALLING_MASTER_RECORDS_EVENT } from "./callingMasterConfig";
 import { useCallingMasterDropdowns } from "./useCallingMasterDropdowns";
 import { loadCallingMasterRecords } from "./callingMasterStorage";
+import { useRecruitmentUi } from "./recruitmentUiContext";
 
 const CHART_COLORS = ["#0f766e", "#0369a1", "#b45309", "#be123c", "#4338ca", "#15803d", "#0e7490", "#a16207"];
 
@@ -87,7 +88,8 @@ function ChartTooltip({ active, payload, label }) {
 }
 
 export default function CallingMasterDatabasePage() {
-  const { options: dropdownOptions } = useCallingMasterDropdowns();
+  const ui = useRecruitmentUi();
+  const { options: dropdownOptions } = useCallingMasterDropdowns(ui.scope);
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -147,7 +149,11 @@ export default function CallingMasterDatabasePage() {
       if (!key) return;
       const current = map.get(key) || { month: key, calls: 0, immediate: 0, cv: 0 };
       current.calls += 1;
-      if (row.siteSuitable === "Immediate") current.immediate += 1;
+      if (ui.scope === "admin") {
+        if (String(row.siteSuitable || "").trim()) current.immediate += 1;
+      } else if (row.siteSuitable === "Immediate") {
+        current.immediate += 1;
+      }
       if (row.cvSubmitted === "Yes") current.cv += 1;
       map.set(key, current);
     });
@@ -157,7 +163,7 @@ export default function CallingMasterDatabasePage() {
         ...item,
         label: formatMonthLabel(item.month),
       }));
-  }, [filtered]);
+  }, [filtered, ui.scope]);
 
   const salaryByCaller = useMemo(() => {
     const map = new Map();
@@ -185,6 +191,7 @@ export default function CallingMasterDatabasePage() {
     const cvYes = filtered.filter((row) => row.cvSubmitted === "Yes").length;
     const working = filtered.filter((row) => row.currentlyWorking === "Yes").length;
     const immediate = filtered.filter((row) => row.siteSuitable === "Immediate").length;
+    const teamAssigned = filtered.filter((row) => String(row.siteSuitable || "").trim()).length;
     const uniqueCallers = new Set(filtered.map((row) => row.callingBy).filter(Boolean)).size;
     const salaryValues = filtered
       .map((row) => Number(row.salaryGross))
@@ -199,7 +206,7 @@ export default function CallingMasterDatabasePage() {
       ? experienceValues.reduce((sum, value) => sum + value, 0) / experienceValues.length
       : 0;
 
-    return [
+    const tiles = [
       { label: "Total calls", value: total, sub: "In selected period", icon: PhoneCall },
       { label: "Active callers", value: uniqueCallers, sub: "Who logged calls", icon: Users },
       {
@@ -215,17 +222,23 @@ export default function CallingMasterDatabasePage() {
         icon: Users,
       },
       {
-        label: "Immediate fit",
-        value: immediate,
-        sub: total ? `${Math.round((immediate / total) * 100)}% ready now` : "No calls yet",
+        label: ui.scope === "admin" ? "Team assigned" : "Immediate fit",
+        value: ui.scope === "admin" ? teamAssigned : immediate,
+        sub: total
+          ? `${Math.round(((ui.scope === "admin" ? teamAssigned : immediate) / total) * 100)}% of candidates`
+          : "No calls yet",
         icon: LayoutDashboard,
       },
-      {
+    ];
+    if (!ui.hideSalaryOnDashboard) {
+      tiles.push({
         label: "Avg salary",
         value: avgSalary ? `₹${Math.round(avgSalary).toLocaleString("en-IN")}` : "—",
         sub: salaryValues.length ? `Across ${salaryValues.length} filled values` : "No salary data",
         icon: TrendingUp,
-      },
+      });
+    }
+    tiles.push(
       {
         label: "Avg experience",
         value: avgExperience ? `${avgExperience.toFixed(1)} yrs` : "—",
@@ -237,9 +250,10 @@ export default function CallingMasterDatabasePage() {
         value: new Set(filtered.map((row) => row.industryWorked).filter(Boolean)).size,
         sub: "In filtered set",
         icon: LayoutDashboard,
-      },
-    ];
-  }, [filtered]);
+      }
+    );
+    return tiles;
+  }, [filtered, ui.hideSalaryOnDashboard, ui.scope]);
 
   const recentColumns = [
     {
@@ -279,15 +293,20 @@ export default function CallingMasterDatabasePage() {
     },
     {
       key: "siteSuitable",
-      label: "Site Suitable",
+      label: ui.siteSuitableLabel,
       headerClassName: "w-[128px] min-w-[128px] max-w-[128px]",
       cellClassName: "w-[128px] min-w-[128px] max-w-[128px]",
-      render: (row) => (
-        <StatusChip
-          label={row.siteSuitable || "Review"}
-          severity={row.siteSuitable === "Immediate" ? "info" : row.siteSuitable === "Not suitable" ? "critical" : "warning"}
-        />
-      ),
+      render: (row) =>
+        ui.scope === "admin" ? (
+          <span className="block truncate" title={row.siteSuitable || undefined}>
+            {row.siteSuitable || "—"}
+          </span>
+        ) : (
+          <StatusChip
+            label={row.siteSuitable || "Review"}
+            severity={row.siteSuitable === "Immediate" ? "info" : row.siteSuitable === "Not suitable" ? "critical" : "warning"}
+          />
+        ),
     },
     {
       key: "industryWorked",
@@ -314,8 +333,8 @@ export default function CallingMasterDatabasePage() {
   return (
     <div className="space-y-4">
       <PageTaskHeader
-        title="Calling Dashboard"
-        subtitle="Live calling metrics, caller productivity, and screening outcomes from Calling Database."
+        title={ui.dashboardTitle}
+        subtitle={ui.dashboardSubtitle}
       >
         <button type="button" onClick={loadRecords} className="erp-btn-secondary rounded-control px-3.5 py-2 inline-flex items-center gap-2">
           <RefreshCw className="h-4 w-4" />
@@ -450,7 +469,7 @@ export default function CallingMasterDatabasePage() {
                           <Legend />
                           <Area type="monotone" dataKey="calls" name="Calls" stroke="#0f766e" fill="url(#callsGradient)" strokeWidth={2.5} />
                           <Area type="monotone" dataKey="cv" name="CV submitted" stroke="#0369a1" fill="url(#cvGradient)" strokeWidth={2} />
-                          <Area type="monotone" dataKey="immediate" name="Immediate fit" stroke="#b45309" fill="transparent" strokeWidth={2} />
+                          <Area type="monotone" dataKey="immediate" name={ui.scope === "admin" ? "Team assigned" : "Immediate fit"} stroke="#b45309" fill="transparent" strokeWidth={2} />
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>
@@ -481,7 +500,7 @@ export default function CallingMasterDatabasePage() {
                   )}
                 </SectionCard>
 
-                <SectionCard title="Site suitability mix">
+                <SectionCard title={ui.scope === "admin" ? "Teams suitable mix" : "Site suitability mix"}>
                   {suitabilityBreakdown.length ? (
                     <div className="h-72">
                       <ResponsiveContainer width="100%" height="100%">
@@ -581,6 +600,7 @@ export default function CallingMasterDatabasePage() {
                   )}
                 </SectionCard>
 
+                {!ui.hideSalaryOnDashboard ? (
                 <SectionCard title="Average salary by caller" className="xl:col-span-2">
                   {salaryByCaller.length ? (
                     <div className="h-72">
@@ -598,6 +618,7 @@ export default function CallingMasterDatabasePage() {
                     <ChartEmpty message="No salary figures captured for the selected filters." />
                   )}
                 </SectionCard>
+                ) : null}
               </div>
 
               <SectionCard

@@ -250,6 +250,7 @@ const SORT_OPTIONS = [
 ];
 
 const MODULE_SHORTCUTS = [
+  { label: "Recruitment", path: "/app/admin/recruitment", desc: "In-house hiring through Employee Master" },
   { label: "Employee Master", path: ROUTES.employeeMaster, desc: "Profiles & documents" },
   { label: "Daily Attendance", path: ROUTES.attendanceDaily, desc: "Register & corrections" },
   { label: "Leave Approvals", path: ROUTES.leaveApprovals, desc: "Pending leave queue" },

@@ -44,6 +44,8 @@ export const ROUTE_MODULE_MAP = [
   ['/app/admin/employee/leaves-permissions', 'Admin · Leave approvals'],
   ['/app/admin/employee/tour-approvals', 'Admin · Tour approvals'],
   ['/app/admin/employee/leave-management', 'Admin · Leave management'],
+  ['/app/admin/recruitment', 'Admin · In-house Recruitment'],
+  ['/app/admin/employee/onboarding', 'Admin · Onboarding'],
   ['/app/admin/employee/master', 'Admin · Employee master'],
   ['/app/compliance/payroll-process', 'Compliance · Payroll'],
   ['/app/compliance', 'Compliance · Dashboard'],

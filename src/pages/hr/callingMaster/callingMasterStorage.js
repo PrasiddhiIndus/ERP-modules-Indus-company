@@ -64,12 +64,12 @@ export async function deleteCallingMasterRecords(ids) {
   return deleted;
 }
 
-export async function loadCallingMasterDropdownCatalog() {
-  return listDropdownCatalog();
+export async function loadCallingMasterDropdownCatalog(scope = "hr") {
+  return listDropdownCatalog(scope);
 }
 
-export async function getCallingMasterSelectOptions() {
-  return listSelectOptionsMap();
+export async function getCallingMasterSelectOptions(scope = "hr") {
+  return listSelectOptionsMap(scope);
 }
 
 export async function addDropdownOption(key, label) {
@@ -199,8 +199,8 @@ export async function convertToEmployeeMaster(id) {
   return result;
 }
 
-export async function loadCallingByEmployees() {
-  return fetchCallingByEmployees();
+export async function loadCallingByEmployees(scope = "hr") {
+  return fetchCallingByEmployees(scope);
 }
 
 export async function saveReferralCandidate(record) {

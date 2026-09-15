@@ -158,11 +158,18 @@ export const HrSalaryRegister = lazy(() => import("../pages/hr/payroll/salary/Re
 export const HrSalaryOutputs = lazy(() => import("../pages/hr/payroll/salary/Outputs"));
 export const HrSalarySettings = lazy(() => import("../pages/hr/payroll/salary/Settings"));
 
-// NAV_HIDDEN (Aug 2026): employee admin pages removed from navbar
-// export const EmployeeOnboardingPage = lazyNamed(
-//   () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
-//   "EmployeeOnboardingPage"
-// );
+export const EmployeeOnboardingPage = lazyNamed(
+  () => import("../pages/adminOperations/employee/EmployeeOnboardingPage"),
+  "EmployeeOnboardingPage"
+);
+export const EmployeeFnfPage = lazyNamed(
+  () => import("../pages/adminOperations/employee/EmployeeFnfPage"),
+  "EmployeeFnfPage"
+);
+export const EmployeePoliciesPage = lazyNamed(
+  () => import("../pages/adminOperations/employee/EmployeePoliciesPage"),
+  "EmployeePoliciesPage"
+);
 export const EmployeeAttendanceInputsPage = lazyNamed(
   () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
   "EmployeeAttendanceInputsPage"
@@ -190,10 +197,6 @@ export const EmployeeTourApprovalsPage = lazyNamed(
 // export const EmployeeSalaryInputsPage = lazyNamed(
 //   () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
 //   "EmployeeSalaryInputsPage"
-// );
-// export const EmployeeExitPage = lazyNamed(
-//   () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
-//   "EmployeeExitPage"
 // );
 export const EmployeeAttendanceDailyPage = lazyNamed(
   () => import("../pages/adminOperations/employee/EmployeeAttendanceDailyPage"),

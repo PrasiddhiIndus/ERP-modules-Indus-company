@@ -610,9 +610,11 @@ async function fetchPoChildrenByPoIds(poIds) {
     ]);
 
     if (ratesRes.error) {
+      const msg = String(ratesRes.error.message || ratesRes.error || '');
       if (import.meta.env.DEV) {
-        console.warn('[billing] po_rate_category load skipped:', ratesRes.error.message || ratesRes.error);
+        console.warn('[billing] po_rate_category load skipped:', msg);
       }
+      if (/permission denied for schema billing/i.test(msg)) break;
     } else {
       const sortedRates = [...(ratesRes.data || [])].sort((a, b) => {
         const ao = Number(a.sort_order) || 0;
@@ -642,9 +644,11 @@ async function fetchPoChildrenByPoIds(poIds) {
     }
 
     if (contactsRes.error) {
+      const msg = String(contactsRes.error.message || contactsRes.error || '');
       if (import.meta.env.DEV) {
-        console.warn('[billing] po_contact_log load skipped:', contactsRes.error.message || contactsRes.error);
+        console.warn('[billing] po_contact_log load skipped:', msg);
       }
+      if (/permission denied for schema billing/i.test(msg)) break;
     } else {
       (contactsRes.data || []).forEach((c) => {
         if (!contactsByPo[c.po_id]) contactsByPo[c.po_id] = [];

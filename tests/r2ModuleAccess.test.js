@@ -71,6 +71,36 @@ describe('R2 module gates — login is not permission', () => {
     expect(hasSoftwareSubscriptionsR2Access(ctx(operationsUser))).toBe(false);
   });
 
+  it('Admin module (and admin.recruitment) can open candidate files', () => {
+    const adminUser = {
+      role: 'executive',
+      team: 'admin',
+      allowed_modules: ['admin'],
+      allowed_sub_modules: [],
+    };
+    const adminRecruitmentOnly = {
+      role: 'executive',
+      team: null,
+      allowed_modules: [],
+      allowed_sub_modules: ['admin.recruitment'],
+    };
+    const adminAlertsOnly = {
+      role: 'executive',
+      team: null,
+      allowed_modules: [],
+      allowed_sub_modules: ['admin.alerts'],
+    };
+    expect(hasHrCallingR2Access(ctx(adminUser))).toBe(true);
+    expect(hasHrCallingR2Access(ctx(adminRecruitmentOnly))).toBe(true);
+    expect(hasHrCallingR2Access(ctx(adminAlertsOnly))).toBe(false);
+    expect(hasHrCallingR2Access(ctx({
+      role: 'executive',
+      team: null,
+      allowed_modules: [],
+      allowed_sub_modules: ['admin.employee'],
+    }))).toBe(true);
+  });
+
   it('IT/IS and Super Admin can open subscription invoices', () => {
     expect(hasSoftwareSubscriptionsR2Access(ctx(itIsUser))).toBe(true);
     expect(hasSoftwareSubscriptionsR2Access(ctx(superAdmin))).toBe(true);
