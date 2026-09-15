@@ -13,6 +13,20 @@ export const SUPABASE_AUTH_STORAGE_KEY = 'supabase.auth.token';
 
 const DIRECT_SIGN_IN_TIMEOUT_MS = 20000;
 
+/**
+ * In-memory copy of the last known session. supabase-js _removeSession() can wipe
+ * localStorage on GET /auth/v1/user 403 (session_id claim) even when the JWT is
+ * still valid for REST — this backup lets us restore instead of logging the user out.
+ */
+let memoryAuthSession = null;
+
+function rememberAuthSession(session) {
+  if (session?.access_token || session?.refresh_token) {
+    memoryAuthSession = session;
+  }
+  return session;
+}
+
 /** Save GoTrue token response to localStorage (format read by supabase-js + our cache helpers). */
 export function persistAuthSession(tokenResponse) {
   if (!tokenResponse?.access_token || !tokenResponse?.user) return null;
@@ -27,13 +41,14 @@ export function persistAuthSession(tokenResponse) {
     token_type: tokenResponse.token_type || 'bearer',
     user: tokenResponse.user,
   };
+  rememberAuthSession(session);
   try {
     localStorage.setItem(
       SUPABASE_AUTH_STORAGE_KEY,
       JSON.stringify({ ...session, currentSession: session })
     );
   } catch {
-    return null;
+    return session;
   }
   resetSupabaseSessionHydration();
   markSupabaseSessionHydrated();
@@ -215,15 +230,52 @@ export function readCachedAccessToken() {
 export function readCachedAuthSession() {
   try {
     const raw = localStorage.getItem(SUPABASE_AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const session = parsed?.currentSession ?? parsed?.session ?? null;
-    if (session?.access_token || session?.refresh_token) return session;
-    if (parsed?.access_token || parsed?.refresh_token) return parsed;
-    return null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const session = parsed?.currentSession ?? parsed?.session ?? null;
+      if (session?.access_token || session?.refresh_token) {
+        return rememberAuthSession(session);
+      }
+      if (parsed?.access_token || parsed?.refresh_token) {
+        return rememberAuthSession(parsed);
+      }
+    }
   } catch {
-    return null;
+    /* fall through to memory backup */
   }
+  return memoryAuthSession;
+}
+
+/** True while AuthContext.signOut() is running — do not resurrect the session. */
+let intentionalSignOut = false;
+
+/** Re-write the in-memory session to localStorage after a spurious supabase-js sign-out. */
+export function restoreAuthSessionToStorage() {
+  if (intentionalSignOut) return null;
+  const session = readCachedAuthSession();
+  if (!session?.access_token && !session?.refresh_token) return null;
+  try {
+    localStorage.setItem(
+      SUPABASE_AUTH_STORAGE_KEY,
+      JSON.stringify({ ...session, currentSession: session })
+    );
+  } catch {
+    /* ignore quota / private mode */
+  }
+  return session;
+}
+
+export function beginIntentionalSignOut() {
+  intentionalSignOut = true;
+  memoryAuthSession = null;
+}
+
+export function endIntentionalSignOut() {
+  intentionalSignOut = false;
+}
+
+export function isIntentionalSignOut() {
+  return intentionalSignOut;
 }
 
 const HYDRATE_SESSION_TIMEOUT_MS = 8000;
@@ -260,6 +312,11 @@ export async function hydrateSupabaseAuthFromCache(supabaseClient) {
           const recovered = await ensureFreshCachedSession({ forceRefresh: true });
           if (!recovered?.access_token) clearSupabaseAuthStorage();
         }
+      }
+      // GET /auth/v1/user 403 (session_id) must not drop a still-valid JWT.
+      if (!isCachedAccessTokenExpired(0) && readCachedSessionUser()?.id) {
+        restoreAuthSessionToStorage();
+        return true;
       }
       return false;
     }
@@ -399,6 +456,7 @@ export function isCachedAccessTokenExpired(skewSeconds = 60) {
 
 export function clearSupabaseAuthStorage() {
   try {
+    memoryAuthSession = null;
     resetSupabaseSessionHydration();
     clearCachedProfileRow();
     Object.keys(localStorage).forEach((key) => {

@@ -11,6 +11,7 @@ export default function OfferDetailsFields({
   showRegisterSummary = false,
   candidateName = "",
   siteSuitable = "",
+  suitabilityLabel = "Site",
 }) {
   const salaryWords = amountInWords(values?.salaryGross);
   const set = (key, value) => onChange?.(key, value);
@@ -25,7 +26,7 @@ export default function OfferDetailsFields({
               {candidateName || "—"}
             </p>
             <p className="truncate text-slate-600" title={siteSuitable || undefined}>
-              Site (register): {siteSuitable || "—"}
+              {suitabilityLabel} (register): {siteSuitable || "—"}
             </p>
           </div>
         ) : null}
@@ -61,7 +62,7 @@ export default function OfferDetailsFields({
             {candidateName || "—"}
           </p>
           <p className="truncate text-slate-600" title={siteSuitable || values.siteSuitable || undefined}>
-            Site: {siteSuitable || values.siteSuitable || "—"}
+            {suitabilityLabel}: {siteSuitable || values.siteSuitable || "—"}
           </p>
           <p className="truncate text-slate-600">
             Gross:{" "}

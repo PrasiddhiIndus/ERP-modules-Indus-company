@@ -1,8 +1,15 @@
 import { supabase } from "../../../lib/supabase";
 import {
+  canonicalDepartmentLabel,
+  fetchEmployeeMasterDepartments,
+  normalizeDeptKey,
+} from "../../../lib/employeeMasterDepartments";
+import {
+  ADMIN_CALLING_BY_DEPARTMENTS,
   CALLING_BY_DEPARTMENTS,
   CALLING_DROPDOWN_MASTERS,
   DEFAULT_OFFER_EXPIRY_DAYS,
+  getCallingDropdownMasters,
   isJoiningChecklistComplete,
   normalizeIomDepartments,
   normalizeJoiningChecklist,
@@ -468,16 +475,20 @@ export async function deleteCallingCandidates(ids) {
   return list;
 }
 
-/** Active HR employees used for Calling By (names) and Referred By (ids). */
-export async function fetchCallingByEmployees() {
-  const { data, error } = await supabase
+/** Active employees used for Calling By (names) and Referred By (ids). */
+export async function fetchCallingByEmployees(scope = "hr") {
+  const query = supabase
     .from(EMPLOYEE_MASTER_TABLE)
     .select("id, full_name, employee_code, department, status")
     .eq("status", "Active")
-    .in("department", CALLING_BY_DEPARTMENTS)
     .order("full_name", { ascending: true });
 
+  const scopedQuery =
+    scope === "admin" ? query : query.in("department", CALLING_BY_DEPARTMENTS);
+
+  const { data, error } = await scopedQuery;
   if (error) throw new Error(friendlyError(error, "Unable to load Calling By names."));
+
   return (data || [])
     .map((row) => ({
       id: row.id,
@@ -485,12 +496,19 @@ export async function fetchCallingByEmployees() {
       employeeCode: String(row.employee_code || "").trim(),
       department: String(row.department || "").trim(),
     }))
-    .filter((row) => row.id != null && row.fullName);
+    .filter((row) => {
+      if (!row.id || !row.fullName) return false;
+      if (scope !== "admin") return true;
+      const key = normalizeDeptKey(canonicalDepartmentLabel(row.department));
+      return ADMIN_CALLING_BY_DEPARTMENTS.some(
+        (dept) => key === normalizeDeptKey(dept) || key.startsWith(`${normalizeDeptKey(dept)}-`)
+      );
+    });
 }
 
-/** Active HR employees used for Calling By. */
-export async function fetchCallingByFullNames() {
-  const employees = await fetchCallingByEmployees();
+/** Active employees used for Calling By. */
+export async function fetchCallingByFullNames(scope = "hr") {
+  const employees = await fetchCallingByEmployees(scope);
   return uniqueSortedLabels(employees.map((row) => row.fullName));
 }
 
@@ -506,16 +524,28 @@ export async function fetchSiteSuitableNames() {
   return uniqueSortedLabels((data || []).map((row) => row.site_name));
 }
 
-function emptyCatalogFromConfig() {
+/** Employee Master departments for Admin Teams suitable. */
+export async function fetchTeamSuitableNames() {
+  try {
+    return await fetchEmployeeMasterDepartments(supabase);
+  } catch (error) {
+    throw new Error(friendlyError(error, "Unable to load teams."));
+  }
+}
+
+function emptyCatalogFromConfig(scope = "hr") {
   const catalog = {};
-  CALLING_DROPDOWN_MASTERS.forEach((master) => {
+  getCallingDropdownMasters(scope).forEach((master) => {
     catalog[master.key] = [];
+  });
+  CALLING_DROPDOWN_MASTERS.forEach((master) => {
+    if (!catalog[master.key]) catalog[master.key] = [];
   });
   return catalog;
 }
 
-export async function listDropdownCatalog() {
-  const catalog = emptyCatalogFromConfig();
+export async function listDropdownCatalog(scope = "hr") {
+  const catalog = emptyCatalogFromConfig(scope);
 
   const { data: masters, error: mastersError } = await supabase
     .from(DROPDOWN_MASTERS_TABLE)
@@ -548,7 +578,7 @@ export async function listDropdownCatalog() {
   });
 
   try {
-    const callingBy = await fetchCallingByFullNames();
+    const callingBy = await fetchCallingByFullNames(scope);
     catalog.callingBy = callingBy.map((label, index) => ({
       id: `emp-${index}-${label}`,
       label,
@@ -560,34 +590,36 @@ export async function listDropdownCatalog() {
   }
 
   try {
-    const sites = await fetchSiteSuitableNames();
-    catalog.siteSuitable = sites.map((label, index) => ({
-      id: `site-${index}-${label}`,
+    const suitability =
+      scope === "admin" ? await fetchTeamSuitableNames() : await fetchSiteSuitableNames();
+    catalog.siteSuitable = suitability.map((label, index) => ({
+      id: `suit-${index}-${label}`,
       label,
       sortOrder: index,
       linked: true,
     }));
   } catch (err) {
-    console.error("Site Suitable load failed:", err);
+    console.error("Suitability list load failed:", err);
   }
 
   return catalog;
 }
 
-export async function listSelectOptionsMap() {
-  const catalog = await listDropdownCatalog();
+export async function listSelectOptionsMap(scope = "hr") {
+  const catalog = await listDropdownCatalog(scope);
   const options = {};
   Object.entries(catalog).forEach(([key, list]) => {
     options[key] = (list || []).map((item) => item.label);
   });
 
   try {
-    options.callingBy = await fetchCallingByFullNames();
+    options.callingBy = await fetchCallingByFullNames(scope);
   } catch {
     options.callingBy = options.callingBy || [];
   }
   try {
-    options.siteSuitable = await fetchSiteSuitableNames();
+    options.siteSuitable =
+      scope === "admin" ? await fetchTeamSuitableNames() : await fetchSiteSuitableNames();
   } catch {
     options.siteSuitable = options.siteSuitable || [];
   }

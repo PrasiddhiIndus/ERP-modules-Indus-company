@@ -221,7 +221,7 @@ const PoApprovalBell = () => {
 
   const refreshPos = useCallback(async () => {
     try {
-      const rows = await fetchCommercialPOs();
+      const rows = await fetchCommercialPOs({ includeChildren: false });
       setPos(rows || []);
     } catch {
       setPos(getCommercialPOsLocal());

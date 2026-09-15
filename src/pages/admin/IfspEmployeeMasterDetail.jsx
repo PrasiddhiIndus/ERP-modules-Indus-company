@@ -4,6 +4,7 @@ import { ArrowLeft, User } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import { employmentTypeLabel } from "../../utils/employeeMasterReminders";
+import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 import { PageTaskHeader, SectionCard, StatusChip } from "../adminOperations/components/AdminUi";
 import EmployeeMasterPersonalForm from "./employeeMaster/EmployeeMasterPersonalForm";
 import SalaryEmployeeCtc from "../adminOperations/salaryAdmin/SalaryEmployeeCtc";
@@ -24,6 +25,7 @@ import EmployeeTdsTab from "./employeeMaster/deductions/EmployeeTdsTab";
 import EmployeeForm16Tab from "./employeeMaster/deductions/EmployeeForm16Tab";
 import EmployeeLeavesTab from "./employeeMaster/EmployeeLeavesTab";
 import EmployeeToursTab from "./employeeMaster/EmployeeToursTab";
+import EmployeeAssignedPoliciesPanel from "./employeeMaster/EmployeeAssignedPoliciesPanel";
 import EmployeeSalaryHistoryTab from "./employeeMaster/EmployeeSalaryHistoryTab";
 import EmployeePayslipsTab from "./employeeMaster/EmployeePayslipsTab";
 import { fetchOpenVariancesForEmployee } from "../adminOperations/salaryAdmin/salaryMonthProcessing";
@@ -48,16 +50,7 @@ const TABS = [
   { id: "fnf", label: "F&F" },
 ];
 
-const PLACEHOLDER_COPY = {
-  documents: {
-    title: "Documents and Forms",
-    body: "Employee documents and forms will appear here once this section is connected.",
-  },
-  fnf: {
-    title: "Full & Final",
-    body: "Full & final settlement details for this employee will appear here once exit workflows are connected.",
-  },
-};
+const PLACEHOLDER_COPY = {};
 
 const CONTENT_TABS = new Set([
   "personal",
@@ -515,7 +508,36 @@ export default function IfspEmployeeMasterDetail() {
               />
             ) : null}
 
-            {!CONTENT_TABS.has(activeTab) ? <PlaceholderPanel tabId={activeTab} /> : null}
+            {activeTab === "documents" ? (
+              <EmployeeAssignedPoliciesPanel employeeId={employee.id} />
+            ) : null}
+
+            {activeTab === "fnf" ? (
+              <SectionCard title="Full & Final">
+                <div className="space-y-3 text-sm">
+                  <p className="text-ink-secondary">
+                    Last working day:{" "}
+                    <span className="font-medium text-ink">
+                      {formatDateDdMmYyyy(employee.date_of_leaving) || "Not set"}
+                    </span>
+                  </p>
+                  <div className="flex items-center gap-2 text-ink-secondary">
+                    <span>Status:</span>
+                    <StatusChip label={employee.status || "—"} severity={statusSeverity(employee.status)} />
+                  </div>
+                  <Link
+                    to="/app/admin/employee/exit-ff"
+                    className="inline-flex items-center h-8 px-3 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-deep"
+                  >
+                    Open F &amp; F register
+                  </Link>
+                </div>
+              </SectionCard>
+            ) : null}
+
+            {activeTab !== "fnf" && activeTab !== "documents" && !CONTENT_TABS.has(activeTab) ? (
+              <PlaceholderPanel tabId={activeTab} />
+            ) : null}
           </div>
         </div>
       </div>

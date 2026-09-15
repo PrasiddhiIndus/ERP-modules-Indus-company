@@ -122,8 +122,9 @@ import {
   HrPayrollOpsReports,
   HrPayrollOpsCompliance,
   HrPayrollOpsSiteSetup,
-  // NAV_HIDDEN employee admin pages (Aug 2026)
-  // EmployeeOnboardingPage,
+  EmployeeOnboardingPage,
+  EmployeeFnfPage,
+  EmployeePoliciesPage,
   EmployeeAttendanceInputsPage,
   // EmployeeAttendanceSheetsPage,
   EmployeeLeavesPage,
@@ -131,7 +132,6 @@ import {
   EmployeeTourApprovalsPage,
   // EmployeeCompliancePage,
   // EmployeeSalaryInputsPage,
-  // EmployeeExitPage,
   EmployeeAttendanceDailyPage,
   EmployeeLeaveManagementPage,
   InactiveEmployeesPage,
@@ -540,12 +540,24 @@ function App() {
             {/* Unified Admin module routes */}
             <Route path="admin" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/dashboard" element={<AdminOpsDashboard />} />
+            <Route path="admin/recruitment" element={<HrCallingMaster />}>
+              <Route index element={<HrCallingMasterEntry />} />
+              <Route path="candidates" element={<HrCallingMasterCandidates />} />
+              <Route path="referral" element={<HrCallingMasterReferral />} />
+              <Route path="offer-generation" element={<HrCallingMasterOffers />} />
+              <Route path="offer-response" element={<HrCallingMasterOfferResponse />} />
+              <Route path="joining" element={<HrCallingMasterJoining />} />
+              <Route path="iom" element={<HrCallingMasterIom />} />
+              <Route path="conversion" element={<HrCallingMasterConversion />} />
+              <Route path="dropdown-master" element={<HrCallingMasterDropdowns />} />
+              <Route path="database" element={<Navigate to="/app/admin/recruitment" replace />} />
+            </Route>
             <Route path="admin/payroll/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/master" element={<IfspEmployeeMaster />} />
             <Route path="admin/employee/master/:employeeId" element={<IfspEmployeeMasterDetail />} />
             <Route path="admin/employee/all" element={<Navigate to="/app/all-employees" replace />} />
             {/* NAV_HIDDEN (Aug 2026): hidden admin modules redirect to dashboard */}
-            <Route path="admin/employee/onboarding" element={<Navigate to="/app/admin/dashboard" replace />} />
+            <Route path="admin/employee/onboarding" element={<EmployeeOnboardingPage />} />
             <Route path="admin/employee/attendance-inputs" element={<EmployeeAttendanceInputsPage />} />
             <Route path="admin/employee/attendance-daily" element={<EmployeeAttendanceDailyPage />} />
             <Route path="admin/employee/national-holidays" element={<NationalPublicHolidaysPage />} />
@@ -555,7 +567,8 @@ function App() {
             <Route path="admin/employee/tour-approvals" element={<EmployeeTourApprovalsPage />} />
             <Route path="admin/employee/compliance-documents" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/salary-inputs" element={<Navigate to="/app/admin/dashboard" replace />} />
-            <Route path="admin/employee/exit-ff" element={<Navigate to="/app/admin/dashboard" replace />} />
+            <Route path="admin/employee/exit-ff" element={<EmployeeFnfPage />} />
+            <Route path="admin/employee/policies" element={<EmployeePoliciesPage />} />
             <Route path="admin/employee/inactive" element={<InactiveEmployeesPage />} />
             <Route path="admin/store/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/gate/*" element={<Navigate to="/app/admin/dashboard" replace />} />

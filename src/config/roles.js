@@ -124,13 +124,21 @@ export function getAccessibleSubModulePaths(profile, userMetadata = null) {
     const moduleKey = parts[0];
 
     // Skip if user has full top-level module access — already covered by MODULE_PATH_PREFIXES.
-    // Exception: HR team with recruitment tab restrictions (handled above).
-    if (!hasFullHr && fullModuleKeys.has(moduleKey)) continue;
+    // Exception: HR/Admin recruitment tab restrictions (handled above / below).
+    if (!hasFullHr && fullModuleKeys.has(moduleKey)) {
+      const allowAdminRecruitmentExpand =
+        moduleKey === "admin" && hasRecruitmentTabRestrictions(profile, userMetadata, "admin");
+      if (!allowAdminRecruitmentExpand) continue;
+    }
 
-    // --- 3-segment tab key (hr.recruitment.<tab>) ---
-    if (parts.length === 3 && parts[0] === "hr" && parts[1] === "recruitment") {
-      if (hasFullHr && !restrictRecruitment) continue;
-      const tabPath = RECRUITMENT_TAB_PATHS[subKey];
+    // --- 3-segment tab key (hr.recruitment.<tab> or admin.recruitment.<tab>) ---
+    if (parts.length === 3 && parts[1] === "recruitment" && (parts[0] === "hr" || parts[0] === "admin")) {
+      if (parts[0] === "hr" && hasFullHr && !restrictRecruitment) continue;
+      if (parts[0] === "admin" && fullModuleKeys.has("admin") && !hasRecruitmentTabRestrictions(profile, userMetadata, "admin")) {
+        continue;
+      }
+      const tabPath =
+        parts[0] === "admin" ? ADMIN_RECRUITMENT_TAB_PATHS[subKey] : RECRUITMENT_TAB_PATHS[subKey];
       if (tabPath) paths.add(tabPath);
       continue;
     }
@@ -142,6 +150,38 @@ export function getAccessibleSubModulePaths(profile, userMetadata = null) {
       for (const tabKey of RECRUITMENT_WORKFLOW_KEYS) {
         const tabPath = RECRUITMENT_TAB_PATHS[tabKey];
         if (tabPath) paths.add(tabPath);
+      }
+      continue;
+    }
+
+    // --- Parent recruitment key admin.recruitment (2-segment) ---
+    if (subKey === "admin.recruitment") {
+      if (fullModuleKeys.has("admin") && !hasRecruitmentTabRestrictions(profile, userMetadata, "admin")) {
+        continue;
+      }
+      for (const tabKey of ADMIN_RECRUITMENT_WORKFLOW_KEYS) {
+        const tabPath = ADMIN_RECRUITMENT_TAB_PATHS[tabKey];
+        if (tabPath) paths.add(tabPath);
+      }
+      continue;
+    }
+
+    // Employee Administration includes Admin in-house recruitment (hire → Employee Master).
+    if (subKey === "admin.employee") {
+      if (fullModuleKeys.has("admin") && !hasRecruitmentTabRestrictions(profile, userMetadata, "admin")) {
+        const moduleDef = NAV_MODULE_TREE.find((m) => m.value === "admin");
+        const subDef = moduleDef?.subModules?.find((s) => s.value === subKey);
+        if (subDef?.pathPrefix) paths.add(subDef.pathPrefix);
+        continue;
+      }
+      const moduleDef = NAV_MODULE_TREE.find((m) => m.value === "admin");
+      const subDef = moduleDef?.subModules?.find((s) => s.value === subKey);
+      if (subDef?.pathPrefix) paths.add(subDef.pathPrefix);
+      if (!hasRecruitmentTabRestrictions(profile, userMetadata, "admin")) {
+        for (const tabKey of ADMIN_RECRUITMENT_WORKFLOW_KEYS) {
+          const tabPath = ADMIN_RECRUITMENT_TAB_PATHS[tabKey];
+          if (tabPath) paths.add(tabPath);
+        }
       }
       continue;
     }
@@ -258,61 +298,112 @@ export const TEAMS = [
  *
  * Tab-level keys use a 3-segment format: "<moduleKey>.<subModuleKey>.<tabKey>".
  * Example: "hr.recruitment.candidates" → /app/hr/calling-master/candidates
+ *          "admin.recruitment.candidates" → /app/admin/recruitment/candidates
  * A 3-segment key is stored in allowed_sub_modules exactly like 2-segment ones.
- * The parent 2-segment key (hr.calling-master) implies workflow tab children
- * (not admin-only or opt-in tabs such as hr.recruitment.referral).
+ * The parent 2-segment key (hr.calling-master / admin.recruitment) implies workflow tab children
+ * (not admin-only or opt-in tabs such as *.recruitment.referral).
  */
 
 /**
- * Canonical tab keys for the Calling Database (Recruitment) module.
- * Used in CallingMasterLayout to filter visible tabs, and in access helpers below.
- * "dropdown-master" is flagged adminOnly — it is hidden from Executive/Manager regardless
- * of per-user grants, and is not included in the default parent-implies-children expansion.
- * "referral" is flagged optIn — parent hr.calling-master does not grant it.
+ * Shared Calling Database tabs. "dropdown-master" is adminOnly (Admin+ role).
+ * "referral" is optIn — parent keys never imply it.
  */
-export const RECRUITMENT_TAB_KEYS = [
-  { value: "hr.recruitment.dashboard",        label: "Dashboard",        tabTo: ".",                 end: true  },
-  { value: "hr.recruitment.candidates",        label: "Candidates",       tabTo: "candidates"                   },
-  { value: "hr.recruitment.referral",          label: "Add Referral",     tabTo: "referral",          optIn: true },
-  { value: "hr.recruitment.offer-generation",  label: "Offer Generation", tabTo: "offer-generation"             },
-  { value: "hr.recruitment.offer-response",    label: "Offer Response",   tabTo: "offer-response"               },
-  { value: "hr.recruitment.joining",           label: "Joining",          tabTo: "joining"                      },
-  { value: "hr.recruitment.iom",               label: "IOM",              tabTo: "iom"                          },
-  { value: "hr.recruitment.conversion",        label: "Conversion",       tabTo: "conversion"                   },
-  { value: "hr.recruitment.dropdown-master",   label: "Dropdown Master",  tabTo: "dropdown-master",  adminOnly: true },
+const RECRUITMENT_TAB_DEFS = [
+  { suffix: "dashboard",        label: "Dashboard",        tabTo: ".",                 end: true  },
+  { suffix: "candidates",        label: "Candidates",       tabTo: "candidates"                   },
+  { suffix: "referral",          label: "Add Referral",     tabTo: "referral",          optIn: true },
+  { suffix: "offer-generation",  label: "Offer Generation", tabTo: "offer-generation"             },
+  { suffix: "offer-response",    label: "Offer Response",   tabTo: "offer-response"               },
+  { suffix: "joining",           label: "Joining",          tabTo: "joining"                      },
+  { suffix: "iom",               label: "IOM",              tabTo: "iom"                          },
+  { suffix: "conversion",        label: "Conversion",       tabTo: "conversion"                   },
+  { suffix: "dropdown-master",   label: "Dropdown Master",  tabTo: "dropdown-master",  adminOnly: true },
 ];
 
+function buildRecruitmentFamily({ moduleKey, parentKey, tabPrefix, indexPath }) {
+  const tabs = RECRUITMENT_TAB_DEFS.map((t) => ({
+    value: `${tabPrefix}.${t.suffix}`,
+    label: t.label,
+    tabTo: t.tabTo,
+    ...(t.end ? { end: true } : {}),
+    ...(t.optIn ? { optIn: true } : {}),
+    ...(t.adminOnly ? { adminOnly: true } : {}),
+  }));
+  const paths = Object.fromEntries(
+    tabs.map((t) => [
+      t.value,
+      t.tabTo === "." ? indexPath : `${indexPath}/${t.tabTo}`,
+    ])
+  );
+  return {
+    moduleKey,
+    parentKey,
+    tabPrefix,
+    indexPath,
+    tabs,
+    paths,
+    workflowKeys: tabs.filter((t) => !t.adminOnly && !t.optIn).map((t) => t.value),
+    allTabKeys: tabs.map((t) => t.value),
+  };
+}
+
+export const HR_RECRUITMENT_FAMILY = buildRecruitmentFamily({
+  moduleKey: "hr",
+  parentKey: "hr.calling-master",
+  tabPrefix: "hr.recruitment",
+  indexPath: "/app/hr/calling-master",
+});
+
+export const ADMIN_RECRUITMENT_FAMILY = buildRecruitmentFamily({
+  moduleKey: "admin",
+  parentKey: "admin.recruitment",
+  tabPrefix: "admin.recruitment",
+  indexPath: "/app/admin/recruitment",
+});
+
+/** Canonical HR Calling Database tab keys (User Management + HR layout). */
+export const RECRUITMENT_TAB_KEYS = HR_RECRUITMENT_FAMILY.tabs;
+
 /** All workflow tab keys (non-admin, non-opt-in). Granted when the parent hr.calling-master is set. */
-export const RECRUITMENT_WORKFLOW_KEYS = RECRUITMENT_TAB_KEYS
-  .filter((t) => !t.adminOnly && !t.optIn)
-  .map((t) => t.value);
+export const RECRUITMENT_WORKFLOW_KEYS = HR_RECRUITMENT_FAMILY.workflowKeys;
+
+export const ADMIN_RECRUITMENT_TAB_KEYS = ADMIN_RECRUITMENT_FAMILY.tabs;
+export const ADMIN_RECRUITMENT_WORKFLOW_KEYS = ADMIN_RECRUITMENT_FAMILY.workflowKeys;
+export const ALL_ADMIN_RECRUITMENT_TAB_KEYS = ADMIN_RECRUITMENT_FAMILY.allTabKeys;
+
+function recruitmentFamilyForScope(scope) {
+  return scope === "admin" ? ADMIN_RECRUITMENT_FAMILY : HR_RECRUITMENT_FAMILY;
+}
 
 export function isRecruitmentOptInTabKey(value) {
-  return RECRUITMENT_TAB_KEYS.some((t) => t.value === value && t.optIn);
+  return RECRUITMENT_TAB_DEFS.some((t) => t.optIn && (
+    value === `hr.recruitment.${t.suffix}` || value === `admin.recruitment.${t.suffix}`
+  ));
 }
 
 /**
- * Toggle a recruitment parent or tab key in allowed_sub_modules.
+ * Toggle a recruitment parent or tab key in allowed_sub_modules (HR or Admin).
  * Opt-in tabs are independent of the parent (checking parent does not add/remove them).
  * Returns null when subValue is not a recruitment access key.
  */
 export function toggleRecruitmentAccessKey(currentSubModules, subValue) {
   const list = Array.isArray(currentSubModules) ? [...currentSubModules] : [];
-  const isRecruitment =
-    subValue === "hr.calling-master" || ALL_RECRUITMENT_TAB_KEYS.includes(subValue);
-  if (!isRecruitment) return null;
+  const family = [HR_RECRUITMENT_FAMILY, ADMIN_RECRUITMENT_FAMILY].find(
+    (f) => f.parentKey === subValue || f.allTabKeys.includes(subValue)
+  );
+  if (!family) return null;
 
   const has = list.includes(subValue);
 
-  if (subValue === "hr.calling-master") {
+  if (subValue === family.parentKey) {
     if (!has) {
       const kept = list.filter(
-        (s) => s !== "hr.calling-master" && !RECRUITMENT_WORKFLOW_KEYS.includes(s)
+        (s) => s !== family.parentKey && !family.workflowKeys.includes(s)
       );
-      return [...kept, "hr.calling-master", ...RECRUITMENT_WORKFLOW_KEYS];
+      return [...kept, family.parentKey, ...family.workflowKeys];
     }
     return list.filter(
-      (s) => s !== "hr.calling-master" && !RECRUITMENT_WORKFLOW_KEYS.includes(s)
+      (s) => s !== family.parentKey && !family.workflowKeys.includes(s)
     );
   }
 
@@ -321,28 +412,25 @@ export function toggleRecruitmentAccessKey(currentSubModules, subValue) {
   }
 
   if (!has) {
-    const withoutParent = list.filter((s) => s !== "hr.calling-master");
+    const withoutParent = list.filter((s) => s !== family.parentKey);
     return [...withoutParent, subValue];
   }
   return list.filter((s) => s !== subValue);
 }
 
-/** All tab keys including the admin-only one. */
-export const ALL_RECRUITMENT_TAB_KEYS = RECRUITMENT_TAB_KEYS.map((t) => t.value);
+/** All HR tab keys including the admin-only one. */
+export const ALL_RECRUITMENT_TAB_KEYS = HR_RECRUITMENT_FAMILY.allTabKeys;
 
 /**
- * Path prefix for each recruitment tab key.
+ * Path prefix for each HR recruitment tab key.
  * The dashboard tab maps to the index route /app/hr/calling-master (no trailing segment).
  * All other tabs map to /app/hr/calling-master/<segment>.
  */
-const RECRUITMENT_TAB_PATHS = Object.fromEntries(
-  RECRUITMENT_TAB_KEYS.map((t) => [
-    t.value,
-    t.tabTo === "." ? "/app/hr/calling-master" : `/app/hr/calling-master/${t.tabTo}`,
-  ])
-);
+const RECRUITMENT_TAB_PATHS = HR_RECRUITMENT_FAMILY.paths;
+const ADMIN_RECRUITMENT_TAB_PATHS = ADMIN_RECRUITMENT_FAMILY.paths;
 
-export const RECRUITMENT_INDEX_PATH = "/app/hr/calling-master";
+export const RECRUITMENT_INDEX_PATH = HR_RECRUITMENT_FAMILY.indexPath;
+export const ADMIN_RECRUITMENT_INDEX_PATH = ADMIN_RECRUITMENT_FAMILY.indexPath;
 
 /** Normalize /app paths for stable comparisons (no trailing slash). */
 export function normalizeAppPath(pathname) {
@@ -355,53 +443,64 @@ export function isRecruitmentIndexPath(pathname) {
   return normalizeAppPath(pathname) === RECRUITMENT_INDEX_PATH;
 }
 
+export function isAdminRecruitmentIndexPath(pathname) {
+  return normalizeAppPath(pathname) === ADMIN_RECRUITMENT_INDEX_PATH;
+}
+
+export function getRecruitmentScopeFromPath(pathname) {
+  return isCallingMasterPath(pathname, ADMIN_RECRUITMENT_INDEX_PATH) ? "admin" : "hr";
+}
+
 /** Keys in allowed_sub_modules that scope Calling Database tab access. */
-export function getRecruitmentRestrictionKeys(profile, userMetadata = null) {
+export function getRecruitmentRestrictionKeys(profile, userMetadata = null, scope = "hr") {
+  const family = recruitmentFamilyForScope(scope);
   const subMods = getEffectiveAllowedSubModules(profile, userMetadata);
   return subMods.filter(
     (k) =>
-      k === "hr.calling-master" ||
-      (String(k).startsWith("hr.recruitment.") && ALL_RECRUITMENT_TAB_KEYS.includes(k))
+      k === family.parentKey ||
+      (String(k).startsWith(`${family.tabPrefix}.`) && family.allTabKeys.includes(k))
   );
 }
 
-export function hasRecruitmentTabRestrictions(profile, userMetadata = null) {
-  return getRecruitmentRestrictionKeys(profile, userMetadata).some(
-    (k) => k === "hr.calling-master" || !isRecruitmentOptInTabKey(k)
+export function hasRecruitmentTabRestrictions(profile, userMetadata = null, scope = "hr") {
+  const family = recruitmentFamilyForScope(scope);
+  return getRecruitmentRestrictionKeys(profile, userMetadata, scope).some(
+    (k) => k === family.parentKey || !isRecruitmentOptInTabKey(k)
   );
 }
 
-function recruitmentPathMatches(pathname, prefixPath) {
+function recruitmentPathMatches(pathname, prefixPath, indexPath = RECRUITMENT_INDEX_PATH) {
   const normalizedPath = normalizeAppPath(pathname);
   const normalizedPrefix = normalizeAppPath(prefixPath);
-  if (normalizedPrefix === RECRUITMENT_INDEX_PATH) {
+  if (normalizedPrefix === indexPath) {
     return normalizedPath === normalizedPrefix;
   }
   if (normalizedPath === normalizedPrefix) return true;
   return normalizedPath.startsWith(`${normalizedPrefix}/`);
 }
 
-function subModulePathsIncludeRecruitment(subModulePaths) {
+function subModulePathsIncludeRecruitment(subModulePaths, indexPath = RECRUITMENT_INDEX_PATH) {
   if (!subModulePaths?.size) return false;
   return [...subModulePaths].some(
-    (p) => p === RECRUITMENT_INDEX_PATH || p.startsWith(`${RECRUITMENT_INDEX_PATH}/`)
+    (p) => p === indexPath || p.startsWith(`${indexPath}/`)
   );
 }
 
-function isCallingMasterPath(pathname) {
+function isCallingMasterPath(pathname, indexPath = RECRUITMENT_INDEX_PATH) {
   const normalized = normalizeAppPath(pathname);
   return (
-    normalized === RECRUITMENT_INDEX_PATH ||
-    normalized.startsWith(`${RECRUITMENT_INDEX_PATH}/`)
+    normalized === indexPath ||
+    normalized.startsWith(`${indexPath}/`)
   );
 }
 
 /**
  * Tab visibility for Calling Database — shared by layout, index redirect, and sidebar landing.
  * Dropdown Master is Admin+ only regardless of per-user grants.
- * HR team users with recruitment keys in allowed_sub_modules are restricted to those tabs.
+ * Users with recruitment keys in allowed_sub_modules are restricted to those tabs.
  */
-export function canSeeRecruitmentTab(tabDef, profile, accessibleModules, userMetadata = null) {
+export function canSeeRecruitmentTab(tabDef, profile, accessibleModules, userMetadata = null, scope = "hr") {
+  const family = recruitmentFamilyForScope(scope);
   const role = normalizeAppRole(profile?.role);
   if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) return true;
 
@@ -410,45 +509,45 @@ export function canSeeRecruitmentTab(tabDef, profile, accessibleModules, userMet
   }
 
   const subMods = getEffectiveAllowedSubModules(profile, userMetadata);
-  const restricted = hasRecruitmentTabRestrictions(profile, userMetadata);
+  const restricted = hasRecruitmentTabRestrictions(profile, userMetadata, scope);
 
   if (tabDef?.optIn) {
-    if (accessibleModules?.has("hr") && !restricted) return true;
+    if (accessibleModules?.has(family.moduleKey) && !restricted) return true;
     return subMods.includes(tabDef.value);
   }
 
-  if (accessibleModules?.has("hr") && !restricted) return true;
+  if (accessibleModules?.has(family.moduleKey) && !restricted) return true;
 
-  if (subMods.includes("hr.calling-master")) return true;
+  if (subMods.includes(family.parentKey)) return true;
+  if (scope === "admin" && subMods.includes("admin.employee") && !restricted) return true;
   return subMods.includes(tabDef?.value);
 }
 
-export function getVisibleRecruitmentTabs(profile, accessibleModules, userMetadata = null) {
-  return RECRUITMENT_TAB_KEYS.filter((tab) =>
-    canSeeRecruitmentTab(tab, profile, accessibleModules, userMetadata)
+export function getVisibleRecruitmentTabs(profile, accessibleModules, userMetadata = null, scope = "hr") {
+  const family = recruitmentFamilyForScope(scope);
+  return family.tabs.filter((tab) =>
+    canSeeRecruitmentTab(tab, profile, accessibleModules, userMetadata, scope)
   );
 }
 
-export function hasRecruitmentDashboardAccess(profile, accessibleModules, userMetadata = null) {
-  return canSeeRecruitmentTab(
-    RECRUITMENT_TAB_KEYS.find((t) => t.value === "hr.recruitment.dashboard"),
-    profile,
-    accessibleModules,
-    userMetadata
-  );
+export function hasRecruitmentDashboardAccess(profile, accessibleModules, userMetadata = null, scope = "hr") {
+  const family = recruitmentFamilyForScope(scope);
+  const dashboard = family.tabs.find((t) => t.tabTo === ".");
+  return canSeeRecruitmentTab(dashboard, profile, accessibleModules, userMetadata, scope);
 }
 
 /** First allowed tab route — used for sidebar link and index redirect when Dashboard is not granted. */
-export function getRecruitmentLandingPath(profile, accessibleModules, userMetadata = null) {
-  const visible = getVisibleRecruitmentTabs(profile, accessibleModules, userMetadata);
-  if (!visible.length) return RECRUITMENT_INDEX_PATH;
+export function getRecruitmentLandingPath(profile, accessibleModules, userMetadata = null, scope = "hr") {
+  const family = recruitmentFamilyForScope(scope);
+  const visible = getVisibleRecruitmentTabs(profile, accessibleModules, userMetadata, scope);
+  if (!visible.length) return family.indexPath;
   const first = visible[0];
-  if (first.tabTo === ".") return RECRUITMENT_INDEX_PATH;
-  return `${RECRUITMENT_INDEX_PATH}/${first.tabTo}`;
+  if (first.tabTo === ".") return family.indexPath;
+  return `${family.indexPath}/${first.tabTo}`;
 }
 
-export function hasAnyRecruitmentTabAccess(profile, accessibleModules, userMetadata = null) {
-  return getVisibleRecruitmentTabs(profile, accessibleModules, userMetadata).length > 0;
+export function hasAnyRecruitmentTabAccess(profile, accessibleModules, userMetadata = null, scope = "hr") {
+  return getVisibleRecruitmentTabs(profile, accessibleModules, userMetadata, scope).length > 0;
 }
 
 export const NAV_MODULE_TREE = [
@@ -495,6 +594,17 @@ export const NAV_MODULE_TREE = [
     label: "Admin",
     subModules: [
       { value: "admin.dashboard",        label: "Dashboard",                  pathPrefix: "/app/admin/dashboard" },
+      {
+        value: "admin.recruitment",
+        label: "Recruitment",
+        pathPrefix: "/app/admin/recruitment",
+        tabModules: ADMIN_RECRUITMENT_TAB_KEYS.filter((t) => !t.adminOnly).map((t) => ({
+          value: t.value,
+          label: t.label,
+          pathPrefix: ADMIN_RECRUITMENT_TAB_PATHS[t.value],
+          optIn: Boolean(t.optIn),
+        })),
+      },
       { value: "admin.employee",         label: "Employee Administration",     pathPrefix: "/app/admin/employee" },
       { value: "admin.salary-admin",     label: "Salary Admin",               pathPrefix: "/app/admin/salary-admin" },
       { value: "admin.store",            label: "Store & Issue Control",       pathPrefix: "/app/admin/store" },
@@ -1162,14 +1272,23 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
 
   const normalizedPath = normalizeAppPath(pathname);
 
-  // HR team + recruitment tab restrictions: calling-master routes use tab paths only,
-  // not the broad MODULE_PATH_PREFIXES["hr"] grant (prevents tab bypass).
+  // HR / Admin recruitment tab restrictions: calling-master routes use tab paths only,
+  // not the broad MODULE_PATH_PREFIXES grant (prevents tab bypass).
   if (
     isCallingMasterPath(normalizedPath) &&
     subModulePathsIncludeRecruitment(subModulePaths)
   ) {
     for (const p of subModulePaths) {
-      if (recruitmentPathMatches(normalizedPath, p)) return true;
+      if (recruitmentPathMatches(normalizedPath, p, RECRUITMENT_INDEX_PATH)) return true;
+    }
+    return false;
+  }
+  if (
+    isCallingMasterPath(normalizedPath, ADMIN_RECRUITMENT_INDEX_PATH) &&
+    subModulePathsIncludeRecruitment(subModulePaths, ADMIN_RECRUITMENT_INDEX_PATH)
+  ) {
+    for (const p of subModulePaths) {
+      if (recruitmentPathMatches(normalizedPath, p, ADMIN_RECRUITMENT_INDEX_PATH)) return true;
     }
     return false;
   }
@@ -1178,7 +1297,10 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
   if (subModulePaths?.size) {
     for (const p of subModulePaths) {
       const normalizedPrefix = normalizeAppPath(p);
-      if (normalizedPrefix === RECRUITMENT_INDEX_PATH) {
+      if (
+        normalizedPrefix === RECRUITMENT_INDEX_PATH ||
+        normalizedPrefix === ADMIN_RECRUITMENT_INDEX_PATH
+      ) {
         if (normalizedPath === normalizedPrefix) return true;
         continue;
       }

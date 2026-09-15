@@ -31,14 +31,15 @@ import {
   TinySelect,
 } from "../../adminOperations/components/AdminUi";
 import {
-  CALLING_MASTER_EXPORT_HEADERS,
-  CALLING_MASTER_FIELDS,
   CALLING_MASTER_FILTER_KEYS,
   CALLING_MASTER_SEARCH_KEYS,
-  CALLING_MASTER_TABLE_COLUMNS,
   CALLING_PIPELINE_TABS,
+  getCallingMasterFields,
+  getCallingMasterFilterEntries,
+  getCallingMasterTableColumns,
   journeyStatusSeverity,
 } from "./callingMasterConfig";
+import { useRecruitmentUi } from "./recruitmentUiContext";
 import { isReferralCandidate, normalizePipelineStatus, offerResponseLabel } from "./callingMasterApi";
 import {
   deleteCallingMasterRecords,
@@ -183,10 +184,10 @@ function sortRows(rows, sortConfig) {
   return next;
 }
 
-function buildExportRows(rows) {
+function buildExportRows(rows, headers) {
   return rows.map((row) => {
     const exportRow = {};
-    CALLING_MASTER_EXPORT_HEADERS.forEach(({ key, label }) => {
+    headers.forEach(({ key, label }) => {
       if (key === "attachments") {
         const files = Array.isArray(row.attachments) ? row.attachments : [];
         exportRow[label] = files
@@ -342,7 +343,11 @@ function LoadingSkeleton() {
 }
 
 export default function CallingMasterPage() {
-  const { options: selectOptions } = useCallingMasterDropdowns();
+  const ui = useRecruitmentUi();
+  const tableColumns = useMemo(() => getCallingMasterTableColumns(ui.scope), [ui.scope]);
+  const formSections = useMemo(() => getCallingMasterFields(ui.scope), [ui.scope]);
+  const filterEntries = useMemo(() => getCallingMasterFilterEntries(ui.scope), [ui.scope]);
+  const { options: selectOptions } = useCallingMasterDropdowns(ui.scope);
   const [records, setRecords] = useState([]);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -414,7 +419,9 @@ export default function CallingMasterPage() {
 
   const summary = useMemo(() => {
     const workingCount = stageRecords.filter((row) => row.currentlyWorking === "Yes").length;
-    const immediateCount = stageRecords.filter((row) => row.siteSuitable === "Immediate").length;
+    const immediateCount = stageRecords.filter((row) =>
+      ui.scope === "admin" ? Boolean(String(row.siteSuitable || "").trim()) : row.siteSuitable === "Immediate"
+    ).length;
     const cvSubmittedCount = stageRecords.filter((row) => row.cvSubmitted === "Yes").length;
     const uniqueStates = new Set(stageRecords.map((row) => row.homeState).filter(Boolean)).size;
     const summaryLabel =
@@ -427,9 +434,9 @@ export default function CallingMasterPage() {
       { label: `Total ${summaryLabel}`, value: stageRecords.length, sub: `${pipelineTab} register` },
       { label: "Currently Working", value: workingCount, sub: "Useful for fast screening" },
       { label: "CV Submitted", value: cvSubmittedCount, sub: "Ready for recruiter review" },
-      { label: "Immediate Fit", value: immediateCount, sub: `${uniqueStates} home states covered` },
+      { label: ui.scope === "admin" ? "Team assigned" : "Immediate Fit", value: immediateCount, sub: `${uniqueStates} home states covered` },
     ];
-  }, [stageRecords, pipelineTab]);
+  }, [stageRecords, pipelineTab, ui.scope]);
 
   const hasFiltersApplied = Boolean(search.trim() || Object.values(filters).some(Boolean));
   const noResults = !loading && stageRecords.length > 0 && filteredRows.length === 0;
@@ -488,9 +495,11 @@ export default function CallingMasterPage() {
     };
     if (pipelineTab === "Selected" || normalizePipelineStatus(row.hiringStatus) === "Selected") {
       merged.dutyPattern = merged.dutyPattern || "26";
-      merged.siteFullName = merged.siteFullName || merged.siteSuitable || "";
-      merged.siteCode =
-        merged.siteCode || deriveSiteCodeFromName(merged.siteSuitable || merged.siteFullName);
+      if (ui.scope !== "admin") {
+        merged.siteFullName = merged.siteFullName || merged.siteSuitable || "";
+        merged.siteCode =
+          merged.siteCode || deriveSiteCodeFromName(merged.siteSuitable || merged.siteFullName);
+      }
       merged.addressState = merged.addressState || merged.homeState || "";
       merged.offerSalutation = merged.offerSalutation || "Mr.";
     }
@@ -649,7 +658,7 @@ export default function CallingMasterPage() {
       },
     };
 
-    const dataColumns = CALLING_MASTER_TABLE_COLUMNS.map((column) => ({
+    const dataColumns = tableColumns.map((column) => ({
       key: column.key,
       label: column.label,
       headerClassName: column.widthClassName,
@@ -694,6 +703,13 @@ export default function CallingMasterPage() {
           );
         }
         if (column.key === "siteSuitable") {
+          if (ui.scope === "admin") {
+            return (
+              <span className="block truncate" title={row.siteSuitable || undefined}>
+                {row.siteSuitable || "—"}
+              </span>
+            );
+          }
           const severity =
             row.siteSuitable === "Immediate"
               ? "info"
@@ -724,7 +740,7 @@ export default function CallingMasterPage() {
       },
     }));
     return [actionColumn, ...dataColumns];
-  }, [pipelineTab, sortConfig, statusUpdatingId]);
+  }, [pipelineTab, sortConfig, statusUpdatingId, tableColumns, ui.scope]);
 
   const handleFilterChange = (key, value) => {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -848,7 +864,7 @@ export default function CallingMasterPage() {
   };
 
   const handleExport = () => {
-    const exportRows = buildExportRows(filteredRows);
+    const exportRows = buildExportRows(filteredRows, tableColumns);
     if (!exportRows.length) {
       pushToast("Nothing to export", "Apply different filters or add records first.", "warning");
       return;
@@ -963,15 +979,7 @@ export default function CallingMasterPage() {
                   </TinySelect>
                 </label>
 
-                {[
-                  ["callingBy", "Calling By"],
-                  ["homeState", "Home State"],
-                  ["workingState", "Working State"],
-                  ["fireCourse", "Fire Course"],
-                  ["industryWorked", "Industry Worked"],
-                  ["siteSuitable", "Site Suitable"],
-                  ["currentlyWorking", "Currently Working"],
-                ].map(([key, label]) => (
+                {filterEntries.map(([key, label]) => (
                   <label key={key} className="min-w-0">
                     <span className="mb-1 block truncate text-[11px] font-medium uppercase tracking-wide text-slate-500" title={label}>
                       {label}
@@ -1108,10 +1116,16 @@ export default function CallingMasterPage() {
                               {pipelineTab === "Calling" && !canShortlist ? (
                                 <CallingActionHint>{status}</CallingActionHint>
                               ) : null}
-                              <StatusChip
-                                label={row.siteSuitable || "Review"}
-                                severity={row.siteSuitable === "Immediate" ? "info" : "warning"}
-                              />
+                              {ui.scope === "admin" ? (
+                                <span className="truncate text-xs text-slate-600" title={row.siteSuitable || undefined}>
+                                  {row.siteSuitable || "No team"}
+                                </span>
+                              ) : (
+                                <StatusChip
+                                  label={row.siteSuitable || "Review"}
+                                  severity={row.siteSuitable === "Immediate" ? "info" : "warning"}
+                                />
+                              )}
                             </CallingActionBar>
                           </div>
                           <div className="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
@@ -1130,8 +1144,9 @@ export default function CallingMasterPage() {
                             <div className="min-w-0 truncate" title={row.homeState || undefined}>
                               <span className="font-medium text-slate-800">Home State:</span> {row.homeState || "—"}
                             </div>
-                            <div className="min-w-0 truncate">
-                              <span className="font-medium text-slate-800">Experience:</span> {row.totalExperience || "—"}
+                            <div className="min-w-0 truncate" title={row.siteSuitable || undefined}>
+                              <span className="font-medium text-slate-800">{ui.siteSuitableLabel}:</span>{" "}
+                              {row.siteSuitable || "—"}
                             </div>
                           </div>
                           {Array.isArray(row.attachments) && row.attachments.length ? (
@@ -1233,7 +1248,7 @@ export default function CallingMasterPage() {
         }
       >
         <form id="calling-master-form" onSubmit={handleSubmit} className="space-y-5">
-          {CALLING_MASTER_FIELDS.map((section) => {
+          {formSections.map((section) => {
             const Icon = section.icon;
             return (
               <section key={section.section} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
@@ -1271,6 +1286,7 @@ export default function CallingMasterPage() {
                 showRegisterSummary
                 candidateName={formValues.candidateName}
                 siteSuitable={formValues.siteSuitable}
+                suitabilityLabel={ui.siteSuitableLabel}
               />
             </section>
           ) : null}

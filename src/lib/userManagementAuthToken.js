@@ -24,14 +24,17 @@ export async function getAdminApiAccessToken(supabase, options = {}) {
     return refreshed.access_token;
   }
 
+  // Keep a still-valid JWT. supabase.auth.refreshSession() can revoke the live
+  // session when its in-memory refresh token is stale (403 session_id → logout).
+  const stillValid = readCachedAccessToken();
+  if (stillValid && !isCachedAccessTokenExpired(0)) {
+    return stillValid;
+  }
+
   try {
     const cached = readCachedAccessToken();
     if (cached) {
       await hydrateSupabaseAuthFromCache(supabase);
-    }
-    const { data: refreshedSess, error: refreshErr } = await supabase.auth.refreshSession();
-    if (!refreshErr && refreshedSess?.session?.access_token) {
-      return refreshedSess.session.access_token;
     }
     const { data: sess } = await supabase.auth.getSession();
     if (sess?.session?.access_token) {

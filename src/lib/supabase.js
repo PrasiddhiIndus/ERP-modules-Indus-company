@@ -5,6 +5,7 @@ import {
   isCachedAccessTokenExpired,
   hasCachedRefreshToken,
   ensureFreshCachedSession,
+  readCachedSessionUser,
 } from './authSessionUtils'
 import {
   assertBrowserSafeSupabaseKey,
@@ -603,6 +604,56 @@ function fetchNeedsSessionHydration(urlStr) {
   );
 }
 
+function isAuthGetUserRequest(urlStr, method) {
+  if (String(method || 'GET').toUpperCase() !== 'GET') return false
+  const path = String(urlStr || '').split('?')[0]
+  return path.includes('/auth/v1/user')
+}
+
+function isAuthUserBannedBody(detail) {
+  const text = String(detail || '').toLowerCase()
+  return (
+    text.includes('banned') ||
+    text.includes('user is banned') ||
+    text.includes('account is inactive') ||
+    text.includes('database error querying schema')
+  )
+}
+
+function looksLikeMissingGoTrueSession(status, detail) {
+  if (isAuthUserBannedBody(detail)) return false
+  const text = String(detail || '').toLowerCase()
+  if (status === 403) return true
+  return (
+    status === 401 &&
+    (text.includes('session_id claim') ||
+      text.includes('session from session_id') ||
+      text.includes('auth session missing') ||
+      text.includes('invalid jwt') ||
+      text.includes('invalid token'))
+  )
+}
+
+function syntheticGoTrueUserResponse(user) {
+  return new Response(JSON.stringify(user), {
+    status: 200,
+    statusText: 'OK',
+    headers: { 'Content-Type': 'application/json;charset=UTF-8' },
+  })
+}
+
+async function cachedGoTrueUserIfJwtValid() {
+  if (isCachedAccessTokenExpired() && hasCachedRefreshToken()) {
+    await ensureFreshCachedSession({
+      forceRefresh: isCachedAccessTokenExpired(0),
+      refreshIfWithinSeconds: 120,
+    })
+  }
+  if (isCachedAccessTokenExpired(0)) return null
+  const user = readCachedSessionUser()
+  return user?.id ? user : null
+}
+
 /** Attach user JWT from localStorage — avoids setSession/getSession auth lock that blocks login. */
 async function applyCachedUserAuthHeader(urlStr, options = {}) {
   if (!fetchNeedsSessionHydration(urlStr)) return options;
@@ -633,6 +684,15 @@ const customFetch = async (url, options = {}) => {
   const urlStr = String(url)
   const method = String(options?.method || 'GET').toUpperCase()
   const restTable = parseRestTableName(urlStr)
+
+  // Avoid GET /auth/v1/user 403 (session_id claim) — supabase-js treats that as SIGNED_OUT
+  // and clicking any control that calls getUser() would kick the user to login.
+  if (isAuthGetUserRequest(urlStr, method)) {
+    const cachedUser = await cachedGoTrueUserIfJwtValid()
+    if (cachedUser?.id) {
+      return syntheticGoTrueUserResponse(cachedUser)
+    }
+  }
 
   // Known / previously missing relations: never hit the network on reads.
   if (restTable && missingRestRelations.has(restTable) && (method === 'GET' || method === 'HEAD')) {
@@ -738,6 +798,18 @@ const customFetch = async (url, options = {}) => {
         /* ignore body read failures */
       }
 
+      if (
+        isAuthGetUserRequest(urlStr, method) &&
+        looksLikeMissingGoTrueSession(res.status, `${detail}\n${raw}`)
+      ) {
+        const cachedUser = await cachedGoTrueUserIfJwtValid()
+        if (cachedUser?.id) {
+          probeResolve?.({ ok: true })
+          if (restTable) restRelationProbeInflight.delete(restTable)
+          return syntheticGoTrueUserResponse(cachedUser)
+        }
+      }
+
       const missing = restTable && looksLikeMissingRelation(res.status, `${detail}\n${raw}`)
       if (missing) {
         markRestRelationMissing(restTable)
@@ -752,11 +824,14 @@ const customFetch = async (url, options = {}) => {
         const skipAuthUserProbe =
           pathLog.includes('auth/v1/user') &&
           (res.status === 403 || /session_id claim in JWT does not exist/i.test(detail))
+        const skipBillingSchemaGrantNoise =
+          (res.status === 401 || res.status === 403) &&
+          /permission denied for schema billing/i.test(detail)
         const skipStagingBillingNoise =
           import.meta.env.MODE === 'staging' &&
           res.status === 406 &&
           pathLog.includes('po_wo')
-        if (!skipAuthUserProbe && !skipStagingBillingNoise) {
+        if (!skipAuthUserProbe && !skipBillingSchemaGrantNoise && !skipStagingBillingNoise) {
           console.warn(`[Supabase fetch] ${method} ${pathLog} → HTTP ${res.status}`, detail || '(no body)')
         }
         probeResolve?.({ ok: false, missing: false })
