@@ -29,6 +29,10 @@ import {
   ensureFreshCachedSession,
   hasCachedRefreshToken,
   readCachedAuthSession,
+  restoreAuthSessionToStorage,
+  beginIntentionalSignOut,
+  endIntentionalSignOut,
+  isIntentionalSignOut,
 } from "../lib/authSessionUtils";
 import { getAccessibleModules, getAccessibleSubModulePaths, getNavVisibleModuleKeys, normalizeAppRole, parseAllowedSubModules } from "../config/roles";
 import { displayNameFromAuthMeta, safeSelfSignupProfileFields } from "../lib/safeSelfProfile";
@@ -199,8 +203,17 @@ export const AuthProvider = ({ children }) => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
-        // directSignInWithPassword persists JWT in localStorage before supabase-js hydrates;
-        // ignore spurious SIGNED_OUT while a valid or refreshable cached session still exists.
+        if (isIntentionalSignOut()) {
+          userRef.current = null;
+          setUser(null);
+          setProfileRow(null);
+          clearCachedProfileRow();
+          profileSyncAttemptedRef.current = null;
+          return;
+        }
+        // GET /auth/v1/user 403 makes supabase-js wipe localStorage. Restore a still-valid JWT
+        // so button clicks that call getUser() do not bounce the user to login.
+        restoreAuthSessionToStorage();
         const token = readCachedAccessToken();
         if (token && !isCachedAccessTokenExpired()) {
           const cachedUser = readCachedSessionUser();
@@ -705,8 +718,9 @@ export const AuthProvider = ({ children }) => {
   };
 
   const signOut = async () => {
+    beginIntentionalSignOut();
     try {
-      const { error } = await supabase.auth.signOut();
+      await supabase.auth.signOut();
       clearSupabaseAuthStorage();
       clearCachedProfileRow();
       userRef.current = null;
@@ -724,6 +738,8 @@ export const AuthProvider = ({ children }) => {
       setBillingVerticalCodes([]);
       setBillingVerticalGrantsReady(false);
       return { error: err };
+    } finally {
+      endIntentionalSignOut();
     }
   };
 
@@ -765,6 +781,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const clearInvalidSession = async () => {
+    beginIntentionalSignOut();
     try {
       await supabase.auth.signOut();
       clearSupabaseAuthStorage();
@@ -780,6 +797,8 @@ export const AuthProvider = ({ children }) => {
       setUser(null);
       setProfileRow(null);
       return { error: err };
+    } finally {
+      endIntentionalSignOut();
     }
   };
 
@@ -810,16 +829,19 @@ export const AuthProvider = ({ children }) => {
     if (profileRow.is_active !== false) return;
     logLoginStage('session-inactive-signout', { userId: user.id });
     void (async () => {
+      beginIntentionalSignOut();
       try {
         await supabase.auth.signOut();
       } catch {
         /* ignore */
+      } finally {
+        clearSupabaseAuthStorage();
+        clearCachedProfileRow();
+        userRef.current = null;
+        setUser(null);
+        setProfileRow(null);
+        endIntentionalSignOut();
       }
-      clearSupabaseAuthStorage();
-      clearCachedProfileRow();
-      userRef.current = null;
-      setUser(null);
-      setProfileRow(null);
     })();
   }, [user?.id, profileRow?.id, profileRow?.is_active]);
 

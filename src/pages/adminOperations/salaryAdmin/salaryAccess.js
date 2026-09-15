@@ -15,6 +15,7 @@ export const EMPLOYEE_MASTER_BASIC_TAB_IDS = Object.freeze([
   "personal",
   "leaves",
   "tours",
+  "documents",
 ]);
 
 export const SALARY_ADMIN_PATH_PREFIX = "/app/admin/salary-admin";

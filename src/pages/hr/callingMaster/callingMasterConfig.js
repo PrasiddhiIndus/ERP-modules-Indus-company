@@ -347,9 +347,116 @@ export const CALLING_DROPDOWN_MASTERS = [
 
 export const CALLING_BY_DEPARTMENTS = ["Human Resource", "Human Resource-Safety"];
 
-export function isLinkedDropdownMaster(key) {
+/** Administration departments used for Admin in-house Calling By. */
+export const ADMIN_CALLING_BY_DEPARTMENTS = ["Administration", "Administration-FTC"];
+
+/** Fields hidden on the Admin in-house recruitment screens (column still stored). */
+export const ADMIN_RECRUITMENT_HIDDEN_FIELDS = ["fireCourse", "yearCompleted", "hmvLmv", "drivingLicenseYear"];
+
+export function isLinkedDropdownMaster(key, scope = "hr") {
+  if (key === "callingBy") return true;
+  if (key === "siteSuitable") return true;
+  if (scope === "admin") return false;
   const master = CALLING_DROPDOWN_MASTERS.find((item) => item.key === key);
   return master?.source === "employee_master" || master?.source === "sites";
+}
+
+function relabelField(field, scope) {
+  if (scope !== "admin") return field;
+  if (field.key === "siteSuitable") {
+    return {
+      ...field,
+      label: "Teams suitable",
+      placeholder: field.type === "select" ? "Select team" : field.placeholder,
+    };
+  }
+  return field;
+}
+
+export function getRecruitmentUi(scope = "hr") {
+  if (scope === "admin") {
+    return {
+      scope: "admin",
+      pageTitle: "In-house Recruitment",
+      pageSubtitle:
+        "Screen in-house candidates through offer, joining, IOM, and Employee Master conversion. Calling is logged by the Admin team.",
+      dashboardTitle: "In-house calling dashboard",
+      dashboardSubtitle: "Live calling metrics and screening outcomes for in-house hiring.",
+      callingByDepartments: ADMIN_CALLING_BY_DEPARTMENTS,
+      callingByHelp: "Active employees in Administration and Administration-FTC from Employee Master.",
+      siteSuitableLabel: "Teams suitable",
+      siteSuitableHelp: "Departments from Employee Master.",
+      suitabilitySource: "departments",
+      hiddenFieldKeys: new Set(ADMIN_RECRUITMENT_HIDDEN_FIELDS),
+      hideSalaryOnDashboard: true,
+      hideFireSafetyFields: true,
+    };
+  }
+  return {
+    scope: "hr",
+    pageTitle: "Calling Database",
+    pageSubtitle:
+      "Maintain candidate calling records through offer, joining, IOM, and Employee Master conversion.",
+    dashboardTitle: "Calling Dashboard",
+    dashboardSubtitle: "Live calling metrics, caller productivity, and screening outcomes from Calling Database.",
+    callingByDepartments: CALLING_BY_DEPARTMENTS,
+    callingByHelp: "Active employees in Human Resource and Human Resource-Safety from Employee Master.",
+    siteSuitableLabel: "Site Suitable",
+    siteSuitableHelp: "Site names from the Sites master.",
+    suitabilitySource: "sites",
+    hiddenFieldKeys: new Set(),
+    hideSalaryOnDashboard: false,
+    hideFireSafetyFields: false,
+  };
+}
+
+export function getCallingDropdownMasters(scope = "hr") {
+  const ui = getRecruitmentUi(scope);
+  return CALLING_DROPDOWN_MASTERS.filter((master) => !ui.hiddenFieldKeys.has(master.key)).map((master) => {
+    if (master.key === "callingBy") {
+      return { ...master, description: ui.callingByHelp };
+    }
+    if (master.key === "siteSuitable") {
+      return {
+        ...master,
+        label: ui.siteSuitableLabel,
+        description: ui.siteSuitableHelp,
+        source: ui.suitabilitySource,
+      };
+    }
+    return master;
+  });
+}
+
+export function getCallingMasterFields(scope = "hr") {
+  const ui = getRecruitmentUi(scope);
+  return CALLING_MASTER_FIELDS.map((section) => ({
+    ...section,
+    fields: section.fields
+      .filter((field) => !ui.hiddenFieldKeys.has(field.key))
+      .map((field) => relabelField(field, scope)),
+  })).filter((section) => section.fields.length > 0);
+}
+
+export function getCallingMasterTableColumns(scope = "hr") {
+  const ui = getRecruitmentUi(scope);
+  return CALLING_MASTER_TABLE_COLUMNS.filter((column) => !ui.hiddenFieldKeys.has(column.key)).map((column) =>
+    relabelField(column, scope)
+  );
+}
+
+export function getCallingMasterFilterEntries(scope = "hr") {
+  const ui = getRecruitmentUi(scope);
+  const entries = [
+    ["callingBy", "Calling By"],
+    ["homeState", "Home State"],
+    ["workingState", "Working State"],
+    ["fireCourse", "Fire Course"],
+    ["industryWorked", "Industry Worked"],
+    ["siteSuitable", ui.siteSuitableLabel],
+    ["currentlyWorking", "Currently Working"],
+  ];
+  return entries.filter(([key]) => !ui.hiddenFieldKeys.has(key));
 }
 export const CALLING_MASTER_FIELDS = [
   {

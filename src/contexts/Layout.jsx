@@ -3,7 +3,7 @@ import PageLoader from "../components/PageLoader";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
-import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath } from "../config/roles";
+import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, isAdminRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath } from "../config/roles";
 import { canAccessSalaryAdmin } from "../pages/adminOperations/salaryAdmin/salaryAccess";
 import { canAccessCompliance } from "../pages/compliance/payroll/complianceAccess";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
@@ -185,6 +185,18 @@ const Layout = () => {
       navigate(getRecruitmentLandingPath(userProfile, accessibleModules, user?.user_metadata), {
         replace: true,
       });
+      setIsAccessDenied(false);
+      return;
+    }
+    if (
+      !allowed &&
+      isAdminRecruitmentIndexPath(pathname) &&
+      hasAnyRecruitmentTabAccess(userProfile, accessibleModules, user?.user_metadata, "admin")
+    ) {
+      navigate(
+        getRecruitmentLandingPath(userProfile, accessibleModules, user?.user_metadata, "admin"),
+        { replace: true }
+      );
       setIsAccessDenied(false);
       return;
     }
@@ -608,17 +620,39 @@ const Layout = () => {
                   </NavLink>
                   )}
 
+                  {(canSub("admin.recruitment") ||
+                    canSub("admin.employee") ||
+                    hasAnyRecruitmentTabAccess(userProfile, accessibleModules, user?.user_metadata, "admin")) && (
+                  <NavLink
+                    to={getRecruitmentLandingPath(userProfile, accessibleModules, user?.user_metadata, "admin").replace(
+                      /^\/app\//,
+                      ""
+                    )}
+                    className={() =>
+                      subNavClass({
+                        isActive: pathname.startsWith("/app/admin/recruitment"),
+                      })
+                    }
+                  >
+                    <PhoneCall className="h-4 w-4 shrink-0 text-sky-600" />
+                    <span className="type-meta type-truncate">Recruitment</span>
+                  </NavLink>
+                  )}
+
                   {canSub("admin.employee") && (
                   <>
                       <NavLink to="admin/employee/master" className={subNavClass}>
                         <Users className="h-4 w-4 shrink-0 text-accent" />
                         <span className="type-meta type-truncate">Employee Master</span>
                       </NavLink>
-                      {/* NAV_HIDDEN: Onboarding */}
-                      {/* <NavLink to="admin/employee/onboarding" className={subNavClass}>
+                      <NavLink to="admin/employee/onboarding" className={subNavClass}>
                         <UserPlus className="h-4 w-4 shrink-0 text-indigo-600" />
                         <span className="type-meta type-truncate">Onboarding</span>
-                      </NavLink> */}
+                      </NavLink>
+                      <NavLink to="admin/employee/policies" className={subNavClass}>
+                        <BookOpen className="h-4 w-4 shrink-0 text-sky-700" />
+                        <span className="type-meta type-truncate">Policies &amp; Terms</span>
+                      </NavLink>
                       <NavLink to="admin/employee/attendance-inputs" className={subNavClass}>
                         <Clock className="h-4 w-4 shrink-0 text-amber-600" />
                         <span className="type-meta type-truncate">Raw Attendance Data</span>
@@ -652,7 +686,11 @@ const Layout = () => {
                         <UserX className="h-4 w-4 shrink-0 text-ink-muted" />
                         <span className="type-meta type-truncate">Inactive Employees</span>
                       </NavLink>
-                      {/* NAV_HIDDEN: Compliance & Documents, Salary Inputs, Exit & F&F */}
+                      <NavLink to="admin/employee/exit-ff" className={subNavClass}>
+                        <FileSpreadsheet className="h-4 w-4 shrink-0 text-rose-700" />
+                        <span className="type-meta type-truncate">F &amp; F</span>
+                      </NavLink>
+                      {/* NAV_HIDDEN: Compliance & Documents, Salary Inputs */}
                   </>
                   )}
 

@@ -15,7 +15,8 @@ import {
   SectionCard,
   TinySelect,
 } from "../../adminOperations/components/AdminUi";
-import { CALLING_MASTER_FIELDS } from "./callingMasterConfig";
+import { getCallingMasterFields } from "./callingMasterConfig";
+import { useRecruitmentUi } from "./recruitmentUiContext";
 import OfferDetailsFields, { emptyOfferDetailValues } from "./OfferDetailsFields";
 import { loadCallingByEmployees, saveReferralCandidate } from "./callingMasterStorage";
 import { useCallingMasterDropdowns } from "./useCallingMasterDropdowns";
@@ -52,11 +53,13 @@ function emptyReferralForm() {
   };
 }
 
-function referralSections() {
-  return CALLING_MASTER_FIELDS.map((section) => ({
-    ...section,
-    fields: section.fields.filter((field) => REFERRAL_BASIC_KEYS.has(field.key)),
-  })).filter((section) => section.fields.length);
+function referralSections(scope = "hr") {
+  return getCallingMasterFields(scope)
+    .map((section) => ({
+      ...section,
+      fields: section.fields.filter((field) => REFERRAL_BASIC_KEYS.has(field.key)),
+    }))
+    .filter((section) => section.fields.length);
 }
 
 function ReferralField({ field, value, error, onChange, selectOptions }) {
@@ -132,28 +135,29 @@ function validateReferralForm(values) {
 }
 
 export default function CallingMasterReferralPage() {
-  const { options: selectOptions } = useCallingMasterDropdowns();
+  const ui = useRecruitmentUi();
+  const { options: selectOptions } = useCallingMasterDropdowns(ui.scope);
   const [referrers, setReferrers] = useState([]);
   const [form, setForm] = useState(emptyReferralForm);
   const [errors, setErrors] = useState({});
   const [pendingFiles, setPendingFiles] = useState([]);
   const [saving, setSaving] = useState(false);
 
-  const sections = useMemo(() => referralSections(), []);
+  const sections = useMemo(() => referralSections(ui.scope), [ui.scope]);
 
   useEffect(() => {
-    loadCallingByEmployees()
+    loadCallingByEmployees(ui.scope)
       .then(setReferrers)
       .catch((err) => {
         console.error(err);
         setReferrers([]);
       });
-  }, []);
+  }, [ui.scope]);
 
   const handleChange = (key, value) => {
     setForm((current) => {
       const next = { ...current, [key]: value };
-      if (key === "siteSuitable") {
+      if (key === "siteSuitable" && ui.scope !== "admin") {
         const siteName = String(value || "").trim();
         if (!String(current.siteFullName || "").trim() || current.siteFullName === current.siteSuitable) {
           next.siteFullName = siteName;
@@ -262,7 +266,7 @@ export default function CallingMasterReferralPage() {
                 <span className="mt-1 block text-xs text-rose-600">{errors.referredByEmployeeId}</span>
               ) : (
                 <span className="mt-1 block text-[11px] text-slate-500">
-                  Same Active HR list as Calling By.
+                  {ui.callingByHelp}
                 </span>
               )}
             </label>
@@ -300,7 +304,12 @@ export default function CallingMasterReferralPage() {
           <p className="mb-3 text-xs text-slate-500">
             Pre-filled for Offer Generation. Codes and the letter are still created on that screen.
           </p>
-          <OfferDetailsFields values={form} onChange={handleChange} />
+          <OfferDetailsFields
+            values={form}
+            onChange={handleChange}
+            siteSuitable={form.siteSuitable}
+            suitabilityLabel={ui.siteSuitableLabel}
+          />
         </SectionCard>
 
         <SectionCard title="CV / attachments">

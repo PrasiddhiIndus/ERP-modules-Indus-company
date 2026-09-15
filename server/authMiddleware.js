@@ -143,13 +143,27 @@ export function hasFleetR2Access(ctx) {
   );
 }
 
-/** HR Calling CVs: HR module or recruitment sub-module — colleagues can open files. */
+/** HR Calling CVs: HR module, full Admin module, or recruitment sub-module. */
 export function hasHrCallingR2Access(ctx) {
   if (isSuperAdminRole(ctx)) return true;
   if (hasAssignedModuleOrSub(ctx, 'hr')) return true;
+  if (normalizeErpModuleKey(ctx.profile?.team) === 'admin') return true;
+  if (moduleListLower(ctx.profile?.allowed_modules).includes('admin')) return true;
   return subModulesLower(ctx).some(
-    (s) => s === 'hr.calling-master' || s.startsWith('hr.calling-master.') || s.startsWith('hr.recruitment.')
+    (s) =>
+      s === 'hr.calling-master' ||
+      s.startsWith('hr.calling-master.') ||
+      s.startsWith('hr.recruitment.') ||
+      s === 'admin.recruitment' ||
+      s.startsWith('admin.recruitment.') ||
+      s === 'admin.employee'
   );
+}
+
+/** Admin policies / terms files: Admin module (same as the Policies page). */
+export function hasAdminPoliciesR2Access(ctx) {
+  if (isSuperAdminRole(ctx)) return true;
+  return canAccessModule(ctx, 'admin');
 }
 
 /** Commercial / Billing PO documents (Manpower PO entry). */
@@ -321,6 +335,35 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
       verifyError = error?.message || verifyError || 'getUser failed';
     }
 
+    // GoTrue GET /auth/v1/user returns 403 when session_id is gone from auth.sessions
+    // even if the access JWT is still signed and unexpired. PostgREST accepts that JWT;
+    // rejecting it here logged users out on every authenticated button click.
+    if (!userData?.user && accessState === 'valid') {
+      const hint = String(verifyError || '').toLowerCase();
+      const sessionGone =
+        hint.includes('session_id claim') ||
+        hint.includes('session from session_id') ||
+        hint.includes('session_not_found') ||
+        hint.includes('auth_user_http_403');
+      if (sessionGone) {
+        const payload = decodeJwtPayload(jwt);
+        if (payload?.sub) {
+          userData = {
+            user: {
+              id: payload.sub,
+              aud: payload.aud || 'authenticated',
+              role: payload.role || 'authenticated',
+              email: payload.email || payload.user_metadata?.email || null,
+              phone: payload.phone || '',
+              app_metadata: payload.app_metadata || {},
+              user_metadata: payload.user_metadata || {},
+            },
+          };
+          verifyError = null;
+        }
+      }
+    }
+
     if (!userData?.user) {
       const hint = String(verifyError || '').toLowerCase();
       // eslint-disable-next-line no-console
@@ -490,6 +533,7 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     requireSoftwareSubscriptionsR2: middleware((ctx) => hasSoftwareSubscriptionsR2Access(ctx)),
     requireFleetR2: middleware((ctx) => hasFleetR2Access(ctx)),
     requireHrCallingR2: middleware((ctx) => hasHrCallingR2Access(ctx)),
+    requireAdminPoliciesR2: middleware((ctx) => hasAdminPoliciesR2Access(ctx)),
     requireCommercialPoR2: middleware((ctx) => hasCommercialPoR2Access(ctx) || hasBillingAccess(ctx)),
   };
 }

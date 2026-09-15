@@ -7,7 +7,8 @@ import {
   TinySelect,
 } from "../../adminOperations/components/AdminUi";
 import { pushToast } from "../../../lib/toast";
-import { CALLING_DROPDOWN_MASTERS, CALLING_MASTER_DROPDOWNS_EVENT, isLinkedDropdownMaster } from "./callingMasterConfig";
+import { getCallingDropdownMasters, CALLING_MASTER_DROPDOWNS_EVENT, isLinkedDropdownMaster } from "./callingMasterConfig";
+import { useRecruitmentUi } from "./recruitmentUiContext";
 import {
   addDropdownOption,
   deleteDropdownOption,
@@ -18,9 +19,11 @@ import {
 } from "./callingMasterStorage";
 
 export default function CallingMasterDropdownPage() {
+  const ui = useRecruitmentUi();
+  const masters = useMemo(() => getCallingDropdownMasters(ui.scope), [ui.scope]);
   const [catalog, setCatalog] = useState({});
   const [loading, setLoading] = useState(true);
-  const [activeKey, setActiveKey] = useState(CALLING_DROPDOWN_MASTERS[0]?.key || "");
+  const [activeKey, setActiveKey] = useState(masters[0]?.key || "");
   const [formOpen, setFormOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -31,7 +34,7 @@ export default function CallingMasterDropdownPage() {
 
   const refresh = async () => {
     try {
-      const next = await loadCallingMasterDropdownCatalog();
+      const next = await loadCallingMasterDropdownCatalog(ui.scope);
       setCatalog(next);
     } catch (err) {
       setCatalog({});
@@ -47,15 +50,21 @@ export default function CallingMasterDropdownPage() {
     window.addEventListener(CALLING_MASTER_DROPDOWNS_EVENT, onChange);
     return () => window.removeEventListener(CALLING_MASTER_DROPDOWNS_EVENT, onChange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [ui.scope]);
+
+  useEffect(() => {
+    if (!masters.some((item) => item.key === activeKey) && masters[0]?.key) {
+      setActiveKey(masters[0].key);
+    }
+  }, [masters, activeKey]);
 
   const activeMaster = useMemo(
-    () => CALLING_DROPDOWN_MASTERS.find((item) => item.key === activeKey) || CALLING_DROPDOWN_MASTERS[0],
-    [activeKey]
+    () => masters.find((item) => item.key === activeKey) || masters[0],
+    [activeKey, masters]
   );
 
   const options = catalog[activeKey] || [];
-  const linkedMaster = isLinkedDropdownMaster(activeKey);
+  const linkedMaster = isLinkedDropdownMaster(activeKey, ui.scope);
 
   const openCreate = () => {
     if (linkedMaster) return;
@@ -108,7 +117,11 @@ export default function CallingMasterDropdownPage() {
     <div className="space-y-4">
       <PageTaskHeader
         title="Dropdown Master"
-        subtitle="Manage every select list used in Calling Master. Changes apply instantly to forms and filters."
+        subtitle={
+          ui.scope === "admin"
+            ? "Manage select lists used in in-house recruitment. Calling By and Teams suitable stay linked to Employee Master."
+            : "Manage every select list used in Calling Master. Changes apply instantly to forms and filters."
+        }
       >
         <button
           type="button"
@@ -169,7 +182,7 @@ export default function CallingMasterDropdownPage() {
         <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
           <SectionCard title="Dropdown lists">
             <div className="space-y-1">
-              {CALLING_DROPDOWN_MASTERS.map((master) => {
+              {masters.map((master) => {
                 const count = (catalog[master.key] || []).length;
                 const active = master.key === activeKey;
                 return (
@@ -203,7 +216,7 @@ export default function CallingMasterDropdownPage() {
                   onChange={(event) => setActiveKey(event.target.value)}
                   className="rounded-lg border-slate-200 bg-white text-sm lg:hidden"
                 >
-                  {CALLING_DROPDOWN_MASTERS.map((master) => (
+                  {masters.map((master) => (
                     <option key={master.key} value={master.key}>
                       {master.label}
                     </option>
@@ -217,8 +230,8 @@ export default function CallingMasterDropdownPage() {
             {linkedMaster ? (
               <div className="mb-4 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-900">
                 {activeKey === "callingBy"
-                  ? "Calling By is synced live from Employee Master (Active employees in Human Resource and Human Resource-Safety)."
-                  : "Site Suitable is synced live from public Sites (site_name)."}
+                  ? ui.callingByHelp
+                  : ui.siteSuitableHelp}
                 {" "}Add / edit / delete is disabled for this list.
               </div>
             ) : null}
@@ -228,7 +241,7 @@ export default function CallingMasterDropdownPage() {
                 onChange={(event) => setActiveKey(event.target.value)}
                 className="w-full rounded-lg border-slate-200 bg-white text-sm"
               >
-                {CALLING_DROPDOWN_MASTERS.map((master) => (
+                {masters.map((master) => (
                   <option key={master.key} value={master.key}>
                     {master.label}
                   </option>

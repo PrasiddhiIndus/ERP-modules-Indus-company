@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { RefreshCw, Search, UserPlus } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
+import { ExternalLink, RefreshCw, Search, UserPlus } from "lucide-react";
 import {
   DenseTable,
   FilterBar,
@@ -13,7 +14,14 @@ import { CALLING_MASTER_RECORDS_EVENT, journeyStatusSeverity } from "./callingMa
 import { CallingActionBar, CallingActionBtn, CallingActionHint } from "./CallingTableActions";
 import { convertToEmployeeMaster, loadConversionCandidates } from "./callingMasterStorage";
 
+function employeeMasterPath(employeeMasterId) {
+  if (employeeMasterId == null || employeeMasterId === "") return "";
+  return `/app/admin/employee/master/${employeeMasterId}`;
+}
+
 export default function CallingMasterConversionPage() {
+  const { pathname } = useLocation();
+  const inAdminModule = pathname.startsWith("/app/admin/");
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -73,8 +81,11 @@ export default function CallingMasterConversionPage() {
     try {
       const result = await convertToEmployeeMaster(row.id);
       setRecords((prev) => prev.map((r) => (r.id === result.candidate.id ? result.candidate : r)));
+      const followOn = inAdminModule
+        ? "Complete remaining fields in Employee Master, then finish Onboarding documents if needed."
+        : "Complete remaining fields in Employee Master.";
       setMessage(
-        `${row.candidateName} added to Employee Master (ID ${result.employeeId}, code ${result.employeeCode}). Complete remaining fields in Employee Master.`
+        `${row.candidateName} added to Employee Master (ID ${result.employeeId}, code ${result.employeeCode}). ${followOn}`
       );
     } catch (err) {
       console.error(err);
@@ -150,9 +161,20 @@ export default function CallingMasterConversionPage() {
         const converted = row.conversionStatus === "Converted";
         const busy = savingId === row.id;
         if (converted) {
+          const masterPath = employeeMasterPath(row.employeeMasterId);
           return (
             <CallingActionBar>
-              <CallingActionHint>Converted</CallingActionHint>
+              {masterPath ? (
+                <Link
+                  to={masterPath}
+                  className="inline-flex h-7 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Open master
+                </Link>
+              ) : (
+                <CallingActionHint>Converted</CallingActionHint>
+              )}
             </CallingActionBar>
           );
         }
@@ -176,7 +198,11 @@ export default function CallingMasterConversionPage() {
     <div className="space-y-4">
       <PageTaskHeader
         title="Conversion"
-        subtitle="After the IOM is issued, push the candidate into Employee Master using fields already captured. Missing Employee Master fields stay blank for HR to complete later."
+        subtitle={
+          inAdminModule
+            ? "After the IOM is issued, add the candidate to Employee Master from details already captured. Complete the in-house profile there, then finish Onboarding documents."
+            : "After the IOM is issued, push the candidate into Employee Master using fields already captured. Missing Employee Master fields stay blank for completion later."
+        }
       >
         <button
           type="button"

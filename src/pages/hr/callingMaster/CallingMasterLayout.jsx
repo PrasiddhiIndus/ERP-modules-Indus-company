@@ -1,5 +1,5 @@
 import React, { Suspense, useMemo } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   ClipboardCheck,
   FileText,
@@ -14,9 +14,11 @@ import {
 import PageLoader from "../../../components/PageLoader";
 import { useAuth } from "../../../contexts/AuthContext";
 import {
-  RECRUITMENT_TAB_KEYS,
+  getRecruitmentScopeFromPath,
   getVisibleRecruitmentTabs,
 } from "../../../config/roles";
+import { RecruitmentUiProvider } from "./recruitmentUiContext";
+import { getRecruitmentUi } from "./callingMasterConfig";
 
 const TAB_ICONS = {
   ".": LayoutDashboard,
@@ -39,24 +41,28 @@ const tabClass = ({ isActive }) =>
 
 export default function CallingMasterLayout() {
   const { userProfile, accessibleModules, user } = useAuth();
+  const { pathname } = useLocation();
   const userMetadata = user?.user_metadata ?? null;
+  const scope = getRecruitmentScopeFromPath(pathname);
 
   const visibleTabs = useMemo(
-    () => getVisibleRecruitmentTabs(userProfile, accessibleModules, userMetadata),
-    [userProfile, accessibleModules, userMetadata]
+    () => getVisibleRecruitmentTabs(userProfile, accessibleModules, userMetadata, scope),
+    [userProfile, accessibleModules, userMetadata, scope]
   );
+  const ui = getRecruitmentUi(scope);
 
   return (
+    <RecruitmentUiProvider scope={scope}>
     <div className="mx-auto flex w-full min-h-0 max-w-[1600px] flex-col gap-4 p-4 md:p-6">
       <div className="shrink-0">
-        <h1 className="type-page-title text-ink">Calling Database</h1>
+        <h1 className="type-page-title text-ink">{ui.pageTitle}</h1>
         <p className="type-meta mt-1.5 max-w-3xl text-ink-secondary">
-          Maintain candidate calling records through offer, joining, IOM, and Employee Master conversion.
+          {ui.pageSubtitle}
         </p>
       </div>
 
       <div className="shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-        <nav className="flex flex-wrap gap-2 px-3 py-3 sm:px-4" aria-label="Calling database tabs">
+        <nav className="flex flex-wrap gap-2 px-3 py-3 sm:px-4" aria-label={ui.scope === "admin" ? "In-house recruitment tabs" : "Calling database tabs"}>
           {visibleTabs.map((tab) => {
             const Icon = TAB_ICONS[tab.tabTo];
             return (
@@ -75,5 +81,6 @@ export default function CallingMasterLayout() {
         </Suspense>
       </div>
     </div>
+    </RecruitmentUiProvider>
   );
 }

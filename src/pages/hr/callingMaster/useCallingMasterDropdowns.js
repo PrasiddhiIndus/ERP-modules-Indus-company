@@ -3,7 +3,7 @@ import { CALLING_MASTER_DROPDOWNS_EVENT } from "./callingMasterConfig";
 import { getCallingMasterSelectOptions } from "./callingMasterStorage";
 
 /** Live dropdown option map for Calling Master forms and filters. */
-export function useCallingMasterDropdowns() {
+export function useCallingMasterDropdowns(scope = "hr") {
   const [options, setOptions] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -13,7 +13,7 @@ export function useCallingMasterDropdowns() {
 
     const refresh = async () => {
       try {
-        const next = await getCallingMasterSelectOptions();
+        const next = await getCallingMasterSelectOptions(scope);
         if (cancelled) return;
         setOptions(next);
         setError("");
@@ -34,7 +34,7 @@ export function useCallingMasterDropdowns() {
       window.removeEventListener(CALLING_MASTER_DROPDOWNS_EVENT, refresh);
       window.removeEventListener("storage", refresh);
     };
-  }, []);
+  }, [scope]);
 
   return { options, loading, error };
 }
