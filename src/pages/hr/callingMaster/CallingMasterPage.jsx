@@ -53,6 +53,7 @@ import OfferDetailsFields, { emptyOfferDetailValues } from "./OfferDetailsFields
 import { CallingActionBar, CallingActionBtn, CallingActionHint } from "./CallingTableActions";
 import { deriveSiteCodeFromName } from "../../../lib/offerLetterDocuments";
 import { pushToast } from "../../../lib/toast";
+import { consumeCallingPrefill } from "../../../lib/candidateRequisitionsApi";
 
 const ACTION_COLUMN_WIDTH = {
   Calling: 120,
@@ -385,6 +386,30 @@ export default function CallingMasterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const prefill = consumeCallingPrefill();
+    if (!prefill) return;
+    setPipelineTab("Calling");
+    setFormMode("create");
+    setFormErrors({});
+    setPendingFiles([]);
+    setFormValues({
+      ...createEmptyFormValues(),
+      designation: prefill.designation || "",
+      siteSuitable: prefill.siteSuitable || "",
+      totalExperience: prefill.totalExperience || "",
+      remarks: prefill.remarks || "",
+    });
+    setFormOpen(true);
+    pushToast(
+      "Requisition loaded",
+      prefill.requisitionNo
+        ? `Add candidate contacts for ${prefill.requisitionNo}.`
+        : "Add candidate contacts for this requisition.",
+      "info"
+    );
+  }, []);
+
   const stageRecords = useMemo(() => {
     // Calling is the master register — shortlisted / selected / rejected rows stay visible here.
     if (pipelineTab === "Calling") return records;
@@ -480,8 +505,17 @@ export default function CallingMasterPage() {
     setPendingFiles([]);
   };
 
-  const openCreate = () => {
+  const openCreate = (prefill = null) => {
     resetForm();
+    if (prefill && typeof prefill === "object") {
+      setFormValues((prev) => ({
+        ...prev,
+        designation: prefill.designation || prev.designation,
+        siteSuitable: prefill.siteSuitable || prev.siteSuitable,
+        totalExperience: prefill.totalExperience || prev.totalExperience,
+        remarks: prefill.remarks || prev.remarks,
+      }));
+    }
     setFormOpen(true);
   };
 

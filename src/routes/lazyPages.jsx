@@ -72,6 +72,9 @@ export const HrCallingMasterIom = lazy(() => import("../pages/hr/callingMaster/C
 export const HrCallingMasterConversion = lazy(() => import("../pages/hr/callingMaster/CallingMasterConversionPage"));
 export const HrCallingMasterDropdowns = lazy(() => import("../pages/hr/callingMaster/CallingMasterDropdownPage"));
 export const HrCallingMasterEntry = lazy(() => import("../pages/hr/callingMaster/CallingMasterEntry"));
+export const HrCallingMasterRequisitions = lazy(
+  () => import("../pages/hr/callingMaster/CandidateRequisitionsPage")
+);
 export const HrSiteIom = lazy(() => import("../pages/hr/siteIom/SiteIomPage"));
 export const HrSiteAttendance = lazy(() => import("../pages/hr/siteAttendance/SiteAttendanceLayout"));
 export const HrSiteAttendanceDashboard = lazy(() => import("../pages/hr/siteAttendance/DashboardPage"));

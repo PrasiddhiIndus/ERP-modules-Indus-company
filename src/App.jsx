@@ -60,6 +60,7 @@ import {
   HrCallingMasterConversion,
   HrCallingMasterDropdowns,
   HrCallingMasterEntry,
+  HrCallingMasterRequisitions,
   HrSiteIom,
   HrSiteAttendance,
   HrSiteAttendanceDashboard,
@@ -543,6 +544,7 @@ function App() {
             <Route path="admin/dashboard" element={<AdminOpsDashboard />} />
             <Route path="admin/recruitment" element={<HrCallingMaster />}>
               <Route index element={<HrCallingMasterEntry />} />
+              <Route path="requisitions" element={<HrCallingMasterRequisitions />} />
               <Route path="candidates" element={<HrCallingMasterCandidates />} />
               <Route path="referral" element={<HrCallingMasterReferral />} />
               <Route path="offer-generation" element={<HrCallingMasterOffers />} />

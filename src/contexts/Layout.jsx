@@ -8,6 +8,7 @@ import { canAccessSalaryAdmin } from "../pages/adminOperations/salaryAdmin/salar
 import { canAccessCompliance } from "../pages/compliance/payroll/complianceAccess";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import { resolveModule } from "../lib/activityDescriptors";
+import { fetchPendingRequisitionCount } from "../lib/candidateRequisitionsApi";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import { SALARY_SUB_NAV, HR_SALARY_BASE, HR_SALARY_DASHBOARD, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
 import {
@@ -185,6 +186,7 @@ const Layout = () => {
   const pathname = location.pathname;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isAccessDenied, setIsAccessDenied] = useState(false);
+  const [pendingRequisitionCount, setPendingRequisitionCount] = useState(0);
   const canSeeActivityLog =
     userProfile?.role === ROLES.SUPER_ADMIN || userProfile?.role === ROLES.SUPER_ADMIN_PRO;
   const workspace = resolveWorkspaceContext(pathname);
@@ -241,6 +243,29 @@ const Layout = () => {
     }
     setIsAccessDenied(!allowed);
   }, [pathname, accessibleModules, subModulePaths, navigate, userProfile, user?.email]);
+
+  useEffect(() => {
+    const canSeeRecruitmentNav =
+      canSub("admin.recruitment") ||
+      canSub("admin.employee") ||
+      hasAnyRecruitmentTabAccess(userProfile, accessibleModules, user?.user_metadata, "admin");
+    if (!canSeeRecruitmentNav) {
+      setPendingRequisitionCount(0);
+      return undefined;
+    }
+    let cancelled = false;
+    fetchPendingRequisitionCount()
+      .then((n) => {
+        if (!cancelled) setPendingRequisitionCount(n);
+      })
+      .catch(() => {
+        if (!cancelled) setPendingRequisitionCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userProfile, accessibleModules, user?.user_metadata, pathname]);
+
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [hrAdminOpen, setHrAdminOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
@@ -675,6 +700,11 @@ const Layout = () => {
                   >
                     <PhoneCall className="h-4 w-4 shrink-0 text-sky-600" />
                     <span className="type-meta type-truncate">Recruitment</span>
+                    {pendingRequisitionCount > 0 ? (
+                      <span className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                        {pendingRequisitionCount > 99 ? "99+" : pendingRequisitionCount}
+                      </span>
+                    ) : null}
                   </NavLink>
                   )}
 
