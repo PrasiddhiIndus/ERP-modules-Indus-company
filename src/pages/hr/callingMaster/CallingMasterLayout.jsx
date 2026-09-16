@@ -1,7 +1,8 @@
-import React, { Suspense, useMemo } from "react";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   ClipboardCheck,
+  ClipboardList,
   FileText,
   LayoutDashboard,
   ListChecks,
@@ -17,11 +18,13 @@ import {
   getRecruitmentScopeFromPath,
   getVisibleRecruitmentTabs,
 } from "../../../config/roles";
+import { fetchPendingRequisitionCount } from "../../../lib/candidateRequisitionsApi";
 import { RecruitmentUiProvider } from "./recruitmentUiContext";
 import { getRecruitmentUi } from "./callingMasterConfig";
 
 const TAB_ICONS = {
   ".": LayoutDashboard,
+  requisitions: ClipboardList,
   candidates: PhoneCall,
   referral: Share2,
   "offer-generation": FileText,
@@ -44,12 +47,31 @@ export default function CallingMasterLayout() {
   const { pathname } = useLocation();
   const userMetadata = user?.user_metadata ?? null;
   const scope = getRecruitmentScopeFromPath(pathname);
+  const [pendingRequisitions, setPendingRequisitions] = useState(0);
 
   const visibleTabs = useMemo(
     () => getVisibleRecruitmentTabs(userProfile, accessibleModules, userMetadata, scope),
     [userProfile, accessibleModules, userMetadata, scope]
   );
   const ui = getRecruitmentUi(scope);
+
+  useEffect(() => {
+    if (scope !== "admin") {
+      setPendingRequisitions(0);
+      return undefined;
+    }
+    let cancelled = false;
+    fetchPendingRequisitionCount()
+      .then((n) => {
+        if (!cancelled) setPendingRequisitions(n);
+      })
+      .catch(() => {
+        if (!cancelled) setPendingRequisitions(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scope, pathname]);
 
   return (
     <RecruitmentUiProvider scope={scope}>
@@ -61,14 +83,31 @@ export default function CallingMasterLayout() {
         </p>
       </div>
 
+      {scope === "admin" && pendingRequisitions > 0 ? (
+        <p className="shrink-0 text-xs text-amber-950 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          <strong>{pendingRequisitions}</strong> manager requisition
+          {pendingRequisitions === 1 ? "" : "s"} pending — open the{" "}
+          <NavLink to="requisitions" className="font-medium text-accent underline">
+            Requisitions
+          </NavLink>{" "}
+          tab to review and start calling.
+        </p>
+      ) : null}
+
       <div className="shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         <nav className="flex flex-wrap gap-2 px-3 py-3 sm:px-4" aria-label={ui.scope === "admin" ? "In-house recruitment tabs" : "Calling database tabs"}>
           {visibleTabs.map((tab) => {
             const Icon = TAB_ICONS[tab.tabTo];
+            const showBadge = tab.tabTo === "requisitions" && pendingRequisitions > 0;
             return (
               <NavLink key={tab.value} to={tab.tabTo} end={tab.end} className={tabClass}>
                 {Icon && <Icon className="h-4 w-4 shrink-0" />}
                 <span className="whitespace-nowrap">{tab.label}</span>
+                {showBadge ? (
+                  <span className="ml-0.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                    {pendingRequisitions > 99 ? "99+" : pendingRequisitions}
+                  </span>
+                ) : null}
               </NavLink>
             );
           })}

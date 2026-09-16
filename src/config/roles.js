@@ -310,6 +310,7 @@ export const TEAMS = [
  */
 const RECRUITMENT_TAB_DEFS = [
   { suffix: "dashboard",        label: "Dashboard",        tabTo: ".",                 end: true  },
+  { suffix: "requisitions",      label: "Requisitions",     tabTo: "requisitions",      adminScopeOnly: true },
   { suffix: "candidates",        label: "Candidates",       tabTo: "candidates"                   },
   { suffix: "referral",          label: "Add Referral",     tabTo: "referral",          optIn: true },
   { suffix: "offer-generation",  label: "Offer Generation", tabTo: "offer-generation"             },
@@ -328,6 +329,7 @@ function buildRecruitmentFamily({ moduleKey, parentKey, tabPrefix, indexPath }) 
     ...(t.end ? { end: true } : {}),
     ...(t.optIn ? { optIn: true } : {}),
     ...(t.adminOnly ? { adminOnly: true } : {}),
+    ...(t.adminScopeOnly ? { adminScopeOnly: true } : {}),
   }));
   const paths = Object.fromEntries(
     tabs.map((t) => [
@@ -342,7 +344,13 @@ function buildRecruitmentFamily({ moduleKey, parentKey, tabPrefix, indexPath }) 
     indexPath,
     tabs,
     paths,
-    workflowKeys: tabs.filter((t) => !t.adminOnly && !t.optIn).map((t) => t.value),
+    workflowKeys: tabs
+      .filter((t) => {
+        if (t.adminOnly || t.optIn) return false;
+        if (t.adminScopeOnly && moduleKey !== "admin") return false;
+        return true;
+      })
+      .map((t) => t.value),
     allTabKeys: tabs.map((t) => t.value),
   };
 }
@@ -502,6 +510,7 @@ function isCallingMasterPath(pathname, indexPath = RECRUITMENT_INDEX_PATH) {
 export function canSeeRecruitmentTab(tabDef, profile, accessibleModules, userMetadata = null, scope = "hr") {
   const family = recruitmentFamilyForScope(scope);
   const role = normalizeAppRole(profile?.role);
+  if (tabDef?.adminScopeOnly && scope !== "admin") return false;
   if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) return true;
 
   if (tabDef?.adminOnly) {
@@ -565,7 +574,7 @@ export const NAV_MODULE_TREE = [
         // Opt-in tabs (Add Referral) must be granted with hr.recruitment.referral.
         // adminOnly tabs are hidden from this picker because Dropdown Master is
         // always controlled by role, not per-user grant.
-        tabModules: RECRUITMENT_TAB_KEYS.filter((t) => !t.adminOnly).map((t) => ({
+        tabModules: RECRUITMENT_TAB_KEYS.filter((t) => !t.adminOnly && !t.adminScopeOnly).map((t) => ({
           value: t.value,
           label: t.label,
           pathPrefix: RECRUITMENT_TAB_PATHS[t.value],

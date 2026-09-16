@@ -49,6 +49,7 @@ export const ROUTE_MODULE_MAP = [
   ['/app/admin/employee/national-holidays', 'Admin · Public holidays'],
   ['/app/admin/employee/exit-ff', 'Admin · Exit & F&F'],
   ['/app/admin/employee/inactive', 'Admin · Inactive employees'],
+  ['/app/admin/recruitment/requisitions', 'Admin · Candidate requisitions'],
   ['/app/admin/recruitment', 'Admin · In-house Recruitment'],
   ['/app/admin/employee/onboarding', 'Admin · Onboarding'],
   ['/app/admin/employee/master', 'Admin · Employee master'],
