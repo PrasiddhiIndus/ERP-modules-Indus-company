@@ -45,6 +45,22 @@ async function readJsonSafe(res) {
   }
 }
 
+function friendlyJoiningR2NetworkError(err) {
+  const msg = String(err?.message || err || '');
+  if (
+    err instanceof TypeError ||
+    /failed to fetch|networkerror|load failed|econnrefused/i.test(msg)
+  ) {
+    return [
+      'Could not reach the joining-document file service.',
+      import.meta.env.DEV
+        ? 'Run `npm run dev` (Vite + API on port 8787) and retry.'
+        : 'On the live server, confirm the Node API is running (PM2) and /api is reverse-proxied, or set VITE_API_BASE_URL and redeploy.',
+    ].join(' ');
+  }
+  return msg || 'Could not open the joining document.';
+}
+
 export async function uploadJoiningFileToR2({ file, employeeMasterId, documentId }) {
   const formData = new FormData();
   formData.append('employeeMasterId', String(employeeMasterId || '').trim());
@@ -65,15 +81,20 @@ export async function presignJoiningR2Get(objectKey, { download = false, fileNam
   if (!key.startsWith(PREFIX)) {
     throw new Error('This file is not stored in cloud file storage.');
   }
-  const res = await joiningR2Fetch('/presign-get', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      objectKey: key,
-      download: Boolean(download),
-      ...(fileName ? { fileName } : {}),
-    }),
-  });
+  let res;
+  try {
+    res = await joiningR2Fetch('/presign-get', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        objectKey: key,
+        download: Boolean(download),
+        ...(fileName ? { fileName } : {}),
+      }),
+    });
+  } catch (err) {
+    throw new Error(friendlyJoiningR2NetworkError(err));
+  }
   const body = await readJsonSafe(res);
   if (!res.ok) throw new Error(body.message || `Download link failed (${res.status}).`);
   if (!body.getUrl) throw new Error('Download link was not returned.');
