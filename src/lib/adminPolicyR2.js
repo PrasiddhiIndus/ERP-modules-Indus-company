@@ -45,6 +45,22 @@ async function readJsonSafe(res) {
   }
 }
 
+function friendlyR2NetworkError(err, label = 'document') {
+  const msg = String(err?.message || err || '');
+  if (
+    err instanceof TypeError ||
+    /failed to fetch|networkerror|load failed|econnrefused/i.test(msg)
+  ) {
+    return [
+      `Could not reach the ${label} file service.`,
+      import.meta.env.DEV
+        ? 'Run `npm run dev` (Vite + API on port 8787) and retry.'
+        : 'On the live server, confirm the Node API is running (PM2) and /api is reverse-proxied, or set VITE_API_BASE_URL and redeploy.',
+    ].join(' ');
+  }
+  return msg || `Could not open the ${label} file.`;
+}
+
 export async function uploadAdminPolicyFileToR2({ file, documentId }) {
   const formData = new FormData();
   formData.append('documentId', String(documentId || '').trim());
@@ -71,15 +87,20 @@ export async function presignAdminPolicyR2Get(objectKey, { download = false, fil
     throw new Error('This file is not stored in cloud file storage.');
   }
 
-  const res = await adminPolicyR2Fetch('/presign-get', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      objectKey: key,
-      download: Boolean(download),
-      ...(fileName ? { fileName } : {}),
-    }),
-  });
+  let res;
+  try {
+    res = await adminPolicyR2Fetch('/presign-get', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        objectKey: key,
+        download: Boolean(download),
+        ...(fileName ? { fileName } : {}),
+      }),
+    });
+  } catch (err) {
+    throw new Error(friendlyR2NetworkError(err, 'policy'));
+  }
   const body = await readJsonSafe(res);
   if (!res.ok) throw new Error(body.message || `Download link failed (${res.status}).`);
   if (!body.getUrl) throw new Error('Download link was not returned.');

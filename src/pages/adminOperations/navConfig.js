@@ -10,6 +10,7 @@ export const ADMIN_OPS_NAV = [
       { label: "Employee Master", path: "employee-master" },
       { label: "Onboarding", path: "employee-onboarding" },
       { label: "Policies & Terms", path: "employee-policies" },
+      { label: "Official Letters", path: "employee-official-letters" },
       { label: "Raw Attendance Data", path: "employee-attendance-inputs" },
       { label: "Daily Attendance Register", path: "employee-attendance-daily" },
       { label: "National / Public Holidays", path: "employee-national-holidays" },
