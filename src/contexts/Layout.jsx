@@ -7,6 +7,7 @@ import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruit
 import { canAccessSalaryAdmin } from "../pages/adminOperations/salaryAdmin/salaryAccess";
 import { canAccessCompliance } from "../pages/compliance/payroll/complianceAccess";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
+import { resolveModule } from "../lib/activityDescriptors";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import { SALARY_SUB_NAV, HR_SALARY_BASE, HR_SALARY_DASHBOARD, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
 import {
@@ -89,16 +90,54 @@ const sectionOpenClass = "bg-accent-soft text-ink-strong shadow-nav-active borde
 const topNavClass = ({ isActive }) => `${topLinkBase} ${isActive ? activeClass : "text-ink-strong"}`;
 const subNavClass = ({ isActive }) => `${subLinkBase} ${isActive ? activeClass : "text-ink-strong"}`;
 
+/** Parse activity route label (`Module · Page`) into app-bar eyebrow + title. */
+function workspaceFromModuleLabel(label) {
+  const text = String(label || "").trim();
+  if (!text) return null;
+  const sep = text.indexOf(" · ");
+  if (sep !== -1) {
+    return {
+      eyebrow: text.slice(0, sep),
+      title: text.slice(sep + 3),
+    };
+  }
+  const eyebrowByTitle = {
+    Billing: "Finance",
+    Marketing: "Go-to-market",
+    Operations: "Operations",
+    Compliance: "Compliance",
+    Settings: "System",
+    Dashboard: "Overview",
+    Procurement: "Procurement",
+    Projects: "Projects",
+    HR: "People",
+  };
+  return {
+    eyebrow: eyebrowByTitle[text] || text,
+    title: text,
+  };
+}
+
 /** Compact workspace label for the top app bar (presentation only). */
 function resolveWorkspaceContext(pathname) {
   const p = (pathname || "").replace(/\/$/, "") || "/app";
   if (p === "/app" || p.startsWith("/app/dashboard")) {
     return { eyebrow: "Overview", title: "Command centre" };
   }
+
+  const moduleLabel = resolveModule(p);
+  if (moduleLabel && !moduleLabel.startsWith("App ·")) {
+    const fromRoute = workspaceFromModuleLabel(moduleLabel);
+    if (fromRoute) return fromRoute;
+  }
+
   const rules = [
     [/\/app\/hr|\/app\/attendance|\/app\/salary|\/app\/people-management/, "People", "HR & workforce"],
     [/\/app\/ifsp-employee-compliance|\/app\/general-compliance|\/app\/compliance(\/|$)/, "Compliance", "Statutory & registers"],
-    [/\/app\/admin|\/app\/ifsp-employee|\/app\/store-inventory|\/app\/gate-pass/, "Admin", "Assets & stores"],
+    [/\/app\/admin\/employee|\/app\/ifsp-employee|\/app\/all-employees/, "Admin", "Employees & HR"],
+    [/\/app\/admin\/salary-admin/, "Admin", "Salary administration"],
+    [/\/app\/admin/, "Admin", "Operations"],
+    [/\/app\/store-inventory|\/app\/gate-pass/, "Admin", "Store & gate pass"],
     [/\/app\/commercial\/rm-mm-amc-iev/, "Commercial", "R&M / AMC / IEV"],
     [/\/app\/commercial|\/app\/manpower/, "Commercial", "Manpower & training"],
     [/\/app\/marketing/, "Go-to-market", "Marketing"],
@@ -652,6 +691,10 @@ const Layout = () => {
                       <NavLink to="admin/employee/policies" className={subNavClass}>
                         <BookOpen className="h-4 w-4 shrink-0 text-sky-700" />
                         <span className="type-meta type-truncate">Policies &amp; Terms</span>
+                      </NavLink>
+                      <NavLink to="admin/employee/official-letters" className={subNavClass}>
+                        <FileText className="h-4 w-4 shrink-0 text-indigo-700" />
+                        <span className="type-meta type-truncate">Official Letters</span>
                       </NavLink>
                       <NavLink to="admin/employee/attendance-inputs" className={subNavClass}>
                         <Clock className="h-4 w-4 shrink-0 text-amber-600" />

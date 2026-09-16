@@ -210,6 +210,11 @@ export const InactiveEmployeesPage = lazyNamed(
   () => import("../pages/adminOperations/employee/InactiveEmployeesPage"),
   "InactiveEmployeesPage"
 );
+
+export const OfficialLettersPage = lazyNamed(
+  () => import("../pages/adminOperations/employee/OfficialLettersPage"),
+  "OfficialLettersPage"
+);
 export const NationalPublicHolidaysPage = lazyNamed(
   () => import("../pages/adminOperations/employee/NationalPublicHolidaysPage"),
   "NationalPublicHolidaysPage"

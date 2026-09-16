@@ -1,7 +1,16 @@
 /** Onboarding — new Employee Master joiners; assign Policies & Terms from here. */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { BookOpen, ChevronLeft, ChevronRight, RefreshCw, Upload, UserPlus, X } from "lucide-react";
+import {
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
+  ScrollText,
+  Upload,
+  UserPlus,
+  X,
+} from "lucide-react";
 import {
   PageTaskHeader,
   SectionCard,
@@ -666,6 +675,13 @@ export function EmployeeOnboardingPage() {
               <BookOpen className="h-3.5 w-3.5" />
               Policies &amp; Terms
             </Link>
+            <Link
+              to="/app/admin/employee/official-letters"
+              className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-gray-300 bg-white hover:bg-gray-50"
+            >
+              <ScrollText className="h-3.5 w-3.5" />
+              Official Letters
+            </Link>
             <button
               type="button"
               onClick={loadJoiners}
@@ -679,7 +695,12 @@ export function EmployeeOnboardingPage() {
           <CollapsibleHelp label="how this works">
             Add someone in Employee Master (Active) and they show on this list. Click the row to review profile gaps,
             upload their joining documents (Aadhaar, PAN, etc.), and assign company Policies &amp; Terms. Onboarding is
-            complete when profile essentials, joining docs, and at least one policy/terms assignment are done.
+            complete when profile essentials, joining docs, and at least one policy/terms assignment are done. For
+            appointment, confirmation, and other HR letters — including probation reviews — use{" "}
+            <Link to="/app/admin/employee/official-letters" className="font-medium text-accent hover:underline">
+              Official Letters
+            </Link>
+            .
           </CollapsibleHelp>
         </div>
       </div>
