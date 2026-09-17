@@ -64,15 +64,37 @@ export function enrichFinanceDataset(raw) {
       });
   });
 
-  const sites = (raw.sites || []).map((s) => ({
-    ...s,
-    contractStart: s.contract_start,
-    contractEnd: s.contract_end,
-    service: s.service_type,
-    wo: s.work_order_no,
-    structure: structureBySite[s.id] || [],
-    budgets: budgetsBySite[s.id] || [],
-  }));
+  const sites = (raw.sites || []).map((s) => {
+    const meta = (() => {
+      const remarks = s.remarks;
+      if (!remarks || typeof remarks !== "string") return {};
+      const prefix = "@@siteMeta::";
+      const i = remarks.indexOf(prefix);
+      if (i === -1) return {};
+      try {
+        return JSON.parse(remarks.slice(i + prefix.length));
+      } catch {
+        return {};
+      }
+    })();
+    const rawType = meta.siteType;
+    const siteType =
+      rawType === "shutdown" || rawType === "safety" || rawType === "fire"
+        ? rawType
+        : rawType === "regular"
+          ? "regular"
+          : "fire";
+    return {
+      ...s,
+      contractStart: s.contract_start,
+      contractEnd: s.contract_end,
+      service: s.service_type,
+      wo: s.work_order_no,
+      siteType,
+      structure: structureBySite[s.id] || [],
+      budgets: budgetsBySite[s.id] || [],
+    };
+  });
 
   const marginSettings = settingsMap(raw.settings).margin_targets || {};
   const targetMargin = Number(marginSettings.target_margin) || 12;

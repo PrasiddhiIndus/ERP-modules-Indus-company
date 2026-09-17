@@ -24,6 +24,7 @@ import {
   canImportExport,
   isFinanceAdmin,
 } from "../constants/permissions";
+import { filterSitesByFinancePlAccess } from "../constants/financePlSiteAccess";
 
 const FinanceContext = createContext(null);
 
@@ -96,7 +97,8 @@ export function FinanceProvider({ children }) {
 
   const siteRows = useMemo(() => {
     if (!data) return [];
-    const { sites, records, revenueHeads, spreads, targetMargin, warnMargin } = data;
+    const { records, revenueHeads, spreads, targetMargin, warnMargin } = data;
+    const sites = filterSitesByFinancePlAccess(data.sites, userProfile);
     const filtered = siteFilter
       ? sites.filter((s) => s.id === siteFilter)
       : sites;
@@ -135,7 +137,7 @@ export function FinanceProvider({ children }) {
         warnMargin,
       };
     });
-  }, [data, periodKeys, periodKey, siteFilter, months]);
+  }, [data, periodKeys, periodKey, siteFilter, months, userProfile]);
 
   const portfolio = useMemo(() => {
     const withData = siteRows.filter((r) => r.hasData);

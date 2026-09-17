@@ -25,6 +25,7 @@ import {
 import { formatFinanceDate, formatFinanceLabel } from "./lib/formatters";
 import { subscribeFinanceRefresh } from "../../services/financeApi";
 import { useAuth } from "../../contexts/AuthContext";
+import { filterSitesByFinancePlAccess } from "./constants/financePlSiteAccess";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { financePath } from "./navConfig";
 import { CHART_SERIES, TOKENS } from "../../theme/tokens";
@@ -704,7 +705,7 @@ export default function SiteLedgerApp({ embedded = true }) {
     }),
     [ctxTarget, ctxWarn],
   );
-  const { user } = useAuth();
+  const { user, userProfile } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlInit = useMemo(() => readSlStateFromUrl(searchParams), []); // eslint-disable-line react-hooks/exhaustive-deps
   const [sites, setSites] = useState([]);
@@ -742,7 +743,11 @@ export default function SiteLedgerApp({ embedded = true }) {
   useEffect(() => { viewRef.current = view; }, [view]);
 
   const libMap = useMemo(() => Object.fromEntries(library.map((h) => [h.key, h])), [library]);
-  const sitesEnriched = useMemo(() => enrichSitesWithVersions(sites), [sites]);
+  const sitesScoped = useMemo(
+    () => filterSitesByFinancePlAccess(sites, userProfile),
+    [sites, userProfile],
+  );
+  const sitesEnriched = useMemo(() => enrichSitesWithVersions(sitesScoped), [sitesScoped]);
   const operationalSites = useMemo(
     () => (showHistorical ? sitesEnriched : activeSitesOnly(sitesEnriched)),
     [sitesEnriched, showHistorical],

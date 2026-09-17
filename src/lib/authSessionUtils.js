@@ -485,6 +485,19 @@ export function readCachedProfileRow(userId) {
   }
 }
 
+function parseCachedModuleList(raw) {
+  if (Array.isArray(raw)) return raw.filter(Boolean).map(String);
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter(Boolean).map(String) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export function writeCachedProfileRow(profile) {
   if (!profile?.id) return;
   try {
@@ -496,8 +509,8 @@ export function writeCachedProfileRow(profile) {
         username: profile.username ?? null,
         team: profile.team ?? null,
         role: profile.role ?? null,
-        allowed_modules: Array.isArray(profile.allowed_modules) ? profile.allowed_modules : [],
-        allowed_sub_modules: Array.isArray(profile.allowed_sub_modules) ? profile.allowed_sub_modules : [],
+        allowed_modules: parseCachedModuleList(profile.allowed_modules),
+        allowed_sub_modules: parseCachedModuleList(profile.allowed_sub_modules),
         employee_code: profile.employee_code ?? null,
         module_access_pending: profile.module_access_pending === true,
         is_active: profile.is_active !== false,

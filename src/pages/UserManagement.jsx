@@ -300,7 +300,7 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
                               />
                               <span className="text-[11px] text-gray-600">{tab.label}</span>
                               {tab.optIn ? (
-                                <span className="text-[10px] text-indigo-500">opt-in</span>
+                                <span className="text-[10px] text-indigo-500">{tab.badge || "opt-in"}</span>
                               ) : null}
                             </label>
                           ))}
@@ -324,7 +324,7 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
                                   className="rounded border-gray-200 text-indigo-400 focus:ring-indigo-300 shrink-0"
                                 />
                                 <span className="text-[11px] text-gray-600">{tab.label}</span>
-                                <span className="text-[10px] text-indigo-500">opt-in</span>
+                                <span className="text-[10px] text-indigo-500">{tab.badge || "opt-in"}</span>
                               </label>
                             ))}
                         </div>
