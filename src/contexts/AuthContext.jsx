@@ -34,7 +34,7 @@ import {
   endIntentionalSignOut,
   isIntentionalSignOut,
 } from "../lib/authSessionUtils";
-import { getAccessibleModules, getAccessibleSubModulePaths, getNavVisibleModuleKeys, normalizeAppRole, parseAllowedSubModules } from "../config/roles";
+import { getAccessibleModules, getAccessibleSubModulePaths, getNavVisibleModuleKeys, normalizeAppRole, parseAllowedModulesList } from "../config/roles";
 import { displayNameFromAuthMeta, safeSelfSignupProfileFields } from "../lib/safeSelfProfile";
 import { logLoginStage } from "../lib/loginFlow";
 import {
@@ -511,9 +511,30 @@ export const AuthProvider = ({ children }) => {
         if (tableFallback.ok) return tableFallback;
         return { ok: false, message: data?.error || "Could not load profile." };
       }
-      setProfileRow(data.profile);
-      writeCachedProfileRow(data.profile);
-      return { ok: true, profile: data.profile };
+      let edgeProfile = data.profile;
+      // Older login-check builds omit allowed_sub_modules / pending / is_active.
+      if (
+        !Object.prototype.hasOwnProperty.call(edgeProfile, 'allowed_sub_modules') ||
+        !Object.prototype.hasOwnProperty.call(edgeProfile, 'module_access_pending') ||
+        !Object.prototype.hasOwnProperty.call(edgeProfile, 'is_active')
+      ) {
+        let tableFill;
+        try {
+          tableFill = await withTimeout(
+            fetchProfileFromTable(uid),
+            PROFILE_FETCH_TIMEOUT_MS,
+            'Profile read'
+          );
+        } catch {
+          tableFill = { ok: false };
+        }
+        if (tableFill.ok && tableFill.profile) {
+          return tableFill;
+        }
+      }
+      setProfileRow(edgeProfile);
+      writeCachedProfileRow(edgeProfile);
+      return { ok: true, profile: edgeProfile };
     } finally {
       if (profileFetchInFlightRef.current === uid) {
         profileFetchInFlightRef.current = null;
@@ -759,6 +780,15 @@ export const AuthProvider = ({ children }) => {
     const uid = userId || userRef.current;
     if (!uid || !profile) return;
     const cached = readCachedProfileRow(uid);
+    // Prefer explicit values from login profile; keep cache when edge function omitted fields.
+    const allowedModules =
+      profile.allowed_modules !== undefined
+        ? parseAllowedModulesList(profile.allowed_modules)
+        : parseAllowedModulesList(cached?.allowed_modules);
+    const allowedSubModules =
+      profile.allowed_sub_modules !== undefined
+        ? parseAllowedModulesList(profile.allowed_sub_modules)
+        : parseAllowedModulesList(cached?.allowed_sub_modules);
     const row = {
       id: uid,
       email: profile.email ?? cached?.email ?? user?.email ?? null,
@@ -766,14 +796,18 @@ export const AuthProvider = ({ children }) => {
         profile.username ??
         cached?.username ??
         displayNameFromAuthMeta(user?.user_metadata, user?.email),
-      team: profile.team ?? null,
-      role: profile.role ?? "executive",
-      allowed_modules: Array.isArray(profile.allowed_modules) ? profile.allowed_modules : [],
-      allowed_sub_modules: Array.isArray(profile.allowed_sub_modules)
-        ? profile.allowed_sub_modules
-        : [],
-      module_access_pending: profile.module_access_pending === true,
-      is_active: profile.is_active !== false,
+      team: profile.team !== undefined ? profile.team ?? null : cached?.team ?? null,
+      role: profile.role ?? cached?.role ?? "executive",
+      allowed_modules: allowedModules,
+      allowed_sub_modules: allowedSubModules,
+      module_access_pending:
+        profile.module_access_pending !== undefined
+          ? profile.module_access_pending === true
+          : cached?.module_access_pending === true,
+      is_active:
+        profile.is_active !== undefined
+          ? profile.is_active !== false
+          : cached?.is_active !== false,
     };
     writeCachedProfileRow(row);
     setProfileRow(row);
@@ -814,8 +848,8 @@ export const AuthProvider = ({ children }) => {
       username: profileRow.username ?? user?.email?.split('@')[0],
       team: profileRow.team ?? null,
       role: normalizeAppRole(profileRow.role),
-      allowed_modules: Array.isArray(profileRow.allowed_modules) ? profileRow.allowed_modules : [],
-      allowed_sub_modules: parseAllowedSubModules(profileRow.allowed_sub_modules),
+      allowed_modules: parseAllowedModulesList(profileRow.allowed_modules),
+      allowed_sub_modules: parseAllowedModulesList(profileRow.allowed_sub_modules),
       module_access_pending: profileRow.module_access_pending === true,
       is_active: profileRow.is_active !== false,
       billing_vertical_codes: billingVerticalCodes,

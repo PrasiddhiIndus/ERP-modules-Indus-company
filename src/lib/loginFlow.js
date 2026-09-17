@@ -11,12 +11,13 @@ import {
   normalizeAccessProfile,
   normalizeTeamModuleKey,
   resolveTeamModuleKey,
+  parseAllowedModulesList,
   ROLES,
   normalizeAppRole,
   MODULE_LANDING_PATHS,
   TEAMS,
 } from '../config/roles';
-import { invokeAuthenticatedFunction } from './supabase';
+import { invokeAuthenticatedFunction, supabase } from './supabase';
 import { writeCachedProfileRow, readCachedProfileRow } from './authSessionUtils';
 import {
   ACCOUNT_INACTIVE_CODE,
@@ -37,8 +38,8 @@ export function logLoginStage(stage, detail = {}) {
 
 export function buildProfileFromSession(session, quickProfile) {
   const row = quickProfile;
-  const rowModules = Array.isArray(row?.allowed_modules) ? row.allowed_modules : [];
-  const rowSubModules = Array.isArray(row?.allowed_sub_modules) ? row.allowed_sub_modules : [];
+  const rowModules = parseAllowedModulesList(row?.allowed_modules);
+  const rowSubModules = parseAllowedModulesList(row?.allowed_sub_modules);
   const hasRow = Boolean(row?.role || rowModules.length || rowSubModules.length || row?.team);
   const inactiveFromRow = row?.is_active === false;
   return normalizeAccessProfile({
@@ -59,11 +60,64 @@ function cacheProfileSnapshot(session, profile) {
     username: session.user.email?.split("@")[0],
     team: profile.team ?? null,
     role: profile.role ?? "executive",
-    allowed_modules: Array.isArray(profile.allowed_modules) ? profile.allowed_modules : [],
-    allowed_sub_modules: Array.isArray(profile.allowed_sub_modules) ? profile.allowed_sub_modules : [],
+    allowed_modules: parseAllowedModulesList(profile.allowed_modules),
+    allowed_sub_modules: parseAllowedModulesList(profile.allowed_sub_modules),
     module_access_pending: profile.module_access_pending === true,
     is_active: profile.is_active !== false,
   });
+}
+
+/** Older deployed login-check builds omit privilege columns — detect that shape. */
+function loginCheckProfileMissingPrivilegeFields(row) {
+  if (!row || typeof row !== 'object') return true;
+  return (
+    !Object.prototype.hasOwnProperty.call(row, 'allowed_sub_modules') ||
+    !Object.prototype.hasOwnProperty.call(row, 'module_access_pending') ||
+    !Object.prototype.hasOwnProperty.call(row, 'is_active')
+  );
+}
+
+/**
+ * Fill privilege fields from profiles when login-check returns a truncated row.
+ * Uses the signed-in user's JWT (RLS self-read).
+ */
+async function fillPrivilegeFieldsFromProfilesTable(userId) {
+  if (!userId) return null;
+  const { data, error } = await supabase
+    .from('profiles')
+    .select(
+      'team, role, allowed_modules, allowed_sub_modules, module_access_pending, is_active, employee_code, username, email'
+    )
+    .eq('id', userId)
+    .maybeSingle();
+  if (error || !data) {
+    logLoginStage('profile-table-fill-failed', {
+      userId,
+      message: error?.message || 'no-row',
+    });
+    return null;
+  }
+  return data;
+}
+
+function mergeLoginCheckProfile(edgeProfile, tableRow, cached) {
+  const base = { ...(edgeProfile || {}) };
+  const fill = tableRow || cached || {};
+  if (!Object.prototype.hasOwnProperty.call(base, 'allowed_sub_modules')) {
+    base.allowed_sub_modules = fill.allowed_sub_modules;
+  }
+  if (!Object.prototype.hasOwnProperty.call(base, 'allowed_modules')) {
+    base.allowed_modules = fill.allowed_modules;
+  }
+  if (!Object.prototype.hasOwnProperty.call(base, 'module_access_pending')) {
+    base.module_access_pending = fill.module_access_pending;
+  }
+  if (!Object.prototype.hasOwnProperty.call(base, 'is_active')) {
+    base.is_active = fill.is_active;
+  }
+  if (base.team == null && fill.team != null) base.team = fill.team;
+  if (!base.role && fill.role) base.role = fill.role;
+  return base;
 }
 
 /**
@@ -128,20 +182,41 @@ export async function fetchLoginProfile(session, quickProfile, { timeoutMs = 800
     }
 
     if (chk?.ok && chk?.profile) {
-      writeCachedProfileRow(chk.profile);
+      let rawProfile = chk.profile;
+      let source = 'login-check';
+      if (loginCheckProfileMissingPrivilegeFields(rawProfile)) {
+        logLoginStage('profile-login-check-incomplete', {
+          keys: Object.keys(rawProfile || {}),
+        });
+        const tableRow = await fillPrivilegeFieldsFromProfilesTable(session.user.id);
+        rawProfile = mergeLoginCheckProfile(rawProfile, tableRow, cached);
+        if (tableRow) source = 'login-check+profiles';
+      }
       const profile = normalizeAccessProfile({
-        role: chk.profile.role,
-        team: chk.profile.team ?? null,
-        allowed_modules: chk.profile.allowed_modules,
-        allowed_sub_modules: chk.profile.allowed_sub_modules,
-        module_access_pending: chk.profile.module_access_pending === true,
-        is_active: chk.profile.is_active !== false,
+        role: rawProfile.role,
+        team: rawProfile.team ?? null,
+        allowed_modules: rawProfile.allowed_modules,
+        allowed_sub_modules: rawProfile.allowed_sub_modules,
+        module_access_pending: rawProfile.module_access_pending === true,
+        is_active: rawProfile.is_active !== false,
+      });
+      writeCachedProfileRow({
+        id: session.user.id,
+        email: rawProfile.email ?? session.user.email ?? null,
+        username: rawProfile.username ?? null,
+        team: profile.team,
+        role: profile.role,
+        allowed_modules: profile.allowed_modules,
+        allowed_sub_modules: profile.allowed_sub_modules,
+        employee_code: rawProfile.employee_code ?? null,
+        module_access_pending: profile.module_access_pending === true,
+        is_active: profile.is_active !== false,
       });
       if (profile.is_active === false) {
-        logLoginStage('profile-inactive', { source: 'login-check' });
+        logLoginStage('profile-inactive', { source });
         return {
           profile,
-          source: 'login-check',
+          source,
           warning: null,
           inactive: true,
           error: ACCOUNT_INACTIVE_MESSAGE,
@@ -149,13 +224,14 @@ export async function fetchLoginProfile(session, quickProfile, { timeoutMs = 800
         };
       }
       logLoginStage('profile-loaded', {
-        source: 'login-check',
+        source,
         role: profile.role,
         team: profile.team,
         modules: profile.allowed_modules,
+        subModules: profile.allowed_sub_modules,
         module_access_pending: profile.module_access_pending === true,
       });
-      return { profile, source: 'login-check', warning: null };
+      return { profile, source, warning: null };
     }
 
     logLoginStage('profile-fetch-empty', { chk });
