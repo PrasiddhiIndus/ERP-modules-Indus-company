@@ -67,8 +67,8 @@ export function normalizeAccessProfile(profile) {
   return {
     role,
     team: profile.team ?? null,
-    allowed_modules: Array.isArray(profile.allowed_modules) ? profile.allowed_modules : [],
-    allowed_sub_modules: Array.isArray(profile.allowed_sub_modules) ? profile.allowed_sub_modules : [],
+    allowed_modules: parseAllowedModulesList(profile.allowed_modules),
+    allowed_sub_modules: parseAllowedModulesList(profile.allowed_sub_modules),
     ...(profile.module_access_pending === true ? { module_access_pending: true } : {}),
     is_active: profile.is_active === false ? false : true,
   };
@@ -88,9 +88,8 @@ export function normalizeAccessProfile(profile) {
  *
  * REGRESSION GUARD (#2 from review):
  *   A user with team=hr OR "hr" in allowed_modules has the FULL hr module and does NOT
- *   need sub-module path expansion — they already pass isPathAllowed via MODULE_PATH_PREFIXES.
- *   We skip expansion for them. This means no double-granting and no skipping of tab-exact
- *   checks in isPathAllowed, because they never reach the sub-module path branch at all.
+ *   need hr.* sub-module path expansion — they already pass isPathAllowed via MODULE_PATH_PREFIXES.
+ *   Non-HR grants (e.g. finance.pl) must still expand so Finance routes are not blocked.
  */
 export function getAccessibleSubModulePaths(profile, userMetadata = null) {
   const subMods = getEffectiveAllowedSubModules(profile, userMetadata);
@@ -101,23 +100,24 @@ export function getAccessibleSubModulePaths(profile, userMetadata = null) {
     ...normalizedAllowedModuleKeys(profile),
   ].filter(Boolean));
 
-  // If user has the full "hr" module, skip all hr.* expansion entirely — they're already
-  // covered by MODULE_PATH_PREFIXES["hr"] in isPathAllowed. This prevents the tricky
-  // split(".")[0] === "hr" guard from silently skipping or double-granting.
+  // If user has the full "hr" module, skip hr.* expansion — those routes are already
+  // covered by MODULE_PATH_PREFIXES["hr"]. Still expand non-HR sub-modules (e.g. finance.pl).
   const hasFullHr = fullModuleKeys.has("hr");
   const restrictRecruitment = hasRecruitmentTabRestrictions(profile, userMetadata);
 
-  // Full HR with no recruitment tab restrictions: all HR routes via MODULE_PATH_PREFIXES.
-  if (hasFullHr && !restrictRecruitment) {
-    return new Set();
-  }
-
   const paths = new Set();
 
-  const keysToExpand =
-    hasFullHr && restrictRecruitment
-      ? getRecruitmentRestrictionKeys(profile, userMetadata)
-      : subMods;
+  let keysToExpand = subMods;
+  if (hasFullHr && restrictRecruitment) {
+    // Keep recruitment tab restrictions + any non-HR grants (finance, billing, …).
+    const recruitmentKeys = getRecruitmentRestrictionKeys(profile, userMetadata);
+    const nonHrSubs = subMods.filter((s) => !String(s).startsWith("hr."));
+    keysToExpand = [...new Set([...recruitmentKeys, ...nonHrSubs])];
+  } else if (hasFullHr && !restrictRecruitment) {
+    keysToExpand = subMods.filter((s) => !String(s).startsWith("hr."));
+  }
+
+  if (!keysToExpand.length) return new Set();
 
   for (const subKey of keysToExpand) {
     const parts = subKey.split(".");
@@ -186,6 +186,12 @@ export function getAccessibleSubModulePaths(profile, userMetadata = null) {
       continue;
     }
 
+    // Finance P&L site-type keys (finance.pl.fire / finance.pl.safety) → same Finance routes
+    if (parts.length === 3 && parts[0] === "finance" && parts[1] === "pl") {
+      paths.add("/app/accounts-finance");
+      continue;
+    }
+
     // --- Standard 2-segment key ---
     const moduleDef = NAV_MODULE_TREE.find((m) => m.value === moduleKey);
     if (!moduleDef) continue;
@@ -196,18 +202,23 @@ export function getAccessibleSubModulePaths(profile, userMetadata = null) {
   return paths;
 }
 
-/** Module keys where the user has sub-module access but not the full module. */
-export function parseAllowedSubModules(raw) {
-  if (Array.isArray(raw)) return raw.filter(Boolean);
+/** Normalize jsonb / text[] / JSON-string module key lists from profiles or cache. */
+export function parseAllowedModulesList(raw) {
+  if (Array.isArray(raw)) return raw.filter(Boolean).map(String);
   if (typeof raw === "string" && raw.trim()) {
     try {
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+      return Array.isArray(parsed) ? parsed.filter(Boolean).map(String) : [];
     } catch {
       return [];
     }
   }
   return [];
+}
+
+/** Module keys where the user has sub-module access but not the full module. */
+export function parseAllowedSubModules(raw) {
+  return parseAllowedModulesList(raw);
 }
 
 export function getEffectiveAllowedSubModules(profile, _userMetadata = null) {
@@ -747,7 +758,16 @@ export const NAV_MODULE_TREE = [
     value: "finance",
     label: "Finance/Accounts",
     subModules: [
-      { value: "finance.pl", label: "P&L", pathPrefix: "/app/accounts-finance" },
+      {
+        value: "finance.pl",
+        label: "P&L",
+        pathPrefix: "/app/accounts-finance",
+        // Opt-in site-type scope: when set, P&L only shows those site types.
+        tabModules: [
+          { value: "finance.pl.fire", label: "Fire", optIn: true, badge: "sites" },
+          { value: "finance.pl.safety", label: "Safety", optIn: true, badge: "sites" },
+        ],
+      },
     ],
   },
   {

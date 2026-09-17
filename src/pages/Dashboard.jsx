@@ -7,6 +7,8 @@ import { getCommercialPOs as getCommercialPOsLocal, getInvoices as getInvoicesLo
 import { fetchFinanceModuleData, invalidateFinanceCache, subscribeFinanceRefresh } from "../services/financeApi";
 import { countPendingLeaveRequests } from "../lib/adminLeaveRequests";
 import { calcSite } from "./finance/lib/calculations";
+import { filterSitesByFinancePlAccess } from "./finance/constants/financePlSiteAccess";
+import { useAuth } from "../contexts/AuthContext";
 import {
   buildMonthOptions,
   comparePeriodKeys,
@@ -253,6 +255,7 @@ function inMonthRange(periodKey, fromKey, toKey) {
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { userProfile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [financeError, setFinanceError] = useState("");
   const [fromKey, setFromKey] = useState(() => indiaFyStartKey());
@@ -454,7 +457,8 @@ const Dashboard = () => {
       };
     }
     const keys = rangeKeys.length ? rangeKeys : [currentPeriodKey()];
-    const { sites, records, revenueHeads, spreads, expenseParentHeads, warnMargin = 8 } = finance;
+    const { records, revenueHeads, spreads, expenseParentHeads, warnMargin = 8 } = finance;
+    const sites = filterSitesByFinancePlAccess(finance.sites, userProfile);
 
     const siteRows = sites
       .map((s) => {
@@ -545,7 +549,7 @@ const Dashboard = () => {
       expenseMix,
       warnMargin,
     };
-  }, [finance, months, rangeKeys]);
+  }, [finance, months, rangeKeys, userProfile]);
 
   const trendAxisFmt = useMemo(() => {
     const vals = [];

@@ -75,12 +75,15 @@ export function userManagementDisplayName(profile) {
   return username || "—";
 }
 
-/** Team column: Employee Master department, else profile team. */
+/**
+ * Team column for User Management: show the ERP access team saved on the profile.
+ * Fall back to Employee Master department only when profile.team is empty.
+ */
 export function userManagementTeamDisplay(profile) {
-  const fromMaster = String(profile?.employee_department ?? "").trim();
-  if (fromMaster) return fromMaster;
   const team = String(profile?.team ?? "").trim();
-  return team || "—";
+  if (team) return team;
+  const fromMaster = String(profile?.employee_department ?? "").trim();
+  return fromMaster || "—";
 }
 
 export function enrichProfileWithHierarchy(profile, lookups) {

@@ -25,10 +25,24 @@ const PROFILE_LIST_SELECT_NO_SUB =
 const PROFILE_LIST_SELECT_WITH_EMP_NO_SUB =
   "id, email, username, employee_code, team, role, allowed_modules, created_at";
 
+function normalizeModulesList(raw) {
+  if (Array.isArray(raw)) return raw.filter(Boolean).map(String);
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter(Boolean).map(String) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 function normalizeProfileListRows(rows) {
   return (rows ?? []).map((row) => ({
     ...row,
-    allowed_sub_modules: Array.isArray(row?.allowed_sub_modules) ? row.allowed_sub_modules : [],
+    allowed_modules: normalizeModulesList(row?.allowed_modules),
+    allowed_sub_modules: normalizeModulesList(row?.allowed_sub_modules),
     module_access_pending: row?.module_access_pending === true,
     is_active: row?.is_active !== false,
   }));

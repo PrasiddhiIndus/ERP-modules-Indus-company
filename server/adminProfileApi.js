@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const PROFILE_SELECT =
-  'id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules, created_at';
+  'id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules, module_access_pending, is_active, created_at';
 
 const LOG_PREFIX = '[admin/update-profile]';
 
@@ -63,6 +63,37 @@ function parseRpcProfile(data) {
   return null;
 }
 
+function normalizeModulesForCompare(raw) {
+  if (Array.isArray(raw)) return raw.filter(Boolean).map(String).sort();
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter(Boolean).map(String).sort() : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function profilePrivilegesMatch(profile, { team, role, allowed, allowedSub }) {
+  if (!profile?.id) return false;
+  const actualTeam = profile.team == null || profile.team === '' ? null : String(profile.team);
+  const expectedTeam = team == null || team === '' ? null : String(team);
+  if (actualTeam !== expectedTeam) return false;
+  if ((profile.role ?? null) !== (role ?? null)) return false;
+  if (JSON.stringify(normalizeModulesForCompare(profile.allowed_modules)) !==
+      JSON.stringify(normalizeModulesForCompare(allowed))) {
+    return false;
+  }
+  if (JSON.stringify(normalizeModulesForCompare(profile.allowed_sub_modules)) !==
+      JSON.stringify(normalizeModulesForCompare(allowedSub))) {
+    return false;
+  }
+  if (profile.module_access_pending === true) return false;
+  return true;
+}
+
 function createServiceDb(supabaseUrl, serviceRoleKey) {
   const base = String(supabaseUrl).replace(/\/+$/, '');
   return {
@@ -87,17 +118,7 @@ function serviceRestHeaders(db) {
   };
 }
 
-/** PostgREST PATCH with service_role only — never pass user JWT here. */
-async function patchProfileViaRest(db, id, patch) {
-  const res = await fetch(`${db.base}/rest/v1/profiles?id=eq.${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    headers: {
-      ...serviceRestHeaders(db),
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-    },
-    body: JSON.stringify(patch),
-  });
+async function parseRestPatchResponse(res, id, patchKeys, label) {
   const text = await res.text();
   let rows = [];
   if (text) {
@@ -109,7 +130,7 @@ async function patchProfileViaRest(db, id, patch) {
   }
   if (!res.ok) {
     const msg = rows?.message || rows?.error || rows?.hint || text || `HTTP ${res.status}`;
-    logStep('REST PATCH failed', { id, status: res.status, message: msg });
+    logStep(`${label} failed`, { id, status: res.status, message: msg });
     return {
       data: null,
       error: { message: String(msg), status: res.status, code: rows?.code },
@@ -117,8 +138,51 @@ async function patchProfileViaRest(db, id, patch) {
   }
   const row = Array.isArray(rows) ? rows[0] : rows;
   if (row?.id) return { data: row, error: null };
-  logStep('REST PATCH returned 0 rows', { id, patchKeys: Object.keys(patch) });
+  logStep(`${label} returned 0 rows`, { id, patchKeys });
+  return { data: null, error: { message: 'No profile row returned from PATCH', status: 404 } };
+}
+
+/** PostgREST PATCH with service_role only — never pass user JWT here. */
+async function patchProfileViaRest(db, id, patch) {
+  const res = await fetch(`${db.base}/rest/v1/profiles?id=eq.${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: {
+      ...serviceRestHeaders(db),
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(patch),
+  });
+  const parsed = await parseRestPatchResponse(res, id, Object.keys(patch), 'REST PATCH');
+  if (parsed.data?.id) return parsed;
+  if (parsed.error && !String(parsed.error.message || '').includes('No profile row')) {
+    return parsed;
+  }
   return readProfileViaRest(db, id);
+}
+
+/**
+ * Privilege PATCH as the signed-in Super Admin (caller JWT).
+ * privilege-protect allows this via is_current_user_admin / role EXISTS check,
+ * even when service_role JWT role claim is empty inside SECURITY DEFINER RPCs.
+ */
+async function patchProfilePrivilegesViaCaller(supabaseUrl, anonKey, jwt, id, patch) {
+  const base = String(supabaseUrl).replace(/\/+$/, '');
+  const apiKey = anonKey || '';
+  if (!apiKey || !jwt) {
+    return { data: null, error: { message: 'Missing anon key or caller token for privilege save', status: 500 } };
+  }
+  const res = await fetch(`${base}/rest/v1/profiles?id=eq.${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: {
+      apikey: apiKey,
+      Authorization: `Bearer ${jwt}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(patch),
+  });
+  return parseRestPatchResponse(res, id, Object.keys(patch), 'caller privilege PATCH');
 }
 
 async function readProfileViaRest(db, id, selectCols = PROFILE_SELECT) {
@@ -142,17 +206,22 @@ async function readProfileViaRest(db, id, selectCols = PROFILE_SELECT) {
   return { data: row?.id ? row : null, error: null };
 }
 
+function asJsonbArray(list) {
+  // PostgREST jsonb params must be JSON values (not PG text[]).
+  return Array.isArray(list) ? list.filter(Boolean).map(String) : [];
+}
+
 async function saveProfileViaRpc(db, { id, team, role, allowed, allowedSub, employeeCode, setEmployeeCode, isActive }) {
   const rpcArgs = {
     p_id: id,
     p_team: team,
     p_role: role,
-    p_allowed_modules: allowed,
+    p_allowed_modules: asJsonbArray(allowed),
     p_employee_code: employeeCode ?? null,
     p_set_employee_code: setEmployeeCode,
   };
   if (Array.isArray(allowedSub)) {
-    rpcArgs.p_allowed_sub_modules = allowedSub;
+    rpcArgs.p_allowed_sub_modules = asJsonbArray(allowedSub);
   }
   if (typeof isActive === 'boolean') {
     rpcArgs.p_is_active = isActive;
@@ -434,7 +503,15 @@ export async function adminUpdateProfile(body, jwt, supabaseUrl, serviceRoleKey,
   let profile = null;
   let saveErr = null;
 
-  logStep('save via RPC', { id, setEmployeeCode, employeeCode: employeeCode ?? null });
+  logStep('save via RPC', {
+    id,
+    team,
+    role,
+    modules: allowed.length,
+    subModules: allowedSub.length,
+    setEmployeeCode,
+    employeeCode: employeeCode ?? null,
+  });
   const rpcSave = await saveProfileViaRpc(db, {
     id,
     team,
@@ -447,15 +524,30 @@ export async function adminUpdateProfile(body, jwt, supabaseUrl, serviceRoleKey,
   });
   if (rpcSave.profile?.id) {
     profile = rpcSave.profile;
-    logStep('RPC save ok', { id });
-    // Ensure sub-modules persisted even if RPC signature on DB is not yet migrated.
-    const restPatch = { allowed_sub_modules: allowedSub };
-    if (typeof body.is_active === 'boolean') restPatch.is_active = body.is_active;
-    const subPatch = await patchProfileViaRest(db, id, restPatch);
-    if (subPatch.data?.id) {
-      profile = { ...profile, ...subPatch.data };
-    } else if (subPatch.error) {
-      logStep('sub-modules REST patch failed', { id, message: subPatch.error.message });
+    logStep('RPC save ok', {
+      id,
+      team: profile.team ?? null,
+      modules: Array.isArray(profile.allowed_modules) ? profile.allowed_modules.length : 0,
+      pending: profile.module_access_pending === true,
+    });
+    // Only backfill sub-modules / is_active via REST when RPC row is missing them.
+    // Never re-PATCH team/role/allowed_modules here — privilege-protect trigger can
+    // silently restore OLD values when service_role JWT role claim is empty.
+    const rpcSubs = normalizeModulesForCompare(profile.allowed_sub_modules);
+    const wantSubs = normalizeModulesForCompare(allowedSub);
+    const needSubPatch = JSON.stringify(rpcSubs) !== JSON.stringify(wantSubs);
+    const needActivePatch =
+      typeof body.is_active === 'boolean' && profile.is_active !== body.is_active;
+    if (needSubPatch || needActivePatch) {
+      const restPatch = {};
+      if (needSubPatch) restPatch.allowed_sub_modules = allowedSub;
+      if (needActivePatch) restPatch.is_active = body.is_active;
+      const subPatch = await patchProfileViaRest(db, id, restPatch);
+      if (subPatch.data?.id) {
+        profile = { ...profile, ...subPatch.data };
+      } else if (subPatch.error) {
+        logStep('sub-modules REST patch failed', { id, message: subPatch.error.message });
+      }
     }
   } else if (rpcSave.error && !isRpcMissingError(rpcSave.error, 'admin_save_profile')) {
     saveErr = rpcSave.error;
@@ -529,7 +621,68 @@ export async function adminUpdateProfile(body, jwt, supabaseUrl, serviceRoleKey,
       profile = freshProfile;
     }
 
-    return { ok: true, profile, version: 'server-api-5' };
+    if (!profilePrivilegesMatch(profile, { team, role, allowed, allowedSub })) {
+      logStep('privilege persist mismatch — retrying as caller', {
+        id,
+        expected: { team, role, modules: allowed.length, subModules: allowedSub.length },
+        actual: {
+          team: profile?.team ?? null,
+          role: profile?.role ?? null,
+          modules: normalizeModulesForCompare(profile?.allowed_modules).length,
+          pending: profile?.module_access_pending === true,
+        },
+      });
+      const privilegePatch = {
+        team,
+        role,
+        allowed_modules: allowed,
+        allowed_sub_modules: allowedSub,
+        module_access_pending: false,
+      };
+      if (typeof body.is_active === 'boolean') {
+        privilegePatch.is_active = body.is_active;
+      }
+      const callerPatch = await patchProfilePrivilegesViaCaller(
+        supabaseUrl,
+        anonKey,
+        jwt,
+        id,
+        privilegePatch
+      );
+      if (callerPatch.data?.id) {
+        profile = callerPatch.data;
+      } else if (callerPatch.error) {
+        logStep('caller privilege PATCH failed', {
+          id,
+          message: callerPatch.error.message,
+          status: callerPatch.error.status,
+        });
+      }
+      const { data: reRead } = await readProfileViaRest(db, id);
+      if (reRead?.id) profile = reRead;
+    }
+
+    if (!profilePrivilegesMatch(profile, { team, role, allowed, allowedSub })) {
+      logStep('privilege persist mismatch after save', {
+        id,
+        expected: { team, role, allowed, allowedSub },
+        actual: {
+          team: profile?.team ?? null,
+          role: profile?.role ?? null,
+          allowed_modules: profile?.allowed_modules ?? [],
+          allowed_sub_modules: profile?.allowed_sub_modules ?? [],
+          module_access_pending: profile?.module_access_pending === true,
+        },
+      });
+      const err = new Error(
+        'Team/module assignments did not persist. Apply migration 20260916190000_fix_admin_save_profile_privilege_guard.sql (or supabase db push), then retry.'
+      );
+      err.status = 500;
+      err.hint = 'profiles privilege guard blocked admin_save_profile';
+      throw err;
+    }
+
+    return { ok: true, profile, version: 'server-api-6' };
   }
 
   if (saveErr) throwSaveError(saveErr, 'profiles-save');
