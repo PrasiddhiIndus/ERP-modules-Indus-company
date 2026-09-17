@@ -27,6 +27,7 @@ import {
 } from '../../utils/poPincodeFields';
 import { rollupMainPoBilling, pickInvoiceForEdit } from '../../utils/billingInvoiceRollup';
 import { poMatchesBillingTab } from '../../utils/billingPoListFilters';
+import { resolveCategoryRateForBilling } from '../../utils/poPriceEscalation';
 import {
   applyPreGstSupplementaryRows,
   createPreGstSupplementaryRow,
@@ -233,7 +234,10 @@ function getPoTotalQtyForRollup(po) {
   }, 0));
 }
 
-function getRateCategoryRate(row) {
+function getRateCategoryRate(row, po = null, billingDate = null) {
+  if (po) {
+    return resolveCategoryRateForBilling(po, row, billingDate);
+  }
   return firstPositiveNumber(row, ['rate', 'poRate', 'po_rate', 'poReferenceRate', 'po_reference_rate']);
 }
 
@@ -284,13 +288,14 @@ function resolvePoLumpSumInvoicePreviewMode(po) {
   return 'consolidated';
 }
 
-function getUniqueRateRows(po) {
+function getUniqueRateRows(po, billingDate = null) {
   const rows = Array.isArray(po?.ratePerCategory) ? po.ratePerCategory : [];
   const seen = new Set();
   const unique = [];
+  const asOf = billingDate || po?.startDate || po?.start_date || null;
   rows.forEach((r) => {
     const description = (r?.description || r?.designation || '').trim();
-    const rate = getRateCategoryRate(r);
+    const rate = getRateCategoryRate(r, po, asOf);
     const qty = getRateCategoryQty(r, po);
     const penalty = getRateCategoryPenalty(r);
     const hsnSac = getRateCategoryHsnSac(r);
@@ -1371,7 +1376,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       const rows = Array.isArray(selectedPO.ratePerCategory) ? selectedPO.ratePerCategory : [];
       const nextRows = rows.map((x) => {
         const desc = ((x.description || x.designation || '').trim()) || 'Other';
-        const poRate = getRateCategoryRate(x);
+        const poRate = getRateCategoryRate(x, selectedPO);
         const qty = getRateCategoryQty(x, selectedPO);
         const pen = getRateCategoryPenalty(x);
         const rowHsnSac = getRateCategoryHsnSac(x, hsnSac);
@@ -1629,7 +1634,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     const patch = { description: value, hsnSac: hsn };
     if (cat) {
       const poQty = getRateCategoryQty(cat, po);
-      const poRate = getRateCategoryRate(cat);
+      const poRate = getRateCategoryRate(cat, po);
       const pen = getRateCategoryPenalty(cat);
       patch.poQty = poQty;
       patch.poReferenceRate = poRate;
