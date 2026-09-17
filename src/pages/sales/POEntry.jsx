@@ -49,6 +49,15 @@ import {
   filterClientSnapshotByPoEntryAcl,
   poEntryAclDepartmentLabel,
 } from '../../utils/poEntryFieldPermissions';
+import PoPriceEscalationSection from './PoPriceEscalationSection';
+import {
+  appendPriceEscalationHistory,
+  buildPricingPeriods,
+  enrichEscalationScheduleForDisplay,
+  normalizeEscalationSchedule,
+  validateEscalationSchedule,
+  validatePoEffectiveDate,
+} from '../../utils/poPriceEscalation';
 
 import { toast } from "../../lib/toast";
 function formatPoCurrency(value) {
@@ -1134,6 +1143,9 @@ const initialForm = {
   isSez: 'no',
   revisedPO: false, renewalPending: false,
   poBasis: PO_BASIS_WITH_PO,
+  poEffectiveDate: '',
+  priceEscalationEnabled: false,
+  priceEscalationSchedule: [],
 };
 
 const POEntry = () => {
@@ -1602,6 +1614,13 @@ const POEntry = () => {
       remarks: po.remarks || '',
       ...resolveMtPaymentTermsForForm(po.paymentTerms || ''),
       poDate: po.poDate || '',
+      poEffectiveDate: po.poEffectiveDate || po.po_effective_date || po.startDate || po.start_date || '',
+      priceEscalationEnabled: po.priceEscalationEnabled === true || po.price_escalation_enabled === true,
+      priceEscalationSchedule: Array.isArray(po.priceEscalationSchedule)
+        ? po.priceEscalationSchedule
+        : Array.isArray(po.price_escalation_schedule)
+          ? po.price_escalation_schedule
+          : [],
       pincode: normalizePoPincode(po.pincode),
       shipToPincode: normalizePoPincode(po.shipToPincode ?? po.ship_to_pincode),
       billToShipToPinSame: deriveBillToShipToPinSameFromPo(po),
@@ -1782,7 +1801,16 @@ const POEntry = () => {
         [field]: normalizeDateInputValue(value),
         monthlyValueManual: false,
       };
+      // Default PO Effective Date from PO Start Date when empty (does not overwrite a set value).
+      if (field === 'startDate' && !String(prev.poEffectiveDate || '').trim()) {
+        next.poEffectiveDate = next.startDate;
+      }
       const total = editId ? next.newCycleTotalContractValue : next.totalContractValue;
+      // Escalation off: keep legacy monthly = TCV ÷ months. Escalation on: base monthly still from dates/TCV.
+      if (next.priceEscalationEnabled !== true) {
+        const calc = computeMonthlyValueFromContract(total, next.startDate, next.endDate);
+        return { ...next, monthlyValue: calc === '' ? '' : String(calc) };
+      }
       const calc = computeMonthlyValueFromContract(total, next.startDate, next.endDate);
       return { ...next, monthlyValue: calc === '' ? '' : String(calc) };
     });
@@ -1834,6 +1862,22 @@ const POEntry = () => {
     setGstTypeError('');
     setSaveError('');
     if (typeof clearBillingError === 'function') clearBillingError();
+
+    const effectiveDateErr = validatePoEffectiveDate(formData);
+    if (effectiveDateErr) {
+      setSaveError(effectiveDateErr);
+      toast.warning(effectiveDateErr);
+      return;
+    }
+    if (formData.priceEscalationEnabled === true) {
+      const escErrors = validateEscalationSchedule(formData);
+      if (escErrors.length) {
+        setSaveError(escErrors[0]);
+        toast.warning(escErrors[0]);
+        return;
+      }
+    }
+
     const isWithoutPo = formData.poBasis === PO_BASIS_WITHOUT_PO;
     const dummies = buildWithoutPoDummyIds({
       verticalLabel: formData.vertical || 'Manpower',
@@ -1926,11 +1970,47 @@ const POEntry = () => {
           ? Math.max(0, Number(r.penalty) || 0)
           : 0,
     }));
-    const totalVal = primaryTotalEmpty
+    const scheduleNormalized = formData.priceEscalationEnabled
+      ? enrichEscalationScheduleForDisplay({
+          ...formData,
+          priceEscalationEnabled: true,
+        })
+      : normalizeEscalationSchedule(formData.priceEscalationSchedule);
+
+    const primaryTotalNum = primaryTotalEmpty
       ? (formData.newCycleTotalContractValue !== '' && formData.newCycleTotalContractValue != null
           ? Number(formData.newCycleTotalContractValue) || 0
           : 0)
       : Number(formData.totalContractValue) || 0;
+
+    // Base monthly from entered TCV ÷ duration (legacy). Never derive from escalated contract value.
+    const baseMonthlyForEscalation = (() => {
+      if (!formData.monthlyValueManual) {
+        const recalc = computeMonthlyValueFromContract(
+          primaryTotalNum,
+          formData.startDate,
+          formData.endDate
+        );
+        if (recalc !== '') {
+          const n = Number(recalc);
+          return Number.isFinite(n) ? n : 0;
+        }
+      }
+      const n = Number(formData.monthlyValue);
+      return Number.isFinite(n) ? n : 0;
+    })();
+
+    let totalVal = primaryTotalNum;
+    if (formData.priceEscalationEnabled === true) {
+      const projected = buildPricingPeriods({
+        ...formData,
+        priceEscalationEnabled: true,
+        monthlyValue: baseMonthlyForEscalation,
+        priceEscalationSchedule: scheduleNormalized,
+        poEffectiveDate: formData.poEffectiveDate || formData.startDate || '',
+      }).projectedContractValue;
+      if (projected > 0) totalVal = projected;
+    }
     const totalContractMonthVal =
       poType === 'Lump Sum'
         ? Number(formData.totalContractMonth) || null
@@ -1988,7 +2068,29 @@ const POEntry = () => {
       editId ? prevPo?.ratePerCategory : null,
       nowIso
     );
+    let historyFinal = historyWithRates;
+    const prevScheduleJson = JSON.stringify(
+      normalizeEscalationSchedule(prevPo?.priceEscalationSchedule || prevPo?.price_escalation_schedule)
+    );
+    const nextScheduleJson = JSON.stringify(scheduleNormalized);
+    if (
+      formData.priceEscalationEnabled === true &&
+      (prevPo?.priceEscalationEnabled !== true || prevScheduleJson !== nextScheduleJson)
+    ) {
+      historyFinal = appendPriceEscalationHistory(historyWithRates, {
+        summary: 'Price escalation schedule saved',
+        poEffectiveDate: formData.poEffectiveDate || formData.startDate || null,
+        schedule: scheduleNormalized,
+        projectedContractValue: totalVal,
+        baseMonthlyValue: baseMonthlyForEscalation,
+        reason: 'PO save',
+        createdBy: currentActorName,
+      });
+    }
     const monthlyValueNum = (() => {
+      if (formData.priceEscalationEnabled === true) {
+        return Number.isFinite(baseMonthlyForEscalation) ? baseMonthlyForEscalation : null;
+      }
       if (!formData.monthlyValueManual) {
         const recalc = computeMonthlyValueFromContract(totalVal, formData.startDate, formData.endDate);
         if (recalc !== '') {
@@ -2054,6 +2156,12 @@ const POEntry = () => {
       remarks: formData.remarks.trim(),
       paymentTerms: mtPayment.paymentTerms || formData.paymentTerms.trim() || null,
       poDate: formData.poDate || null,
+      poEffectiveDate:
+        (formData.poEffectiveDate && String(formData.poEffectiveDate).trim()) ||
+        formData.startDate ||
+        null,
+      priceEscalationEnabled: formData.priceEscalationEnabled === true,
+      priceEscalationSchedule: formData.priceEscalationEnabled === true ? scheduleNormalized : [],
       pincode: String(formData.pincode || '').trim() || null,
       shipToPincode:
         canPincodeShipTo && !canPincodeBillTo
@@ -2095,7 +2203,7 @@ const POEntry = () => {
       revisedPO: formData.revisedPO, renewalPending: formData.renewalPending,
       status: formData.endDate && new Date(formData.endDate) < new Date() ? 'expired' : 'active',
       ...approvalFields,
-      updateHistory: historyWithRates,
+      updateHistory: historyFinal,
       created_at: prevPo?.created_at || prevPo?.createdAt || nowIso,
       createdAt: prevPo?.createdAt || prevPo?.created_at || nowIso,
       updated_at: nowIso,
@@ -3204,6 +3312,29 @@ const POEntry = () => {
                       onChange={(e) => setFormData((p) => ({ ...p, poDate: e.target.value }))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     />
+                    <p className="text-[11px] text-gray-500 mt-1">Date the PO was issued/received.</p>
+                  </div>
+                  ) : null}
+                  {canPoFinancials ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-effective-date">
+                      PO Effective Date
+                    </label>
+                    <FormDateInput
+                      id="sales-po-effective-date"
+                      value={formData.poEffectiveDate}
+                      onChange={(e) => {
+                        if (!isValidDateInputValue(e.target.value)) return;
+                        setFormData((p) => ({
+                          ...p,
+                          poEffectiveDate: normalizeDateInputValue(e.target.value),
+                        }));
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Date from which commercial terms and base pricing become effective (not the same as PO Date).
+                    </p>
                   </div>
                   ) : null}
                   {canStartDate ? (
@@ -3274,8 +3405,48 @@ const POEntry = () => {
                     />
                     <p className="text-[11px] text-gray-500 mt-1">
                       Auto-calculated as total contract value ÷ contract duration in months (e.g. 01/04/2024–31/03/2027 = 36). Editable if needed.
+                      When Price Escalation is Yes, this stays the <span className="font-medium">base</span> monthly rate.
                     </p>
                   </div>
+                  {canPoFinancials ? (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-price-escalation">
+                      Price Escalation
+                    </label>
+                    <select
+                      id="sales-po-price-escalation"
+                      value={formData.priceEscalationEnabled ? 'yes' : 'no'}
+                      onChange={(e) => {
+                        const enabled = e.target.value === 'yes';
+                        setFormData((p) => ({
+                          ...p,
+                          priceEscalationEnabled: enabled,
+                          poEffectiveDate:
+                            p.poEffectiveDate || p.startDate || '',
+                          priceEscalationSchedule: enabled
+                            ? p.priceEscalationSchedule || []
+                            : [],
+                        }));
+                      }}
+                      className="w-full max-w-xs border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                    >
+                      <option value="no">No</option>
+                      <option value="yes">Yes</option>
+                    </select>
+                    {formData.priceEscalationEnabled ? (
+                      <PoPriceEscalationSection
+                        formData={formData}
+                        setFormData={setFormData}
+                        canEdit={canPoFinancials}
+                        updateHistory={
+                          editId
+                            ? commercialPOs.find((p) => p.id === editId)?.updateHistory || []
+                            : []
+                        }
+                      />
+                    ) : null}
+                  </div>
+                  ) : null}
                   {canPaymentTerms ? (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
@@ -3948,6 +4119,24 @@ const POEntry = () => {
                   {canPoFinancials ? <PoViewField label="PO / WO number" value={poForView.poWoNumber || poForView.po_wo_number} className="text-sm font-mono font-medium text-gray-900" /> : null}
                   {canOcNumber ? <PoViewField label="Vendor code" value={poForView.vendorCode || poForView.vendor_code} /> : null}
                   {canPoDate ? <PoViewField label="PO date" value={formatDateDdMmYyyy(poForView.poDate || poForView.po_date)} /> : null}
+                  {canPoFinancials ? (
+                    <PoViewField
+                      label="PO effective date"
+                      value={formatDateDdMmYyyy(
+                        poForView.poEffectiveDate || poForView.po_effective_date || poForView.startDate
+                      )}
+                    />
+                  ) : null}
+                  {canPoFinancials ? (
+                    <PoViewField
+                      label="Price escalation"
+                      value={
+                        poForView.priceEscalationEnabled || poForView.price_escalation_enabled
+                          ? 'Yes'
+                          : 'No'
+                      }
+                    />
+                  ) : null}
                   {canActualMobilizationDate ? (
                     <PoViewField
                       label="Actual mobilization date"
