@@ -138,6 +138,9 @@ const UNIFIED_PO_CLIENT_DEFAULTS = {
   poType: null,
   billingWithoutPo: false,
   actualMobilizationDate: null,
+  poEffectiveDate: null,
+  priceEscalationEnabled: false,
+  priceEscalationSchedule: [],
 };
 
 function normalizePoDocumentFiles(raw) {
@@ -232,6 +235,11 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
     penaltyClauseFiles: normalizePoDocumentFiles(raw.penalty_clause_files),
     actualMobilizationDate: raw.actual_mobilization_date ?? null,
     panNumber: raw.pan_number ?? null,
+    poEffectiveDate: raw.po_effective_date ?? null,
+    priceEscalationEnabled: raw.price_escalation_enabled === true,
+    priceEscalationSchedule: Array.isArray(raw.price_escalation_schedule)
+      ? raw.price_escalation_schedule
+      : [],
     contactEmail: raw.contact_email ?? null,
     poType: raw.po_type ?? raw.billing_type ?? null,
     serviceDescription:
@@ -859,6 +867,16 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     vertical: normalizePoVerticalForPersist(po.vertical),
     po_wo_number: po.poWoNumber || null,
     po_date: po.poDate && String(po.poDate).trim() ? po.poDate : null,
+    po_effective_date:
+      isMp && po.poEffectiveDate && String(po.poEffectiveDate).trim()
+        ? String(po.poEffectiveDate).trim()
+        : null,
+    price_escalation_enabled: isMp ? po.priceEscalationEnabled === true : false,
+    price_escalation_schedule: isMp
+      ? Array.isArray(po.priceEscalationSchedule)
+        ? po.priceEscalationSchedule
+        : []
+      : [],
     pincode: po.pincode && String(po.pincode).trim() ? String(po.pincode).trim() : null,
     ship_to_pincode:
       po.shipToPincode && String(po.shipToPincode).trim() ? String(po.shipToPincode).trim() : null,
