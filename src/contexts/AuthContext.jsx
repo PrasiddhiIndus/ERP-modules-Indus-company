@@ -34,7 +34,7 @@ import {
   endIntentionalSignOut,
   isIntentionalSignOut,
 } from "../lib/authSessionUtils";
-import { getAccessibleModules, getAccessibleSubModulePaths, getNavVisibleModuleKeys, normalizeAppRole, parseAllowedModulesList } from "../config/roles";
+import { getAccessibleModules, getAccessibleSubModulePaths, getNavVisibleModuleKeys, normalizeAppRole, parseAllowedModulesList, isEmptyPendingAccessStub } from "../config/roles";
 import { displayNameFromAuthMeta, safeSelfSignupProfileFields } from "../lib/safeSelfProfile";
 import { logLoginStage } from "../lib/loginFlow";
 import {
@@ -543,21 +543,27 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const syncProfileInBackground = (accessToken, userId, authUser = null) => {
+  const syncProfileInBackground = (accessToken, userId, authUser = null, opts = {}) => {
+    const { blocking = true } = opts;
     if (!userId || !accessToken) return;
-    setProfileLoading(true);
+    if (blocking) setProfileLoading(true);
     void (async () => {
       for (let attempt = 1; attempt <= PROFILE_SYNC_RETRIES; attempt += 1) {
-        setProfileLoading(true);
+        if (blocking) setProfileLoading(true);
         const result = await fetchProfileViaLoginCheck(accessToken, userId, authUser, {
           background: true,
         });
-        if (result.ok) return;
+        if (result.ok) {
+          setProfileLoading(false);
+          return;
+        }
         if (attempt < PROFILE_SYNC_RETRIES) {
           await new Promise((r) => setTimeout(r, 400 * attempt));
         }
       }
-      if (!readCachedProfileRow(userId)) {
+      // Never replace a real cached profile with the empty signup stub.
+      const cached = readCachedProfileRow(userId);
+      if (!cached && !profileRow?.id) {
         const fallbackRow = safeSelfSignupProfileFields({
           id: userId,
           email: authUser?.email ?? null,
@@ -565,6 +571,8 @@ export const AuthProvider = ({ children }) => {
         });
         writeCachedProfileRow(fallbackRow);
         setProfileRow(fallbackRow);
+      } else if (cached && (!profileRow?.id || isEmptyPendingAccessStub(profileRow))) {
+        setProfileRow(cached);
       }
       setProfileLoading(false);
     })();
@@ -575,20 +583,36 @@ export const AuthProvider = ({ children }) => {
       setProfileRow(null);
       clearCachedProfileRow();
       setProfileLoading(false);
-      return;
-    }
-    if (profileRow?.id === user.id) {
-      setProfileLoading(false);
+      profileSyncAttemptedRef.current = null;
       return;
     }
     if (signInProfileSyncRef.current) return;
-    profileSyncAttemptedRef.current = user.id;
     const token = readCachedAccessToken();
     if (!token) return;
-    setProfileLoading(true);
-    syncProfileInBackground(token, user.id, user);
+
+    // Seed UI from a *real* cached profile only — never from the empty pending stub
+    // (that stub was locking Super Admins to Settings + email-allowlist modules).
+    if (profileRow?.id !== user.id) {
+      const cached = readCachedProfileRow(user.id);
+      if (cached && !isEmptyPendingAccessStub(cached)) {
+        setProfileRow(cached);
+      } else if (cached && isEmptyPendingAccessStub(cached)) {
+        clearCachedProfileRow();
+      }
+    } else if (isEmptyPendingAccessStub(profileRow)) {
+      clearCachedProfileRow();
+    }
+
+    // Always re-fetch from Supabase. Previously we skipped when profileRow.id matched,
+    // so a settings-only stub after a 504 stayed forever (Super Admin saw only Settings).
+    const mustBlock =
+      !profileRow ||
+      profileRow.id !== user.id ||
+      isEmptyPendingAccessStub(profileRow);
+    profileSyncAttemptedRef.current = user.id;
+    syncProfileInBackground(token, user.id, user, { blocking: mustBlock });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, profileRow?.id]);
+  }, [user?.id]);
 
   // Register: name + email only. Role/modules/team are set in User Management.
   const signUpWithProfile = async (email, password, profileData) => {
@@ -809,6 +833,11 @@ export const AuthProvider = ({ children }) => {
           ? profile.is_active !== false
           : cached?.is_active !== false,
     };
+    if (cached && isEmptyPendingAccessStub(row) && !isEmptyPendingAccessStub(cached)) {
+      setProfileRow(cached);
+      setProfileLoading(false);
+      return;
+    }
     writeCachedProfileRow(row);
     setProfileRow(row);
     setProfileLoading(false);
@@ -846,6 +875,7 @@ export const AuthProvider = ({ children }) => {
 
     return {
       username: profileRow.username ?? user?.email?.split('@')[0],
+      email: profileRow.email ?? user?.email ?? null,
       team: profileRow.team ?? null,
       role: normalizeAppRole(profileRow.role),
       allowed_modules: parseAllowedModulesList(profileRow.allowed_modules),
@@ -953,21 +983,27 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (!profileLoading || permissionsReady) return undefined;
     const t = setTimeout(() => {
-      if (!user?.id || profileRow?.id === user.id) {
+      if (!user?.id || (profileRow?.id === user.id && !isEmptyPendingAccessStub(profileRow))) {
         setProfileLoading(false);
         return;
       }
+      const cached = readCachedProfileRow(user.id);
+      if (cached && !isEmptyPendingAccessStub(cached)) {
+        setProfileRow(cached);
+        setProfileLoading(false);
+        return;
+      }
+      // Last resort only — empty stub; background sync will replace it when the network recovers.
       const fallbackRow = safeSelfSignupProfileFields({
         id: user.id,
         email: user.email ?? null,
         username: displayNameFromAuthMeta(user.user_metadata, user.email),
       });
-      writeCachedProfileRow(fallbackRow);
       setProfileRow(fallbackRow);
       setProfileLoading(false);
     }, PROFILE_FETCH_TIMEOUT_MS + 3000);
     return () => clearTimeout(t);
-  }, [profileLoading, permissionsReady, user, profileRow?.id]);
+  }, [profileLoading, permissionsReady, user, profileRow]);
 
   return (
     <AuthContext.Provider value={{ user, loading, profileLoading, permissionsReady, userProfile, accessibleModules, subModulePaths, navVisibleModules, billingVerticalCodes, billingVerticalGrantsReady, signIn, signOut, signUpWithProfile, resendConfirmation, requestPasswordReset, completePasswordReset, clearInvalidSession, verifyEmailOtp, applyCachedProfile, applyLoginProfile }}>

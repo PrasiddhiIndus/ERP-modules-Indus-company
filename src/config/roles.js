@@ -205,6 +205,7 @@ export function getAccessibleSubModulePaths(profile, userMetadata = null) {
 /** Normalize jsonb / text[] / JSON-string module key lists from profiles or cache. */
 export function parseAllowedModulesList(raw) {
   if (Array.isArray(raw)) return raw.filter(Boolean).map(String);
+  if (raw instanceof Set) return [...raw].filter(Boolean).map(String);
   if (typeof raw === "string" && raw.trim()) {
     try {
       const parsed = JSON.parse(raw);
@@ -1001,6 +1002,28 @@ function hasAssignedScopedModules(profile, userMetadata = null) {
   return Boolean(resolveTeamModuleKey(profile?.team) || normalizedAllowedModuleKeys(profile).length || hasSubModules);
 }
 
+/**
+ * True when the profile already has ERP access (team, modules, or Super Admin).
+ * A stuck `module_access_pending` flag must not hide those assignments.
+ */
+export function profileHasAssignedAccess(profile) {
+  const normalized = normalizeAccessProfile(profile);
+  if (
+    normalized.role === ROLES.SUPER_ADMIN ||
+    normalized.role === ROLES.SUPER_ADMIN_PRO
+  ) {
+    return true;
+  }
+  return hasAssignedScopedModules({ ...profile, ...normalized });
+}
+
+/** JWT/signup stub: pending, no team, no modules. Must never replace a real profile. */
+export function isEmptyPendingAccessStub(profile) {
+  if (!profile || typeof profile !== "object") return true;
+  if (profile.module_access_pending !== true) return false;
+  return !profileHasAssignedAccess(profile);
+}
+
 function buildScopedModuleSet(profile, { includeOverview = false } = {}) {
   const scoped = new Set(includeOverview ? ["overview", "settings"] : ["settings"]);
   const teamKey = resolveTeamModuleKey(profile?.team);
@@ -1210,7 +1233,9 @@ export function getAccessibleModules(profile) {
     return new Set();
   }
 
-  if (profile?.module_access_pending === true) {
+  // Pending only locks people who have not been assigned a team/modules yet.
+  // Super Admin and already-assigned users keep their modules if the flag is stale.
+  if (profile?.module_access_pending === true && !profileHasAssignedAccess(normalized)) {
     return new Set(['settings']);
   }
 

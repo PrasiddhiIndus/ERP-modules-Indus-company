@@ -1,10 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Activity,
-  AlertCircle,
-  CheckCircle2,
-  WifiOff,
-} from "lucide-react";
 import { API_STATUS } from "./config/apiConstants";
 import {
   MONITORED_APIS,
@@ -18,7 +12,6 @@ import { UNMONITORABLE_APIS } from "./config/unmonitorableApisReport";
 import {
   runAllApiHealthChecksBatched,
   runApiHealthCheck,
-  buildSummary,
   loadCachedSnapshots,
   SNAPSHOT_CACHE_TTL_MS,
 } from "./services/apiHealthService";
@@ -28,12 +21,10 @@ import {
   MonitoringHeader,
   MonitoringHelp,
   ErrorBanner,
-  SummaryCardsGrid,
+  PlatformStatusOverview,
   FilterPanel,
   SectionCard,
-  UptimeProgressBar,
 } from "./components/ApiMonitoringUi";
-import { formatMs } from "./components/apiMonitoringUtils";
 import { ApiHealthTableSection } from "./components/ApiHealthTable";
 import DbUsageQuotaPanel from "./components/DbUsageQuotaPanel";
 
@@ -234,11 +225,6 @@ export default function ApiHealthDashboard() {
     });
   }, [typeFilter, envFilter, statusFilter, search, snapshots]);
 
-  const summary = useMemo(
-    () => buildSummary(snapshots, filteredApis),
-    [snapshots, filteredApis]
-  );
-
   const tableRows = useMemo(
     () =>
       filteredApis.map((api) => {
@@ -264,16 +250,6 @@ export default function ApiHealthDashboard() {
         };
       }),
     [filteredApis, snapshots]
-  );
-
-  const quickOverviewRows = useMemo(
-    () =>
-      MONITORED_APIS.map((api) => ({
-        id: api.id,
-        name: api.name,
-        snap: snapshots[api.id],
-      })),
-    [snapshots]
   );
 
   const activeFilterCount = useMemo(() => {
@@ -317,15 +293,15 @@ export default function ApiHealthDashboard() {
 
       <ErrorBanner message={error} t={t} />
 
-      <DbUsageQuotaPanel t={t} reducedMotion={reducedMotion} />
-
-      <SummaryCardsGrid
-        summary={summary}
-        filteredCount={filteredApis.length}
-        avgUptime={summary.avgUptime}
+      <PlatformStatusOverview
+        apis={MONITORED_APIS}
+        snapshots={snapshots}
+        loading={initialLoading || refreshing}
+        lastRefreshAt={lastRefreshAt}
         t={t}
-        loading={initialLoading}
       />
+
+      <DbUsageQuotaPanel t={t} reducedMotion={reducedMotion} />
 
       <FilterPanel
         t={t}
@@ -358,72 +334,37 @@ export default function ApiHealthDashboard() {
         snapshots={snapshots}
       />
 
-      <div className="grid sm:grid-cols-2 gap-3">
-        <SectionCard title="Quick status overview" t={t}>
-          <ul className="space-y-2.5">
-            {quickOverviewRows.map(({ id, name, snap }) => {
-              const status = snap?.status || API_STATUS.offline;
-              const StatusIcon =
-                status === API_STATUS.online
-                  ? CheckCircle2
-                  : status === API_STATUS.degraded
-                    ? AlertCircle
-                    : WifiOff;
-              const iconColor =
-                status === API_STATUS.online
-                  ? "text-emerald-500"
-                  : status === API_STATUS.degraded
-                    ? "text-amber-500"
-                    : "text-red-500";
-              return (
-                <li key={id} className="flex items-center gap-3 text-xs">
-                  <StatusIcon className={`w-3.5 h-3.5 shrink-0 ${iconColor}`} aria-hidden />
-                  <span className={`flex-1 truncate font-medium ${t.text}`}>{name}</span>
-                  <span className={`tabular-nums shrink-0 w-14 text-right ${t.muted}`}>
-                    {snap?.latencyMs != null ? formatMs(snap.latencyMs) : "—"}
-                  </span>
-                  <div className="w-16 shrink-0 hidden sm:block">
-                    {snap?.uptimePercent != null ? (
-                      <UptimeProgressBar percent={snap.uptimePercent} t={t} showLabel={false} />
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </SectionCard>
-
-        <SectionCard
-          title="Discovery report"
-          t={t}
-          right={
-            <span className={`text-[11px] ${t.muted}`}>
-              Scanned {discoveryMeta.scannedAt}
-            </span>
-          }
+      <SectionCard
+        title="What we cannot check automatically"
+        t={t}
+        right={
+          <span className={`text-[11px] ${t.muted}`}>
+            {discoveryMeta.monitorableCount} services monitored
+          </span>
+        }
+      >
+        <p className={`text-xs mb-3 ${t.muted}`}>
+          These need a person or another system to verify — the app cannot probe them from the browser.
+        </p>
+        <div
+          className={`rounded-lg border px-3 py-2.5 text-[11px] space-y-2 ${t.border} ${
+            t.dark ? "bg-slate-800/50" : "bg-gray-50"
+          }`}
         >
-          <p className={`text-xs mb-3 ${t.muted}`}>
-            {discoveryMeta.monitorableCount} APIs auto-registered from codebase scan (
-            {discoveryMeta.internalCount} internal, {discoveryMeta.externalCount} external).
-            Duplicate call sites are consolidated per endpoint.
-          </p>
-          <div className={`rounded-lg border px-3 py-2.5 text-[11px] space-y-2 ${t.border} ${t.dark ? "bg-slate-800/50" : "bg-gray-50"}`}>
-            <p className={t.textSecondary}>
-              <span className={`font-semibold ${t.text}`}>{UNMONITORABLE_APIS.length}</span> dependencies cannot be
-              probed automatically from the browser:
-            </p>
-            <ul className={`space-y-2 max-h-48 overflow-y-auto ${t.muted}`}>
-              {UNMONITORABLE_APIS.map((item) => (
-                <li key={item.id} className="border-b border-dashed pb-2 last:border-0 last:pb-0" style={{ borderColor: t.dark ? "var(--text-strong)" : "var(--border)" }}>
-                  <p className={`font-medium ${t.text}`}>{item.name}</p>
-                  <p className="text-[10px] mt-0.5">{item.endpoint}</p>
-                  <p className="text-[10px] mt-1">{item.reason}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </SectionCard>
-      </div>
+          <ul className={`space-y-2 max-h-48 overflow-y-auto ${t.muted}`}>
+            {UNMONITORABLE_APIS.map((item) => (
+              <li
+                key={item.id}
+                className="border-b border-dashed pb-2 last:border-0 last:pb-0"
+                style={{ borderColor: t.dark ? "var(--text-strong)" : "var(--border)" }}
+              >
+                <p className={`font-medium ${t.text}`}>{item.name}</p>
+                <p className="text-[10px] mt-1">{item.reason}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </SectionCard>
     </MonitoringShell>
   );
 }
