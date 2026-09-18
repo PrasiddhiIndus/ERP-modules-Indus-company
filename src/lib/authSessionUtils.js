@@ -140,7 +140,14 @@ export async function refreshCachedAccessToken() {
       signal: controller.signal,
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errMsg = body?.msg || body?.error_description || body?.error || `HTTP ${res.status}`;
+      // Dead refresh token in localStorage — clear so supabase-js stops retrying.
+      if (res.status === 400 && isInvalidRefreshTokenError(errMsg)) {
+        clearSupabaseAuthStorage();
+      }
+      return null;
+    }
     return persistAuthSession(body);
   } catch {
     return null;
@@ -304,14 +311,10 @@ export async function hydrateSupabaseAuthFromCache(supabaseClient) {
     const { data, error } = await Promise.race([setSessionPromise, timeoutPromise]);
     if (error) {
       if (isInvalidRefreshTokenError(error.message)) {
-        // Direct REST login can yield a valid access JWT before refresh sync succeeds.
-        // Never wipe a still-valid cached session — that caused post-login redirect to /login.
-        if (isCachedAccessTokenExpired(0) && !hasCachedRefreshToken()) {
-          clearSupabaseAuthStorage();
-        } else if (isCachedAccessTokenExpired(0)) {
-          const recovered = await ensureFreshCachedSession({ forceRefresh: true });
-          if (!recovered?.access_token) clearSupabaseAuthStorage();
-        }
+        // Stale refresh token left in storage causes AuthApiError spam on every page load.
+        // Clear and send the user through a clean sign-in.
+        clearSupabaseAuthStorage();
+        return false;
       }
       // GET /auth/v1/user 403 (session_id) must not drop a still-valid JWT.
       if (!isCachedAccessTokenExpired(0) && readCachedSessionUser()?.id) {
@@ -498,9 +501,28 @@ function parseCachedModuleList(raw) {
   return [];
 }
 
+function isPendingEmptyCacheStub(profile) {
+  const mods = parseCachedModuleList(profile?.allowed_modules);
+  const subs = parseCachedModuleList(profile?.allowed_sub_modules);
+  const team = String(profile?.team || "").trim();
+  const role = String(profile?.role || "").trim().toLowerCase().replace(/\s+/g, "_");
+  const isSuper = role === "super_admin" || role === "superadmin" || role === "super_admin_pro" || role === "superadmin_pro";
+  return (
+    profile?.module_access_pending === true &&
+    !mods.length &&
+    !subs.length &&
+    !team &&
+    !isSuper
+  );
+}
+
 export function writeCachedProfileRow(profile) {
   if (!profile?.id) return;
   try {
+    const existing = readCachedProfileRow(profile.id);
+    if (existing && isPendingEmptyCacheStub(profile) && !isPendingEmptyCacheStub(existing)) {
+      return;
+    }
     sessionStorage.setItem(
       PROFILE_CACHE_KEY,
       JSON.stringify({

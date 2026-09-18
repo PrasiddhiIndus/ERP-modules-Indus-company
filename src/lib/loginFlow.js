@@ -14,6 +14,7 @@ import {
   parseAllowedModulesList,
   ROLES,
   normalizeAppRole,
+  isEmptyPendingAccessStub,
   MODULE_LANDING_PATHS,
   TEAMS,
 } from '../config/roles';
@@ -102,7 +103,8 @@ async function fillPrivilegeFieldsFromProfilesTable(userId) {
 
 function mergeLoginCheckProfile(edgeProfile, tableRow, cached) {
   const base = { ...(edgeProfile || {}) };
-  const fill = tableRow || cached || {};
+  // Prefer the live profiles row. Never copy pending=true from a signup stub cache.
+  const fill = tableRow || (cached && !isEmptyPendingAccessStub(cached) ? cached : {}) || {};
   if (!Object.prototype.hasOwnProperty.call(base, 'allowed_sub_modules')) {
     base.allowed_sub_modules = fill.allowed_sub_modules;
   }
@@ -110,7 +112,8 @@ function mergeLoginCheckProfile(edgeProfile, tableRow, cached) {
     base.allowed_modules = fill.allowed_modules;
   }
   if (!Object.prototype.hasOwnProperty.call(base, 'module_access_pending')) {
-    base.module_access_pending = fill.module_access_pending;
+    // Legacy login-check omitted this column. Missing ≠ pending.
+    base.module_access_pending = tableRow ? tableRow.module_access_pending === true : false;
   }
   if (!Object.prototype.hasOwnProperty.call(base, 'is_active')) {
     base.is_active = fill.is_active;
@@ -118,6 +121,13 @@ function mergeLoginCheckProfile(edgeProfile, tableRow, cached) {
   if (base.team == null && fill.team != null) base.team = fill.team;
   if (!base.role && fill.role) base.role = fill.role;
   return base;
+}
+
+function preferRicherProfile(candidate, cached) {
+  if (cached && isEmptyPendingAccessStub(candidate) && !isEmptyPendingAccessStub(cached)) {
+    return cached;
+  }
+  return candidate;
 }
 
 /**
@@ -145,9 +155,10 @@ export async function fetchLoginProfile(session, quickProfile, { timeoutMs = 800
     const result = await Promise.race([checkPromise, timeoutPromise]);
     if (result?.timedOut) {
       logLoginStage('profile-fetch-timeout', { timeoutMs });
-      cacheProfileSnapshot(session, fallback);
+      const profile = preferRicherProfile(fallback, cached);
+      cacheProfileSnapshot(session, profile);
       return {
-        profile: fallback,
+        profile,
         source: 'safe-default-timeout',
         warning: 'Profile sync timed out. Sidebar may update in a moment.',
       };
@@ -173,9 +184,10 @@ export async function fetchLoginProfile(session, quickProfile, { timeoutMs = 800
 
     if (error) {
       logLoginStage('profile-fetch-error', { message: error?.message || String(error) });
-      cacheProfileSnapshot(session, fallback);
+      const profile = preferRicherProfile(fallback, cached);
+      cacheProfileSnapshot(session, profile);
       return {
-        profile: fallback,
+        profile,
         source: 'safe-default-after-error',
         warning: null,
       };
@@ -192,14 +204,17 @@ export async function fetchLoginProfile(session, quickProfile, { timeoutMs = 800
         rawProfile = mergeLoginCheckProfile(rawProfile, tableRow, cached);
         if (tableRow) source = 'login-check+profiles';
       }
-      const profile = normalizeAccessProfile({
-        role: rawProfile.role,
-        team: rawProfile.team ?? null,
-        allowed_modules: rawProfile.allowed_modules,
-        allowed_sub_modules: rawProfile.allowed_sub_modules,
-        module_access_pending: rawProfile.module_access_pending === true,
-        is_active: rawProfile.is_active !== false,
-      });
+      const profile = preferRicherProfile(
+        normalizeAccessProfile({
+          role: rawProfile.role,
+          team: rawProfile.team ?? null,
+          allowed_modules: rawProfile.allowed_modules,
+          allowed_sub_modules: rawProfile.allowed_sub_modules,
+          module_access_pending: rawProfile.module_access_pending === true,
+          is_active: rawProfile.is_active !== false,
+        }),
+        cached
+      );
       writeCachedProfileRow({
         id: session.user.id,
         email: rawProfile.email ?? session.user.email ?? null,
@@ -235,12 +250,14 @@ export async function fetchLoginProfile(session, quickProfile, { timeoutMs = 800
     }
 
     logLoginStage('profile-fetch-empty', { chk });
-    cacheProfileSnapshot(session, fallback);
-    return { profile: fallback, source: 'safe-default', warning: null };
+    const emptyProfile = preferRicherProfile(fallback, cached);
+    cacheProfileSnapshot(session, emptyProfile);
+    return { profile: emptyProfile, source: 'safe-default', warning: null };
   } catch (err) {
     logLoginStage('profile-fetch-exception', { message: err?.message || String(err) });
-    cacheProfileSnapshot(session, fallback);
-    return { profile: fallback, source: 'safe-default-exception', warning: null };
+    const profile = preferRicherProfile(fallback, cached);
+    cacheProfileSnapshot(session, profile);
+    return { profile, source: 'safe-default-exception', warning: null };
   }
 }
 

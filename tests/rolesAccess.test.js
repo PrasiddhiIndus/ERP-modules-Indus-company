@@ -101,6 +101,30 @@ describe('getAccessibleModules — unassigned privilege escalation fix', () => {
     expect(mods.has('userManagement')).toBe(true);
   });
 
+  it('(d) Super Admin keeps modules when pending flag is stale', () => {
+    const mods = getAccessibleModules({
+      role: ROLES.SUPER_ADMIN,
+      team: null,
+      allowed_modules: [],
+      module_access_pending: true,
+    });
+    expect(mods.has('hr')).toBe(true);
+    expect(mods.has('userManagement')).toBe(true);
+    expect(mods.has('overview')).toBe(true);
+  });
+
+  it('(d) assigned team still grants the module when pending flag is stale', () => {
+    const mods = getAccessibleModules({
+      role: ROLES.EXECUTIVE,
+      team: 'HR',
+      allowed_modules: [],
+      module_access_pending: true,
+    });
+    expect(mods.has('hr')).toBe(true);
+    expect(mods.has('settings')).toBe(true);
+    expect(mods.has('userManagement')).toBe(false);
+  });
+
   it('(d) Super Admin Pro unaffected', () => {
     const mods = getAccessibleModules({
       role: ROLES.SUPER_ADMIN_PRO,
