@@ -27,7 +27,6 @@ import {
 } from '../../utils/poPincodeFields';
 import { rollupMainPoBilling, pickInvoiceForEdit } from '../../utils/billingInvoiceRollup';
 import { poMatchesBillingTab } from '../../utils/billingPoListFilters';
-import { resolveCategoryRateForBilling } from '../../utils/poPriceEscalation';
 import {
   applyPreGstSupplementaryRows,
   createPreGstSupplementaryRow,
@@ -234,10 +233,7 @@ function getPoTotalQtyForRollup(po) {
   }, 0));
 }
 
-function getRateCategoryRate(row, po = null, billingDate = null) {
-  if (po) {
-    return resolveCategoryRateForBilling(po, row, billingDate);
-  }
+function getRateCategoryRate(row) {
   return firstPositiveNumber(row, ['rate', 'poRate', 'po_rate', 'poReferenceRate', 'po_reference_rate']);
 }
 

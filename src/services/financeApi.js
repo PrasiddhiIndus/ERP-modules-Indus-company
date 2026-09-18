@@ -201,6 +201,36 @@ export async function fetchFinanceModuleData({ force = false } = {}) {
   return enriched;
 }
 
+/** Lightweight load for Site Ledger — margins only (avoids full period_entries pull). */
+export async function fetchFinanceMarginsOnly({ force = false } = {}) {
+  if (!force && cache && Date.now() - cacheAt < CACHE_TTL_MS) {
+    return {
+      targetMargin: cache.targetMargin ?? 12,
+      warnMargin: cache.warnMargin ?? 8,
+      settings: cache.settings || [],
+      settingsMap: cache.settingsMap || {},
+    };
+  }
+
+  const settingsRes = await fetchRows("settings", { order: ["setting_key", { ascending: true }] });
+  if (settingsRes.error) {
+    throw new Error(financeErrorMsg(settingsRes.error, "Load finance settings"));
+  }
+
+  const settings = settingsRes.data || [];
+  const settingsMap = {};
+  settings.forEach((r) => {
+    settingsMap[r.setting_key] = r.setting_value || {};
+  });
+  const marginSettings = settingsMap.margin_targets || {};
+  return {
+    targetMargin: Number(marginSettings.target_margin) || 12,
+    warnMargin: Number(marginSettings.warn_margin) || 8,
+    settings,
+    settingsMap,
+  };
+}
+
 function periodFromDateValue(val) {
   if (!val) return null;
   const s = String(val);

@@ -6,9 +6,15 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../../contexts/AuthContext";
-import { fetchFinanceModuleData, financeErrorMsg, invalidateFinanceCache, subscribeFinanceRefresh } from "../../../services/financeApi";
+import {
+  fetchFinanceModuleData,
+  fetchFinanceMarginsOnly,
+  financeErrorMsg,
+  invalidateFinanceCache,
+  subscribeFinanceRefresh,
+} from "../../../services/financeApi";
 import { buildMonthOptions, currentPeriodKey, getPeriodRange } from "../lib/periods";
 import {
   calcSite,
@@ -25,30 +31,54 @@ import {
   isFinanceAdmin,
 } from "../constants/permissions";
 import { filterSitesByFinancePlAccess } from "../constants/financePlSiteAccess";
+import { getFinanceTabFromPath } from "../navConfig";
 
 const FinanceContext = createContext(null);
 
+const EMPTY_FINANCE_SHELL = {
+  sites: [],
+  records: {},
+  revenueHeads: [],
+  spreads: [],
+  userSiteAccess: [],
+  settings: [],
+  settingsMap: {},
+};
+
 export function FinanceProvider({ children }) {
   const { userProfile, accessibleModules } = useAuth();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const financeTab = getFinanceTabFromPath(location.pathname);
   const months = useMemo(() => buildMonthOptions(), []);
 
   const load = useCallback(async (force = false) => {
     setLoading(true);
     setError(null);
     try {
-      const bundle = await fetchFinanceModuleData({ force });
-      setData(bundle);
+      if (financeTab === "site-ledger") {
+        const margins = await fetchFinanceMarginsOnly({ force });
+        setData((prev) => ({
+          ...(prev || EMPTY_FINANCE_SHELL),
+          targetMargin: margins.targetMargin,
+          warnMargin: margins.warnMargin,
+          settings: margins.settings,
+          settingsMap: margins.settingsMap,
+        }));
+      } else {
+        const bundle = await fetchFinanceModuleData({ force });
+        setData(bundle);
+      }
     } catch (e) {
       setError(financeErrorMsg(e, "Load finance data"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [financeTab]);
 
   useEffect(() => {
     load();

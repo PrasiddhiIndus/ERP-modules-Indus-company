@@ -49,15 +49,7 @@ import {
   filterClientSnapshotByPoEntryAcl,
   poEntryAclDepartmentLabel,
 } from '../../utils/poEntryFieldPermissions';
-import PoPriceEscalationSection from './PoPriceEscalationSection';
-import {
-  appendPriceEscalationHistory,
-  buildPricingPeriods,
-  enrichEscalationScheduleForDisplay,
-  normalizeEscalationSchedule,
-  validateEscalationSchedule,
-  validatePoEffectiveDate,
-} from '../../utils/poPriceEscalation';
+import { validatePoEffectiveDate } from '../../utils/poEffectiveDate';
 
 import { toast } from "../../lib/toast";
 function formatPoCurrency(value) {
@@ -301,7 +293,34 @@ const emptyRateCategoryRow = () => ({
   qty: '',
   rate: '',
   penalty: '',
+  rateEscalation1: '',
+  rateEscalation2: '',
+  rateEscalation3: '',
+  rateEscalation4: '',
 });
+
+/** Max Rate Escalation columns shown in PO Entry when Price Escalation = Yes. */
+const RATE_ESCALATION_MAX = 4;
+
+function clampRateEscalationCount(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(RATE_ESCALATION_MAX, Math.max(1, Math.round(n)));
+}
+
+function optionalEscalationAmount(raw) {
+  if (raw === '' || raw == null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function readRateEscalationField(row, index) {
+  const camel = row?.[`rateEscalation${index}`];
+  if (camel !== undefined && camel !== null && camel !== '') return camel;
+  const snake = row?.[`rate_escalation_${index}`];
+  if (snake !== undefined && snake !== null && snake !== '') return snake;
+  return '';
+}
 
 /** Align Rate per Category rows to Manpower details: Description ← Designation, Qty ← No. of manpower. */
 function applyManpowerRowToRateRow(rateRow, mpRow) {
@@ -822,6 +841,10 @@ function normalizeRateRowsForHistory(rows) {
     qty: r?.qty ?? r?.quantity ?? '',
     rate: r?.rate ?? '',
     penalty: r?.penalty ?? '',
+    rateEscalation1: readRateEscalationField(r, 1),
+    rateEscalation2: readRateEscalationField(r, 2),
+    rateEscalation3: readRateEscalationField(r, 3),
+    rateEscalation4: readRateEscalationField(r, 4),
   }));
 }
 
@@ -1145,7 +1168,7 @@ const initialForm = {
   poBasis: PO_BASIS_WITH_PO,
   poEffectiveDate: '',
   priceEscalationEnabled: false,
-  priceEscalationSchedule: [],
+  rateEscalationCount: 1,
 };
 
 const POEntry = () => {
@@ -1596,6 +1619,10 @@ const POEntry = () => {
             qty: r.qty ?? r.quantity ?? r.poQty ?? r.po_qty ?? '',
             rate: r.rate ?? '',
             penalty: r.penalty ?? r.category_penalty ?? '',
+            rateEscalation1: readRateEscalationField(r, 1),
+            rateEscalation2: readRateEscalationField(r, 2),
+            rateEscalation3: readRateEscalationField(r, 3),
+            rateEscalation4: readRateEscalationField(r, 4),
           }))
         : [emptyRateCategoryRow()],
       manpowerDetails: Array.isArray(po.manpowerDetails) && po.manpowerDetails.length
@@ -1616,11 +1643,9 @@ const POEntry = () => {
       poDate: po.poDate || '',
       poEffectiveDate: po.poEffectiveDate || po.po_effective_date || po.startDate || po.start_date || '',
       priceEscalationEnabled: po.priceEscalationEnabled === true || po.price_escalation_enabled === true,
-      priceEscalationSchedule: Array.isArray(po.priceEscalationSchedule)
-        ? po.priceEscalationSchedule
-        : Array.isArray(po.price_escalation_schedule)
-          ? po.price_escalation_schedule
-          : [],
+      rateEscalationCount: clampRateEscalationCount(
+        po.rateEscalationCount ?? po.rate_escalation_count ?? 1
+      ),
       pincode: normalizePoPincode(po.pincode),
       shipToPincode: normalizePoPincode(po.shipToPincode ?? po.ship_to_pincode),
       billToShipToPinSame: deriveBillToShipToPinSameFromPo(po),
@@ -1806,11 +1831,6 @@ const POEntry = () => {
         next.poEffectiveDate = next.startDate;
       }
       const total = editId ? next.newCycleTotalContractValue : next.totalContractValue;
-      // Escalation off: keep legacy monthly = TCV ÷ months. Escalation on: base monthly still from dates/TCV.
-      if (next.priceEscalationEnabled !== true) {
-        const calc = computeMonthlyValueFromContract(total, next.startDate, next.endDate);
-        return { ...next, monthlyValue: calc === '' ? '' : String(calc) };
-      }
       const calc = computeMonthlyValueFromContract(total, next.startDate, next.endDate);
       return { ...next, monthlyValue: calc === '' ? '' : String(calc) };
     });
@@ -1868,14 +1888,6 @@ const POEntry = () => {
       setSaveError(effectiveDateErr);
       toast.warning(effectiveDateErr);
       return;
-    }
-    if (formData.priceEscalationEnabled === true) {
-      const escErrors = validateEscalationSchedule(formData);
-      if (escErrors.length) {
-        setSaveError(escErrors[0]);
-        toast.warning(escErrors[0]);
-        return;
-      }
     }
 
     const isWithoutPo = formData.poBasis === PO_BASIS_WITHOUT_PO;
@@ -1959,58 +1971,32 @@ const POEntry = () => {
     const poType = trainingSelected
       ? 'Per Day'
       : (ALLOWED_MANPOWER_PO_TYPES.has(formData.billingType) ? formData.billingType : 'Monthly');
-    const rates = formData.ratePerCategory.map((r) => ({
-      description: (r.description || '').trim() || 'Other',
-      hsnSac: String(r.hsnSac ?? r.hsn_sac ?? r.sacHsn ?? r.sac_hsn ?? '').trim(),
-      materialCode: String(r.materialCode ?? r.material_code ?? '').trim(),
-      qty: Number(r.qty) || 0,
-      rate: Number(r.rate) || 0,
-      penalty:
-      formData.billingType === 'Lump Sum'
-          ? Math.max(0, Number(r.penalty) || 0)
-          : 0,
-    }));
-    const scheduleNormalized = formData.priceEscalationEnabled
-      ? enrichEscalationScheduleForDisplay({
-          ...formData,
-          priceEscalationEnabled: true,
-        })
-      : normalizeEscalationSchedule(formData.priceEscalationSchedule);
-
+    const rates = formData.ratePerCategory.map((r) => {
+      const enabled = formData.priceEscalationEnabled === true;
+      const count = enabled ? clampRateEscalationCount(formData.rateEscalationCount) : 0;
+      return {
+        description: (r.description || '').trim() || 'Other',
+        hsnSac: String(r.hsnSac ?? r.hsn_sac ?? r.sacHsn ?? r.sac_hsn ?? '').trim(),
+        materialCode: String(r.materialCode ?? r.material_code ?? '').trim(),
+        qty: Number(r.qty) || 0,
+        rate: Number(r.rate) || 0,
+        penalty:
+          formData.billingType === 'Lump Sum'
+            ? Math.max(0, Number(r.penalty) || 0)
+            : 0,
+        rateEscalation1: enabled && count >= 1 ? optionalEscalationAmount(r.rateEscalation1) : null,
+        rateEscalation2: enabled && count >= 2 ? optionalEscalationAmount(r.rateEscalation2) : null,
+        rateEscalation3: enabled && count >= 3 ? optionalEscalationAmount(r.rateEscalation3) : null,
+        rateEscalation4: enabled && count >= 4 ? optionalEscalationAmount(r.rateEscalation4) : null,
+      };
+    });
     const primaryTotalNum = primaryTotalEmpty
       ? (formData.newCycleTotalContractValue !== '' && formData.newCycleTotalContractValue != null
           ? Number(formData.newCycleTotalContractValue) || 0
           : 0)
       : Number(formData.totalContractValue) || 0;
 
-    // Base monthly from entered TCV ÷ duration (legacy). Never derive from escalated contract value.
-    const baseMonthlyForEscalation = (() => {
-      if (!formData.monthlyValueManual) {
-        const recalc = computeMonthlyValueFromContract(
-          primaryTotalNum,
-          formData.startDate,
-          formData.endDate
-        );
-        if (recalc !== '') {
-          const n = Number(recalc);
-          return Number.isFinite(n) ? n : 0;
-        }
-      }
-      const n = Number(formData.monthlyValue);
-      return Number.isFinite(n) ? n : 0;
-    })();
-
-    let totalVal = primaryTotalNum;
-    if (formData.priceEscalationEnabled === true) {
-      const projected = buildPricingPeriods({
-        ...formData,
-        priceEscalationEnabled: true,
-        monthlyValue: baseMonthlyForEscalation,
-        priceEscalationSchedule: scheduleNormalized,
-        poEffectiveDate: formData.poEffectiveDate || formData.startDate || '',
-      }).projectedContractValue;
-      if (projected > 0) totalVal = projected;
-    }
+    const totalVal = primaryTotalNum;
     const totalContractMonthVal =
       poType === 'Lump Sum'
         ? Number(formData.totalContractMonth) || null
@@ -2068,29 +2054,8 @@ const POEntry = () => {
       editId ? prevPo?.ratePerCategory : null,
       nowIso
     );
-    let historyFinal = historyWithRates;
-    const prevScheduleJson = JSON.stringify(
-      normalizeEscalationSchedule(prevPo?.priceEscalationSchedule || prevPo?.price_escalation_schedule)
-    );
-    const nextScheduleJson = JSON.stringify(scheduleNormalized);
-    if (
-      formData.priceEscalationEnabled === true &&
-      (prevPo?.priceEscalationEnabled !== true || prevScheduleJson !== nextScheduleJson)
-    ) {
-      historyFinal = appendPriceEscalationHistory(historyWithRates, {
-        summary: 'Price escalation schedule saved',
-        poEffectiveDate: formData.poEffectiveDate || formData.startDate || null,
-        schedule: scheduleNormalized,
-        projectedContractValue: totalVal,
-        baseMonthlyValue: baseMonthlyForEscalation,
-        reason: 'PO save',
-        createdBy: currentActorName,
-      });
-    }
+    const historyFinal = historyWithRates;
     const monthlyValueNum = (() => {
-      if (formData.priceEscalationEnabled === true) {
-        return Number.isFinite(baseMonthlyForEscalation) ? baseMonthlyForEscalation : null;
-      }
       if (!formData.monthlyValueManual) {
         const recalc = computeMonthlyValueFromContract(totalVal, formData.startDate, formData.endDate);
         if (recalc !== '') {
@@ -2161,7 +2126,10 @@ const POEntry = () => {
         formData.startDate ||
         null,
       priceEscalationEnabled: formData.priceEscalationEnabled === true,
-      priceEscalationSchedule: formData.priceEscalationEnabled === true ? scheduleNormalized : [],
+      rateEscalationCount:
+        formData.priceEscalationEnabled === true
+          ? clampRateEscalationCount(formData.rateEscalationCount)
+          : null,
       pincode: String(formData.pincode || '').trim() || null,
       shipToPincode:
         canPincodeShipTo && !canPincodeBillTo
@@ -2325,6 +2293,10 @@ const POEntry = () => {
   }, [poForHistory, commercialPOs]);
   const isLumpSumMode = formData.billingType === 'Lump Sum';
   const isLumpSumPenaltyMode = formData.billingType === 'Lump Sum';
+  const visibleRateEscalationCount =
+    formData.priceEscalationEnabled === true
+      ? clampRateEscalationCount(formData.rateEscalationCount)
+      : 0;
   const monthlyContractValue =
     isLumpSumMode && Number(formData.totalContractMonth) > 0
       ? Math.round(
@@ -2708,8 +2680,8 @@ const POEntry = () => {
         </div>
       )}
       {showForm && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-start justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-5xl w-full my-8 max-h-[90vh] overflow-y-auto border border-gray-200">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-start justify-center p-3 sm:p-4 lg:left-64">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-[min(96rem,100%)] my-6 sm:my-8 max-h-[90vh] overflow-y-auto border border-gray-200">
             <div className="px-6 py-4 border-b border-gray-200 sticky top-0 bg-white/95 backdrop-blur flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 leading-tight">{editId ? 'Edit PO/WO' : 'Add PO/WO'}</h3>
@@ -2733,13 +2705,13 @@ const POEntry = () => {
                 ×
               </button>
             </div>
-            <div className="p-4 sm:p-6 space-y-5 bg-gray-50">
+            <div className="p-4 sm:p-6 space-y-5 bg-gray-50 [&_label]:text-[13px] [&_input]:text-sm [&_select]:text-sm [&_textarea]:text-sm">
               {showClientIdentitySection ? (
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
                 <div className="flex items-center justify-between gap-3 mb-4">
                   <h4 className="text-sm font-semibold text-gray-900">1. Client Identity</h4>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-5 gap-y-4">
                   {canLegalName ? (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-legal-name">
@@ -2756,7 +2728,10 @@ const POEntry = () => {
                   </div>
                   ) : null}
                   {canBillingAddress ? (
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Address (with State)</label><input type="text" value={formData.billingAddress} onChange={(e) => { const v = e.target.value; setFormData((p) => ({ ...p, billingAddress: v })); if (canPlaceOfSupply) { const msg = validateGstSupplyTypeForState(formData.placeOfSupply, v, resolveGstSupplyTypeFromForm({ isSez: formData.isSez, placeOfSupply: formData.placeOfSupply })); setGstTypeError(msg); } }} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full address including State" /></div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Billing Address (with State)</label>
+                    <input type="text" value={formData.billingAddress} onChange={(e) => { const v = e.target.value; setFormData((p) => ({ ...p, billingAddress: v })); if (canPlaceOfSupply) { const msg = validateGstSupplyTypeForState(formData.placeOfSupply, v, resolveGstSupplyTypeFromForm({ isSez: formData.isSez, placeOfSupply: formData.placeOfSupply })); setGstTypeError(msg); } }} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full address including State" />
+                  </div>
                   ) : null}
                   {(canPincodeBillTo || canLocationName || canPincodeShipTo || showShipToAddressFields) ? (
                   <PoClientPincodeFields
@@ -2952,7 +2927,7 @@ const POEntry = () => {
                           </button>
                         ) : null}
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-5 gap-y-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             {index === 0 ? 'Current Coordinator' : 'Contact Name'}
@@ -3054,7 +3029,7 @@ const POEntry = () => {
                   {canPoFinancials || canBillingBasic || canPoDate ? '3. PO / Financials' : '3. OC Number'}
                 </h4>
                 {canBillingBasic ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-5 gap-y-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-billing-basis">
                       Billing basis
@@ -3090,7 +3065,7 @@ const POEntry = () => {
                   </div>
                 </div>
                 ) : null}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-5 gap-y-4">
                   {canOcNumber && formData.poBasis === PO_BASIS_WITHOUT_PO ? (
                     <>
                       <div>
@@ -3272,7 +3247,7 @@ const POEntry = () => {
                   </div>
                 ) : null}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-5 gap-y-4 mt-3">
                   {canPoFinancials ? (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -3398,18 +3373,17 @@ const POEntry = () => {
                           monthlyValueManual: true,
                         }))
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                      className="w-full max-w-sm border border-gray-300 rounded-lg px-3 py-2 bg-white"
                       min="0"
                       step="0.01"
                       placeholder="Total ÷ contract months"
                     />
                     <p className="text-[11px] text-gray-500 mt-1">
                       Auto-calculated as total contract value ÷ contract duration in months (e.g. 01/04/2024–31/03/2027 = 36). Editable if needed.
-                      When Price Escalation is Yes, this stays the <span className="font-medium">base</span> monthly rate.
                     </p>
                   </div>
                   {canPoFinancials ? (
-                  <div className="md:col-span-2">
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-price-escalation">
                       Price Escalation
                     </label>
@@ -3421,11 +3395,9 @@ const POEntry = () => {
                         setFormData((p) => ({
                           ...p,
                           priceEscalationEnabled: enabled,
-                          poEffectiveDate:
-                            p.poEffectiveDate || p.startDate || '',
-                          priceEscalationSchedule: enabled
-                            ? p.priceEscalationSchedule || []
-                            : [],
+                          rateEscalationCount: enabled
+                            ? clampRateEscalationCount(p.rateEscalationCount || 1)
+                            : p.rateEscalationCount || 1,
                         }));
                       }}
                       className="w-full max-w-xs border border-gray-300 rounded-lg px-3 py-2 bg-white"
@@ -3433,18 +3405,30 @@ const POEntry = () => {
                       <option value="no">No</option>
                       <option value="yes">Yes</option>
                     </select>
-                    {formData.priceEscalationEnabled ? (
-                      <PoPriceEscalationSection
-                        formData={formData}
-                        setFormData={setFormData}
-                        canEdit={canPoFinancials}
-                        updateHistory={
-                          editId
-                            ? commercialPOs.find((p) => p.id === editId)?.updateHistory || []
-                            : []
-                        }
-                      />
-                    ) : null}
+                  </div>
+                  ) : null}
+                  {canPoFinancials && formData.priceEscalationEnabled ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-rate-escalation-count">
+                      No. of Rate Escalations
+                    </label>
+                    <select
+                      id="sales-po-rate-escalation-count"
+                      value={clampRateEscalationCount(formData.rateEscalationCount)}
+                      onChange={(e) =>
+                        setFormData((p) => ({
+                          ...p,
+                          rateEscalationCount: clampRateEscalationCount(e.target.value),
+                        }))
+                      }
+                      className="w-full max-w-xs border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                    >
+                      {[1, 2, 3, 4].map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   ) : null}
                   {canPaymentTerms ? (
@@ -3461,7 +3445,7 @@ const POEntry = () => {
                             selectedTerm === CUSTOM_MT_PAYMENT_TERM ? p.customPaymentTerms : '',
                         }));
                       }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full max-w-sm border border-gray-300 rounded-lg px-3 py-2"
                     >
                       {MT_PAYMENT_TERMS_OPTIONS.map((term) => (
                         <option key={term} value={term}>{term}</option>
@@ -3566,7 +3550,7 @@ const POEntry = () => {
                 </>
                 ) : null}
                 {canPaymentTerms && !canPoFinancials ? (
-                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-5 gap-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
                     <select
@@ -3580,7 +3564,7 @@ const POEntry = () => {
                             selectedTerm === CUSTOM_MT_PAYMENT_TERM ? p.customPaymentTerms : '',
                         }));
                       }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full max-w-sm border border-gray-300 rounded-lg px-3 py-2"
                     >
                       {MT_PAYMENT_TERMS_OPTIONS.map((term) => (
                         <option key={term} value={term}>{term}</option>
@@ -3610,13 +3594,13 @@ const POEntry = () => {
                       + Add row
                     </button>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+                    <table className="min-w-[40rem] w-full border-collapse">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Designation</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">No. of manpower</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Duty pattern</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 min-w-[12rem]">Designation</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 min-w-[8rem]">No. of manpower</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 min-w-[10rem]">Duty pattern</th>
                           <th className="w-10" />
                         </tr>
                       </thead>
@@ -3692,7 +3676,7 @@ const POEntry = () => {
                 </div>
                 ) : null}
                 {(canRelieverScope || canAccommodationScope || canTransportationScope) ? (
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-5 gap-y-4">
                   {canRelieverScope ? (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-reliever-scope">
@@ -3702,7 +3686,7 @@ const POEntry = () => {
                       id="sales-po-reliever-scope"
                       value={formData.relieverScope}
                       onChange={(e) => setFormData((p) => ({ ...p, relieverScope: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full max-w-sm border border-gray-300 rounded-lg px-3 py-2"
                     >
                       <option value="">Select reliever scope</option>
                       {RELIEVER_SCOPE_OPTIONS.map((opt) => (
@@ -3720,7 +3704,7 @@ const POEntry = () => {
                       id="sales-po-accommodation-scope"
                       value={formData.accommodationScope}
                       onChange={(e) => setFormData((p) => ({ ...p, accommodationScope: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full max-w-sm border border-gray-300 rounded-lg px-3 py-2"
                     >
                       <option value="">Select accommodation</option>
                       {ACCOMMODATION_TRANSPORT_SCOPE_OPTIONS.map((opt) => (
@@ -3738,7 +3722,7 @@ const POEntry = () => {
                       id="sales-po-transportation-scope"
                       value={formData.transportationScope}
                       onChange={(e) => setFormData((p) => ({ ...p, transportationScope: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full max-w-sm border border-gray-300 rounded-lg px-3 py-2"
                     >
                       <option value="">Select transportation</option>
                       {ACCOMMODATION_TRANSPORT_SCOPE_OPTIONS.map((opt) => (
@@ -3754,7 +3738,7 @@ const POEntry = () => {
               {showTimelinesSection ? (
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
                 <h4 className="text-sm font-semibold text-gray-900 mb-4">5. Billing Configuration &amp; Terms</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-5 gap-y-4">
                   {canBillingType && String(formData.vertical || '').trim().toLowerCase() !== 'training' ? (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Billing Type</label>
@@ -3774,7 +3758,7 @@ const POEntry = () => {
                             totalContractMonth: bt === 'Lump Sum' ? p.totalContractMonth : '',
                           }));
                         }}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        className="w-full max-w-sm border border-gray-300 rounded-lg px-3 py-2"
                       >
                         {BILLING_TYPES.map((t) => (
                           <option key={t} value={t}>{t}</option>
@@ -3789,17 +3773,23 @@ const POEntry = () => {
                     <label className="text-sm font-medium text-gray-700">Rate per Category</label>
                     <button type="button" onClick={addRateRow} className="text-sm text-blue-600 hover:underline">+ Add row</button>
                   </div>
-                  <table className="min-w-full border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+                  <table className="min-w-[48rem] w-full border-collapse">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Description</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 min-w-[10rem]">Description</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 min-w-[7rem]">
                           {formData.materialCodeRequired ? 'Material code' : 'SAC/HSN'}
                         </th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 w-24">Qty</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 min-w-[7rem]">Rate (₹)</th>
+                        {Array.from({ length: visibleRateEscalationCount }, (_, i) => (
+                          <th key={`esc-h-${i + 1}`} className="px-3 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap min-w-[8.5rem]">
+                            Rate Escalation {i + 1} (₹)
+                          </th>
+                        ))}
                         {isLumpSumPenaltyMode ? (
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Penalty rate (₹)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 min-w-[8rem]">Penalty rate (₹)</th>
                         ) : null}
                         <th className="w-10" />
                       </tr>
@@ -3848,6 +3838,21 @@ const POEntry = () => {
                               min="0"
                             />
                           </td>
+                          {Array.from({ length: visibleRateEscalationCount }, (_, i) => {
+                            const field = `rateEscalation${i + 1}`;
+                            return (
+                              <td key={`esc-c-${idx}-${i + 1}`} className="px-3 py-2">
+                                <input
+                                  type="number"
+                                  value={r[field] ?? ''}
+                                  onChange={(e) => updateRateRow(idx, field, e.target.value)}
+                                  className="border border-gray-300 rounded px-2 py-1 w-full min-w-[6rem]"
+                                  min="0"
+                                  step="0.01"
+                                />
+                              </td>
+                            );
+                          })}
                           {isLumpSumPenaltyMode ? (
                             <td className="px-3 py-2">
                               <input
@@ -3867,8 +3872,9 @@ const POEntry = () => {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                   {formData.materialCodeRequired ? (
-                    <div className="mt-3">
+                    <div className="mt-3 max-w-md">
                       <label className="block text-xs font-medium text-gray-600 mb-1">SAC/HSN code (combined)</label>
                       <input
                         type="text"
@@ -3887,12 +3893,12 @@ const POEntry = () => {
                   ) : null}
                 </div>
                 ) : null}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-5 gap-y-4 mt-4">
                   {canRemarks ? (
-                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Remarks (internal)</label><input type="text" value={formData.remarks} onChange={(e) => setFormData((p) => ({ ...p, remarks: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Internal only — not printed on tax invoice" /></div>
+                  <div className="sm:col-span-2 xl:col-span-3"><label className="block text-sm font-medium text-gray-700 mb-1">Remarks (internal)</label><input type="text" value={formData.remarks} onChange={(e) => setFormData((p) => ({ ...p, remarks: e.target.value }))} className="w-full max-w-3xl border border-gray-300 rounded-lg px-3 py-2" placeholder="Internal only — not printed on tax invoice" /></div>
                   ) : null}
                   {(canWithFireTender || canMaterialCodeRequired) ? (
-                  <div className="md:col-span-2 flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
+                  <div className="sm:col-span-2 xl:col-span-3 flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
                     {canWithFireTender ? (
                     <label className="flex items-center gap-2">
                       <input
@@ -3921,7 +3927,7 @@ const POEntry = () => {
                   ) : null}
                   {canRevisedPoFlags ? (
                   <>
-                  <p className="md:col-span-2 text-xs font-semibold text-gray-700">
+                  <p className="sm:col-span-2 xl:col-span-3 text-xs font-semibold text-gray-700">
                     Select to enable PO updates and Renewal reminders
                   </p>
                   <div className="flex flex-wrap gap-6"><label className="flex items-center gap-2"><input type="checkbox" checked={formData.revisedPO} onChange={(e) => setFormData((p) => ({ ...p, revisedPO: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">PO Updated</span></label><label className="flex items-center gap-2"><input type="checkbox" checked={formData.renewalPending} onChange={(e) => setFormData((p) => ({ ...p, renewalPending: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">Renewal Due</span></label></div>
@@ -4137,6 +4143,15 @@ const POEntry = () => {
                       }
                     />
                   ) : null}
+                  {canPoFinancials &&
+                  (poForView.priceEscalationEnabled || poForView.price_escalation_enabled) ? (
+                    <PoViewField
+                      label="No. of rate escalations"
+                      value={clampRateEscalationCount(
+                        poForView.rateEscalationCount ?? poForView.rate_escalation_count ?? 1
+                      )}
+                    />
+                  ) : null}
                   {canActualMobilizationDate ? (
                     <PoViewField
                       label="Actual mobilization date"
@@ -4248,6 +4263,24 @@ const POEntry = () => {
                           <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Description</th>
                           <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-24">Qty</th>
                           <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-36">Rate (₹)</th>
+                          {Array.from(
+                            {
+                              length:
+                                poForView.priceEscalationEnabled || poForView.price_escalation_enabled
+                                  ? clampRateEscalationCount(
+                                      poForView.rateEscalationCount ?? poForView.rate_escalation_count ?? 1
+                                    )
+                                  : 0,
+                            },
+                            (_, i) => (
+                              <th
+                                key={`view-esc-h-${i + 1}`}
+                                className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 whitespace-nowrap"
+                              >
+                                Rate Escalation {i + 1} (₹)
+                              </th>
+                            )
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
@@ -4256,6 +4289,29 @@ const POEntry = () => {
                             <td className="px-3 py-2.5 text-gray-900">{row.description || row.designation || '–'}</td>
                             <td className="px-3 py-2.5 text-right tabular-nums text-gray-800">{row.qty ?? row.quantity ?? '–'}</td>
                             <td className="px-3 py-2.5 text-right tabular-nums font-medium text-gray-900">{row.rate != null ? Number(row.rate).toLocaleString('en-IN') : '–'}</td>
+                            {Array.from(
+                              {
+                                length:
+                                  poForView.priceEscalationEnabled || poForView.price_escalation_enabled
+                                    ? clampRateEscalationCount(
+                                        poForView.rateEscalationCount ?? poForView.rate_escalation_count ?? 1
+                                      )
+                                    : 0,
+                              },
+                              (_, escIdx) => {
+                                const val = readRateEscalationField(row, escIdx + 1);
+                                return (
+                                  <td
+                                    key={`view-esc-c-${i}-${escIdx + 1}`}
+                                    className="px-3 py-2.5 text-right tabular-nums text-gray-800"
+                                  >
+                                    {val !== '' && val != null && Number.isFinite(Number(val))
+                                      ? Number(val).toLocaleString('en-IN')
+                                      : '–'}
+                                  </td>
+                                );
+                              }
+                            )}
                           </tr>
                         ))}
                       </tbody>
