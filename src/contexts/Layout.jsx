@@ -1444,11 +1444,9 @@ const Layout = () => {
               </button>
               {financeOpen && (
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
-                  {canSub("finance.pl") && (
                   <NavLink to="/app/accounts-finance/reports/site-ledger" className={subNavClass}>
                     <span className="type-meta type-truncate">P&amp;L</span>
                   </NavLink>
-                  )}
                 </div>
               )}
             </div>

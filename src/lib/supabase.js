@@ -898,6 +898,8 @@ export async function fetchPublicAppAccessConfig() {
     id: 'eq.default',
   })
   const url = `${base}/rest/v1/erp_app_access_config?${params}`
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+  const tid = controller ? setTimeout(() => controller.abort(), 8000) : null
   try {
     const res = await baseFetch(url, {
       method: 'GET',
@@ -906,8 +908,13 @@ export async function fetchPublicAppAccessConfig() {
         Authorization: `Bearer ${supabaseAnonKey}`,
         Accept: 'application/json',
       },
+      ...(controller ? { signal: controller.signal } : {}),
     })
     if (!res.ok) {
+      // 5xx / gateway timeouts are common when the project is slow — callers use local fallback.
+      if (res.status >= 500) {
+        return { data: null, error: null }
+      }
       let detail = ''
       try {
         const body = await res.json()
@@ -928,8 +935,11 @@ export async function fetchPublicAppAccessConfig() {
     const rows = await res.json()
     const row = Array.isArray(rows) ? rows[0] : null
     return { data: row ?? null, error: null }
-  } catch (err) {
-    return { data: null, error: err }
+  } catch {
+    // Abort / network → treat as empty so UI falls back to built-in teams/modules.
+    return { data: null, error: null }
+  } finally {
+    if (tid) clearTimeout(tid)
   }
 }
 

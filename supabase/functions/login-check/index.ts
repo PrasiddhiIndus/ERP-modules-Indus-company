@@ -157,7 +157,10 @@ Deno.serve(async (req) => {
   // Missing row: executive stub only. Never copy metadata role / modules / team / employee_code.
   const profilePayload = safeSelfSignupProfile(userId, email, meta)
 
-  const { error: upsertErr } = await admin.from('profiles').upsert(profilePayload, { onConflict: 'id' })
+  const { error: upsertErr } = await admin.from('profiles').upsert(profilePayload, {
+    onConflict: 'id',
+    ignoreDuplicates: true,
+  })
 
   if (upsertErr) {
     return json(403, { ok: false, error: `Could not provision profile: ${upsertErr.message}` })

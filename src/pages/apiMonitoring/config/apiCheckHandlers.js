@@ -167,16 +167,17 @@ async function probeEdgeFunction(fnName, entry) {
   const url = `${base}/functions/v1/${fnName}`;
   const token = await getHealthCheckAccessToken();
 
-  const postEdge = (headers) =>
+  // Prefer GET without a JSON body so probes do not spam console 400s from POST {}.
+  // Any non-404 <500 response means the function gateway answered (deployed / reachable).
+  const probeEdge = (headers) =>
     timedFetch(url, {
-      method: "POST",
-      headers: { apikey: anon, "Content-Type": "application/json", ...headers },
-      body: "{}",
+      method: "GET",
+      headers: { apikey: anon, ...headers },
     });
 
   if (token) {
     try {
-      const { res, latencyMs } = await postEdge({ Authorization: `Bearer ${token}` });
+      const { res, latencyMs } = await probeEdge({ Authorization: `Bearer ${token}` });
 
       if (res.status === 404) {
         return finalizeCheckResult(
@@ -214,7 +215,7 @@ async function probeEdgeFunction(fnName, entry) {
         );
       }
 
-      // 200 / 400 / 422 — handler ran (empty probe body may fail validation, which is OK)
+      // 200 / 400 / 405 / 422 — gateway reached the function (wrong method / validation is OK)
       return finalizeCheckResult(
         {
           status: resolveStatus(true, latencyMs, entry.degradedThresholdMs),
@@ -225,13 +226,17 @@ async function probeEdgeFunction(fnName, entry) {
         entry
       );
     } catch (err) {
-      return offlineResult(err);
+      // Browser CORS failures often mean the function is missing or OPTIONS failed.
+      return offlineResult(
+        err,
+        `Edge function "${fnName}" is unreachable from the browser (often not deployed, or CORS blocked).`
+      );
     }
   }
 
   // No signed-in session — 401/403 proves the function is deployed and auth-gated (healthy).
   try {
-    const { res, latencyMs } = await postEdge({});
+    const { res, latencyMs } = await probeEdge({});
 
     if (res.status === 404) {
       return finalizeCheckResult(
@@ -276,7 +281,10 @@ async function probeEdgeFunction(fnName, entry) {
       entry
     );
   } catch (err) {
-    return offlineResult(err);
+    return offlineResult(
+      err,
+      `Edge function "${fnName}" is unreachable from the browser (often not deployed, or CORS blocked).`
+    );
   }
 }
 
@@ -496,10 +504,12 @@ export const API_CHECK_HANDLERS = {
     }
   },
 
+  // Write routes: probe with GET so the browser does not log noisy 400s from POST {}.
+  // Express returns 404/405 for the wrong method — that still proves the API is up.
   node_auth_probe_post: async (entry) => {
     const path = entry.endpoint.split(",")[0].trim();
     try {
-      return await probeNodeRoute(path, entry, { method: "POST" });
+      return await probeNodeRoute(path, entry, { method: "GET" });
     } catch (err) {
       return offlineResult(err);
     }
@@ -635,7 +645,7 @@ export const API_CHECK_HANDLERS = {
 
   indirect_whitebooks: async (entry) => {
     try {
-      return await probeNodeRoute("/api/billing/e-invoice/generate", entry, { method: "POST" });
+      return await probeNodeRoute("/api/billing/e-invoice/generate", entry, { method: "GET" });
     } catch (err) {
       return offlineResult(err);
     }
