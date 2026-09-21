@@ -140,7 +140,7 @@ const UNIFIED_PO_CLIENT_DEFAULTS = {
   actualMobilizationDate: null,
   poEffectiveDate: null,
   priceEscalationEnabled: false,
-  priceEscalationSchedule: [],
+  rateEscalationCount: null,
 };
 
 function normalizePoDocumentFiles(raw) {
@@ -236,10 +236,13 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
     actualMobilizationDate: raw.actual_mobilization_date ?? null,
     panNumber: raw.pan_number ?? null,
     poEffectiveDate: raw.po_effective_date ?? null,
+    reimbursementType: raw.reimbursement_type ?? null,
+    reimbursementOther: raw.reimbursement_other ?? null,
     priceEscalationEnabled: raw.price_escalation_enabled === true,
-    priceEscalationSchedule: Array.isArray(raw.price_escalation_schedule)
-      ? raw.price_escalation_schedule
-      : [],
+    rateEscalationCount:
+      raw.rate_escalation_count != null && Number.isFinite(Number(raw.rate_escalation_count))
+        ? Math.min(4, Math.max(1, Math.round(Number(raw.rate_escalation_count))))
+        : null,
     contactEmail: raw.contact_email ?? null,
     poType: raw.po_type ?? raw.billing_type ?? null,
     serviceDescription:
@@ -647,6 +650,10 @@ async function fetchPoChildrenByPoIds(poIds) {
           qty: firstNumber(r, ['qty', 'quantity', 'po_qty', 'poQuantity', 'po_quantity'], 0),
           rate: firstNumber(r, ['rate', 'po_rate', 'poReferenceRate', 'po_reference_rate'], 0),
           penalty: r.category_penalty != null ? Number(r.category_penalty) : 0,
+          rateEscalation1: r.rate_escalation_1 != null ? Number(r.rate_escalation_1) : null,
+          rateEscalation2: r.rate_escalation_2 != null ? Number(r.rate_escalation_2) : null,
+          rateEscalation3: r.rate_escalation_3 != null ? Number(r.rate_escalation_3) : null,
+          rateEscalation4: r.rate_escalation_4 != null ? Number(r.rate_escalation_4) : null,
         });
       });
     }
@@ -674,11 +681,27 @@ async function fetchPoChildrenByPoIds(poIds) {
   return { ratesByPo, contactsByPo };
 }
 
+/** True when PostgREST rejected the request because `billing` is not in Exposed schemas. */
+export function isBillingSchemaError(error) {
+  const msg = String(error?.message || error || '');
+  const code = String(error?.code || '');
+  return (
+    code === 'PGRST106' ||
+    /PGRST106/i.test(msg) ||
+    /schema must be one of/i.test(msg) ||
+    (/invalid schema/i.test(msg) && /billing/i.test(msg)) ||
+    (/not exposed/i.test(msg) && /billing|schema/i.test(msg))
+  );
+}
+
 /** Build a clear error message for billing DB failures (schema, RLS, etc.). */
 export function billingErrorMsg(error, context = 'Save') {
   const msg = error?.message || String(error);
   const code = error?.code;
-  if (code === 'PGRST301' || /schema|relation.*does not exist|exposed/i.test(msg)) {
+
+  // Do NOT match bare "schema" — PostgREST column-cache errors say "schema cache"
+  // and were incorrectly shown as "Billing schema not exposed".
+  if (isBillingSchemaError(error)) {
     return `${context} failed: Billing schema not exposed. In Supabase Dashboard → Settings → API → Exposed schemas, add "billing".`;
   }
   if (/permission denied for schema billing/i.test(msg)) {
@@ -686,6 +709,14 @@ export function billingErrorMsg(error, context = 'Save') {
   }
   if (/row-level security|RLS|policy/i.test(msg)) {
     return `${context} failed: Permission denied (RLS). Run the billing access migration (supabase/migrations/20260506173000_billing_access_roles.sql) or update billing.current_user_has_billing_access() to include your role.`;
+  }
+  if (
+    code === 'PGRST204' ||
+    /schema cache/i.test(msg) ||
+    /could not find the .* column/i.test(msg) ||
+    /column .* does not exist/i.test(msg)
+  ) {
+    return `${context} failed: ${msg}. Apply pending billing migrations (e.g. rate escalation columns), then in Supabase run NOTIFY pgrst, 'reload schema'; or restart the API.`;
   }
   return msg || `${context} failed.`;
 }
@@ -871,12 +902,22 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
       isMp && po.poEffectiveDate && String(po.poEffectiveDate).trim()
         ? String(po.poEffectiveDate).trim()
         : null,
+    reimbursement_type: isMp
+      ? String(po.reimbursementType || po.reimbursement_type || '').trim() || null
+      : null,
+    reimbursement_other: isMp
+      ? String(po.reimbursementType || po.reimbursement_type || '').trim() === 'other'
+        ? String(po.reimbursementOther || po.reimbursement_other || '').trim() || null
+        : null
+      : null,
     price_escalation_enabled: isMp ? po.priceEscalationEnabled === true : false,
-    price_escalation_schedule: isMp
-      ? Array.isArray(po.priceEscalationSchedule)
-        ? po.priceEscalationSchedule
-        : []
-      : [],
+    rate_escalation_count: isMp
+      ? po.priceEscalationEnabled === true &&
+        po.rateEscalationCount != null &&
+        Number.isFinite(Number(po.rateEscalationCount))
+        ? Math.min(4, Math.max(1, Math.round(Number(po.rateEscalationCount))))
+        : null
+      : null,
     pincode: po.pincode && String(po.pincode).trim() ? String(po.pincode).trim() : null,
     ship_to_pincode:
       po.shipToPincode && String(po.shipToPincode).trim() ? String(po.shipToPincode).trim() : null,
@@ -970,11 +1011,18 @@ function isMissingPoWoColumnError(err) {
 
 function columnNameFromPoWoError(err) {
   const msg = String(err?.message || '');
+  // Prefer PostgREST PGRST204 wording: Could not find the 'col' column of 'table'
+  // (do not use /column (\w+)/ — it falsely captures "of" from "column of 'po_wo'").
   const m =
-    msg.match(/column ['"]?([\w_]+)['"]?/i) ||
-    msg.match(/'([\w_]+)' column/i) ||
-    msg.match(/Could not find the ['"]([\w_]+)['"] column/i);
-  return m?.[1] || null;
+    msg.match(/Could not find the ['"]([\w.]+)['"] column/i) ||
+    msg.match(/['"]([\w.]+)['"]\s+column of\s+['"][\w.]+['"]/i) ||
+    msg.match(/column\s+['"]([\w.]+)['"]\s+of\s+/i) ||
+    msg.match(/column\s+([\w.]+)\s+does not exist/i);
+  const raw = m?.[1] || null;
+  if (!raw) return null;
+  // Sometimes PostgREST returns schema.table.column or table.column
+  const parts = String(raw).split('.');
+  return parts[parts.length - 1] || null;
 }
 
 /** Upload new File blobs to Cloudflare R2 (indus-erp-uploads / commercial-po/); keep existing paths. */
@@ -1181,6 +1229,22 @@ export async function saveCommercialPOs(list, options = {}) {
       qty: firstNumber(r, ['qty', 'quantity', 'poQty', 'po_qty', 'poQuantity', 'po_quantity'], 0),
       rate: firstNumber(r, ['rate', 'poRate', 'po_rate', 'poReferenceRate', 'po_reference_rate'], 0),
       category_penalty: firstNumber(r, ['penalty', 'category_penalty', 'poLinePenalty', 'po_line_penalty'], 0),
+      rate_escalation_1:
+        r.rateEscalation1 != null && r.rateEscalation1 !== '' && Number.isFinite(Number(r.rateEscalation1))
+          ? Number(r.rateEscalation1)
+          : null,
+      rate_escalation_2:
+        r.rateEscalation2 != null && r.rateEscalation2 !== '' && Number.isFinite(Number(r.rateEscalation2))
+          ? Number(r.rateEscalation2)
+          : null,
+      rate_escalation_3:
+        r.rateEscalation3 != null && r.rateEscalation3 !== '' && Number.isFinite(Number(r.rateEscalation3))
+          ? Number(r.rateEscalation3)
+          : null,
+      rate_escalation_4:
+        r.rateEscalation4 != null && r.rateEscalation4 !== '' && Number.isFinite(Number(r.rateEscalation4))
+          ? Number(r.rateEscalation4)
+          : null,
       sort_order: i,
     }));
     // Partial PO updates (e.g. approval status) must not wipe categories saved from PO Entry.
@@ -1235,6 +1299,18 @@ export async function saveCommercialPOs(list, options = {}) {
           currentRows = currentRows.map((row) => {
             const next = { ...row };
             delete next.category_penalty;
+            return next;
+          });
+          changed = true;
+        }
+        if (msg.includes('rate_escalation')) {
+          currentRows = currentRows.map((row) => {
+            const next = { ...row };
+            delete next.rate_escalation_1;
+            delete next.rate_escalation_2;
+            delete next.rate_escalation_3;
+            delete next.rate_escalation_4;
+            delete next.rate_escalation_5;
             return next;
           });
           changed = true;

@@ -666,7 +666,7 @@ const Layout = () => {
               >
                 <span className="flex items-center space-x-2.5">
                   <Cog className="w-4 h-4 shrink-0" />
-                  <span className="type-body-medium type-truncate">Admin</span>
+                  <span className="type-body-medium type-truncate">Corporate HR/Admin</span>
                 </span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${

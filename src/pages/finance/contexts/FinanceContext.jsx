@@ -6,9 +6,15 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../../contexts/AuthContext";
-import { fetchFinanceModuleData, financeErrorMsg, invalidateFinanceCache, subscribeFinanceRefresh } from "../../../services/financeApi";
+import {
+  fetchFinanceModuleData,
+  fetchFinanceMarginsOnly,
+  financeErrorMsg,
+  invalidateFinanceCache,
+  subscribeFinanceRefresh,
+} from "../../../services/financeApi";
 import { buildMonthOptions, currentPeriodKey, getPeriodRange } from "../lib/periods";
 import {
   calcSite,
@@ -25,30 +31,56 @@ import {
   isFinanceAdmin,
 } from "../constants/permissions";
 import { filterSitesByFinancePlAccess } from "../constants/financePlSiteAccess";
+import { getFinanceTabFromPath } from "../navConfig";
 
 const FinanceContext = createContext(null);
 
+const EMPTY_FINANCE_SHELL = {
+  sites: [],
+  records: {},
+  revenueHeads: [],
+  expenseParentHeads: [],
+  expenseChildHeads: [],
+  spreads: [],
+  userSiteAccess: [],
+  settings: [],
+  settingsMap: {},
+};
+
 export function FinanceProvider({ children }) {
   const { userProfile, accessibleModules } = useAuth();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const financeTab = getFinanceTabFromPath(location.pathname);
   const months = useMemo(() => buildMonthOptions(), []);
 
   const load = useCallback(async (force = false) => {
     setLoading(true);
     setError(null);
     try {
-      const bundle = await fetchFinanceModuleData({ force });
-      setData(bundle);
+      if (financeTab === "site-ledger") {
+        const margins = await fetchFinanceMarginsOnly({ force });
+        setData((prev) => ({
+          ...(prev || EMPTY_FINANCE_SHELL),
+          targetMargin: margins.targetMargin,
+          warnMargin: margins.warnMargin,
+          settings: margins.settings,
+          settingsMap: margins.settingsMap,
+        }));
+      } else {
+        const bundle = await fetchFinanceModuleData({ force });
+        setData(bundle);
+      }
     } catch (e) {
       setError(financeErrorMsg(e, "Load finance data"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [financeTab]);
 
   useEffect(() => {
     load();
@@ -98,7 +130,7 @@ export function FinanceProvider({ children }) {
   const siteRows = useMemo(() => {
     if (!data) return [];
     const { records, revenueHeads, spreads, targetMargin, warnMargin } = data;
-    const sites = filterSitesByFinancePlAccess(data.sites, userProfile);
+    const sites = filterSitesByFinancePlAccess(data.sites || [], userProfile);
     const filtered = siteFilter
       ? sites.filter((s) => s.id === siteFilter)
       : sites;
@@ -106,7 +138,7 @@ export function FinanceProvider({ children }) {
     return filtered.map((s) => {
       const periodAgg = periodKeys.reduce(
         (acc, pk) => {
-          const c = calcSite(s, pk, records, revenueHeads, spreads, months);
+          const c = calcSite(s, pk, records || {}, revenueHeads || [], spreads || [], months);
           return {
             revenue: acc.revenue + c.revenue,
             expense: acc.expense + c.expense,
@@ -176,7 +208,9 @@ export function FinanceProvider({ children }) {
 
   const expenseBreakdown = useMemo(() => {
     if (!data) return [];
-    const { expenseParentHeads, records, spreads } = data;
+    const { records, spreads } = data;
+    const expenseParentHeads = data.expenseParentHeads || [];
+    if (!expenseParentHeads.length) return [];
     const withData = siteRows.filter((r) => r.hasData);
     const agg = Object.fromEntries(expenseParentHeads.map((p) => [p.id, 0]));
     withData.forEach((r) => {
@@ -194,15 +228,19 @@ export function FinanceProvider({ children }) {
 
   const trendData = useMemo(() => {
     if (!data) return [];
+    const sites = data.sites || [];
+    const revenueHeads = data.revenueHeads || [];
+    const spreads = data.spreads || [];
+    const records = data.records || {};
     const activeMonths = months.filter((m) =>
-      data.sites.some((s) => {
-        const c = calcSite(s, m.key, data.records, data.revenueHeads, data.spreads, months);
+      sites.some((s) => {
+        const c = calcSite(s, m.key, records, revenueHeads, spreads, months);
         return c.revenue || c.expense;
       }),
     );
     return (activeMonths.length ? activeMonths : months.slice(-6)).map((m) => {
-      const arr = data.sites
-        .map((s) => calcSite(s, m.key, data.records, data.revenueHeads, data.spreads, months))
+      const arr = sites
+        .map((s) => calcSite(s, m.key, records, revenueHeads, spreads, months))
         .filter((c) => c.revenue || c.expense);
       const t = arr.reduce(
         (a, c) => ({

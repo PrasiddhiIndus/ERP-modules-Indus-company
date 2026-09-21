@@ -12,6 +12,7 @@ import {
   INDUS_ONE_TOUR_TABLES,
   normalizeAttendanceEmpCode,
 } from "./attendanceDaily";
+import { fetchEmployeeKeysMatchingDepartments } from "./employeeMasterDepartments";
 
 export const INDUS_ONE_SCHEMA = "indus_one";
 
@@ -401,6 +402,7 @@ export async function fetchTourRequests(opts = {}) {
     empSearch = "",
     fromDate = "",
     toDate = "",
+    departments = [],
     page = 1,
     pageSize = PAGE_SIZE_DEFAULT,
   } = opts;
@@ -428,6 +430,22 @@ export async function fetchTourRequests(opts = {}) {
         (normalizeAttendanceEmpCode(row.employee_code) &&
           codeSet.has(normalizeAttendanceEmpCode(row.employee_code)))
     );
+  }
+
+  const selectedDepartments = Array.isArray(departments) ? departments.filter(Boolean) : [];
+  if (selectedDepartments.length) {
+    const keys = await fetchEmployeeKeysMatchingDepartments(supabase, selectedDepartments);
+    if (!keys?.masterIds.size && !keys?.userIds.size && !keys?.employeeCodes.size) {
+      return { rows: [], total: 0, page, pageSize };
+    }
+    merged = merged.filter((row) => {
+      const code = normalizeAttendanceEmpCode(row.employee_code);
+      return (
+        (row.employee_master_id != null && keys.masterIds.has(row.employee_master_id)) ||
+        (row.user_id && keys.userIds.has(row.user_id)) ||
+        (code && keys.employeeCodes.has(code))
+      );
+    });
   }
 
   const tab = normalizeWorkflowStatus(status);

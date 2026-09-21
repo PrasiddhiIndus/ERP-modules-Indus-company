@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node scripts/run-server.mjs",
-    "dev": "concurrently \"npm run server\" \"npm run dev:frontend\"",
-    "dev:staging": "concurrently \"npm run server:staging\" \"npm run dev:frontend:staging\"",
+    "dev": "concurrently -k \"npm run server\" \"vite --host 0.0.0.0\"",
+    "dev:staging": "concurrently -k \"npm run server:staging\" \"vite --host 0.0.0.0 --mode staging\"",
     "dev:frontend": "vite",
     "dev:frontend:staging": "vite --mode staging",
     "server": "node --watch scripts/run-server.mjs",

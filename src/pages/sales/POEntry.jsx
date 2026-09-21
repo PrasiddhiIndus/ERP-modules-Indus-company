@@ -49,17 +49,34 @@ import {
   filterClientSnapshotByPoEntryAcl,
   poEntryAclDepartmentLabel,
 } from '../../utils/poEntryFieldPermissions';
-import PoPriceEscalationSection from './PoPriceEscalationSection';
-import {
-  appendPriceEscalationHistory,
-  buildPricingPeriods,
-  enrichEscalationScheduleForDisplay,
-  normalizeEscalationSchedule,
-  validateEscalationSchedule,
-  validatePoEffectiveDate,
-} from '../../utils/poPriceEscalation';
 
 import { toast } from "../../lib/toast";
+
+/** Add/Edit PO/WO modal — 12-column grid; size fields by span, not leftover stretch. */
+const PO_FORM_SECTION = 'bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm';
+const PO_FORM_SECTION_TITLE = 'text-sm font-semibold text-gray-900 mb-3';
+const PO_FORM_GRID = 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-12 gap-x-4 gap-y-3.5';
+const PO_SPAN = {
+  full: 'sm:col-span-2 xl:col-span-12',
+  half: 'sm:col-span-1 xl:col-span-6',
+  third: 'sm:col-span-1 xl:col-span-4',
+  quarter: 'sm:col-span-1 xl:col-span-3',
+  sixth: 'sm:col-span-1 xl:col-span-2',
+  /** Legal name / medium text */
+  mid: 'sm:col-span-1 xl:col-span-3',
+  /** Billing address */
+  address: 'sm:col-span-2 xl:col-span-4',
+  /** Pincode / SEZ / qty-like */
+  narrow: 'sm:col-span-1 xl:col-span-2',
+  /** Location beside pincode */
+  location: 'sm:col-span-1 xl:col-span-3',
+};
+const PO_FORM_HINT = 'text-[11px] text-gray-500 mt-1 leading-snug';
+const PO_INPUT = 'w-full border border-gray-300 rounded-lg px-3 py-2 bg-white';
+const PO_INPUT_MUTED = 'w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-600 cursor-not-allowed';
+const PO_TABLE_NUM = 'border border-gray-300 rounded px-2 py-1 w-full';
+const PO_TABLE_RATE = 'border border-gray-300 rounded px-2 py-1 w-full';
+
 function formatPoCurrency(value) {
   if (value === '' || value == null || Number.isNaN(Number(value))) return '–';
   return `₹${Number(value).toLocaleString('en-IN')}`;
@@ -301,7 +318,57 @@ const emptyRateCategoryRow = () => ({
   qty: '',
   rate: '',
   penalty: '',
+  rateEscalation1: '',
+  rateEscalation2: '',
+  rateEscalation3: '',
+  rateEscalation4: '',
 });
+
+/** Reimbursement options on Manpower PO / Financials. */
+const PO_REIMBURSEMENT_OTHER = 'other';
+const PO_REIMBURSEMENT_OPTIONS = [
+  { value: 'gratuity', label: 'Gratuity' },
+  { value: 'bonus', label: 'Bonus' },
+  { value: 'nh_ph', label: 'NH/PH' },
+  { value: 'arrears', label: 'Arrears' },
+  { value: 'pf_esic', label: 'PF/ESIC' },
+  { value: 'accommodation', label: 'Accommodation' },
+  { value: 'transportation', label: 'Transportation' },
+  { value: PO_REIMBURSEMENT_OTHER, label: 'Other' },
+];
+
+function poReimbursementLabel(type, otherText) {
+  const key = String(type || '').trim();
+  if (!key) return '';
+  if (key === PO_REIMBURSEMENT_OTHER) {
+    const other = String(otherText || '').trim();
+    return other ? `Other — ${other}` : 'Other';
+  }
+  return PO_REIMBURSEMENT_OPTIONS.find((o) => o.value === key)?.label || key;
+}
+
+/** Max Rate Escalation columns shown in PO Entry when Price Escalation = Yes. */
+const RATE_ESCALATION_MAX = 4;
+
+function clampRateEscalationCount(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(RATE_ESCALATION_MAX, Math.max(1, Math.round(n)));
+}
+
+function optionalEscalationAmount(raw) {
+  if (raw === '' || raw == null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function readRateEscalationField(row, index) {
+  const camel = row?.[`rateEscalation${index}`];
+  if (camel !== undefined && camel !== null && camel !== '') return camel;
+  const snake = row?.[`rate_escalation_${index}`];
+  if (snake !== undefined && snake !== null && snake !== '') return snake;
+  return '';
+}
 
 /** Align Rate per Category rows to Manpower details: Description ← Designation, Qty ← No. of manpower. */
 function applyManpowerRowToRateRow(rateRow, mpRow) {
@@ -822,6 +889,10 @@ function normalizeRateRowsForHistory(rows) {
     qty: r?.qty ?? r?.quantity ?? '',
     rate: r?.rate ?? '',
     penalty: r?.penalty ?? '',
+    rateEscalation1: readRateEscalationField(r, 1),
+    rateEscalation2: readRateEscalationField(r, 2),
+    rateEscalation3: readRateEscalationField(r, 3),
+    rateEscalation4: readRateEscalationField(r, 4),
   }));
 }
 
@@ -829,12 +900,140 @@ function ratesHistoryFingerprint(rows) {
   return JSON.stringify(normalizeRateRowsForHistory(rows));
 }
 
+function formatRateHistoryCell(value) {
+  if (value === '' || value == null) return '–';
+  const n = Number(value);
+  if (Number.isFinite(n) && String(value).trim() !== '' && !Number.isNaN(n)) {
+    return n.toLocaleString('en-IN');
+  }
+  return String(value);
+}
+
+const RATE_HISTORY_COMPARE_FIELDS = [
+  { key: 'description', label: 'Description' },
+  { key: 'hsnSac', label: 'SAC/HSN' },
+  { key: 'materialCode', label: 'Material code' },
+  { key: 'qty', label: 'Qty' },
+  { key: 'rate', label: 'Rate (₹)' },
+  { key: 'penalty', label: 'Penalty (₹)' },
+  { key: 'rateEscalation1', label: 'Rate Escalation 1 (₹)' },
+  { key: 'rateEscalation2', label: 'Rate Escalation 2 (₹)' },
+  { key: 'rateEscalation3', label: 'Rate Escalation 3 (₹)' },
+  { key: 'rateEscalation4', label: 'Rate Escalation 4 (₹)' },
+];
+
+function rateHistoryValuesEqual(a, b) {
+  const sa = a === '' || a == null ? '' : String(a).trim();
+  const sb = b === '' || b == null ? '' : String(b).trim();
+  if (sa === sb) return true;
+  const na = Number(sa);
+  const nb = Number(sb);
+  if (sa !== '' && sb !== '' && Number.isFinite(na) && Number.isFinite(nb)) {
+    return na === nb;
+  }
+  return false;
+}
+
+function rateRowMatchKey(row, index) {
+  const desc = String(row?.description || '').trim().toLowerCase();
+  return desc ? `d:${desc}` : `i:${index}`;
+}
+
+/** Diff two rate snapshots → row-level old/new rate + field-level change list. */
+function diffRateCategorySnapshots(prevRows, nextRows) {
+  const prev = normalizeRateRowsForHistory(prevRows);
+  const next = normalizeRateRowsForHistory(nextRows);
+  const prevByKey = new Map();
+  prev.forEach((row, i) => {
+    const key = rateRowMatchKey(row, i);
+    if (!prevByKey.has(key)) prevByKey.set(key, { row, index: i });
+  });
+  const usedPrev = new Set();
+  const lineDiffs = [];
+
+  next.forEach((newRow, i) => {
+    const key = rateRowMatchKey(newRow, i);
+    let oldEntry = prevByKey.get(key);
+    if (oldEntry && usedPrev.has(key)) {
+      oldEntry = prev[i] ? { row: prev[i], index: i } : null;
+    } else if (!oldEntry && prev[i]) {
+      oldEntry = { row: prev[i], index: i };
+    }
+    if (oldEntry) usedPrev.add(rateRowMatchKey(oldEntry.row, oldEntry.index));
+
+    const oldRow = oldEntry?.row || null;
+    if (!oldRow) {
+      lineDiffs.push({
+        kind: 'added',
+        description: newRow.description || `Row ${i + 1}`,
+        oldRate: '',
+        newRate: newRow.rate,
+        fieldChanges: [{ label: 'Line', from: '—', to: 'Added' }],
+      });
+      return;
+    }
+
+    const fieldChanges = [];
+    RATE_HISTORY_COMPARE_FIELDS.forEach(({ key: fk, label }) => {
+      if (rateHistoryValuesEqual(oldRow[fk], newRow[fk])) return;
+      fieldChanges.push({
+        label,
+        from: formatRateHistoryCell(oldRow[fk]),
+        to: formatRateHistoryCell(newRow[fk]),
+      });
+    });
+    if (!fieldChanges.length) return;
+    lineDiffs.push({
+      kind: 'changed',
+      description: newRow.description || oldRow.description || `Row ${i + 1}`,
+      oldRate: oldRow.rate,
+      newRate: newRow.rate,
+      fieldChanges,
+    });
+  });
+
+  prev.forEach((oldRow, i) => {
+    const key = rateRowMatchKey(oldRow, i);
+    if (usedPrev.has(key)) return;
+    const stillPresent = next.some((n, ni) => rateRowMatchKey(n, ni) === key);
+    if (stillPresent) return;
+    lineDiffs.push({
+      kind: 'removed',
+      description: oldRow.description || `Row ${i + 1}`,
+      oldRate: oldRow.rate,
+      newRate: '',
+      fieldChanges: [{ label: 'Line', from: 'Present', to: 'Removed' }],
+    });
+  });
+
+  return lineDiffs;
+}
+
+function summarizeRateHistoryChanges(lineDiffs) {
+  if (!lineDiffs.length) return 'No field differences detected';
+  const parts = [];
+  lineDiffs.forEach((line) => {
+    if (line.kind === 'added') {
+      parts.push(`Added “${line.description}”`);
+      return;
+    }
+    if (line.kind === 'removed') {
+      parts.push(`Removed “${line.description}”`);
+      return;
+    }
+    const fields = line.fieldChanges.map((c) => c.label).join(', ');
+    parts.push(`“${line.description}”: ${fields}`);
+  });
+  return parts.join(' · ');
+}
+
 /** Append a rates snapshot when rates change (kept for History modal; hidden from update log). */
 function appendRatesHistoryIfChanged(updateHistory, nextRates, prevRates, at) {
   const rows = Array.isArray(updateHistory) ? [...updateHistory] : [];
   const nextNorm = normalizeRateRowsForHistory(nextRates);
   if (!nextNorm.length) return rows;
-  if (prevRates != null && ratesHistoryFingerprint(prevRates) === ratesHistoryFingerprint(nextNorm)) {
+  const prevNorm = prevRates != null ? normalizeRateRowsForHistory(prevRates) : null;
+  if (prevNorm != null && ratesHistoryFingerprint(prevNorm) === ratesHistoryFingerprint(nextNorm)) {
     return rows;
   }
   for (let i = rows.length - 1; i >= 0; i -= 1) {
@@ -846,22 +1045,53 @@ function appendRatesHistoryIfChanged(updateHistory, nextRates, prevRates, at) {
       break;
     }
   }
+  const lineDiffs = prevNorm != null ? diffRateCategorySnapshots(prevNorm, nextNorm) : [];
   rows.push({
     event: RATES_HISTORY_EVENT,
     at: at || new Date().toISOString(),
     ratePerCategory: nextNorm,
+    previousRatePerCategory: prevNorm,
+    changesSummary: summarizeRateHistoryChanges(lineDiffs),
+    lineDiffs,
   });
   return rows;
 }
 
 function collectRatesHistorySnapshots(po) {
-  return (Array.isArray(po?.updateHistory) ? po.updateHistory : [])
-    .filter((entry) => entry && typeof entry === 'object' && entry.event === RATES_HISTORY_EVENT)
-    .map((entry) => ({
-      at: entry.at || null,
-      rates: normalizeRateRowsForHistory(entry.ratePerCategory),
-    }))
-    .filter((entry) => entry.rates.length > 0);
+  const events = (Array.isArray(po?.updateHistory) ? po.updateHistory : []).filter(
+    (entry) => entry && typeof entry === 'object' && entry.event === RATES_HISTORY_EVENT
+  );
+  return events
+    .map((entry, idx) => {
+      const rates = normalizeRateRowsForHistory(entry.ratePerCategory);
+      if (!rates.length) return null;
+      const storedPrev =
+        entry.previousRatePerCategory != null
+          ? normalizeRateRowsForHistory(entry.previousRatePerCategory)
+          : null;
+      // Legacy entries: infer previous from the prior rates snapshot in history.
+      const inferredPrev =
+        storedPrev == null && idx > 0
+          ? normalizeRateRowsForHistory(events[idx - 1].ratePerCategory)
+          : null;
+      const previousRates = storedPrev || inferredPrev;
+      const lineDiffs =
+        Array.isArray(entry.lineDiffs) && entry.lineDiffs.length
+          ? entry.lineDiffs
+          : previousRates != null
+            ? diffRateCategorySnapshots(previousRates, rates)
+            : [];
+      return {
+        at: entry.at || null,
+        rates,
+        previousRates,
+        lineDiffs,
+        changesSummary:
+          entry.changesSummary ||
+          (lineDiffs.length ? summarizeRateHistoryChanges(lineDiffs) : 'Initial rates snapshot'),
+      };
+    })
+    .filter(Boolean);
 }
 
 function isHiddenPoHistoryEntry(entry) {
@@ -1144,8 +1374,10 @@ const initialForm = {
   revisedPO: false, renewalPending: false,
   poBasis: PO_BASIS_WITH_PO,
   poEffectiveDate: '',
+  reimbursementType: '',
+  reimbursementOther: '',
   priceEscalationEnabled: false,
-  priceEscalationSchedule: [],
+  rateEscalationCount: 1,
 };
 
 const POEntry = () => {
@@ -1596,6 +1828,10 @@ const POEntry = () => {
             qty: r.qty ?? r.quantity ?? r.poQty ?? r.po_qty ?? '',
             rate: r.rate ?? '',
             penalty: r.penalty ?? r.category_penalty ?? '',
+            rateEscalation1: readRateEscalationField(r, 1),
+            rateEscalation2: readRateEscalationField(r, 2),
+            rateEscalation3: readRateEscalationField(r, 3),
+            rateEscalation4: readRateEscalationField(r, 4),
           }))
         : [emptyRateCategoryRow()],
       manpowerDetails: Array.isArray(po.manpowerDetails) && po.manpowerDetails.length
@@ -1615,12 +1851,12 @@ const POEntry = () => {
       ...resolveMtPaymentTermsForForm(po.paymentTerms || ''),
       poDate: po.poDate || '',
       poEffectiveDate: po.poEffectiveDate || po.po_effective_date || po.startDate || po.start_date || '',
+      reimbursementType: po.reimbursementType || po.reimbursement_type || '',
+      reimbursementOther: po.reimbursementOther || po.reimbursement_other || '',
       priceEscalationEnabled: po.priceEscalationEnabled === true || po.price_escalation_enabled === true,
-      priceEscalationSchedule: Array.isArray(po.priceEscalationSchedule)
-        ? po.priceEscalationSchedule
-        : Array.isArray(po.price_escalation_schedule)
-          ? po.price_escalation_schedule
-          : [],
+      rateEscalationCount: clampRateEscalationCount(
+        po.rateEscalationCount ?? po.rate_escalation_count ?? 1
+      ),
       pincode: normalizePoPincode(po.pincode),
       shipToPincode: normalizePoPincode(po.shipToPincode ?? po.ship_to_pincode),
       billToShipToPinSame: deriveBillToShipToPinSameFromPo(po),
@@ -1801,16 +2037,7 @@ const POEntry = () => {
         [field]: normalizeDateInputValue(value),
         monthlyValueManual: false,
       };
-      // Default PO Effective Date from PO Start Date when empty (does not overwrite a set value).
-      if (field === 'startDate' && !String(prev.poEffectiveDate || '').trim()) {
-        next.poEffectiveDate = next.startDate;
-      }
       const total = editId ? next.newCycleTotalContractValue : next.totalContractValue;
-      // Escalation off: keep legacy monthly = TCV ÷ months. Escalation on: base monthly still from dates/TCV.
-      if (next.priceEscalationEnabled !== true) {
-        const calc = computeMonthlyValueFromContract(total, next.startDate, next.endDate);
-        return { ...next, monthlyValue: calc === '' ? '' : String(calc) };
-      }
       const calc = computeMonthlyValueFromContract(total, next.startDate, next.endDate);
       return { ...next, monthlyValue: calc === '' ? '' : String(calc) };
     });
@@ -1862,21 +2089,6 @@ const POEntry = () => {
     setGstTypeError('');
     setSaveError('');
     if (typeof clearBillingError === 'function') clearBillingError();
-
-    const effectiveDateErr = validatePoEffectiveDate(formData);
-    if (effectiveDateErr) {
-      setSaveError(effectiveDateErr);
-      toast.warning(effectiveDateErr);
-      return;
-    }
-    if (formData.priceEscalationEnabled === true) {
-      const escErrors = validateEscalationSchedule(formData);
-      if (escErrors.length) {
-        setSaveError(escErrors[0]);
-        toast.warning(escErrors[0]);
-        return;
-      }
-    }
 
     const isWithoutPo = formData.poBasis === PO_BASIS_WITHOUT_PO;
     const dummies = buildWithoutPoDummyIds({
@@ -1959,58 +2171,32 @@ const POEntry = () => {
     const poType = trainingSelected
       ? 'Per Day'
       : (ALLOWED_MANPOWER_PO_TYPES.has(formData.billingType) ? formData.billingType : 'Monthly');
-    const rates = formData.ratePerCategory.map((r) => ({
-      description: (r.description || '').trim() || 'Other',
-      hsnSac: String(r.hsnSac ?? r.hsn_sac ?? r.sacHsn ?? r.sac_hsn ?? '').trim(),
-      materialCode: String(r.materialCode ?? r.material_code ?? '').trim(),
-      qty: Number(r.qty) || 0,
-      rate: Number(r.rate) || 0,
-      penalty:
-      formData.billingType === 'Lump Sum'
-          ? Math.max(0, Number(r.penalty) || 0)
-          : 0,
-    }));
-    const scheduleNormalized = formData.priceEscalationEnabled
-      ? enrichEscalationScheduleForDisplay({
-          ...formData,
-          priceEscalationEnabled: true,
-        })
-      : normalizeEscalationSchedule(formData.priceEscalationSchedule);
-
+    const rates = formData.ratePerCategory.map((r) => {
+      const enabled = formData.priceEscalationEnabled === true;
+      const count = enabled ? clampRateEscalationCount(formData.rateEscalationCount) : 0;
+      return {
+        description: (r.description || '').trim() || 'Other',
+        hsnSac: String(r.hsnSac ?? r.hsn_sac ?? r.sacHsn ?? r.sac_hsn ?? '').trim(),
+        materialCode: String(r.materialCode ?? r.material_code ?? '').trim(),
+        qty: Number(r.qty) || 0,
+        rate: Number(r.rate) || 0,
+        penalty:
+          formData.billingType === 'Lump Sum'
+            ? Math.max(0, Number(r.penalty) || 0)
+            : 0,
+        rateEscalation1: enabled && count >= 1 ? optionalEscalationAmount(r.rateEscalation1) : null,
+        rateEscalation2: enabled && count >= 2 ? optionalEscalationAmount(r.rateEscalation2) : null,
+        rateEscalation3: enabled && count >= 3 ? optionalEscalationAmount(r.rateEscalation3) : null,
+        rateEscalation4: enabled && count >= 4 ? optionalEscalationAmount(r.rateEscalation4) : null,
+      };
+    });
     const primaryTotalNum = primaryTotalEmpty
       ? (formData.newCycleTotalContractValue !== '' && formData.newCycleTotalContractValue != null
           ? Number(formData.newCycleTotalContractValue) || 0
           : 0)
       : Number(formData.totalContractValue) || 0;
 
-    // Base monthly from entered TCV ÷ duration (legacy). Never derive from escalated contract value.
-    const baseMonthlyForEscalation = (() => {
-      if (!formData.monthlyValueManual) {
-        const recalc = computeMonthlyValueFromContract(
-          primaryTotalNum,
-          formData.startDate,
-          formData.endDate
-        );
-        if (recalc !== '') {
-          const n = Number(recalc);
-          return Number.isFinite(n) ? n : 0;
-        }
-      }
-      const n = Number(formData.monthlyValue);
-      return Number.isFinite(n) ? n : 0;
-    })();
-
-    let totalVal = primaryTotalNum;
-    if (formData.priceEscalationEnabled === true) {
-      const projected = buildPricingPeriods({
-        ...formData,
-        priceEscalationEnabled: true,
-        monthlyValue: baseMonthlyForEscalation,
-        priceEscalationSchedule: scheduleNormalized,
-        poEffectiveDate: formData.poEffectiveDate || formData.startDate || '',
-      }).projectedContractValue;
-      if (projected > 0) totalVal = projected;
-    }
+    const totalVal = primaryTotalNum;
     const totalContractMonthVal =
       poType === 'Lump Sum'
         ? Number(formData.totalContractMonth) || null
@@ -2068,29 +2254,8 @@ const POEntry = () => {
       editId ? prevPo?.ratePerCategory : null,
       nowIso
     );
-    let historyFinal = historyWithRates;
-    const prevScheduleJson = JSON.stringify(
-      normalizeEscalationSchedule(prevPo?.priceEscalationSchedule || prevPo?.price_escalation_schedule)
-    );
-    const nextScheduleJson = JSON.stringify(scheduleNormalized);
-    if (
-      formData.priceEscalationEnabled === true &&
-      (prevPo?.priceEscalationEnabled !== true || prevScheduleJson !== nextScheduleJson)
-    ) {
-      historyFinal = appendPriceEscalationHistory(historyWithRates, {
-        summary: 'Price escalation schedule saved',
-        poEffectiveDate: formData.poEffectiveDate || formData.startDate || null,
-        schedule: scheduleNormalized,
-        projectedContractValue: totalVal,
-        baseMonthlyValue: baseMonthlyForEscalation,
-        reason: 'PO save',
-        createdBy: currentActorName,
-      });
-    }
+    const historyFinal = historyWithRates;
     const monthlyValueNum = (() => {
-      if (formData.priceEscalationEnabled === true) {
-        return Number.isFinite(baseMonthlyForEscalation) ? baseMonthlyForEscalation : null;
-      }
       if (!formData.monthlyValueManual) {
         const recalc = computeMonthlyValueFromContract(totalVal, formData.startDate, formData.endDate);
         if (recalc !== '') {
@@ -2160,8 +2325,16 @@ const POEntry = () => {
         (formData.poEffectiveDate && String(formData.poEffectiveDate).trim()) ||
         formData.startDate ||
         null,
+      reimbursementType: String(formData.reimbursementType || '').trim() || null,
+      reimbursementOther:
+        String(formData.reimbursementType || '').trim() === PO_REIMBURSEMENT_OTHER
+          ? String(formData.reimbursementOther || '').trim() || null
+          : null,
       priceEscalationEnabled: formData.priceEscalationEnabled === true,
-      priceEscalationSchedule: formData.priceEscalationEnabled === true ? scheduleNormalized : [],
+      rateEscalationCount:
+        formData.priceEscalationEnabled === true
+          ? clampRateEscalationCount(formData.rateEscalationCount)
+          : null,
       pincode: String(formData.pincode || '').trim() || null,
       shipToPincode:
         canPincodeShipTo && !canPincodeBillTo
@@ -2293,12 +2466,16 @@ const POEntry = () => {
   const poRatesHistorySnapshots = useMemo(() => {
     if (!poForHistory) return [];
     const snapshots = collectRatesHistorySnapshots(poForHistory);
-    const currentFp = ratesHistoryFingerprint(poForHistory.ratePerCategory);
-    // Prefer prior snapshots only (current rates shown separately).
     if (!snapshots.length) return [];
+    const currentFp = ratesHistoryFingerprint(poForHistory.ratePerCategory);
     const last = snapshots[snapshots.length - 1];
+    // Drop a trailing snapshot that only duplicates current rates with no prior/diff.
+    // Keep it when it stores old→new (the change that produced current rates).
     if (last && ratesHistoryFingerprint(last.rates) === currentFp) {
-      return snapshots.slice(0, -1);
+      const hasTransition =
+        (Array.isArray(last.previousRates) && last.previousRates.length > 0) ||
+        (Array.isArray(last.lineDiffs) && last.lineDiffs.length > 0);
+      if (!hasTransition) return snapshots.slice(0, -1);
     }
     return snapshots;
   }, [poForHistory]);
@@ -2325,6 +2502,10 @@ const POEntry = () => {
   }, [poForHistory, commercialPOs]);
   const isLumpSumMode = formData.billingType === 'Lump Sum';
   const isLumpSumPenaltyMode = formData.billingType === 'Lump Sum';
+  const visibleRateEscalationCount =
+    formData.priceEscalationEnabled === true
+      ? clampRateEscalationCount(formData.rateEscalationCount)
+      : 0;
   const monthlyContractValue =
     isLumpSumMode && Number(formData.totalContractMonth) > 0
       ? Math.round(
@@ -2497,7 +2678,7 @@ const POEntry = () => {
                     </th>
                     <th className="hidden lg:table-cell px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[17%]">
                       <button type="button" onClick={() => toggleSort('client')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
-                        Client (Legal Name) {renderSortIndicator('client')}
+                        Client Name {renderSortIndicator('client')}
                       </button>
                     </th>
                     <th className="hidden md:table-cell px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[14%] lg:w-[13%]">
@@ -2708,8 +2889,8 @@ const POEntry = () => {
         </div>
       )}
       {showForm && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-start justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-5xl w-full my-8 max-h-[90vh] overflow-y-auto border border-gray-200">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-start justify-center p-3 sm:p-4 lg:left-64">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-[min(96rem,100%)] my-6 sm:my-8 max-h-[90vh] overflow-y-auto border border-gray-200">
             <div className="px-6 py-4 border-b border-gray-200 sticky top-0 bg-white/95 backdrop-blur flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 leading-tight">{editId ? 'Edit PO/WO' : 'Add PO/WO'}</h3>
@@ -2733,17 +2914,17 @@ const POEntry = () => {
                 ×
               </button>
             </div>
-            <div className="p-4 sm:p-6 space-y-5 bg-gray-50">
+            <div className="p-4 sm:p-6 space-y-5 bg-gray-50 [&_label]:text-[13px] [&_input]:text-sm [&_select]:text-sm [&_textarea]:text-sm">
               {showClientIdentitySection ? (
-              <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
+              <section className={PO_FORM_SECTION}>
                 <div className="flex items-center justify-between gap-3 mb-4">
                   <h4 className="text-sm font-semibold text-gray-900">1. Client Identity</h4>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className={PO_FORM_GRID}>
                   {canLegalName ? (
-                  <div>
+                  <div className={PO_SPAN.mid}>
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-legal-name">
-                      Legal Name (for GST)
+                      Client Name (for GST)
                     </label>
                     <ClientLegalNameAutocomplete
                       id="sales-po-legal-name"
@@ -2756,7 +2937,10 @@ const POEntry = () => {
                   </div>
                   ) : null}
                   {canBillingAddress ? (
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Address (with State)</label><input type="text" value={formData.billingAddress} onChange={(e) => { const v = e.target.value; setFormData((p) => ({ ...p, billingAddress: v })); if (canPlaceOfSupply) { const msg = validateGstSupplyTypeForState(formData.placeOfSupply, v, resolveGstSupplyTypeFromForm({ isSez: formData.isSez, placeOfSupply: formData.placeOfSupply })); setGstTypeError(msg); } }} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full address including State" /></div>
+                  <div className={PO_SPAN.address}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Billing Address (with State)</label>
+                    <input type="text" value={formData.billingAddress} onChange={(e) => { const v = e.target.value; setFormData((p) => ({ ...p, billingAddress: v })); if (canPlaceOfSupply) { const msg = validateGstSupplyTypeForState(formData.placeOfSupply, v, resolveGstSupplyTypeFromForm({ isSez: formData.isSez, placeOfSupply: formData.placeOfSupply })); setGstTypeError(msg); } }} className={PO_INPUT} placeholder="Full address including State" />
+                  </div>
                   ) : null}
                   {(canPincodeBillTo || canLocationName || canPincodeShipTo || showShipToAddressFields) ? (
                   <PoClientPincodeFields
@@ -2771,7 +2955,7 @@ const POEntry = () => {
                     clearShippingAddressOnSame
                     billToBeside={
                       canLocationName && canPincodeBillTo ? (
-                        <div>
+                        <>
                           <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-location">
                             Location
                           </label>
@@ -2780,15 +2964,15 @@ const POEntry = () => {
                             type="text"
                             value={formData.locationName}
                             onChange={(e) => setFormData((p) => ({ ...p, locationName: e.target.value }))}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                            className={PO_INPUT}
                             placeholder="Location (shown in PO / WO Management)"
                           />
-                        </div>
+                        </>
                       ) : null
                     }
                     shipToAddressBeside={
                       showShipToAddressFields ? (
-                        <div>
+                        <>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Consignee / Ship-to address
                           </label>
@@ -2798,19 +2982,19 @@ const POEntry = () => {
                               setFormData((p) => ({ ...p, shippingAddress: e.target.value }))
                             }
                             rows={2}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                            className={PO_INPUT}
                             placeholder="Ship-to / consignee address"
                           />
-                          <p className="text-[11px] text-gray-500 mt-1">
+                          <p className={PO_FORM_HINT}>
                             Invoice will show separate BILL TO and SHIP TO blocks.
                           </p>
-                        </div>
+                        </>
                       ) : null
                     }
                   />
                   ) : null}
                   {canLocationName && !canPincodeBillTo ? (
-                  <div>
+                  <div className={PO_SPAN.location}>
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-location-only">
                       Location
                     </label>
@@ -2819,19 +3003,26 @@ const POEntry = () => {
                       type="text"
                       value={formData.locationName}
                       onChange={(e) => setFormData((p) => ({ ...p, locationName: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className={PO_INPUT}
                       placeholder="Location (shown in PO / WO Management)"
                     />
                   </div>
                   ) : null}
                   {canGstin ? (
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">GSTIN (15-digit)</label><input type="text" value={formData.gstin} onChange={(e) => { const gstin = e.target.value.toUpperCase(); const panFromGstin = extractPanFromGstin(gstin); setFormData((p) => ({ ...p, gstin, ...(panFromGstin && canPanNumber ? { panNumber: panFromGstin } : {}) })); setGstinError(''); }} onBlur={handleGstinBlur} maxLength={15} className={`w-full border rounded-lg px-3 py-2 ${gstinError ? 'border-red-500' : 'border-gray-300'}`} placeholder="e.g. 27AABCU9603R1ZM" />{gstinError && <p className="text-red-600 text-xs mt-1">{gstinError}</p>}</div>
+                  <div className={PO_SPAN.quarter}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">GSTIN (15-digit)</label>
+                    <input type="text" value={formData.gstin} onChange={(e) => { const gstin = e.target.value.toUpperCase(); const panFromGstin = extractPanFromGstin(gstin); setFormData((p) => ({ ...p, gstin, ...(panFromGstin && canPanNumber ? { panNumber: panFromGstin } : {}) })); setGstinError(''); }} onBlur={handleGstinBlur} maxLength={15} className={`${PO_INPUT} ${gstinError ? 'border-red-500' : 'border-gray-300'}`} placeholder="e.g. 27AABCU9603R1ZM" />
+                    {gstinError && <p className="text-red-600 text-xs mt-1 leading-snug">{gstinError}</p>}
+                  </div>
                   ) : null}
                   {canPanNumber ? (
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">PAN Number</label><input type="text" value={formData.panNumber} onChange={(e) => setFormData((p) => ({ ...p, panNumber: e.target.value.toUpperCase() }))} maxLength={10} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. AABCU9603R" /></div>
+                  <div className={PO_SPAN.quarter}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">PAN Number</label>
+                    <input type="text" value={formData.panNumber} onChange={(e) => setFormData((p) => ({ ...p, panNumber: e.target.value.toUpperCase() }))} maxLength={10} className={PO_INPUT} placeholder="e.g. AABCU9603R" />
+                  </div>
                   ) : null}
                   {canPlaceOfSupply ? (
-                  <div>
+                  <div className={PO_SPAN.quarter}>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Place of supply (invoice)</label>
                     <PlaceOfSupplySearchSelect
                       value={formData.placeOfSupply}
@@ -2853,18 +3044,18 @@ const POEntry = () => {
                         if (msg) toast.success(msg);
                       }}
                     />
-                    <p className="text-[11px] text-gray-500 mt-1">
+                    <p className={PO_FORM_HINT}>
                       Tax: {gstSupplyTypeDisplayLabel(resolveGstSupplyTypeFromForm({
                         isSez: formData.isSez,
                         placeOfSupply: formData.placeOfSupply,
                       }))}
                       {formData.isSez !== 'yes' ? ' — Gujarat → CGST + SGST; other states → IGST' : ''}
                     </p>
-                    {gstTypeError ? <p className="text-red-600 text-xs mt-1">{gstTypeError}</p> : null}
+                    {gstTypeError ? <p className="text-red-600 text-xs mt-1 leading-snug">{gstTypeError}</p> : null}
                   </div>
                   ) : null}
                   {canPlaceOfSupply ? (
-                  <div>
+                  <div className={PO_SPAN.quarter}>
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-is-sez">
                       Is it SEZ?
                     </label>
@@ -2887,7 +3078,7 @@ const POEntry = () => {
                         );
                         setGstTypeError(msg);
                       }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                      className={PO_INPUT}
                     >
                       <option value="no">No</option>
                       <option value="yes">Yes</option>
@@ -2898,12 +3089,12 @@ const POEntry = () => {
               </section>
               ) : null}
               {canContactPoc ? (
-              <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
+              <section className={PO_FORM_SECTION}>
                 <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h4 className="text-sm font-semibold text-gray-900">2. Contact (POC)</h4>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Add one or more contact persons. When you pick a saved client under <strong>Legal Name</strong>,
+                    <p className="text-xs text-gray-500 mt-1 leading-snug">
+                      Add one or more contact persons. When you pick a saved client under <strong>Client Name</strong>,
                       the first contact is filled from that PO (edit if needed).
                     </p>
                   </div>
@@ -2952,8 +3143,8 @@ const POEntry = () => {
                           </button>
                         ) : null}
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
+                      <div className={PO_FORM_GRID}>
+                        <div className={PO_SPAN.quarter}>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             {index === 0 ? 'Current Coordinator' : 'Contact Name'}
                           </label>
@@ -2972,11 +3163,11 @@ const POEntry = () => {
                                 };
                               });
                             }}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                            className={PO_INPUT}
                             placeholder="Name"
                           />
                         </div>
-                        <div>
+                        <div className={PO_SPAN.quarter}>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Designation</label>
                           <input
                             type="text"
@@ -2993,11 +3184,11 @@ const POEntry = () => {
                                 };
                               });
                             }}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                            className={PO_INPUT}
                             placeholder="e.g. Site In-charge"
                           />
                         </div>
-                        <div>
+                        <div className={PO_SPAN.quarter}>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number</label>
                           <input
                             type="text"
@@ -3016,11 +3207,11 @@ const POEntry = () => {
                               });
                             }}
                             maxLength={10}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                            className={PO_INPUT}
                             placeholder="10-digit mobile"
                           />
                         </div>
-                        <div>
+                        <div className={PO_SPAN.quarter}>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Email ID</label>
                           <input
                             type="email"
@@ -3037,25 +3228,25 @@ const POEntry = () => {
                                 };
                               });
                             }}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                            className={PO_INPUT}
                             placeholder="e.g. poc@company.com"
                           />
                         </div>
                       </div>
                     </div>
                   ))}
-                  {contactError ? <p className="text-red-600 text-xs">{contactError}</p> : null}
+                  {contactError ? <p className="text-red-600 text-xs leading-snug">{contactError}</p> : null}
                 </div>
               </section>
               ) : null}
               {showPoFinancialsSection ? (
-              <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
-                <h4 className="text-sm font-semibold text-gray-900 mb-4">
+              <section className={PO_FORM_SECTION}>
+                <h4 className={PO_FORM_SECTION_TITLE}>
                   {canPoFinancials || canBillingBasic || canPoDate ? '3. PO / Financials' : '3. OC Number'}
                 </h4>
+                <div className={PO_FORM_GRID}>
                 {canBillingBasic ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div>
+                  <div className={PO_SPAN.sixth}>
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-billing-basis">
                       Billing basis
                     </label>
@@ -3079,28 +3270,26 @@ const POEntry = () => {
                           setFormData((p) => ({ ...p, poBasis: v }));
                         }
                       }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                      className={PO_INPUT}
                     >
                       <option value={PO_BASIS_WITH_PO}>With PO</option>
                       <option value={PO_BASIS_WITHOUT_PO}>Without PO</option>
                     </select>
-                    <p className="text-xs text-gray-500 mt-2">
+                    <p className={PO_FORM_HINT}>
                       Without PO: OC and WOPO identifiers are prefilled for tracking (editable). Customer PO/WO can stay blank until you add one.
                     </p>
                   </div>
-                </div>
                 ) : null}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {canOcNumber && formData.poBasis === PO_BASIS_WITHOUT_PO ? (
                     <>
-                      <div>
+                      <div className={PO_SPAN.third}>
                         <label className="block text-sm font-medium text-gray-700 mb-1">OC Number</label>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 min-w-0">
                           <input
                             type="text"
                             value={formData.ocNumber}
                             onChange={(e) => setFormData((p) => ({ ...p, ocNumber: e.target.value }))}
-                            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm"
+                            className={`${PO_INPUT} flex-1 min-w-0 font-mono text-sm`}
                             placeholder={`IFSPL-Manpower-OC-${getFinancialYear()}-00001`}
                           />
                           <select
@@ -3120,7 +3309,7 @@ const POEntry = () => {
                                 };
                               });
                             }}
-                            className="border border-gray-300 rounded-lg px-3 py-2 shrink-0"
+                            className="border border-gray-300 rounded-lg px-2 py-2 shrink-0 bg-white min-w-[7.5rem] text-sm"
                             aria-label="OC line (Manpower, Training, or Fire Tender)"
                           >
                             {VERTICALS.map((v) => (
@@ -3131,13 +3320,13 @@ const POEntry = () => {
                           </select>
                         </div>
                       </div>
-                      <div>
+                      <div className={PO_SPAN.sixth}>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Vendor Code</label>
                         <input
                           type="text"
                           value={formData.vendorCode}
                           onChange={(e) => setFormData((p) => ({ ...p, vendorCode: e.target.value }))}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                          className={PO_INPUT}
                           placeholder="Optional"
                         />
                       </div>
@@ -3145,17 +3334,17 @@ const POEntry = () => {
                   ) : null}
                   {canOcNumber && formData.poBasis !== PO_BASIS_WITHOUT_PO ? (
                     <>
-                      <div>
+                      <div className={PO_SPAN.third}>
                         <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-oc-line">
                           OC Number
                         </label>
-                        <div className="flex gap-2 items-stretch">
+                        <div className="flex gap-2 items-stretch min-w-0">
                           <input
                             id="sales-po-oc-full"
                             type="text"
                             value={formData.ocNumber}
                             onChange={(e) => setFormData((p) => ({ ...p, ocNumber: e.target.value }))}
-                            className="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-900 font-mono text-sm"
+                            className={`${PO_INPUT} flex-1 min-w-0 font-mono text-sm`}
                             placeholder={buildOcBase(formData.vertical || 'Manpower', fyForOc)}
                             aria-label="Full OC number"
                           />
@@ -3171,7 +3360,7 @@ const POEntry = () => {
                                 ocNumber: p.ocNumber,
                               }));
                             }}
-                            className="border border-gray-300 rounded-lg px-3 py-2 shrink-0 bg-white text-sm min-w-[9rem]"
+                            className="border border-gray-300 rounded-lg px-2 py-2 shrink-0 bg-white text-sm min-w-[7.5rem]"
                             aria-label="Manpower, Training, or Fire Tender"
                           >
                             {VERTICALS.map((line) => (
@@ -3182,7 +3371,7 @@ const POEntry = () => {
                           </select>
                         </div>
                       </div>
-                      <div>
+                      <div className={PO_SPAN.sixth}>
                         <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-vendor-serial">
                           Vendor Code
                         </label>
@@ -3197,11 +3386,11 @@ const POEntry = () => {
                               vendorCodeDigits: e.target.value,
                             }))
                           }
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white font-mono text-sm"
+                          className={`${PO_INPUT} font-mono text-sm`}
                           placeholder="Optional reference"
                           aria-label="Vendor serial for OC line"
                         />
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className={PO_FORM_HINT}>
                           {editId
                             ? `FY segment stays as saved (${fyForOc}). Vendor digits are optional.`
                             : 'Enter the full OC above. Multiple POs may share the same Site and OC when PO/WO numbers differ and service periods do not overlap.'}
@@ -3210,7 +3399,7 @@ const POEntry = () => {
                     </>
                   ) : null}
                   {canPoFinancials && showPriorPoNumberField ? (
-                    <div>
+                    <div className={PO_SPAN.sixth}>
                       <label className="block text-sm font-medium text-gray-500 mb-1">
                         PO Number (OLD){' '}
                         <span className="text-gray-400 font-normal">({formatDateDdMmYyyy(formData.startDate) || '—'} to {formatDateDdMmYyyy(formData.endDate) || '—'})</span>
@@ -3220,9 +3409,9 @@ const POEntry = () => {
                         readOnly
                         tabIndex={-1}
                         value={formData.poWoNumber}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-600 cursor-not-allowed"
+                        className={PO_INPUT_MUTED}
                       />
-                      <p className="text-[11px] text-gray-400 mt-1">
+                      <p className="text-[11px] text-gray-400 mt-1 leading-snug">
                         {editId
                           ? 'Read-only snapshot of the current PO on file.'
                           : 'Previous active PO number for this Site and OC — moved to history when you save the new PO.'}
@@ -3230,7 +3419,7 @@ const POEntry = () => {
                     </div>
                   ) : null}
                   {canPoFinancials && editId ? (
-                    <div>
+                    <div className={PO_SPAN.sixth}>
                       <label className="block text-sm font-medium text-gray-500 mb-1">
                         Total contract value (OLD) (₹){' '}
                         <span className="text-gray-400 font-normal">({formatDateDdMmYyyy(formData.startDate) || '—'} to {formatDateDdMmYyyy(formData.endDate) || '—'})</span>
@@ -3240,18 +3429,318 @@ const POEntry = () => {
                         readOnly
                         tabIndex={-1}
                         value={formData.totalContractValue}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-600 cursor-not-allowed"
+                        className={PO_INPUT_MUTED}
                         min="0"
                       />
-                      <p className="text-[11px] text-gray-400 mt-1">Read-only snapshot of the current value on file.</p>
+                      <p className="text-[11px] text-gray-400 mt-1 leading-snug">Read-only snapshot of the current value on file.</p>
                     </div>
+                  ) : null}
+                  {canPoFinancials ? (
+                  <div className={PO_SPAN.sixth}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {showPriorPoNumberField ? 'New PO Number' : 'PO / WO Number'}{' '}
+                      <span className="text-gray-500 font-normal">({formatDateDdMmYyyy(formData.startDate) || '—'} to {formatDateDdMmYyyy(formData.endDate) || '—'})</span>
+                    </label>
+                    {showPriorPoNumberField ? (
+                      <p className={`${PO_FORM_HINT} mb-1.5`}>
+                        {editId ? 'New PO/WO number (renewal)' : 'Enter the new active PO/WO number for this period'}
+                      </p>
+                    ) : null}
+                    <input
+                      type="text"
+                      value={showPriorPoNumberField ? formData.newCyclePoWoNumber : formData.newCyclePoWoNumber || formData.poWoNumber}
+                      onChange={(e) =>
+                        setFormData((p) =>
+                          showPriorPoNumberField
+                            ? { ...p, newCyclePoWoNumber: e.target.value }
+                            : { ...p, newCyclePoWoNumber: e.target.value, poWoNumber: e.target.value }
+                        )
+                      }
+                      className={PO_INPUT}
+                      placeholder="Enter PO/WO number"
+                    />
+                  </div>
+                  ) : null}
+                  {canPoDate ? (
+                  <div className={PO_SPAN.sixth}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-date">
+                      PO Date
+                    </label>
+                    <FormDateInput
+                      id="sales-po-date"
+                      value={formData.poDate}
+                      onChange={(e) => setFormData((p) => ({ ...p, poDate: e.target.value }))}
+                      className={PO_INPUT}
+                    />
+                    <p className={PO_FORM_HINT}>Date the PO was issued/received.</p>
+                  </div>
+                  ) : null}
+                  {canStartDate ? (
+                  <div className={PO_SPAN.sixth}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">PO Start Date</label>
+                    <FormDateInput
+                      value={formData.startDate}
+                      onChange={(e) => handleDateInputChange('startDate', e.target.value)}
+                      className={PO_INPUT}
+                    />
+                  </div>
+                  ) : null}
+                  {canEndDate ? (
+                  <div className={PO_SPAN.sixth}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">PO End Date</label>
+                    <FormDateInput
+                      value={formData.endDate}
+                      onChange={(e) => handleDateInputChange('endDate', e.target.value)}
+                      className={PO_INPUT}
+                    />
+                  </div>
+                  ) : null}
+                  {canPoFinancials ? (
+                  <div className={PO_SPAN.sixth}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {editId ? 'New Total contract value (₹)' : 'Total contract value (₹)'}{' '}
+                      <span className="text-gray-500 font-normal">({formatDateDdMmYyyy(formData.startDate) || '—'} to {formatDateDdMmYyyy(formData.endDate) || '—'})</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={editId ? formData.newCycleTotalContractValue : formData.totalContractValue}
+                      onChange={(e) => handleContractValueChange(e.target.value)}
+                      className={PO_INPUT}
+                      min="0"
+                      placeholder="Enter total contract value"
+                    />
+                    {editId ? (
+                      <p className={PO_FORM_HINT}>
+                        After Commercial approves renewal, buffer-period tax invoices (and any legacy supplementary PO rows) are aligned to this new PO/WO number and contract dates.
+                      </p>
+                    ) : null}
+                    {editId && !isAfterContractEnd(formData.endDate) ? (
+                      <p className="text-[11px] text-amber-700 mt-1 leading-snug">
+                        Adding a renewal cycle is allowed only after the contract end date; use these fields for the initial PO when creating a new record.
+                      </p>
+                    ) : null}
+                  </div>
+                  ) : null}
+                  {canPoFinancials ? (
+                  <div className={PO_SPAN.sixth}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-monthly-value">
+                      Monthly value (₹)
+                    </label>
+                    <input
+                      id="sales-po-monthly-value"
+                      type="number"
+                      value={formData.monthlyValue}
+                      onChange={(e) =>
+                        setFormData((p) => ({
+                          ...p,
+                          monthlyValue: e.target.value,
+                          monthlyValueManual: true,
+                        }))
+                      }
+                      className={PO_INPUT}
+                      min="0"
+                      step="0.01"
+                      placeholder="Total ÷ contract months"
+                    />
+                    <p className={PO_FORM_HINT}>
+                      Auto-calculated as total contract value ÷ contract duration in months (e.g. 01/04/2024–31/03/2027 = 36). Editable if needed.
+                    </p>
+                  </div>
+                  ) : null}
+                  {canPoFinancials ? (
+                  <div className={PO_SPAN.sixth}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-reimbursement">
+                      Reimbursement
+                    </label>
+                    <select
+                      id="sales-po-reimbursement"
+                      value={formData.reimbursementType || ''}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setFormData((p) => ({
+                          ...p,
+                          reimbursementType: next,
+                          reimbursementOther:
+                            next === PO_REIMBURSEMENT_OTHER ? p.reimbursementOther : '',
+                        }));
+                      }}
+                      className={PO_INPUT}
+                    >
+                      <option value="">Select</option>
+                      {PO_REIMBURSEMENT_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    {formData.reimbursementType === PO_REIMBURSEMENT_OTHER ? (
+                      <input
+                        type="text"
+                        value={formData.reimbursementOther || ''}
+                        onChange={(e) =>
+                          setFormData((p) => ({ ...p, reimbursementOther: e.target.value }))
+                        }
+                        className={`${PO_INPUT} mt-2`}
+                        placeholder="Specify other reimbursement"
+                      />
+                    ) : null}
+                  </div>
+                  ) : null}
+                  {canPoFinancials ? (
+                  <div className={PO_SPAN.sixth}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-price-escalation">
+                      Price Escalation
+                    </label>
+                    <select
+                      id="sales-po-price-escalation"
+                      value={formData.priceEscalationEnabled ? 'yes' : 'no'}
+                      onChange={(e) => {
+                        const enabled = e.target.value === 'yes';
+                        setFormData((p) => ({
+                          ...p,
+                          priceEscalationEnabled: enabled,
+                          rateEscalationCount: enabled
+                            ? clampRateEscalationCount(p.rateEscalationCount || 1)
+                            : p.rateEscalationCount || 1,
+                        }));
+                      }}
+                      className={PO_INPUT}
+                    >
+                      <option value="no">No</option>
+                      <option value="yes">Yes</option>
+                    </select>
+                  </div>
+                  ) : null}
+                  {canPoFinancials && formData.priceEscalationEnabled ? (
+                  <div className={PO_SPAN.sixth}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-rate-escalation-count">
+                      No. of Rate Escalations
+                    </label>
+                    <select
+                      id="sales-po-rate-escalation-count"
+                      value={clampRateEscalationCount(formData.rateEscalationCount)}
+                      onChange={(e) =>
+                        setFormData((p) => ({
+                          ...p,
+                          rateEscalationCount: clampRateEscalationCount(e.target.value),
+                        }))
+                      }
+                      className={PO_INPUT}
+                    >
+                      {[1, 2, 3, 4].map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  ) : null}
+                  {canPaymentTerms && canPoFinancials ? (
+                  <div className={PO_SPAN.sixth}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
+                    <select
+                      value={formData.paymentTerms}
+                      onChange={(e) => {
+                        const selectedTerm = e.target.value;
+                        setFormData((p) => ({
+                          ...p,
+                          paymentTerms: selectedTerm,
+                          customPaymentTerms:
+                            selectedTerm === CUSTOM_MT_PAYMENT_TERM ? p.customPaymentTerms : '',
+                        }));
+                      }}
+                      className={PO_INPUT}
+                    >
+                      {MT_PAYMENT_TERMS_OPTIONS.map((term) => (
+                        <option key={term} value={term}>{term}</option>
+                      ))}
+                      <option value={CUSTOM_MT_PAYMENT_TERM}>{CUSTOM_MT_PAYMENT_TERM}</option>
+                    </select>
+                  </div>
+                  ) : null}
+                  {canActualMobilizationDate ? (
+                  <div className={PO_SPAN.sixth}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-actual-mobilization-date">
+                      Actual mobilization date
+                    </label>
+                    <FormDateInput
+                      id="sales-po-actual-mobilization-date"
+                      value={formData.actualMobilizationDate}
+                      onChange={(e) =>
+                        setFormData((p) => ({
+                          ...p,
+                          actualMobilizationDate: e.target.value,
+                        }))
+                      }
+                      className={PO_INPUT}
+                    />
+                  </div>
+                  ) : null}
+                  {(canTaxService || canPoFinancials) ? (
+                  <div className={PO_SPAN.half}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-description-of-work">
+                      Description of work
+                    </label>
+                    <textarea
+                      id="sales-po-description-of-work"
+                      value={formData.serviceDescription}
+                      onChange={(e) => setFormData((p) => ({ ...p, serviceDescription: e.target.value }))}
+                      rows={2}
+                      className={PO_INPUT}
+                      placeholder="Describe the scope / nature of work"
+                    />
+                  </div>
+                  ) : null}
+                  {canPaymentTerms && canPoFinancials && formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM ? (
+                    <div className={PO_SPAN.third}>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Manual payment terms</label>
+                      <input
+                        type="text"
+                        value={formData.customPaymentTerms}
+                        onChange={(e) => setFormData((p) => ({ ...p, customPaymentTerms: e.target.value }))}
+                        className={PO_INPUT}
+                        placeholder="e.g. Net 7, 50% advance"
+                      />
+                    </div>
+                  ) : null}
+                  {isLumpSumMode ? (
+                    <>
+                      <div className={PO_SPAN.sixth}>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Total contract month</label>
+                        <input
+                          type="number"
+                          value={formData.totalContractMonth}
+                          onChange={(e) => setFormData((p) => ({ ...p, totalContractMonth: e.target.value }))}
+                          className={PO_INPUT}
+                          min="0"
+                          step="1"
+                          placeholder="Months"
+                        />
+                      </div>
+                      <div className={PO_SPAN.sixth}>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Monthly contract value (₹)
+                        </label>
+                        <input
+                          type="number"
+                          readOnly
+                          tabIndex={-1}
+                          value={monthlyContractValue}
+                          className={PO_INPUT_MUTED}
+                          placeholder="New Total contract value ÷ total contract month"
+                        />
+                        <p className={PO_FORM_HINT}>
+                          Calculated as New Total contract value ÷ total contract month.
+                        </p>
+                      </div>
+                    </>
                   ) : null}
                 </div>
 
                 {canPoFinancials ? (
                 <>
                 {showSiteOcPoHistory ? (
-                  <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+                  <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
                     <p className="text-xs font-semibold text-gray-800 mb-2">PO Number History</p>
                     <div className="space-y-1.5 text-xs text-gray-700">
                       {siteOcPoNumberHistory.map((entry, i) => (
@@ -3271,286 +3760,8 @@ const POEntry = () => {
                     </div>
                   </div>
                 ) : null}
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
-                  {canPoFinancials ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {showPriorPoNumberField ? 'New PO Number' : 'PO / WO Number'}{' '}
-                      <span className="text-gray-500 font-normal">({formatDateDdMmYyyy(formData.startDate) || '—'} to {formatDateDdMmYyyy(formData.endDate) || '—'})</span>
-                    </label>
-                    {showPriorPoNumberField ? (
-                      <p className="text-xs text-gray-500 mb-1.5">
-                        {editId ? 'New PO/WO number (renewal)' : 'Enter the new active PO/WO number for this period'}
-                      </p>
-                    ) : null}
-                    <div className="grid grid-cols-1 gap-2">
-                      <input
-                        type="text"
-                        value={showPriorPoNumberField ? formData.newCyclePoWoNumber : formData.newCyclePoWoNumber || formData.poWoNumber}
-                        onChange={(e) =>
-                          setFormData((p) =>
-                            showPriorPoNumberField
-                              ? { ...p, newCyclePoWoNumber: e.target.value }
-                              : { ...p, newCyclePoWoNumber: e.target.value, poWoNumber: e.target.value }
-                          )
-                        }
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
-                        placeholder="Enter PO/WO number"
-                      />
-                    </div>
-                  </div>
-                  ) : null}
-                  {canPoDate ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-date">
-                      PO Date
-                    </label>
-                    <FormDateInput
-                      id="sales-po-date"
-                      value={formData.poDate}
-                      onChange={(e) => setFormData((p) => ({ ...p, poDate: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    />
-                    <p className="text-[11px] text-gray-500 mt-1">Date the PO was issued/received.</p>
-                  </div>
-                  ) : null}
-                  {canPoFinancials ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-effective-date">
-                      PO Effective Date
-                    </label>
-                    <FormDateInput
-                      id="sales-po-effective-date"
-                      value={formData.poEffectiveDate}
-                      onChange={(e) => {
-                        if (!isValidDateInputValue(e.target.value)) return;
-                        setFormData((p) => ({
-                          ...p,
-                          poEffectiveDate: normalizeDateInputValue(e.target.value),
-                        }));
-                      }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    />
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      Date from which commercial terms and base pricing become effective (not the same as PO Date).
-                    </p>
-                  </div>
-                  ) : null}
-                  {canStartDate ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">PO Start Date</label>
-                    <FormDateInput
-                      value={formData.startDate}
-                      onChange={(e) => handleDateInputChange('startDate', e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  ) : null}
-                  {canEndDate ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">PO End Date</label>
-                    <FormDateInput
-                      value={formData.endDate}
-                      onChange={(e) => handleDateInputChange('endDate', e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  ) : null}
-                  {canPoFinancials ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {editId ? 'New Total contract value (₹)' : 'Total contract value (₹)'}{' '}
-                      <span className="text-gray-500 font-normal">({formatDateDdMmYyyy(formData.startDate) || '—'} to {formatDateDdMmYyyy(formData.endDate) || '—'})</span>
-                    </label>
-                    <input
-                      type="number"
-                      value={editId ? formData.newCycleTotalContractValue : formData.totalContractValue}
-                      onChange={(e) => handleContractValueChange(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
-                      min="0"
-                      placeholder="Enter total contract value"
-                    />
-                    {editId ? (
-                      <p className="text-[11px] text-gray-500 mt-1">
-                        After Commercial approves renewal, buffer-period tax invoices (and any legacy supplementary PO rows) are aligned to this new PO/WO number and contract dates.
-                      </p>
-                    ) : null}
-                    {editId && !isAfterContractEnd(formData.endDate) ? (
-                      <p className="text-[11px] text-amber-700 mt-1">
-                        Adding a renewal cycle is allowed only after the contract end date; use these fields for the initial PO when creating a new record.
-                      </p>
-                    ) : null}
-                  </div>
-                  ) : null}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-monthly-value">
-                      Monthly value (₹)
-                    </label>
-                    <input
-                      id="sales-po-monthly-value"
-                      type="number"
-                      value={formData.monthlyValue}
-                      onChange={(e) =>
-                        setFormData((p) => ({
-                          ...p,
-                          monthlyValue: e.target.value,
-                          monthlyValueManual: true,
-                        }))
-                      }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
-                      min="0"
-                      step="0.01"
-                      placeholder="Total ÷ contract months"
-                    />
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      Auto-calculated as total contract value ÷ contract duration in months (e.g. 01/04/2024–31/03/2027 = 36). Editable if needed.
-                      When Price Escalation is Yes, this stays the <span className="font-medium">base</span> monthly rate.
-                    </p>
-                  </div>
-                  {canPoFinancials ? (
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-price-escalation">
-                      Price Escalation
-                    </label>
-                    <select
-                      id="sales-po-price-escalation"
-                      value={formData.priceEscalationEnabled ? 'yes' : 'no'}
-                      onChange={(e) => {
-                        const enabled = e.target.value === 'yes';
-                        setFormData((p) => ({
-                          ...p,
-                          priceEscalationEnabled: enabled,
-                          poEffectiveDate:
-                            p.poEffectiveDate || p.startDate || '',
-                          priceEscalationSchedule: enabled
-                            ? p.priceEscalationSchedule || []
-                            : [],
-                        }));
-                      }}
-                      className="w-full max-w-xs border border-gray-300 rounded-lg px-3 py-2 bg-white"
-                    >
-                      <option value="no">No</option>
-                      <option value="yes">Yes</option>
-                    </select>
-                    {formData.priceEscalationEnabled ? (
-                      <PoPriceEscalationSection
-                        formData={formData}
-                        setFormData={setFormData}
-                        canEdit={canPoFinancials}
-                        updateHistory={
-                          editId
-                            ? commercialPOs.find((p) => p.id === editId)?.updateHistory || []
-                            : []
-                        }
-                      />
-                    ) : null}
-                  </div>
-                  ) : null}
-                  {canPaymentTerms ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
-                    <select
-                      value={formData.paymentTerms}
-                      onChange={(e) => {
-                        const selectedTerm = e.target.value;
-                        setFormData((p) => ({
-                          ...p,
-                          paymentTerms: selectedTerm,
-                          customPaymentTerms:
-                            selectedTerm === CUSTOM_MT_PAYMENT_TERM ? p.customPaymentTerms : '',
-                        }));
-                      }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    >
-                      {MT_PAYMENT_TERMS_OPTIONS.map((term) => (
-                        <option key={term} value={term}>{term}</option>
-                      ))}
-                      <option value={CUSTOM_MT_PAYMENT_TERM}>{CUSTOM_MT_PAYMENT_TERM}</option>
-                    </select>
-                  </div>
-                  ) : null}
-                  {canActualMobilizationDate ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-actual-mobilization-date">
-                      Actual mobilization date
-                    </label>
-                    <FormDateInput
-                      id="sales-po-actual-mobilization-date"
-                      value={formData.actualMobilizationDate}
-                      onChange={(e) =>
-                        setFormData((p) => ({
-                          ...p,
-                          actualMobilizationDate: e.target.value,
-                        }))
-                      }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  ) : null}
-                  {(canTaxService || canPoFinancials) ? (
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-description-of-work">
-                      Description of work
-                    </label>
-                    <textarea
-                      id="sales-po-description-of-work"
-                      value={formData.serviceDescription}
-                      onChange={(e) => setFormData((p) => ({ ...p, serviceDescription: e.target.value }))}
-                      rows={3}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                      placeholder="Describe the scope / nature of work"
-                    />
-                  </div>
-                  ) : null}
-                  {canPaymentTerms && formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM ? (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Manual payment terms</label>
-                      <input
-                        type="text"
-                        value={formData.customPaymentTerms}
-                        onChange={(e) => setFormData((p) => ({ ...p, customPaymentTerms: e.target.value }))}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                        placeholder="e.g. Net 7, 50% advance"
-                      />
-                    </div>
-                  ) : null}
-                  {isLumpSumMode ? (
-                    <>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Total contract month</label>
-                        <input
-                          type="number"
-                          value={formData.totalContractMonth}
-                          onChange={(e) => setFormData((p) => ({ ...p, totalContractMonth: e.target.value }))}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
-                          min="0"
-                          step="1"
-                          placeholder="Enter total months"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Monthly contract value (₹)
-                        </label>
-                        <input
-                          type="number"
-                          readOnly
-                          tabIndex={-1}
-                          value={monthlyContractValue}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-700 cursor-not-allowed"
-                          placeholder="New Total contract value ÷ total contract month"
-                        />
-                        <p className="text-[11px] text-gray-500 mt-1">
-                          Calculated as New Total contract value ÷ total contract month.
-                        </p>
-                      </div>
-                    </>
-                  ) : null}
-                </div>
-
                 {Array.isArray(formData.renewalCycles) && formData.renewalCycles.length > 0 ? (
-                  <div className="mt-3">
+                  <div className="mt-4">
                     <p className="text-xs font-semibold text-gray-700 mb-2">Previous renewal cycles</p>
                     <div className="space-y-1 text-xs text-gray-600">
                       {formData.renewalCycles.map((c, i) => (
@@ -3566,8 +3777,8 @@ const POEntry = () => {
                 </>
                 ) : null}
                 {canPaymentTerms && !canPoFinancials ? (
-                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
+                <div className={`${PO_FORM_GRID} mt-4`}>
+                  <div className={PO_SPAN.sixth}>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
                     <select
                       value={formData.paymentTerms}
@@ -3580,7 +3791,7 @@ const POEntry = () => {
                             selectedTerm === CUSTOM_MT_PAYMENT_TERM ? p.customPaymentTerms : '',
                         }));
                       }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className={PO_INPUT}
                     >
                       {MT_PAYMENT_TERMS_OPTIONS.map((term) => (
                         <option key={term} value={term}>{term}</option>
@@ -3589,13 +3800,13 @@ const POEntry = () => {
                     </select>
                   </div>
                   {formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM ? (
-                    <div>
+                    <div className={PO_SPAN.third}>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Manual payment terms</label>
                       <input
                         type="text"
                         value={formData.customPaymentTerms}
                         onChange={(e) => setFormData((p) => ({ ...p, customPaymentTerms: e.target.value }))}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        className={PO_INPUT}
                         placeholder="e.g. Net 7, 50% advance"
                       />
                     </div>
@@ -3605,13 +3816,19 @@ const POEntry = () => {
                 {canManpowerDetails ? (
                 <div className="mt-4">
                   <div className="flex justify-between items-center mb-2">
-                    <label className="text-sm font-medium text-gray-700">Manpower details</label>
+                    <h4 className="text-sm font-semibold text-gray-900">4. Manpower details</h4>
                     <button type="button" onClick={addManpowerDetailRow} className="text-sm text-blue-600 hover:underline">
                       + Add row
                     </button>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+                    <table className="min-w-[36rem] w-full table-fixed border-collapse">
+                      <colgroup>
+                        <col className="w-[50%]" />
+                        <col className="w-[15%]" />
+                        <col className="w-[30%]" />
+                        <col className="w-[5%]" />
+                      </colgroup>
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Designation</th>
@@ -3648,7 +3865,7 @@ const POEntry = () => {
                                     String(e.target.value || '').replace(/\D/g, '')
                                   )
                                 }
-                                className="border border-gray-300 rounded px-2 py-1 w-full"
+                                className={PO_TABLE_NUM}
                                 placeholder="Qty"
                               />
                             </td>
@@ -3692,9 +3909,9 @@ const POEntry = () => {
                 </div>
                 ) : null}
                 {(canRelieverScope || canAccommodationScope || canTransportationScope) ? (
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className={`${PO_FORM_GRID} mt-4`}>
                   {canRelieverScope ? (
-                  <div>
+                  <div className={PO_SPAN.sixth}>
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-reliever-scope">
                       Reliever scope
                     </label>
@@ -3702,7 +3919,7 @@ const POEntry = () => {
                       id="sales-po-reliever-scope"
                       value={formData.relieverScope}
                       onChange={(e) => setFormData((p) => ({ ...p, relieverScope: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className={PO_INPUT}
                     >
                       <option value="">Select reliever scope</option>
                       {RELIEVER_SCOPE_OPTIONS.map((opt) => (
@@ -3712,7 +3929,7 @@ const POEntry = () => {
                   </div>
                   ) : null}
                   {canAccommodationScope ? (
-                  <div>
+                  <div className={PO_SPAN.sixth}>
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-accommodation-scope">
                       Accommodation
                     </label>
@@ -3720,7 +3937,7 @@ const POEntry = () => {
                       id="sales-po-accommodation-scope"
                       value={formData.accommodationScope}
                       onChange={(e) => setFormData((p) => ({ ...p, accommodationScope: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className={PO_INPUT}
                     >
                       <option value="">Select accommodation</option>
                       {ACCOMMODATION_TRANSPORT_SCOPE_OPTIONS.map((opt) => (
@@ -3730,7 +3947,7 @@ const POEntry = () => {
                   </div>
                   ) : null}
                   {canTransportationScope ? (
-                  <div>
+                  <div className={PO_SPAN.sixth}>
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-transportation-scope">
                       Transportation
                     </label>
@@ -3738,7 +3955,7 @@ const POEntry = () => {
                       id="sales-po-transportation-scope"
                       value={formData.transportationScope}
                       onChange={(e) => setFormData((p) => ({ ...p, transportationScope: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className={PO_INPUT}
                     >
                       <option value="">Select transportation</option>
                       {ACCOMMODATION_TRANSPORT_SCOPE_OPTIONS.map((opt) => (
@@ -3752,11 +3969,11 @@ const POEntry = () => {
               </section>
               ) : null}
               {showTimelinesSection ? (
-              <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
-                <h4 className="text-sm font-semibold text-gray-900 mb-4">5. Billing Configuration &amp; Terms</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <section className={PO_FORM_SECTION}>
+                <h4 className={PO_FORM_SECTION_TITLE}>5. Billing Configuration &amp; Terms</h4>
+                <div className={PO_FORM_GRID}>
                   {canBillingType && String(formData.vertical || '').trim().toLowerCase() !== 'training' ? (
-                    <div>
+                    <div className={PO_SPAN.sixth}>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Billing Type</label>
                       <select
                         value={formData.billingType}
@@ -3774,7 +3991,7 @@ const POEntry = () => {
                             totalContractMonth: bt === 'Lump Sum' ? p.totalContractMonth : '',
                           }));
                         }}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        className={PO_INPUT}
                       >
                         {BILLING_TYPES.map((t) => (
                           <option key={t} value={t}>{t}</option>
@@ -3789,17 +4006,39 @@ const POEntry = () => {
                     <label className="text-sm font-medium text-gray-700">Rate per Category</label>
                     <button type="button" onClick={addRateRow} className="text-sm text-blue-600 hover:underline">+ Add row</button>
                   </div>
-                  <table className="min-w-full border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+                  <table
+                    className="w-full table-fixed border-collapse"
+                    style={{
+                      minWidth: `${52 + visibleRateEscalationCount * 12 + (isLumpSumPenaltyMode ? 9 : 0)}rem`,
+                    }}
+                  >
+                    <colgroup>
+                      <col />
+                      <col className="w-[7.5rem]" />
+                      <col className="w-[5.5rem]" />
+                      <col className="w-[7.5rem]" />
+                      {Array.from({ length: visibleRateEscalationCount }, (_, i) => (
+                        <col key={`esc-col-${i + 1}`} className="w-[12rem]" />
+                      ))}
+                      {isLumpSumPenaltyMode ? <col className="w-[9rem]" /> : null}
+                      <col className="w-10" />
+                    </colgroup>
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Description</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">
                           {formData.materialCodeRequired ? 'Material code' : 'SAC/HSN'}
                         </th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">Qty</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">Rate (₹)</th>
+                        {Array.from({ length: visibleRateEscalationCount }, (_, i) => (
+                          <th key={`esc-h-${i + 1}`} className="px-3 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">
+                            Rate Escalation {i + 1} (₹)
+                          </th>
+                        ))}
                         {isLumpSumPenaltyMode ? (
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Penalty rate (₹)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">Penalty rate (₹)</th>
                         ) : null}
                         <th className="w-10" />
                       </tr>
@@ -3835,7 +4074,7 @@ const POEntry = () => {
                               type="number"
                               value={r.qty}
                               onChange={(e) => updateRateRow(idx, 'qty', e.target.value)}
-                              className="border border-gray-300 rounded px-2 py-1 w-full"
+                              className={PO_TABLE_NUM}
                               min="0"
                             />
                           </td>
@@ -3844,17 +4083,32 @@ const POEntry = () => {
                               type="number"
                               value={r.rate}
                               onChange={(e) => updateRateRow(idx, 'rate', e.target.value)}
-                              className="border border-gray-300 rounded px-2 py-1 w-full"
+                              className={PO_TABLE_RATE}
                               min="0"
                             />
                           </td>
+                          {Array.from({ length: visibleRateEscalationCount }, (_, i) => {
+                            const field = `rateEscalation${i + 1}`;
+                            return (
+                              <td key={`esc-c-${idx}-${i + 1}`} className="px-3 py-2">
+                                <input
+                                  type="number"
+                                  value={r[field] ?? ''}
+                                  onChange={(e) => updateRateRow(idx, field, e.target.value)}
+                                  className="border border-gray-300 rounded px-2 py-1 w-full"
+                                  min="0"
+                                  step="0.01"
+                                />
+                              </td>
+                            );
+                          })}
                           {isLumpSumPenaltyMode ? (
                             <td className="px-3 py-2">
                               <input
                                 type="number"
                                 value={r.penalty ?? ''}
                                 onChange={(e) => updateRateRow(idx, 'penalty', e.target.value)}
-                                className="border border-gray-300 rounded px-2 py-1 w-full"
+                                className={PO_TABLE_RATE}
                                 min="0"
                                 step="0.01"
                               />
@@ -3867,8 +4121,9 @@ const POEntry = () => {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                   {formData.materialCodeRequired ? (
-                    <div className="mt-3">
+                    <div className="mt-3 max-w-md">
                       <label className="block text-xs font-medium text-gray-600 mb-1">SAC/HSN code (combined)</label>
                       <input
                         type="text"
@@ -3880,19 +4135,19 @@ const POEntry = () => {
                             sacCode: e.target.value,
                           }))
                         }
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        className={PO_INPUT}
                         placeholder="Enter SAC/HSN code"
                       />
                     </div>
                   ) : null}
                 </div>
                 ) : null}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div className={`${PO_FORM_GRID} mt-4`}>
                   {canRemarks ? (
-                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Remarks (internal)</label><input type="text" value={formData.remarks} onChange={(e) => setFormData((p) => ({ ...p, remarks: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Internal only — not printed on tax invoice" /></div>
+                  <div className={PO_SPAN.half}><label className="block text-sm font-medium text-gray-700 mb-1">Remarks (internal)</label><input type="text" value={formData.remarks} onChange={(e) => setFormData((p) => ({ ...p, remarks: e.target.value }))} className={PO_INPUT} placeholder="Internal only — not printed on tax invoice" /></div>
                   ) : null}
                   {(canWithFireTender || canMaterialCodeRequired) ? (
-                  <div className="md:col-span-2 flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
+                  <div className={`${PO_SPAN.full} flex flex-wrap items-center gap-x-6 gap-y-3`}>
                     {canWithFireTender ? (
                     <label className="flex items-center gap-2">
                       <input
@@ -3921,22 +4176,22 @@ const POEntry = () => {
                   ) : null}
                   {canRevisedPoFlags ? (
                   <>
-                  <p className="md:col-span-2 text-xs font-semibold text-gray-700">
+                  <p className={`${PO_SPAN.full} text-xs font-semibold text-gray-700`}>
                     Select to enable PO updates and Renewal reminders
                   </p>
-                  <div className="flex flex-wrap gap-6"><label className="flex items-center gap-2"><input type="checkbox" checked={formData.revisedPO} onChange={(e) => setFormData((p) => ({ ...p, revisedPO: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">PO Updated</span></label><label className="flex items-center gap-2"><input type="checkbox" checked={formData.renewalPending} onChange={(e) => setFormData((p) => ({ ...p, renewalPending: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">Renewal Due</span></label></div>
+                  <div className={`${PO_SPAN.full} flex flex-wrap gap-6`}><label className="flex items-center gap-2"><input type="checkbox" checked={formData.revisedPO} onChange={(e) => setFormData((p) => ({ ...p, revisedPO: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">PO Updated</span></label><label className="flex items-center gap-2"><input type="checkbox" checked={formData.renewalPending} onChange={(e) => setFormData((p) => ({ ...p, renewalPending: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">Renewal Due</span></label></div>
                   </>
                   ) : null}
                 </div>
               </section>
               ) : null}
               {showDocumentsSection ? (
-              <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
+              <section className={PO_FORM_SECTION}>
                 <h4 className="text-sm font-semibold text-gray-900 mb-1">6. Documents</h4>
-                <p className="text-xs text-gray-500 mb-4">
+                <p className={`${PO_FORM_HINT} mb-4`}>
                   Attach PO copy, scope of work, and penalty clause (multiple files allowed; max 100 MB each).
                 </p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-5 gap-y-4">
                   {canPoCopy ? (
                   <PoDocumentUploadField
                     id="sales-po-copy-files"
@@ -4089,7 +4344,7 @@ const POEntry = () => {
               {(canLegalName || canGstin || canPlaceOfSupply || canBillingAddress || canShippingAddress) ? (
               <PoViewSection title="Client & site">
                 <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-3.5">
-                  {canLegalName ? <PoViewField label="Legal name" value={poForView.legalName} /> : null}
+                  {canLegalName ? <PoViewField label="Client name (for GST)" value={poForView.legalName} /> : null}
                   {canLegalName ? <PoViewField label="Site ID" value={poForView.siteId} className="text-sm font-mono font-medium text-gray-900" /> : null}
                   {canLocationName ? <PoViewField label="Location" value={poForView.locationName || poForView.location_name} /> : null}
                   {canGstin ? <PoViewField label="GSTIN" value={poForView.gstin} className="text-sm font-mono font-medium text-gray-900" /> : null}
@@ -4121,9 +4376,10 @@ const POEntry = () => {
                   {canPoDate ? <PoViewField label="PO date" value={formatDateDdMmYyyy(poForView.poDate || poForView.po_date)} /> : null}
                   {canPoFinancials ? (
                     <PoViewField
-                      label="PO effective date"
-                      value={formatDateDdMmYyyy(
-                        poForView.poEffectiveDate || poForView.po_effective_date || poForView.startDate
+                      label="Reimbursement"
+                      value={poReimbursementLabel(
+                        poForView.reimbursementType || poForView.reimbursement_type,
+                        poForView.reimbursementOther || poForView.reimbursement_other
                       )}
                     />
                   ) : null}
@@ -4135,6 +4391,15 @@ const POEntry = () => {
                           ? 'Yes'
                           : 'No'
                       }
+                    />
+                  ) : null}
+                  {canPoFinancials &&
+                  (poForView.priceEscalationEnabled || poForView.price_escalation_enabled) ? (
+                    <PoViewField
+                      label="No. of rate escalations"
+                      value={clampRateEscalationCount(
+                        poForView.rateEscalationCount ?? poForView.rate_escalation_count ?? 1
+                      )}
                     />
                   ) : null}
                   {canActualMobilizationDate ? (
@@ -4248,6 +4513,24 @@ const POEntry = () => {
                           <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Description</th>
                           <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-24">Qty</th>
                           <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-36">Rate (₹)</th>
+                          {Array.from(
+                            {
+                              length:
+                                poForView.priceEscalationEnabled || poForView.price_escalation_enabled
+                                  ? clampRateEscalationCount(
+                                      poForView.rateEscalationCount ?? poForView.rate_escalation_count ?? 1
+                                    )
+                                  : 0,
+                            },
+                            (_, i) => (
+                              <th
+                                key={`view-esc-h-${i + 1}`}
+                                className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 whitespace-nowrap"
+                              >
+                                Rate Escalation {i + 1} (₹)
+                              </th>
+                            )
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
@@ -4256,6 +4539,29 @@ const POEntry = () => {
                             <td className="px-3 py-2.5 text-gray-900">{row.description || row.designation || '–'}</td>
                             <td className="px-3 py-2.5 text-right tabular-nums text-gray-800">{row.qty ?? row.quantity ?? '–'}</td>
                             <td className="px-3 py-2.5 text-right tabular-nums font-medium text-gray-900">{row.rate != null ? Number(row.rate).toLocaleString('en-IN') : '–'}</td>
+                            {Array.from(
+                              {
+                                length:
+                                  poForView.priceEscalationEnabled || poForView.price_escalation_enabled
+                                    ? clampRateEscalationCount(
+                                        poForView.rateEscalationCount ?? poForView.rate_escalation_count ?? 1
+                                      )
+                                    : 0,
+                              },
+                              (_, escIdx) => {
+                                const val = readRateEscalationField(row, escIdx + 1);
+                                return (
+                                  <td
+                                    key={`view-esc-c-${i}-${escIdx + 1}`}
+                                    className="px-3 py-2.5 text-right tabular-nums text-gray-800"
+                                  >
+                                    {val !== '' && val != null && Number.isFinite(Number(val))
+                                      ? Number(val).toLocaleString('en-IN')
+                                      : '–'}
+                                  </td>
+                                );
+                              }
+                            )}
                           </tr>
                         ))}
                       </tbody>
@@ -4428,40 +4734,97 @@ const POEntry = () => {
                     {[...poRatesHistorySnapshots].reverse().map((snap, idx) => (
                       <div key={`rate-hist-${snap.at || idx}-${idx}`} className="rounded-lg border border-gray-200 overflow-hidden">
                         <div className="bg-slate-50 px-3 py-2 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                            Snapshot {poRatesHistorySnapshots.length - idx}
-                          </p>
-                          <p className="text-xs font-mono text-slate-500">
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                              Change {poRatesHistorySnapshots.length - idx}
+                            </p>
+                            <p className="text-xs text-slate-600 mt-0.5 leading-snug">
+                              {snap.changesSummary || 'Rates updated'}
+                            </p>
+                          </div>
+                          <p className="text-xs font-mono text-slate-500 shrink-0">
                             {snap.at ? formatDateTimeDdMmYyyy(snap.at) : '–'}
                           </p>
                         </div>
+
+                        {Array.isArray(snap.lineDiffs) && snap.lineDiffs.length > 0 ? (
+                          <div className="px-3 py-2.5 border-b border-gray-100 bg-white">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                              Where changes were done
+                            </p>
+                            <ul className="space-y-2">
+                              {snap.lineDiffs.map((line, li) => (
+                                <li key={`chg-${idx}-${li}`} className="text-sm text-gray-800">
+                                  <span className="font-medium text-gray-900">{line.description || 'Line'}</span>
+                                  {line.kind === 'added' ? (
+                                    <span className="ml-2 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">
+                                      added
+                                    </span>
+                                  ) : null}
+                                  {line.kind === 'removed' ? (
+                                    <span className="ml-2 inline-flex rounded-full border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-700">
+                                      removed
+                                    </span>
+                                  ) : null}
+                                  <ul className="mt-1 ml-3 space-y-0.5 text-xs text-gray-600">
+                                    {(line.fieldChanges || []).map((fc, fi) => (
+                                      <li key={`fc-${idx}-${li}-${fi}`}>
+                                        <span className="font-medium text-gray-700">{fc.label}:</span>{' '}
+                                        <span className="tabular-nums text-slate-500">{fc.from}</span>
+                                        <span className="mx-1 text-slate-400">→</span>
+                                        <span className="tabular-nums font-medium text-slate-900">{fc.to}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+
                         <div className="overflow-x-auto">
                           <table className="min-w-full bg-white text-sm">
                             <thead className="bg-white">
                               <tr>
                                 <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Description</th>
-                                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">SAC/HSN</th>
-                                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-24">Qty</th>
-                                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-32">Rate (₹)</th>
-                                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-32">Penalty (₹)</th>
+                                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-28">Old rate (₹)</th>
+                                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 w-28">New rate (₹)</th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Changed fields</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                              {snap.rates.map((row, i) => (
-                                <tr key={`snap-${idx}-${i}`}>
-                                  <td className="px-3 py-2 text-gray-900">{row.description || '–'}</td>
-                                  <td className="px-3 py-2 font-mono text-xs text-gray-700">{row.materialCode || row.hsnSac || '–'}</td>
-                                  <td className="px-3 py-2 text-right tabular-nums text-gray-800">{row.qty !== '' && row.qty != null ? row.qty : '–'}</td>
-                                  <td className="px-3 py-2 text-right tabular-nums font-medium text-gray-900">
-                                    {row.rate !== '' && row.rate != null ? Number(row.rate).toLocaleString('en-IN') : '–'}
-                                  </td>
-                                  <td className="px-3 py-2 text-right tabular-nums text-gray-800">
-                                    {row.penalty !== '' && row.penalty != null && Number(row.penalty) !== 0
-                                      ? Number(row.penalty).toLocaleString('en-IN')
-                                      : '–'}
-                                  </td>
-                                </tr>
-                              ))}
+                              {(Array.isArray(snap.lineDiffs) && snap.lineDiffs.length
+                                ? snap.lineDiffs
+                                : (snap.rates || []).map((row) => ({
+                                    kind: 'changed',
+                                    description: row.description,
+                                    oldRate: '',
+                                    newRate: row.rate,
+                                    fieldChanges: [],
+                                  }))
+                              ).map((line, i) => {
+                                const rateChanged = !rateHistoryValuesEqual(line.oldRate, line.newRate);
+                                return (
+                                  <tr key={`snap-rate-${idx}-${i}`} className="hover:bg-slate-50/80">
+                                    <td className="px-3 py-2 text-gray-900">{line.description || '–'}</td>
+                                    <td className={`px-3 py-2 text-right tabular-nums ${rateChanged ? 'text-slate-500' : 'text-gray-800'}`}>
+                                      {formatRateHistoryCell(line.oldRate)}
+                                    </td>
+                                    <td className={`px-3 py-2 text-right tabular-nums font-medium ${rateChanged ? 'text-emerald-800' : 'text-gray-900'}`}>
+                                      {formatRateHistoryCell(line.newRate)}
+                                    </td>
+                                    <td className="px-3 py-2 text-xs text-gray-600">
+                                      {(line.fieldChanges || []).length
+                                        ? line.fieldChanges.map((fc) => fc.label).join(', ')
+                                        : line.kind === 'added'
+                                          ? 'Line added'
+                                          : line.kind === 'removed'
+                                            ? 'Line removed'
+                                            : '–'}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
