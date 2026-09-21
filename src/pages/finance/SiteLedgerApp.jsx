@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { loadLedgerStore, saveLedgerPartial, savePeriodRecord, flushPeriodRecordNow, persistSitesNow, persistOneSiteNow, mergePeriodEntry, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
+import { loadLedgerStore, saveLedgerPartial, savePeriodRecord, flushPeriodRecordNow, flushAllPendingPeriodRecords, persistSitesNow, persistOneSiteNow, mergePeriodEntry, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
 import { PeriodDateSelect, formatPeriodDateDDMMYYYY } from "./components/PeriodDateSelect";
 import { PeriodMonthSelect } from "./components/PeriodMonthSelect";
 import { FinanceDateInput } from "./components/FinanceDateInput";
@@ -826,15 +826,13 @@ export default function SiteLedgerApp({ embedded = true }) {
         setupPersistPending.current = null;
         saveLedgerPartial(pending).catch(() => {});
       }
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      const data = stateRef.current;
-      saveLedgerPartial({
-        scope: "records",
-        records: data.records,
-        sites: data.sites,
-        library: data.library,
-        parents: data.parents,
-      }).catch(() => {});
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+        // Flush pending sites/library autosave only (never all period records).
+        saveSitesStore(stateRef.current).catch(() => {});
+      }
+      void flushAllPendingPeriodRecords();
     };
     const onHide = () => {
       if (document.visibilityState === "hidden") flushToDb();
@@ -852,7 +850,10 @@ export default function SiteLedgerApp({ embedded = true }) {
     setSites((prev) => {
       const next = enrichSitesWithVersions(prev);
       const changed = next.some((s, i) => s.status !== prev[i]?.status || s.version !== prev[i]?.version || s.siteGroup !== prev[i]?.siteGroup);
-      return changed ? next : prev;
+      if (!changed) return prev;
+      // Derived status/version/siteGroup must not trigger a sites autosave round-trip.
+      skipAutosaveCountRef.current = Math.max(skipAutosaveCountRef.current, 1);
+      return next;
     });
   }, [loaded]);
 
@@ -1400,6 +1401,9 @@ export default function SiteLedgerApp({ embedded = true }) {
     }), { scope: "masters", libraryChanged: true });
   }, [applySiteSetupChange]);
   const removeLibraryHead = useCallback((key) => {
+    const affectedKeys = Object.keys(stateRef.current.records).filter(
+      (compound) => stateRef.current.records[compound]?.[key] != null,
+    );
     applySiteSetupChange(({ sites, library, records }) => {
       const stripEst = (est) => {
         if (!est.expenses?.[key]) return est;
@@ -1428,10 +1432,17 @@ export default function SiteLedgerApp({ embedded = true }) {
         records: nextRecords,
       };
     });
+    if (!affectedKeys.length) return;
     const data = stateRef.current;
+    const recordsSubset = Object.fromEntries(
+      affectedKeys
+        .map((k) => [k, data.records[k]])
+        .filter(([, rec]) => rec != null),
+    );
+    if (!Object.keys(recordsSubset).length) return;
     saveLedgerPartial({
       scope: "records",
-      records: data.records,
+      records: recordsSubset,
       sites: data.sites,
       library: data.library,
       parents: data.parents,
@@ -3755,7 +3766,7 @@ function SiteSearchSelect({ sites, value, onChange, label = "Site", id = "site-s
   );
 }
 
-const ENTRY_AUTOSAVE_MS = 100;
+const ENTRY_AUTOSAVE_MS = 450;
 
 function EntryForm({ sites, sitesAll, library, parents, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onRecordPersisted, onRecordSaveFailed, onPeriodSaveError, onPatchSite, onAdd, goConfig, onViewBudget }) {
   const [siteId, setSiteId] = useState(activeSite || sites[0]?.id || "");

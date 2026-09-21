@@ -12,9 +12,7 @@ import {
   formatCompOffError,
   saveCompOffAvailableBalance,
   sortCompOffEmployeeRows,
-  subscribeCompOffRealtime,
 } from "../../../lib/compOffBalance";
-import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -67,18 +65,8 @@ export default function EmployeeCoBalanceTab({
     loadSummary();
   }, [loadSummary]);
 
-  useEffect(() => {
-    if (!isSupabaseRealtimeEnabled()) return undefined;
-    const debounceRef = { t: null };
-    const unsub = subscribeCompOffRealtime(supabase, () => {
-      clearTimeout(debounceRef.t);
-      debounceRef.t = setTimeout(() => loadSummary(), 800);
-    });
-    return () => {
-      clearTimeout(debounceRef.t);
-      unsub();
-    };
-  }, [loadSummary]);
+  // No realtime auto-refresh on this tab: reconcile/earn writes were retriggering
+  // loadSummary in a loop and timing out. Reload after explicit save only.
 
   const gridRows = useMemo(
     () => buildCompOffEmployeeRows(employees, summaryRows, year),

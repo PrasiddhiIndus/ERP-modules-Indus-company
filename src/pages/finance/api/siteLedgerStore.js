@@ -3,6 +3,7 @@
  * Document: { sites, records, library, parents } — same as pnl_dashboard.jsx
  */
 import { supabase } from "../../../lib/supabase";
+import { isSupabaseEnvConfigured } from "../../../lib/supabaseConfig";
 import { financeErrorMsg, invalidateFinanceCache, isFinanceSchemaError } from "../../../services/financeApi";
 import { removeChildHeadRow, removeParentHeadRow } from "./financeHeadSync";
 import { TOKENS } from "../../../theme/tokens";
@@ -319,16 +320,43 @@ function enqueuePeriodSave(task) {
   return run;
 }
 
-const PERIOD_FLUSH_MS = 60;
+/** Coalesce rapid keystrokes; longer than paint cycles to cut duplicate RPCs. */
+const PERIOD_FLUSH_MS = 450;
 const periodFlushBuckets = new Map();
 
 let cachedRevIdByCode = null;
 let cachedHeadMaps = null;
 const siteUuidByCode = new Map();
+/** Skip identical replace_period_entry_lines payloads after a successful sync. */
+const lastSyncedPeriodFingerprint = new Map();
 
 function invalidatePersistCaches() {
   cachedRevIdByCode = null;
   cachedHeadMaps = null;
+}
+
+function periodLinesFingerprint(revRows, expRows, notes) {
+  const rev = (revRows || [])
+    .map((r) => `${r.revenue_head_id}:${Number(r.amount) || 0}`)
+    .sort()
+    .join("|");
+  const exp = (expRows || [])
+    .map((r) => `${r.child_head_id}:${Number(r.amount) || 0}`)
+    .sort()
+    .join("|");
+  return `${notes || ""}\n${rev}\n${exp}`;
+}
+
+function periodLinesOnlyFingerprint(revRows, expRows) {
+  const rev = (revRows || [])
+    .map((r) => `${r.revenue_head_id}:${Number(r.amount) || 0}`)
+    .sort()
+    .join("|");
+  const exp = (expRows || [])
+    .map((r) => `${r.child_head_id}:${Number(r.amount) || 0}`)
+    .sort()
+    .join("|");
+  return `${rev}\n${exp}`;
 }
 
 function invalidateSiteUuidCache(siteCode) {
@@ -581,6 +609,14 @@ function buildRecords(raw, childById, revById) {
 
 export async function loadLedgerStore(defaultParents, defaultLibrary) {
   try {
+    if (!isSupabaseEnvConfigured()) {
+      return {
+        data: null,
+        ok: false,
+        error:
+          "Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env, then restart the dev server.",
+      };
+    }
     const raw = await fetchBundle();
     if (raw.errors?.length) {
       const schemaErr = raw.errors.find((msg) => isFinanceSchemaError({ message: msg }));
@@ -609,6 +645,7 @@ export async function loadLedgerStore(defaultParents, defaultLibrary) {
     };
     siteUuidByCode.clear();
     (raw.sites || []).forEach((s) => siteUuidByCode.set(s.code, s.id));
+    lastSyncedPeriodFingerprint.clear();
 
     return {
       data: { sites, records, library, parents },
@@ -1091,20 +1128,7 @@ async function syncOnePeriodRecord(
   revIdByCode,
   assignedExpenseKeys = [],
 ) {
-  const { data: pe, error } = await t("period_entries")
-    .upsert(
-      {
-        site_id: siteUuid,
-        period_key: periodKey,
-        status: "submitted",
-        notes: periodEntryNotesFromRecord(rec),
-      },
-      { onConflict: "site_id,period_key" },
-    )
-    .select("id")
-    .single();
-  if (error) throw error;
-
+  const notes = periodEntryNotesFromRecord(rec);
   const revRows = [];
   const missingRevenue = [];
   const revenueCodes = new Set(REVENUE_ITEMS.map((r) => r.key));
@@ -1191,6 +1215,34 @@ async function syncOnePeriodRecord(
     );
   }
 
+  const fpKey = `${siteUuid}__${periodKey}`;
+  const fullFp = periodLinesFingerprint(revRows, expRows, notes);
+  const linesFp = periodLinesOnlyFingerprint(revRows, expRows);
+  const prevSync = lastSyncedPeriodFingerprint.get(fpKey);
+  if (prevSync && prevSync.fullFp === fullFp && prevSync.peId) {
+    return prevSync.peId;
+  }
+
+  const { data: pe, error } = await t("period_entries")
+    .upsert(
+      {
+        site_id: siteUuid,
+        period_key: periodKey,
+        status: "submitted",
+        notes,
+      },
+      { onConflict: "site_id,period_key" },
+    )
+    .select("id")
+    .single();
+  if (error) throw error;
+
+  // Notes-only change: period_entries upsert already applied; skip identical line replace.
+  if (prevSync && prevSync.linesFp === linesFp && prevSync.peId === pe.id) {
+    lastSyncedPeriodFingerprint.set(fpKey, { peId: pe.id, fullFp, linesFp });
+    return pe.id;
+  }
+
   const expectedLines = revRows.length + expRows.length;
   const { data: replacedCount, error: rpcErr } = await financeRpc("replace_period_entry_lines", {
     p_period_entry_id: pe.id,
@@ -1204,6 +1256,7 @@ async function syncOnePeriodRecord(
     );
   }
 
+  lastSyncedPeriodFingerprint.set(fpKey, { peId: pe.id, fullFp, linesFp });
   return pe.id;
 }
 
@@ -1379,6 +1432,23 @@ export function flushPeriodRecordNow(siteCode, periodKey) {
   }
   if (!pendingPeriodRecords.has(compoundKey)) return Promise.resolve(true);
   return enqueuePeriodSave(() => executePeriodFlush(compoundKey));
+}
+
+/** Flush only in-flight / pending period saves (never rewrite all records). */
+export function flushAllPendingPeriodRecords() {
+  const keys = new Set([
+    ...pendingPeriodRecords.keys(),
+    ...periodFlushBuckets.keys(),
+  ]);
+  if (!keys.size) return Promise.resolve([]);
+  return Promise.all(
+    [...keys].map((compoundKey) => {
+      const sep = compoundKey.indexOf("__");
+      const siteCode = compoundKey.slice(0, sep);
+      const periodKey = compoundKey.slice(sep + 2);
+      return flushPeriodRecordNow(siteCode, periodKey);
+    }),
+  );
 }
 
 export async function savePeriodRecord(siteCode, periodKey, rec, context = {}, opts = {}) {

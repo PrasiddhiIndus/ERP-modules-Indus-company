@@ -140,3 +140,36 @@ export function departmentInSelection(employeeDepartment, selectedDepartments = 
   if (!selectedDepartments?.length) return false;
   return selectedDepartments.some((d) => departmentMatches(employeeDepartment, d));
 }
+
+/**
+ * Resolve employee master keys whose department matches any selected label (alias-safe).
+ * Used by leave/tour approval inboxes to filter before pagination.
+ * Returns null when no departments are selected (caller should skip filtering).
+ */
+export async function fetchEmployeeKeysMatchingDepartments(supabase, selectedDepartments = []) {
+  if (!selectedDepartments?.length) return null;
+
+  const { data, error } = await supabase
+    .from(EMPLOYEE_MASTER_TABLE)
+    .select('id, user_id, employee_code, department');
+
+  if (error) throw error;
+
+  const masterIds = new Set();
+  const userIds = new Set();
+  const employeeCodes = new Set();
+
+  for (const row of data || []) {
+    if (!departmentInSelection(row?.department, selectedDepartments)) continue;
+    if (row.id != null) masterIds.add(row.id);
+    if (row.user_id) userIds.add(row.user_id);
+    const code = String(row.employee_code || '').trim();
+    if (code) {
+      employeeCodes.add(code);
+      const asNum = /^\d+$/.test(code) ? String(Number(code)) : '';
+      if (asNum) employeeCodes.add(asNum);
+    }
+  }
+
+  return { masterIds, userIds, employeeCodes };
+}

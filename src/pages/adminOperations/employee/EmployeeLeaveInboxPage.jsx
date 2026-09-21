@@ -7,6 +7,8 @@ import {
   leaveTypeLabel,
   subscribeLeaveInboxRealtime,
 } from "../../../lib/adminLeaveRequests";
+import { fetchEmployeeMasterDepartments } from "../../../lib/employeeMasterDepartments";
+import { supabase } from "../../../lib/supabase";
 import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
 import { formatDateTimeDdMmYyyy } from "../../../utils/dateDisplay";
 
@@ -21,6 +23,7 @@ import {
   PageTaskHeader,
   CollapsibleHelp,
 } from "../components/AdminUi";
+import { RegisterDepartmentFilter } from "./RegisterDepartmentFilter";
 
 const PAGE_SIZES = [25, 50, 100];
 const SEARCH_DEBOUNCE_MS = 400;
@@ -88,6 +91,8 @@ export function EmployeeLeavesPage() {
   const [empSearch, setEmpSearch] = useState("");
   const [empSearchDebounced, setEmpSearchDebounced] = useState("");
   const [leaveTypeFilter, setLeaveTypeFilter] = useState("");
+  const [selectedDepartments, setSelectedDepartments] = useState([]);
+  const [departmentOptions, setDepartmentOptions] = useState([]);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(1);
@@ -108,6 +113,12 @@ export function EmployeeLeavesPage() {
         if (!cancelled) setLeaveTypes(types);
       } catch {
         /* optional */
+      }
+      try {
+        const depts = await fetchEmployeeMasterDepartments(supabase);
+        if (!cancelled) setDepartmentOptions(depts);
+      } catch {
+        if (!cancelled) setDepartmentOptions([]);
       }
     })();
     return () => {
@@ -132,6 +143,7 @@ export function EmployeeLeavesPage() {
           leaveType: leaveTypeFilter,
           fromDate,
           toDate,
+          departments: selectedDepartments,
           page,
           pageSize,
           // Always re-read after filter/realtime/manual refresh so status matches leave_requests.
@@ -155,7 +167,16 @@ export function EmployeeLeavesPage() {
         }
       }
     },
-    [statusFilter, empSearchDebounced, leaveTypeFilter, fromDate, toDate, page, pageSize]
+    [
+      statusFilter,
+      empSearchDebounced,
+      leaveTypeFilter,
+      fromDate,
+      toDate,
+      selectedDepartments,
+      page,
+      pageSize,
+    ]
   );
 
   useEffect(() => {
@@ -184,6 +205,7 @@ export function EmployeeLeavesPage() {
     setEmpSearch("");
     setEmpSearchDebounced("");
     setLeaveTypeFilter("");
+    setSelectedDepartments([]);
     setFromDate("");
     setToDate("");
     setPage(1);
@@ -293,6 +315,17 @@ export function EmployeeLeavesPage() {
               }}
               placeholder="Name or code…"
               className="min-w-[200px]"
+            />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <label className="text-[10px] font-semibold text-gray-500 uppercase">Department</label>
+            <RegisterDepartmentFilter
+              options={departmentOptions}
+              selected={selectedDepartments}
+              onChange={(next) => {
+                setSelectedDepartments(next);
+                setPage(1);
+              }}
             />
           </div>
           <div className="flex flex-col gap-0.5">

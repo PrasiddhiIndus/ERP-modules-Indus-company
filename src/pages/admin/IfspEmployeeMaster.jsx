@@ -35,7 +35,6 @@ import {
   Search, 
   Filter,
   Download,
-  Upload,
   Eye,
   Calendar,
   MapPin,
@@ -43,7 +42,6 @@ import {
   Phone,
   Mail,
   Building,
-  CreditCard,
   GraduationCap,
   Briefcase,
   DollarSign,
@@ -110,6 +108,7 @@ const EMPLOYEE_FIELD_LABELS = {
   full_name: "Full name",
   gender: "Gender",
   date_of_joining: "Date of joining",
+  confirmation_date: "Date of confirmation",
   designation: "Designation",
   department: "Department",
   location: "Location",
@@ -153,7 +152,7 @@ function compareEmployeeSortField(a, b, field, direction) {
   let av = a?.[field];
   let bv = b?.[field];
 
-  if (field === 'date_of_joining' || field === 'date_of_birth' || field === 'date_of_anniversary' || field === 'date_of_leaving') {
+  if (field === 'date_of_joining' || field === 'confirmation_date' || field === 'date_of_birth' || field === 'date_of_anniversary' || field === 'date_of_leaving') {
     const ad = av ? new Date(av).getTime() : 0;
     const bd = bv ? new Date(bv).getTime() : 0;
     if (ad === bd) return 0;
@@ -254,6 +253,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     full_name: '',
     gender: '',
     date_of_joining: '',
+    confirmation_date: '',
     designation: '',
     designation_other: '',
     date_of_birth: '',
@@ -379,6 +379,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     'full_name',
     'gender',
     'date_of_joining',
+    'confirmation_date',
     'designation',
     'department',
     'location',
@@ -529,6 +530,9 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       name: 'full_name',
       gender: 'gender',
       date_of_joining: 'date_of_joining',
+      confirmation_date: 'confirmation_date',
+      date_of_confirmation: 'confirmation_date',
+      confirmation: 'confirmation_date',
       designation: 'designation',
       department: 'department',
       date_of_birth: 'date_of_birth',
@@ -1037,6 +1041,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           identification_mark: out.identification_mark ? String(out.identification_mark).trim() : null,
           date_of_birth: parseExcelDate(out.date_of_birth),
           date_of_joining: doj,
+          confirmation_date: parseExcelDate(out.confirmation_date),
           designation,
           department,
           location: out.location ? String(out.location).trim() : null,
@@ -1165,6 +1170,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       full_name: formData.full_name || null,
       gender: formData.gender || null,
       date_of_joining: formData.date_of_joining || null,
+      confirmation_date: formData.confirmation_date || null,
       designation: resolveDesignationForSave(formData.designation, formData.designation_other),
       date_of_birth: formData.date_of_birth || null,
       date_of_anniversary: formData.date_of_anniversary || null,
@@ -1666,15 +1672,6 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             </button>
             <button
               type="button"
-              onClick={deleteAllEmployees}
-              className="h-10 bg-red-600 text-white px-4 rounded-lg hover:bg-red-700 flex items-center justify-center gap-2 whitespace-nowrap text-sm"
-              title="Delete all rows"
-            >
-              <Trash2 className="h-4 w-4" />
-              <span>Delete All</span>
-            </button>
-            <button
-              type="button"
               onClick={handleExportExcel}
               disabled={exportBusy || !sortedFilteredEmployees.length}
               className="h-10 bg-green-600 text-white px-4 rounded-lg hover:bg-green-700 disabled:opacity-60 flex items-center justify-center gap-2 whitespace-nowrap text-sm"
@@ -1688,60 +1685,8 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
       {/* Filters */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden w-full min-w-0 shrink-0">
-        <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+        <div className="px-4 py-3 border-b border-gray-100">
           <p className="text-sm font-semibold text-gray-900">Filters</p>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                setSearchTerm('');
-                setFilterFullName('');
-                setFilterSystemId('');
-                setFilterEmployeeCode('');
-                setDepartmentFilter('All');
-                setDesignationFilter('All');
-                setStatusFilter('All');
-                setCurrentPage(1);
-              }}
-              className="h-9 bg-gray-600 text-white px-3 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2 text-sm"
-            >
-              <Filter className="h-4 w-4" />
-              <span>Reset</span>
-            </button>
-            <button
-              type="button"
-              disabled={importBusy}
-              onClick={() => bankFileInputRef.current?.click()}
-              className="h-9 bg-indigo-600 text-white px-3 rounded-lg hover:bg-indigo-700 disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
-              title="Import Employee Code, UAN, ESIC, A/c number, IFSC onto Personal details"
-            >
-              <CreditCard className="h-4 w-4" />
-              <span>{importBusy ? 'Importing…' : 'Import bank details'}</span>
-            </button>
-            <button
-              type="button"
-              disabled={importBusy}
-              onClick={() => fileInputRef.current?.click()}
-              className="h-9 bg-purple-600 text-white px-3 rounded-lg hover:bg-purple-700 disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
-            >
-              <Upload className="h-4 w-4" />
-              <span>{importBusy ? 'Importing…' : 'Import Excel'}</span>
-            </button>
-            <input
-              ref={bankFileInputRef}
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={(e) => void handleImportBankExcel(e.target.files?.[0])}
-            />
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={(e) => void handleImportExcel(e.target.files?.[0])}
-            />
-          </div>
         </div>
         <div className="p-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 items-center">
@@ -1786,12 +1731,23 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                 <option key={d} value={d}>{d}</option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchTerm('');
+                setFilterFullName('');
+                setFilterSystemId('');
+                setFilterEmployeeCode('');
+                setDepartmentFilter('All');
+                setDesignationFilter('All');
+                setCurrentPage(1);
+              }}
+              className="h-10 bg-gray-600 text-white px-3 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2 text-sm"
+            >
+              <Filter className="h-4 w-4" />
+              <span>Reset</span>
+            </button>
           </div>
-          <p className="text-[11px] text-gray-500 mt-3">
-            Excel bank sheet columns: Employee Code, Name of Employee, UAN Number, Esic number, A/c
-            number, IFSC Code. Use <span className="font-medium">Import bank details</span> — values
-            save on each profile and appear in Salary Processing. Edit anytime under Personal details.
-          </p>
         </div>
       </div>
 
@@ -1979,12 +1935,12 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
       {/* Add Employee modal — edit opens the employee profile page */}
       {showForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-7xl w-full mx-4 max-h-[90vh] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">Add New Employee</h2>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3">
+          <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[92vh] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            <div className="px-4 py-3 border-b border-gray-200 sticky top-0 bg-white z-10">
+              <h2 className="text-lg font-semibold text-gray-900">Add New Employee</h2>
             </div>
-            <div className="p-6">
+            <div className="p-4">
               <EmployeeMasterPersonalForm
                 employee={null}
                 employees={employees}
