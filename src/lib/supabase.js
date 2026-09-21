@@ -654,9 +654,42 @@ async function cachedGoTrueUserIfJwtValid() {
   return user?.id ? user : null
 }
 
+/**
+ * Copy request headers into a plain object (Headers spread is empty / drops apikey).
+ * Always force `apikey` so Kong never returns "No API key found in request".
+ */
+function ensureSupabaseApiHeaders(existing) {
+  const headers = {}
+  if (existing instanceof Headers || (existing && typeof existing.forEach === 'function')) {
+    existing.forEach((value, key) => {
+      headers[key] = value
+    })
+  } else if (Array.isArray(existing)) {
+    for (const pair of existing) {
+      if (pair && pair.length >= 2) headers[String(pair[0])] = String(pair[1])
+    }
+  } else if (existing && typeof existing === 'object') {
+    Object.assign(headers, existing)
+  }
+
+  const apikey = String(headers.apikey || headers.ApiKey || headers.APIkey || '').trim()
+  headers.apikey = apikey || supabaseAnonKey
+
+  const auth = String(headers.Authorization || headers.authorization || '').trim()
+  if (!auth) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`
+  } else if (!headers.Authorization && headers.authorization) {
+    headers.Authorization = headers.authorization
+    delete headers.authorization
+  }
+  return headers
+}
+
 /** Attach user JWT from localStorage — avoids setSession/getSession auth lock that blocks login. */
 async function applyCachedUserAuthHeader(urlStr, options = {}) {
-  if (!fetchNeedsSessionHydration(urlStr)) return options;
+  if (!fetchNeedsSessionHydration(urlStr)) {
+    return { ...options, headers: ensureSupabaseApiHeaders(options.headers) }
+  }
   let token = readCachedAccessToken();
   if ((!token || isCachedAccessTokenExpired()) && hasCachedRefreshToken()) {
     const fresh = await ensureFreshCachedSession({
@@ -665,16 +698,17 @@ async function applyCachedUserAuthHeader(urlStr, options = {}) {
     });
     token = fresh?.access_token || readCachedAccessToken();
   }
-  // Prefer a still-usable JWT; if refresh failed keep trying with cached token only when not hard-expired.
-  if (!token || isCachedAccessTokenExpired(0)) return options;
 
-  const headers = new Headers(options.headers || {});
-  const existing = headers.get('Authorization') || '';
-  // Prefer user JWT over anon key on every module REST/storage request.
-  if (!existing || existing === `Bearer ${supabaseAnonKey}` || !existing.startsWith('Bearer ey')) {
-    headers.set('Authorization', `Bearer ${token}`);
+  const headers = ensureSupabaseApiHeaders(options.headers)
+  // Prefer a still-usable JWT; if refresh failed keep trying with cached token only when not hard-expired.
+  if (token && !isCachedAccessTokenExpired(0)) {
+    const existing = headers.Authorization || '';
+    // Prefer user JWT over anon key on every module REST/storage request.
+    if (!existing || existing === `Bearer ${supabaseAnonKey}` || !existing.startsWith('Bearer ey')) {
+      headers.Authorization = `Bearer ${token}`
+    }
   }
-  return { ...options, headers };
+  return { ...options, headers }
 }
 
 let supabaseClientRef = null;
@@ -715,6 +749,9 @@ const customFetch = async (url, options = {}) => {
   }
 
   const fetchOptions = await applyCachedUserAuthHeader(urlStr, options)
+  // Plain-object headers (not Headers): some environments drop apikey when a Headers
+  // instance is passed through after auth-header mutation.
+  fetchOptions.headers = ensureSupabaseApiHeaders(fetchOptions.headers)
   const { signal, clearTimer } = resolveFetchSignal(fetchOptions, url)
   if (signal !== undefined) fetchOptions.signal = signal
 

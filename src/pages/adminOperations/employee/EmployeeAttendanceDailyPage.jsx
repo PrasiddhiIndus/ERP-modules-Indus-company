@@ -452,6 +452,11 @@ export function EmployeeAttendanceDailyPage() {
       });
       const registerEmpCodes = collectRegisterEmployeeCodes(registerEmployees);
       const weekoffDates = listAutoWeekoffDatesForMonthAndNext(monthMeta);
+      const departmentByCode = {};
+      for (const emp of registerEmployees || []) {
+        const code = normalizeAttendanceEmpCode(emp.empCode);
+        if (code) departmentByCode[code] = emp.department || "";
+      }
 
       setPunches(punchRows);
       setActiveEmployees(registerEmployees);
@@ -516,7 +521,10 @@ export function EmployeeAttendanceDailyPage() {
             registerEmpCodes,
             weekoffDates,
             masterCodeMap,
-            { existingRegisterRows: monthRegisterRowsRef.current }
+            {
+              existingRegisterRows: monthRegisterRowsRef.current,
+              departmentByCode,
+            }
           );
 
           const holidayRangeTo =

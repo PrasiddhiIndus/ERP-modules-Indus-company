@@ -39,6 +39,8 @@ const EMPTY_FINANCE_SHELL = {
   sites: [],
   records: {},
   revenueHeads: [],
+  expenseParentHeads: [],
+  expenseChildHeads: [],
   spreads: [],
   userSiteAccess: [],
   settings: [],
@@ -128,7 +130,7 @@ export function FinanceProvider({ children }) {
   const siteRows = useMemo(() => {
     if (!data) return [];
     const { records, revenueHeads, spreads, targetMargin, warnMargin } = data;
-    const sites = filterSitesByFinancePlAccess(data.sites, userProfile);
+    const sites = filterSitesByFinancePlAccess(data.sites || [], userProfile);
     const filtered = siteFilter
       ? sites.filter((s) => s.id === siteFilter)
       : sites;
@@ -136,7 +138,7 @@ export function FinanceProvider({ children }) {
     return filtered.map((s) => {
       const periodAgg = periodKeys.reduce(
         (acc, pk) => {
-          const c = calcSite(s, pk, records, revenueHeads, spreads, months);
+          const c = calcSite(s, pk, records || {}, revenueHeads || [], spreads || [], months);
           return {
             revenue: acc.revenue + c.revenue,
             expense: acc.expense + c.expense,
@@ -206,7 +208,9 @@ export function FinanceProvider({ children }) {
 
   const expenseBreakdown = useMemo(() => {
     if (!data) return [];
-    const { expenseParentHeads, records, spreads } = data;
+    const { records, spreads } = data;
+    const expenseParentHeads = data.expenseParentHeads || [];
+    if (!expenseParentHeads.length) return [];
     const withData = siteRows.filter((r) => r.hasData);
     const agg = Object.fromEntries(expenseParentHeads.map((p) => [p.id, 0]));
     withData.forEach((r) => {
@@ -224,15 +228,19 @@ export function FinanceProvider({ children }) {
 
   const trendData = useMemo(() => {
     if (!data) return [];
+    const sites = data.sites || [];
+    const revenueHeads = data.revenueHeads || [];
+    const spreads = data.spreads || [];
+    const records = data.records || {};
     const activeMonths = months.filter((m) =>
-      data.sites.some((s) => {
-        const c = calcSite(s, m.key, data.records, data.revenueHeads, data.spreads, months);
+      sites.some((s) => {
+        const c = calcSite(s, m.key, records, revenueHeads, spreads, months);
         return c.revenue || c.expense;
       }),
     );
     return (activeMonths.length ? activeMonths : months.slice(-6)).map((m) => {
-      const arr = data.sites
-        .map((s) => calcSite(s, m.key, data.records, data.revenueHeads, data.spreads, months))
+      const arr = sites
+        .map((s) => calcSite(s, m.key, records, revenueHeads, spreads, months))
         .filter((c) => c.revenue || c.expense);
       const t = arr.reduce(
         (a, c) => ({

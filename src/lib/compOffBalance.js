@@ -181,7 +181,13 @@ export function formatCompOffError(err) {
   if (/insufficient c\/o balance/i.test(msg)) {
     return "Insufficient C/O balance. Employee must earn C/O by working on Week Off, NH, or PH before marking CO.";
   }
-  if (/relation|does not exist|schema must be|could not find the function/i.test(msg)) {
+  // Only the true “ledger not installed / schema not exposed” cases
+  if (
+    /schema must be exposed/i.test(msg) ||
+    /could not find the table/i.test(msg) ||
+    /relation ["']?indus_one\.comp_off_/i.test(msg) ||
+    /relation ["']?comp_off_/i.test(msg)
+  ) {
     return "C/O ledger is not available. Apply migrations 20260902150000_comp_off_credit_ledger.sql through 20260903100000_comp_off_restore_and_remaining.sql.";
   }
   return msg || "C/O balance operation failed.";

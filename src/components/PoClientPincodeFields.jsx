@@ -3,7 +3,7 @@ import { normalizePoPincode } from '../utils/poPincodeFields';
 
 /**
  * Bill-to pincode + optional ship-to pincode (Client Identity on PO/WO forms).
- * Optional `billToBeside` / `shipToAddressBeside` render to the right of the matching pincode.
+ * Renders as sibling 12-column grid cells so the parent form grid stays aligned.
  */
 export default function PoClientPincodeFields({
   formData,
@@ -21,6 +21,11 @@ export default function PoClientPincodeFields({
   billToBeside = null,
   /** Optional node shown beside ship-to pincode (e.g. Consignee / Ship-to address). */
   shipToAddressBeside = null,
+  /** Grid span classes for parent 12-col layout (defaults match Add PO/WO). */
+  pinSpanClass = 'sm:col-span-1 xl:col-span-2',
+  besideSpanClass = 'sm:col-span-1 xl:col-span-3',
+  shipAddressSpanClass = 'sm:col-span-2 xl:col-span-5',
+  checkboxSpanClass = 'sm:col-span-2 xl:col-span-12',
 }) {
   const billToShipToPinSame = formData.billToShipToPinSame !== false;
   // When only ship-to is allowed, always show the ship-to input (ignore "same as bill-to").
@@ -29,8 +34,11 @@ export default function PoClientPincodeFields({
   const showShipToAddress = Boolean(shipToAddressBeside) && (showShipToInput || !showShipTo);
   const showBillToBeside = Boolean(billToBeside) && showBillTo;
 
+  const pinInputClass =
+    'w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500';
+
   const billToPincodeField = showBillTo ? (
-    <div>
+    <div className={pinSpanClass}>
       <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor={billToInputId}>
         Pincode (Bill-to)
       </label>
@@ -44,14 +52,14 @@ export default function PoClientPincodeFields({
         onChange={(e) =>
           setFormData((p) => ({ ...p, pincode: normalizePoPincode(e.target.value) }))
         }
-        className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500"
-        placeholder="6-digit pincode for invoice / e-invoice"
+        className={pinInputClass}
+        placeholder="6-digit"
       />
     </div>
   ) : null;
 
   const shipToPincodeField = showShipToInput ? (
-    <div>
+    <div className={pinSpanClass}>
       <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor={shipToInputId}>
         Pincode (Ship-to)
       </label>
@@ -70,24 +78,20 @@ export default function PoClientPincodeFields({
             ...(!showBillTo ? { billToShipToPinSame: false } : {}),
           }))
         }
-        className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500"
-        placeholder="6-digit ship-to pincode"
+        className={pinInputClass}
+        placeholder="6-digit"
       />
     </div>
   ) : null;
 
   return (
     <>
+      {billToPincodeField}
       {showBillToBeside ? (
-        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-          {billToPincodeField}
-          {billToBeside}
-        </div>
-      ) : (
-        billToPincodeField
-      )}
+        <div className={besideSpanClass}>{billToBeside}</div>
+      ) : null}
       {showSameCheckbox ? (
-        <div className="md:col-span-2 flex items-center gap-2 pt-1">
+        <div className={`${checkboxSpanClass} flex items-center gap-2`}>
           <input
             id={sameCheckboxId}
             type="checkbox"
@@ -113,17 +117,10 @@ export default function PoClientPincodeFields({
           </label>
         </div>
       ) : null}
-      {showShipToInput && showShipToAddress ? (
-        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-          {shipToPincodeField}
-          {shipToAddressBeside}
-        </div>
-      ) : (
-        <>
-          {shipToPincodeField}
-          {showShipToAddress ? shipToAddressBeside : null}
-        </>
-      )}
+      {shipToPincodeField}
+      {showShipToAddress ? (
+        <div className={shipAddressSpanClass}>{shipToAddressBeside}</div>
+      ) : null}
     </>
   );
 }

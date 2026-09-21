@@ -826,7 +826,7 @@ export function EmployeeLeaveManagementPage() {
 
   const ledgerLeaveColumnsForTab = useCallback(
     (tabId) =>
-      LEDGER_LEAVE_TYPES.map((t) =>
+      LEDGER_LEAVE_TYPES.filter((t) => t.key !== "coff").map((t) =>
         numCol(`${LEDGER_TAB_PREFIX[tabId]}_${t.key}`, t.label, "min-w-[72px]")
       ),
     [numCol]

@@ -3,6 +3,7 @@
  * Expose `finance` in Supabase Dashboard → Settings → API → Exposed schemas.
  */
 import { supabase } from "../lib/supabase";
+import { isSupabaseEnvConfigured } from "../lib/supabaseConfig";
 import { enrichFinanceDataset } from "../pages/finance/api/financeEnrichment";
 import { safeDeleteChildHead, safeDeleteParentHead } from "../pages/finance/api/financeHeadSync";
 import { slug } from "../pages/finance/lib/formatters";
@@ -12,6 +13,13 @@ const FINANCE_SCHEMA = "finance";
 const CACHE_TTL_MS = 30_000;
 let cache = null;
 let cacheAt = 0;
+
+function assertFinanceSupabaseEnv() {
+  if (isSupabaseEnvConfigured()) return;
+  throw new Error(
+    "Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env, then restart the dev server."
+  );
+}
 
 export const FINANCE_SCHEMA_SETUP_HINT =
   'Finance schema not exposed. In Supabase Dashboard → Settings → API → Exposed schemas, add "finance". Then apply migrations 20260609120000_finance_schema.sql and 20260609130000_finance_siteledger_columns.sql.';
@@ -120,6 +128,7 @@ async function fetchAllRows(name, options = {}) {
 }
 
 export async function fetchFinanceModuleData({ force = false } = {}) {
+  assertFinanceSupabaseEnv();
   if (!force && cache && Date.now() - cacheAt < CACHE_TTL_MS) {
     return cache;
   }
@@ -203,6 +212,7 @@ export async function fetchFinanceModuleData({ force = false } = {}) {
 
 /** Lightweight load for Site Ledger — margins only (avoids full period_entries pull). */
 export async function fetchFinanceMarginsOnly({ force = false } = {}) {
+  assertFinanceSupabaseEnv();
   if (!force && cache && Date.now() - cacheAt < CACHE_TTL_MS) {
     return {
       targetMargin: cache.targetMargin ?? 12,

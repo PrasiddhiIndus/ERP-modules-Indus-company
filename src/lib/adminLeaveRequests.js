@@ -19,6 +19,7 @@ import {
   reconcileLeaveBalanceForRequest,
   validateLeaveRequestMonthlyBalance,
 } from "./leaveManagement";
+import { fetchEmployeeKeysMatchingDepartments } from "./employeeMasterDepartments";
 
 export const INDUS_ONE_SCHEMA = "indus_one";
 
@@ -950,6 +951,7 @@ export async function fetchLeaveRequests(opts = {}) {
     leaveType = "",
     fromDate = "",
     toDate = "",
+    departments = [],
     page = 1,
     pageSize = PAGE_SIZE_DEFAULT,
     forceRefresh = false,
@@ -966,7 +968,7 @@ export async function fetchLeaveRequests(opts = {}) {
       fetchUserIdsForEmployeeSearch(needle),
     ]);
     if (!masterIds.length && !userIds.length) {
-      return { rows: [], total: 0, page, pageSize };
+      return { rows: [], total: 0, page, pageSize, statusCounts };
     }
     const masterSet = new Set(masterIds);
     const userSet = new Set(userIds);
@@ -974,6 +976,19 @@ export async function fetchLeaveRequests(opts = {}) {
       (row) =>
         (row.employee_master_id != null && masterSet.has(row.employee_master_id)) ||
         (row.user_id && userSet.has(row.user_id))
+    );
+  }
+
+  const selectedDepartments = Array.isArray(departments) ? departments.filter(Boolean) : [];
+  if (selectedDepartments.length) {
+    const keys = await fetchEmployeeKeysMatchingDepartments(supabase, selectedDepartments);
+    if (!keys?.masterIds.size && !keys?.userIds.size) {
+      return { rows: [], total: 0, page, pageSize, statusCounts };
+    }
+    merged = merged.filter(
+      (row) =>
+        (row.employee_master_id != null && keys.masterIds.has(row.employee_master_id)) ||
+        (row.user_id && keys.userIds.has(row.user_id))
     );
   }
 

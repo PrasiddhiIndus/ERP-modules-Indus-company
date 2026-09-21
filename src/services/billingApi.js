@@ -236,6 +236,8 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
     actualMobilizationDate: raw.actual_mobilization_date ?? null,
     panNumber: raw.pan_number ?? null,
     poEffectiveDate: raw.po_effective_date ?? null,
+    reimbursementType: raw.reimbursement_type ?? null,
+    reimbursementOther: raw.reimbursement_other ?? null,
     priceEscalationEnabled: raw.price_escalation_enabled === true,
     rateEscalationCount:
       raw.rate_escalation_count != null && Number.isFinite(Number(raw.rate_escalation_count))
@@ -679,11 +681,27 @@ async function fetchPoChildrenByPoIds(poIds) {
   return { ratesByPo, contactsByPo };
 }
 
+/** True when PostgREST rejected the request because `billing` is not in Exposed schemas. */
+export function isBillingSchemaError(error) {
+  const msg = String(error?.message || error || '');
+  const code = String(error?.code || '');
+  return (
+    code === 'PGRST106' ||
+    /PGRST106/i.test(msg) ||
+    /schema must be one of/i.test(msg) ||
+    (/invalid schema/i.test(msg) && /billing/i.test(msg)) ||
+    (/not exposed/i.test(msg) && /billing|schema/i.test(msg))
+  );
+}
+
 /** Build a clear error message for billing DB failures (schema, RLS, etc.). */
 export function billingErrorMsg(error, context = 'Save') {
   const msg = error?.message || String(error);
   const code = error?.code;
-  if (code === 'PGRST301' || /schema|relation.*does not exist|exposed/i.test(msg)) {
+
+  // Do NOT match bare "schema" — PostgREST column-cache errors say "schema cache"
+  // and were incorrectly shown as "Billing schema not exposed".
+  if (isBillingSchemaError(error)) {
     return `${context} failed: Billing schema not exposed. In Supabase Dashboard → Settings → API → Exposed schemas, add "billing".`;
   }
   if (/permission denied for schema billing/i.test(msg)) {
@@ -691,6 +709,14 @@ export function billingErrorMsg(error, context = 'Save') {
   }
   if (/row-level security|RLS|policy/i.test(msg)) {
     return `${context} failed: Permission denied (RLS). Run the billing access migration (supabase/migrations/20260506173000_billing_access_roles.sql) or update billing.current_user_has_billing_access() to include your role.`;
+  }
+  if (
+    code === 'PGRST204' ||
+    /schema cache/i.test(msg) ||
+    /could not find the .* column/i.test(msg) ||
+    /column .* does not exist/i.test(msg)
+  ) {
+    return `${context} failed: ${msg}. Apply pending billing migrations (e.g. rate escalation columns), then in Supabase run NOTIFY pgrst, 'reload schema'; or restart the API.`;
   }
   return msg || `${context} failed.`;
 }
@@ -876,6 +902,14 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
       isMp && po.poEffectiveDate && String(po.poEffectiveDate).trim()
         ? String(po.poEffectiveDate).trim()
         : null,
+    reimbursement_type: isMp
+      ? String(po.reimbursementType || po.reimbursement_type || '').trim() || null
+      : null,
+    reimbursement_other: isMp
+      ? String(po.reimbursementType || po.reimbursement_type || '').trim() === 'other'
+        ? String(po.reimbursementOther || po.reimbursement_other || '').trim() || null
+        : null
+      : null,
     price_escalation_enabled: isMp ? po.priceEscalationEnabled === true : false,
     rate_escalation_count: isMp
       ? po.priceEscalationEnabled === true &&
@@ -977,11 +1011,18 @@ function isMissingPoWoColumnError(err) {
 
 function columnNameFromPoWoError(err) {
   const msg = String(err?.message || '');
+  // Prefer PostgREST PGRST204 wording: Could not find the 'col' column of 'table'
+  // (do not use /column (\w+)/ — it falsely captures "of" from "column of 'po_wo'").
   const m =
-    msg.match(/column ['"]?([\w_]+)['"]?/i) ||
-    msg.match(/'([\w_]+)' column/i) ||
-    msg.match(/Could not find the ['"]([\w_]+)['"] column/i);
-  return m?.[1] || null;
+    msg.match(/Could not find the ['"]([\w.]+)['"] column/i) ||
+    msg.match(/['"]([\w.]+)['"]\s+column of\s+['"][\w.]+['"]/i) ||
+    msg.match(/column\s+['"]([\w.]+)['"]\s+of\s+/i) ||
+    msg.match(/column\s+([\w.]+)\s+does not exist/i);
+  const raw = m?.[1] || null;
+  if (!raw) return null;
+  // Sometimes PostgREST returns schema.table.column or table.column
+  const parts = String(raw).split('.');
+  return parts[parts.length - 1] || null;
 }
 
 /** Upload new File blobs to Cloudflare R2 (indus-erp-uploads / commercial-po/); keep existing paths. */

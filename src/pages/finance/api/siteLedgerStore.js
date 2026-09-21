@@ -3,6 +3,7 @@
  * Document: { sites, records, library, parents } — same as pnl_dashboard.jsx
  */
 import { supabase } from "../../../lib/supabase";
+import { isSupabaseEnvConfigured } from "../../../lib/supabaseConfig";
 import { financeErrorMsg, invalidateFinanceCache, isFinanceSchemaError } from "../../../services/financeApi";
 import { removeChildHeadRow, removeParentHeadRow } from "./financeHeadSync";
 import { TOKENS } from "../../../theme/tokens";
@@ -608,6 +609,14 @@ function buildRecords(raw, childById, revById) {
 
 export async function loadLedgerStore(defaultParents, defaultLibrary) {
   try {
+    if (!isSupabaseEnvConfigured()) {
+      return {
+        data: null,
+        ok: false,
+        error:
+          "Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env, then restart the dev server.",
+      };
+    }
     const raw = await fetchBundle();
     if (raw.errors?.length) {
       const schemaErr = raw.errors.find((msg) => isFinanceSchemaError({ message: msg }));

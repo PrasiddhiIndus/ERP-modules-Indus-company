@@ -17,12 +17,20 @@ import {
   registerDateRangeFromRows,
 } from "../../shared/attendanceRegisterSync.mjs";
 import { timeToMinutes } from "../../shared/attendancePunchSync.mjs";
+import { departmentMatches } from "./employeeMasterDepartments";
 
 export { timeToMinutes, isPurplePresentPunch };
 
 export const REGISTER_MARK_SOURCE_AUTO_WO = "auto_wo";
 export const REGISTER_MARK_SOURCE_AUTO_HOLIDAY = "auto_holiday";
 export const REGISTER_MARK_SOURCE_TOUR = "tour";
+
+/** Departments that work on 3rd Saturday — no auto WO for that day. */
+export const THIRD_SATURDAY_WEEKOFF_EXCLUDED_DEPARTMENTS = ["Production", "R&M", "M&M"];
+
+export function isThirdSaturdayWeekoffExcludedDepartment(department) {
+  return THIRD_SATURDAY_WEEKOFF_EXCLUDED_DEPARTMENTS.some((d) => departmentMatches(department, d));
+}
 
 export const INDUS_ONE_TOUR_TABLES = {
   adminRequests: "admin_tour_requests",
@@ -320,29 +328,23 @@ export function registerPresentDayCredit(mark) {
 /** PL / CL / SL on an auto weekoff (Sunday) — count as 0 for present and leave tallies. */
 const WEEKOFF_ZERO_CREDIT_LEAVE_MARKS = new Set(["PL", "CL", "SL"]);
 
-export function isPlClSlOnWeekoffDate(mark, { year, month, day } = {}) {
+export function isPlClSlOnWeekoffDate(mark, { year, month, day, department } = {}) {
   const m = String(mark ?? "").trim().toUpperCase();
   if (!WEEKOFF_ZERO_CREDIT_LEAVE_MARKS.has(m)) return false;
   if (!year || !month || !day) return false;
   const iso = registerDateFromDay(monthKeyFromParts(year, month), day);
-  return isAutoWeekoffDate(iso);
+  return isAutoWeekoffDate(iso, department);
 }
 
-/** Present credit for a day cell; 3rd Saturday counts as present when blank or WO. */
-export function registerPresentDayCreditForCell(mark, { year, month, day } = {}) {
-  if (isPlClSlOnWeekoffDate(mark, { year, month, day })) return 0;
-  const credit = registerPresentDayCredit(mark);
-  if (credit > 0) return credit;
-  if (year && month && day && isThirdSaturdayOfMonth(year, month, day)) {
-    const m = String(mark ?? "").trim();
-    if (!m || m === "WO") return 1;
-  }
-  return 0;
+/** Present credit for a day cell (PL/CL/SL on weekoff → 0). */
+export function registerPresentDayCreditForCell(mark, { year, month, day, department } = {}) {
+  if (isPlClSlOnWeekoffDate(mark, { year, month, day, department })) return 0;
+  return registerPresentDayCredit(mark);
 }
 
 /** Leave credit for a day cell (PL/CL/SL on weekoff → 0; P/* half-day composites → 0.5). */
-export function registerSummaryLeaveCreditForCell(mark, { year, month, day } = {}) {
-  if (isPlClSlOnWeekoffDate(mark, { year, month, day })) return 0;
+export function registerSummaryLeaveCreditForCell(mark, { year, month, day, department } = {}) {
+  if (isPlClSlOnWeekoffDate(mark, { year, month, day, department })) return 0;
   return registerSummaryLeaveCredit(mark);
 }
 
@@ -350,10 +352,10 @@ export function registerSummaryLeaveCreditForCell(mark, { year, month, day } = {
  * Present credit for register summary Total present column only.
  * P/PL, P/CL, P/SL count as 1 (display); does not change day-level present/absent logic.
  */
-export function registerPresentDaySummaryCreditForCell(mark, { year, month, day } = {}) {
+export function registerPresentDaySummaryCreditForCell(mark, { year, month, day, department } = {}) {
   const compositeCredit = registerCompositePaidLeaveSummaryCredit(mark);
   if (compositeCredit > 0) return compositeCredit;
-  return registerPresentDayCreditForCell(mark, { year, month, day });
+  return registerPresentDayCreditForCell(mark, { year, month, day, department });
 }
 
 /** Whether a mark counts as a present day (incl. CO, T). */
@@ -372,7 +374,7 @@ export function registerMarkStatusLabel(mark) {
 
 /**
  * Present vs marked-other vs unmarked for one calendar day across register rows.
- * Unmarked = no punch and no stored mark (blank cell), except 3rd Saturday counts as present.
+ * Unmarked = no punch and no stored mark (blank cell).
  */
 export function computeDayAttendanceBreakdown(rows, day, { year, month } = {}) {
   const presentEmployees = [];
@@ -768,7 +770,7 @@ export function buildMonthlyRegisterGrid(
         mark = manual;
       } else if (hasPunch) {
         mark = "P";
-      } else if (isAutoWeekoffDate(iso)) {
+      } else if (isAutoWeekoffDate(iso, emp.department)) {
         mark = "WO";
       }
       if (applyLeavingDisplay && dateOfLeaving && isRegisterDayAfterLeaving(iso, dateOfLeaving)) {
@@ -2290,14 +2292,17 @@ export function isThirdSaturdayOfMonth(year, month, day) {
   return saturdays === 3;
 }
 
-/** Sunday only — 3rd Saturday is a working day (counts as present in summaries). */
-export function isAutoWeekoffDate(isoDate) {
+/** Sunday always; 3rd Saturday except Production / R&M / M&M (those work that day). */
+export function isAutoWeekoffDate(isoDate, department) {
   const d = normalizeDbDate(isoDate);
   if (!d) return false;
   const year = Number(d.slice(0, 4));
   const month = Number(d.slice(5, 7));
   const day = Number(d.slice(8, 10));
-  return new Date(year, month - 1, day).getDay() === 0;
+  if (new Date(year, month - 1, day).getDay() === 0) return true;
+  if (!isThirdSaturdayOfMonth(year, month, day)) return false;
+  if (department != null && isThirdSaturdayWeekoffExcludedDepartment(department)) return false;
+  return true;
 }
 
 /** All auto-WO dates for the viewed month and the following month. */
@@ -2344,9 +2349,21 @@ export function canAutoWeekoffApplyToExisting(existing) {
 }
 
 /**
- * Apply WO on all Sundays for every register employee on `weekoffDates`.
- * Skips leave, manual marks, and punch Present; punch sync runs afterward and may overwrite WO.
+ * Whether a stored auto WO may be cleared (e.g. 3rd Saturday for Production / R&M / M&M).
+ * Never clears leave, tour, manual, punch, or remarked cells.
  */
+function canClearStaleAutoWeekoff(existing) {
+  if (!existing?.mark) return false;
+  if (String(existing.mark).trim() !== "WO") return false;
+  if (String(existing.mark_remark ?? "").trim()) return false;
+  if (isLeaveMarkSource(existing.mark_source, existing.leave_request_id)) return false;
+  if (isTourMarkSource(existing.mark_source, existing.tour_request_id)) return false;
+  const src = String(existing.mark_source ?? "").trim().toLowerCase();
+  if (isManualMarkSource(src)) return false;
+  if (isPunchMarkSource(existing.mark, existing.mark_source)) return false;
+  return src === REGISTER_MARK_SOURCE_AUTO_WO || !src;
+}
+
 function indexRegisterRowByEmpDate(existingByKey, row) {
   const date = normalizeDbDate(row.register_date);
   if (!date) return;
@@ -2386,6 +2403,11 @@ async function resolveExistingRegisterRowsForDateSpan(supabase, { fromDate, toDa
   return fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate });
 }
 
+/**
+ * Apply WO on all auto weekoff dates (Sundays + 3rd Saturday) for every register employee on `weekoffDates`.
+ * Skips leave, manual marks, and punch Present; punch sync runs afterward and may overwrite WO.
+ * Production / R&M / M&M skip 3rd Saturday (and any prior auto WO on that day is cleared).
+ */
 export async function syncRegisterAutoWeekoffMarks(
   supabase,
   employeeCodes,
@@ -2395,7 +2417,11 @@ export async function syncRegisterAutoWeekoffMarks(
 ) {
   const codes = [...new Set((employeeCodes || []).map(normalizeAttendanceEmpCode).filter(Boolean))];
   const dates = [...new Set((weekoffDates || []).map(normalizeDbDate).filter(Boolean))].sort();
-  if (!codes.length || !dates.length) return { upserted: 0, failed: 0 };
+  if (!codes.length || !dates.length) return { upserted: 0, failed: 0, cleared: 0 };
+
+  const departmentByCode = options.departmentByCode || {};
+  const resolveDepartment = (normCode, dbCode) =>
+    departmentByCode[normCode] ?? departmentByCode[dbCode] ?? "";
 
   const fromDate = dates[0];
   const toDate = dates[dates.length - 1];
@@ -2409,6 +2435,7 @@ export async function syncRegisterAutoWeekoffMarks(
   for (const row of existingRows || []) indexRegisterRowByEmpDate(existingByKey, row);
 
   const upserts = [];
+  const deletes = [];
   let failed = 0;
   for (const normCode of codes) {
     if (masterCodeMap?.size && !masterCodeMap.has(normCode)) {
@@ -2417,8 +2444,15 @@ export async function syncRegisterAutoWeekoffMarks(
     }
     const dbCode = toRegisterDbEmployeeCode(normCode, masterCodeMap);
     if (!dbCode) continue;
+    const department = resolveDepartment(normCode, dbCode);
     for (const register_date of dates) {
       const existing = lookupRegisterRow(existingByKey, normCode, dbCode, register_date);
+      if (!isAutoWeekoffDate(register_date, department)) {
+        if (canClearStaleAutoWeekoff(existing)) {
+          deletes.push({ employee_code: dbCode, register_date });
+        }
+        continue;
+      }
       if (!canAutoWeekoffApplyToExisting(existing)) continue;
       upserts.push({
         employee_code: dbCode,
@@ -2432,7 +2466,24 @@ export async function syncRegisterAutoWeekoffMarks(
     }
   }
 
-  if (!upserts.length) return { upserted: 0, failed };
+  let cleared = 0;
+  if (deletes.length) {
+    try {
+      await deleteRegisterMarksBatch(supabase, deletes, masterCodeMap);
+      cleared = deletes.length;
+    } catch {
+      for (const row of deletes) {
+        try {
+          await deleteRegisterMarksBatch(supabase, [row], masterCodeMap);
+          cleared += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+    }
+  }
+
+  if (!upserts.length) return { upserted: 0, failed, cleared };
 
   let upserted = 0;
   for (let i = 0; i < upserts.length; i += REGISTER_MARK_UPSERT_CHUNK) {
@@ -2451,7 +2502,7 @@ export async function syncRegisterAutoWeekoffMarks(
       }
     }
   }
-  return { upserted, failed };
+  return { upserted, failed, cleared };
 }
 
 /**
@@ -2968,7 +3019,7 @@ export function computeEmployeeRegisterSummary(row, manualMarksForEmp = {}, days
   const summary = { leave: 0, weekoff: 0, appliedWo: 0, nhph: 0, ot: 0, totalPresent: 0 };
   for (let day = 1; day <= daysInMonth; day += 1) {
     const mark = row.dayMarks[day] || "";
-    const cellCtx = { year, month, day };
+    const cellCtx = { year, month, day, department: row.department };
     summary.totalPresent += registerPresentDaySummaryCreditForCell(mark, cellCtx);
     summary.leave += registerSummaryLeaveCreditForCell(mark, cellCtx);
     if (mark === "WO") {
