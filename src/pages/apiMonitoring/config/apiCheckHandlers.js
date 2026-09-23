@@ -1,4 +1,4 @@
-import { apiUrl, fetchApiHealth, fetchApiWithAuth } from "../../../lib/apiBase";
+import { apiUrl, fetchApiHealth, fetchApiWithAuth, humanizeApiErrorMessage, isRawServerHtmlDump } from "../../../lib/apiBase";
 import { checkSupabaseConnection, supabase } from "../../../lib/supabase";
 import { getSupabaseUrl, getSupabaseAnonKey } from "../../../lib/supabaseConfig";
 import { getAdminApiAccessToken } from "../../../lib/userManagementAuthToken";
@@ -85,7 +85,9 @@ function finalizeCheckResult(result, entry) {
     status,
     httpStatus: result.httpStatus ?? 0,
     latencyMs,
-    errorMessage,
+    errorMessage: errorMessage
+      ? humanizeApiErrorMessage(errorMessage, "Service check failed.")
+      : null,
   };
 }
 
@@ -95,7 +97,10 @@ function offlineResult(err, message) {
       status: API_STATUS.offline,
       httpStatus: 0,
       latencyMs: err?.latencyMs ?? 0,
-      errorMessage: message || (err?.aborted ? "Request timed out" : err?.message || "Unreachable"),
+      errorMessage: humanizeApiErrorMessage(
+        message || (err?.aborted ? "Request timed out" : err?.message || "Unreachable"),
+        "Service unreachable."
+      ),
     },
     { degradedThresholdMs: 5000 }
   );
@@ -112,6 +117,24 @@ function routeReachableOnline(status, latencyMs, entry) {
     },
     entry
   );
+}
+
+/**
+ * Health probes use GET on many POST-only Express routes to avoid noisy console 400s.
+ * Express then answers 404 (no GET handler) or 405 — that still means the Node API is up.
+ * True outages are status 0 / 5xx.
+ */
+function isExpectedWriteProbeMismatch(status) {
+  return status === 404 || status === 405;
+}
+
+/** Authenticated write-route probe: any non-5xx answer means the route/gateway responded. */
+function authSuccessFromStatus(status) {
+  if (!status || status === 0) return false;
+  if (status >= 500) return false;
+  if (isExpectedWriteProbeMismatch(status)) return true;
+  // 401/403 = auth gate hit (route exists). Other 2xx–4xx = handler ran.
+  return status >= 200 && status < 500;
 }
 
 /** Route exists but authenticated check failed with a session problem. */
@@ -133,14 +156,10 @@ function serverErrorResult(status, latencyMs, entry, detail) {
       status: API_STATUS.offline,
       httpStatus: status,
       latencyMs,
-      errorMessage: detail || `Server error HTTP ${status}`,
+      errorMessage: humanizeApiErrorMessage(detail || `Server error HTTP ${status}`, `Server error HTTP ${status}`),
     },
     entry
   );
-}
-
-function authSuccessFromStatus(status) {
-  return status >= 200 && status < 500 && status !== 401 && status !== 403;
 }
 
 /** Edge function gateway responded — deployed and reachable (401/403 = expected auth gate). */
@@ -307,15 +326,24 @@ async function probeNodeRoute(path, entry, { method = "GET" } = {}) {
     return offlineResult({ latencyMs }, authResult.error || "Unable to reach API server.");
   }
 
+  // GET probe of a POST-only route → Express 404/405. That is healthy, not Down.
+  if (isExpectedWriteProbeMismatch(status)) {
+    return routeReachableOnline(status, latencyMs, entry);
+  }
+
   if (status === 401) {
     if (/not signed in/i.test(String(authResult.error || ""))) {
       try {
         const { res, latencyMs: probeMs } = await timedFetch(apiUrl(normalizedPath), { method });
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401 || res.status === 403 || isExpectedWriteProbeMismatch(res.status)) {
           return routeReachableOnline(res.status, probeMs, entry);
         }
         if (res.status >= 500) {
           return serverErrorResult(res.status, probeMs, entry);
+        }
+        // Any other response from Node still proves the API process answered.
+        if (res.status > 0 && res.status < 500) {
+          return routeReachableOnline(res.status, probeMs, entry);
         }
         return finalizeCheckResult(
           {
@@ -339,12 +367,8 @@ async function probeNodeRoute(path, entry, { method = "GET" } = {}) {
   }
 
   if (status === 403) {
-    return routeReachableUnverified(
-      status,
-      latencyMs,
-      entry,
-      authResult.error || "Access denied (HTTP 403). Your role may not have permission for this API."
-    );
+    // Forbidden still means the route exists and the API is up (role may lack access).
+    return routeReachableOnline(status, latencyMs, entry);
   }
 
   if (status >= 500) {
@@ -479,7 +503,14 @@ export const API_CHECK_HANDLERS = {
       let errorMessage = null;
       if (!ok) {
         const text = await res.text().catch(() => "");
-        errorMessage = text.slice(0, 200) || `HTTP ${res.status}`;
+        if (isRawServerHtmlDump(text) || /Internal Server Error/i.test(text)) {
+          errorMessage = humanizeApiErrorMessage(text, `Server error HTTP ${res.status}`);
+        } else {
+          errorMessage = humanizeApiErrorMessage(
+            text.slice(0, 200) || `HTTP ${res.status}`,
+            `HTTP ${res.status}`
+          );
+        }
       }
       return finalizeCheckResult(
         {
