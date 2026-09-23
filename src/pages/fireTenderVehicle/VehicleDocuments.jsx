@@ -56,7 +56,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
     secondarySectionTitle: 'Provider & file',
     showIssueDate: true,
     showExpiryDate: true,
-    expiryRequired: true,
+    expiryRequired: false,
     showPremium: true,
     showAttachments: true,
     attachmentMultiple: true,
@@ -82,6 +82,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
       providerLabel: 'Insurer / broker',
       secondarySectionTitle: 'Insurer, premium & file',
       showPremium: true,
+      expiryRequired: true,
       attachmentMultiple: true,
       attachmentMax: 12
     },
@@ -92,6 +93,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
       providerLabel: 'Testing centre',
       secondarySectionTitle: 'Centre & file',
       showPremium: false,
+      expiryRequired: true,
       attachmentMultiple: false,
       attachmentMax: 2
     },
@@ -112,6 +114,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
       providerLabel: 'Issuing / permit authority',
       secondarySectionTitle: 'Authority & file',
       showPremium: false,
+      expiryRequired: true,
       attachmentMax: 6
     },
     'AMC Contract': {
@@ -121,6 +124,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
       providerLabel: 'AMC vendor',
       secondarySectionTitle: 'Vendor, fee & file',
       showPremium: true,
+      expiryRequired: true,
       attachmentMax: 12
     },
     'Service Contract': {
@@ -130,6 +134,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
       providerLabel: 'Service provider',
       secondarySectionTitle: 'Provider, fee & file',
       showPremium: true,
+      expiryRequired: true,
       attachmentMax: 12
     },
     Other: {
@@ -138,14 +143,36 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
       expiryDateLabel: 'Expiry / valid until',
       providerLabel: 'Issuer / organisation',
       secondarySectionTitle: 'Details & file',
-      showPremium: true
+      showPremium: true,
+      expiryRequired: true
     }
   };
 
-  const getDocumentFieldConfig = (documentType) => ({
-    ...defaultDocumentFieldConfig,
-    ...(documentTypeFieldConfig[documentType] || {})
-  });
+  const resolveDocumentTypeConfigKey = (documentType) => {
+    const raw = String(documentType || '').trim();
+    if (documentTypeFieldConfig[raw]) return raw;
+    const lower = raw.toLowerCase();
+    if (!lower) return '';
+    if (lower === 'rc' || lower.startsWith('rc (') || lower.includes('registration certificate')) {
+      return 'RC (Registration Certificate)';
+    }
+    if (lower.includes('pollution') || lower === 'puc') return 'Pollution Certificate';
+    if (lower.includes('fitness')) return 'Fitness Certificate';
+    if (lower.includes('insurance')) return 'Insurance';
+    if (lower === 'permit' || lower.includes('permit')) return 'Permit';
+    if (lower.includes('amc')) return 'AMC Contract';
+    if (lower.includes('service contract')) return 'Service Contract';
+    if (lower === 'other') return 'Other';
+    return raw;
+  };
+
+  const getDocumentFieldConfig = (documentType) => {
+    const key = resolveDocumentTypeConfigKey(documentType);
+    return {
+      ...defaultDocumentFieldConfig,
+      ...(documentTypeFieldConfig[key] || {})
+    };
+  };
 
   const alertStatuses = ['Active', 'Warning', 'Expired'];
 
@@ -538,7 +565,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
                     </label>
                     <FormDateInput value={formData.expiry_date} onChange={(e) => setFormData({...formData, expiry_date: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required={docFieldCfg.expiryRequired}
+                      required={Boolean(docFieldCfg.expiryRequired)}
                     />
                   </div>
                   )}
