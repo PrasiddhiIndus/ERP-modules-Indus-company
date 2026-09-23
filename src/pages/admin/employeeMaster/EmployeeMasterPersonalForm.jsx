@@ -369,7 +369,12 @@ export default function EmployeeMasterPersonalForm({
       }
     } catch (error) {
       console.error('Error saving employee:', error);
-      toast.error(error?.message || 'Failed to save employee.');
+      const raw = String(error?.message || '');
+      const friendly =
+        /cannot change your own account status/i.test(raw)
+          ? 'Could not update this employee’s login status. Try again after the latest database update is applied, or ask a Super Admin.'
+          : raw || 'Failed to save employee.';
+      toast.error(friendly);
     } finally {
       setSaving(false);
     }
