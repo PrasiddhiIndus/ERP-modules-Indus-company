@@ -1828,7 +1828,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                           <input type="text" value={formData.site_name} onChange={(e) => setFormData({ ...formData, site_name: e.target.value })} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" required />
                         </div>
                         <div className="min-w-0">
-                          <label className="mb-1.5 block text-sm font-medium text-gray-700">Number of Passengers *</label>
+                          <label className="mb-1.5 block text-sm font-medium text-gray-700">Number of Passengers</label>
                           <input
                             type="text"
                             value={passengerCountDisplay}
