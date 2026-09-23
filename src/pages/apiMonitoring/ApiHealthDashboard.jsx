@@ -15,6 +15,7 @@ import {
   loadCachedSnapshots,
   SNAPSHOT_CACHE_TTL_MS,
 } from "./services/apiHealthService";
+import { humanizeApiErrorMessage } from "../../lib/apiBase";
 import { useMonitoringTheme } from "./components/useMonitoringTheme";
 import {
   MonitoringShell,
@@ -115,7 +116,7 @@ export default function ApiHealthDashboard() {
       lastRefreshAtRef.current = new Date().toISOString();
       setLastRefreshAt(lastRefreshAtRef.current);
     } catch (err) {
-      setError(err?.message || "Failed to run health checks");
+      setError(humanizeApiErrorMessage(err, "Failed to run health checks"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -134,7 +135,7 @@ export default function ApiHealthDashboard() {
       lastRefreshAtRef.current = new Date().toISOString();
       setLastRefreshAt(lastRefreshAtRef.current);
     } catch (err) {
-      setError(err?.message || `Failed to check ${def.name}`);
+      setError(humanizeApiErrorMessage(err, `Failed to check ${def.name}`));
     } finally {
       setRefreshing(false);
       runInFlightRef.current = false;
@@ -159,7 +160,7 @@ export default function ApiHealthDashboard() {
       lastRefreshAtRef.current = new Date().toISOString();
       setLastRefreshAt(lastRefreshAtRef.current);
     } catch (err) {
-      setError(err?.message || "Failed to run checks");
+      setError(humanizeApiErrorMessage(err, "Failed to run checks"));
     } finally {
       setRefreshing(false);
       runInFlightRef.current = false;

@@ -25,6 +25,7 @@ import {
   uptimeBarColor,
   buildPlatformOverview,
 } from "./apiMonitoringUtils";
+import { humanizeApiErrorMessage } from "../../../lib/apiBase";
 
 export function MonitoringShell({ t, children, className = "" }) {
   return (
@@ -174,10 +175,11 @@ export function MonitoringHelp({ t }) {
 
 export function ErrorBanner({ message, t }) {
   if (!message) return null;
+  const safe = humanizeApiErrorMessage(message, "Something went wrong while checking APIs.");
   return (
     <div className={`rounded-xl border px-3 py-2.5 text-xs flex gap-2 ${t.errorBanner}`} role="alert">
       <XCircle className="w-4 h-4 shrink-0 mt-0.5" />
-      <span>{message}</span>
+      <span className="break-words min-w-0">{safe}</span>
     </div>
   );
 }

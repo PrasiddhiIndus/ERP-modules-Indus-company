@@ -23,6 +23,7 @@ import { ROLES, canSeeSubModule } from "../config/roles";
 import { supabase } from "../lib/supabase";
 import {
   deleteSoftwareSubR2Object,
+  humanizeSoftwareSubError,
   presignSoftwareSubR2Get,
   resolveSoftwareSubAttachmentStorage,
   uploadSoftwareSubFileToR2,
@@ -372,9 +373,7 @@ const SoftwareSubscriptions = () => {
       setError(
         permissionDenied
           ? "You can open this page, but the database is blocking subscription data for your account. Ask Super Admin to apply the latest software-subscriptions access migration and grant IT/IS or Software Subscriptions (View / Update / Delete) in User Management."
-          : msg
-            ? `Unable to load software subscriptions: ${msg}`
-            : "Unable to load software subscriptions."
+          : humanizeSoftwareSubError(err, "Unable to load software subscriptions.")
       );
       setSubscriptions([]);
     } finally {
@@ -605,7 +604,7 @@ const SoftwareSubscriptions = () => {
       const url = await resolveAttachmentUrl(attachment);
       window.open(url, "_blank", "noopener,noreferrer");
     } catch (err) {
-      setError(err?.message || "Unable to open invoice attachment.");
+      setError(humanizeSoftwareSubError(err, "Unable to open invoice attachment."));
     }
   };
 
@@ -621,7 +620,7 @@ const SoftwareSubscriptions = () => {
       anchor.click();
       anchor.remove();
     } catch (err) {
-      setError(err?.message || "Unable to download invoice attachment.");
+      setError(humanizeSoftwareSubError(err, "Unable to download invoice attachment."));
     }
   };
 
@@ -640,7 +639,7 @@ const SoftwareSubscriptions = () => {
       uploadedAttachments = await uploadInvoiceFiles(recordId);
     } catch (err) {
       setSaving(false);
-      setError(err?.message || "Unable to upload invoice attachment.");
+      setError(humanizeSoftwareSubError(err, "Unable to upload invoice attachment."));
       return;
     }
 
@@ -705,7 +704,7 @@ const SoftwareSubscriptions = () => {
       resetForm();
       await fetchSubscriptions();
     } catch (err) {
-      setError(err?.message || "Unable to save subscription.");
+      setError(humanizeSoftwareSubError(err, "Unable to save subscription."));
     } finally {
       setSaving(false);
     }
@@ -731,7 +730,7 @@ const SoftwareSubscriptions = () => {
         ]);
       }
     } catch (err) {
-      setError(err?.message || "Unable to load saved invoice attachments.");
+      setError(humanizeSoftwareSubError(err, "Unable to load saved invoice attachments."));
     }
 
     originalEditAttachmentsRef.current = attachments;
@@ -793,7 +792,7 @@ const SoftwareSubscriptions = () => {
       if (updateError) throw updateError;
       await fetchSubscriptions();
     } catch (err) {
-      setError(err?.message || "Unable to mark payment as paid.");
+      setError(humanizeSoftwareSubError(err, "Unable to mark payment as paid."));
     } finally {
       setSaving(false);
     }
@@ -808,7 +807,7 @@ const SoftwareSubscriptions = () => {
       if (deleteError) throw deleteError;
       await fetchSubscriptions();
     } catch (err) {
-      setError(err?.message || "Unable to delete subscription.");
+      setError(humanizeSoftwareSubError(err, "Unable to delete subscription."));
     } finally {
       setSaving(false);
     }
