@@ -42,8 +42,8 @@ import {
   isPurplePresentPunch,
   sortRegisterEmployeeRows,
   formatAttendanceSupabaseError,
-  fetchActiveEmployees,
-  fetchInactiveEmployeesWithDateOfLeaving,
+  fetchActiveEmployeesForRegister,
+  fetchInactiveEmployeesWithDateOfLeavingForRegister,
   fetchAttendancePunchesInRange,
   isInactiveEmployeeRelevantForRegisterMonth,
   isoMonthToday,
@@ -364,13 +364,13 @@ export function EmployeeAttendanceDailyPage() {
         : fetchMasterRegisterCodeMap(supabase);
       const employeesPromise = activeEmployeesCacheRef.current
         ? Promise.resolve(activeEmployeesCacheRef.current)
-        : fetchActiveEmployees(supabase).then((rows) => {
+        : fetchActiveEmployeesForRegister(supabase).then((rows) => {
             activeEmployeesCacheRef.current = rows;
             return rows;
           });
       const inactivePromise = inactiveLeavingCacheRef.current
         ? Promise.resolve(inactiveLeavingCacheRef.current)
-        : fetchInactiveEmployeesWithDateOfLeaving(supabase).then((rows) => {
+        : fetchInactiveEmployeesWithDateOfLeavingForRegister(supabase).then((rows) => {
             inactiveLeavingCacheRef.current = rows;
             return rows;
           });
@@ -454,8 +454,11 @@ export function EmployeeAttendanceDailyPage() {
       const weekoffDates = listAutoWeekoffDatesForMonthAndNext(monthMeta);
       const departmentByCode = {};
       for (const emp of registerEmployees || []) {
+        const dept = emp.department || "";
         const code = normalizeAttendanceEmpCode(emp.empCode);
-        if (code) departmentByCode[code] = emp.department || "";
+        const raw = String(emp.registerEmpCode || emp.empCode || "").trim();
+        if (code) departmentByCode[code] = dept;
+        if (raw) departmentByCode[raw] = dept;
       }
 
       setPunches(punchRows);
