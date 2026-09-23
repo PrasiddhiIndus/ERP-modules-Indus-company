@@ -2528,6 +2528,33 @@ function warnIfSupabaseEnvMisaligned() {
   console.warn(`[server] Supabase env notice (API stays up): ${warning}`);
 }
 
+/** API clients expect JSON — never leak Express HTML 500 pages into the ERP UI. */
+app.use((err, req, res, next) => {
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+  const status = Number(err?.status || err?.statusCode) || 500;
+  const raw = String(err?.message || '').trim();
+  const isCors = /cors/i.test(raw);
+  let message;
+  if (isCors) {
+    message =
+      'This page is not allowed to reach the file server from the current address. Open the ERP from the usual company URL and try again.';
+  } else if (status >= 500) {
+    message = IS_PRODUCTION
+      ? 'Something went wrong on the server. Please try again.'
+      : raw || 'Internal Server Error';
+  } else {
+    message = raw || 'Request failed.';
+  }
+  if (status >= 500) {
+    // eslint-disable-next-line no-console
+    console.error('[server] Unhandled API error:', err?.stack || err?.message || err);
+  }
+  res.status(status).json({ error: message, message });
+});
+
 const httpServer = app.listen(PORT, '0.0.0.0', () => {
   // eslint-disable-next-line no-console
   console.log(`Whitebooks proxy listening on port ${PORT}`);
