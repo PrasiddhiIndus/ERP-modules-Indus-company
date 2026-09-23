@@ -25,11 +25,38 @@ export const REGISTER_MARK_SOURCE_AUTO_WO = "auto_wo";
 export const REGISTER_MARK_SOURCE_AUTO_HOLIDAY = "auto_holiday";
 export const REGISTER_MARK_SOURCE_TOUR = "tour";
 
-/** Departments that work on 3rd Saturday — no auto WO for that day. */
-export const THIRD_SATURDAY_WEEKOFF_EXCLUDED_DEPARTMENTS = ["Production", "R&M", "M&M"];
+/**
+ * Departments that work on 3rd Saturday — no auto WO for that day
+ * (blank if no punch, like a normal working day).
+ */
+export const THIRD_SATURDAY_WEEKOFF_EXCLUDED_DEPARTMENTS = [
+  "Production",
+  "Production-FTC",
+  "Production - Neotech",
+  "R&M",
+  "M&M",
+  "Maintenance-FTC",
+];
 
 export function isThirdSaturdayWeekoffExcludedDepartment(department) {
-  return THIRD_SATURDAY_WEEKOFF_EXCLUDED_DEPARTMENTS.some((d) => departmentMatches(department, d));
+  if (!department) return false;
+  if (THIRD_SATURDAY_WEEKOFF_EXCLUDED_DEPARTMENTS.some((d) => departmentMatches(department, d))) {
+    return true;
+  }
+  // Tolerate "Production - Neotech" vs "Production-Neotech" spacing variants.
+  const loose = String(department || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/\s*-\s*/g, "-");
+  return THIRD_SATURDAY_WEEKOFF_EXCLUDED_DEPARTMENTS.some(
+    (d) =>
+      String(d)
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .replace(/\s*-\s*/g, "-") === loose
+  );
 }
 
 export const INDUS_ONE_TOUR_TABLES = {
@@ -772,6 +799,14 @@ export function buildMonthlyRegisterGrid(
         mark = "P";
       } else if (isAutoWeekoffDate(iso, emp.department)) {
         mark = "WO";
+      }
+      // These depts work 3rd Saturday — never show WO (blank unless punch/other mark).
+      if (
+        mark === "WO" &&
+        isThirdSaturdayOfMonth(year, month, day) &&
+        isThirdSaturdayWeekoffExcludedDepartment(emp.department)
+      ) {
+        mark = hasPunch ? "P" : "";
       }
       if (applyLeavingDisplay && dateOfLeaving && isRegisterDayAfterLeaving(iso, dateOfLeaving)) {
         mark = REGISTER_MARK_LEFT;
@@ -2292,7 +2327,7 @@ export function isThirdSaturdayOfMonth(year, month, day) {
   return saturdays === 3;
 }
 
-/** Sunday always; 3rd Saturday except Production / R&M / M&M (those work that day). */
+/** Sunday always; 3rd Saturday except listed Production / R&M / M&M / Maintenance-FTC depts. */
 export function isAutoWeekoffDate(isoDate, department) {
   const d = normalizeDbDate(isoDate);
   if (!d) return false;
@@ -2349,7 +2384,7 @@ export function canAutoWeekoffApplyToExisting(existing) {
 }
 
 /**
- * Whether a stored auto WO may be cleared (e.g. 3rd Saturday for Production / R&M / M&M).
+ * Whether a stored auto WO may be cleared (e.g. 3rd Saturday for WO-excluded depts).
  * Never clears leave, tour, manual, punch, or remarked cells.
  */
 function canClearStaleAutoWeekoff(existing) {
@@ -2406,7 +2441,7 @@ async function resolveExistingRegisterRowsForDateSpan(supabase, { fromDate, toDa
 /**
  * Apply WO on all auto weekoff dates (Sundays + 3rd Saturday) for every register employee on `weekoffDates`.
  * Skips leave, manual marks, and punch Present; punch sync runs afterward and may overwrite WO.
- * Production / R&M / M&M skip 3rd Saturday (and any prior auto WO on that day is cleared).
+ * WO-excluded depts skip 3rd Saturday (and any prior auto WO on that day is cleared).
  */
 export async function syncRegisterAutoWeekoffMarks(
   supabase,
@@ -2668,7 +2703,7 @@ export async function syncRegisterMarksFromPunches(supabase, punches, options = 
 export function buildRegisterEmployeeList(
   activeEmployees,
   inactiveEmployees,
-  { registerCodes = [], masterCodeMap = null, fromDate = null, toDate = null } = {}
+  { registerCodes: _registerCodes = [], masterCodeMap = null, fromDate = null, toDate = null } = {}
 ) {
   const byCode = new Map();
   const includeForMonth = (emp) => {
@@ -2677,6 +2712,7 @@ export function buildRegisterEmployeeList(
   };
   for (const e of activeEmployees || []) {
     if (!includeForMonth(e)) continue;
+    if (!hasRegisterDisplayIdentity(e)) continue;
     const code = resolveRegisterGridEmpCode(e.empCode, masterCodeMap);
     if (code) byCode.set(code, { ...e, empCode: code, masterStatus: "Active" });
   }
@@ -2684,20 +2720,8 @@ export function buildRegisterEmployeeList(
     const code = resolveRegisterGridEmpCode(e.empCode, masterCodeMap);
     if (!code || byCode.has(code)) continue;
     if (!includeForMonth(e)) continue;
+    if (!hasRegisterDisplayIdentity(e)) continue;
     byCode.set(code, { ...e, empCode: code, masterStatus: "Inactive" });
-  }
-  for (const rawCode of registerCodes || []) {
-    const code = resolveRegisterGridEmpCode(rawCode, masterCodeMap);
-    if (!code || byCode.has(code)) continue;
-    byCode.set(code, {
-      empCode: code,
-      registerEmpCode: toRegisterDbEmployeeCode(code, masterCodeMap) || String(rawCode).trim(),
-      employeeName: "",
-      department: "",
-      designation: "",
-      employeeId: "",
-      masterStatus: "Register only",
-    });
   }
   return [...byCode.values()].sort((a, b) =>
     String(a.empCode).localeCompare(String(b.empCode), undefined, { numeric: true })
@@ -3742,7 +3766,29 @@ export function mapMasterEmployee(row) {
     designation: row.designation || "",
     dateOfLeaving: normalizeDbDate(row.date_of_leaving) || "",
     employeeId: row.employee_id || "",
+    employeeType: String(row.employee_type ?? "").trim().toLowerCase() || "in_house",
   };
+}
+
+/** IFSPL in-house master rows (default / empty treated as in-house). */
+export function isInHouseMasterEmployee(employee) {
+  const value = String(employee?.employeeType ?? employee?.employee_type ?? "")
+    .trim()
+    .toLowerCase();
+  if (!value) return true;
+  return value === "in_house";
+}
+
+/** Daily register shows only employees with both name and department. */
+export function hasRegisterDisplayIdentity(employee) {
+  return Boolean(
+    String(employee?.employeeName || "").trim() && String(employee?.department || "").trim()
+  );
+}
+
+/** In-house + has name and department (daily attendance register roster). */
+export function isDailyRegisterRosterEmployee(employee) {
+  return isInHouseMasterEmployee(employee) && hasRegisterDisplayIdentity(employee);
 }
 
 /** Register every lookup variant → exact master employee_code (FK-safe upserts). */
@@ -3997,7 +4043,7 @@ export async function fetchAttendancePunchesInRange(supabase, { fromDate, toDate
 export async function fetchActiveEmployees(supabase) {
   const { data, error } = await supabase
     .from(EMPLOYEE_MASTER_TABLE)
-    .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving")
+    .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving,employee_type")
     .eq("status", "Active");
   if (error) throw error;
   return (data || []).map(mapMasterEmployee).filter((e) => e.employeeId || e.empCode);
@@ -4007,7 +4053,7 @@ export async function fetchActiveEmployees(supabase) {
 export async function fetchInactiveEmployeesWithDateOfLeaving(supabase) {
   const { data, error } = await supabase
     .from(EMPLOYEE_MASTER_TABLE)
-    .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving")
+    .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving,employee_type")
     .eq("status", "Inactive")
     .not("date_of_leaving", "is", null);
   if (error) throw error;
@@ -4080,16 +4126,22 @@ export function isInactiveEmployeeVisibleOnLeaveLedger(dateOfLeaving, ledgerYear
 export async function fetchInactiveEmployeesFromMaster(supabase) {
   const { data, error } = await supabase
     .from(EMPLOYEE_MASTER_TABLE)
-    .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving")
+    .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving,employee_type")
     .eq("status", "Inactive");
   if (error) throw error;
   return (data || []).map(mapMasterEmployee).filter((e) => e.empCode);
 }
 
-/** Active employees with a non-empty employee_code (required for register saves + FK). */
+/** Active in-house employees with name + department (daily attendance register). */
 export async function fetchActiveEmployeesForRegister(supabase) {
   const all = await fetchActiveEmployees(supabase);
-  return all.filter((e) => e.empCode);
+  return all.filter((e) => e.empCode && isDailyRegisterRosterEmployee(e));
+}
+
+/** Inactive in-house leavers with name + department (daily attendance register). */
+export async function fetchInactiveEmployeesWithDateOfLeavingForRegister(supabase) {
+  const all = await fetchInactiveEmployeesWithDateOfLeaving(supabase);
+  return all.filter((e) => e.empCode && isDailyRegisterRosterEmployee(e));
 }
 
 function isAttendanceAuthError(err) {
