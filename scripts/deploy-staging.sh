@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Manual staging deploy. GitHub Actions (deploy-staging.yml) runs these same steps
+# Manual staging preview deploy. GitHub Actions (deploy-staging.yml) runs these same steps
 # inline on every push to the staging branch, so keep the two in sync.
 #
-# Layout on the droplet (139.59.58.167 — same host as production):
+# Staging DB is retired — preview uses the production Supabase project only.
+# Layout on the droplet (same host as production):
 #   /var/www/indus-erp-staging   git checkout on branch `staging`
 #   nginx serves /var/www/indus-erp-staging/dist  (port 3001)
-#   pm2 process `indus-erp-staging` runs server/index.js from that folder
+#   pm2 process `indus-erp-staging` runs server/index.js from that folder (API :4001)
 #
 # Run on the server only:
 #   bash /var/www/indus-erp-staging/scripts/deploy-staging.sh
@@ -17,8 +18,9 @@ REPO_DIR="${REPO_DIR:-/var/www/indus-erp-staging}"
 BRANCH="${BRANCH:-staging}"
 PM2_NAME="${PM2_NAME:-indus-erp-staging}"
 REPO_URL="${REPO_URL:-git@github.com:PrasiddhiIndus/ERP-modules-Indus-company.git}"
+PRODUCTION_SUPABASE_URL="${PROD_SUPABASE_URL:-https://wbyzhknaqcjqqtwopupl.supabase.co}"
 
-echo "==> Deploy staging from ${REPO_DIR} (branch ${BRANCH})"
+echo "==> Deploy staging preview from ${REPO_DIR} (branch ${BRANCH}, production DB)"
 
 if [ ! -d "${REPO_DIR}/.git" ]; then
   echo "ERROR: ${REPO_DIR} is not a git checkout on this droplet."
@@ -46,21 +48,23 @@ fi
 git fetch origin "${BRANCH}"
 git reset --hard "origin/${BRANCH}"
 
-# Staging must opt in so the API never auto-pins to the production Supabase project.
-if [ -f .env.server ] && ! grep -qiE '^ERP_ENV[[:space:]]*=[[:space:]]*staging' .env.server; then
-  echo "==> Setting ERP_ENV=staging in .env.server (keeps staging/production Supabase isolated)"
-  sed -i '/^ERP_ENV=/d' .env.server
-  echo "ERP_ENV=staging" >> .env.server
-fi
-
 npm ci
-# Vite was OOM-killed here (exit 137). Capping V8's heap makes it collect
-# garbage instead of growing until the kernel kills the process.
-NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB:-2048}" npm run build
+# Prefer a CI-built dist when present; otherwise build locally (may OOM on small droplets).
+if [ -f /tmp/indus-erp-staging-build/dist-staging.tar.gz ]; then
+  echo "==> Using frontend built by CI"
+  rm -rf dist && mkdir -p dist
+  tar -xzf /tmp/indus-erp-staging-build/dist-staging.tar.gz -C dist
+  rm -rf /tmp/indus-erp-staging-build
+else
+  NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB:-2048}" npm run build
+fi
 test -f dist/index.html
 
-# Same droplet as production: production owns 8787, staging API is 4001 (nginx :3001).
+# One production DB. Drop retired ERP_ENV=staging pin; keep preview API on 4001.
 if [ -f .env.server ]; then
+  sed -i '/^ERP_ENV=/d' .env.server || true
+  sed -i '/^SUPABASE_URL=/d' .env.server || true
+  echo "SUPABASE_URL=${PRODUCTION_SUPABASE_URL}" >> .env.server
   sed -i '/^SERVER_PORT=/d' .env.server || true
   sed -i '/^PORT=/d' .env.server || true
   echo "SERVER_PORT=4001" >> .env.server
@@ -71,4 +75,4 @@ pm2 restart "${PM2_NAME}" --update-env
 pm2 save
 systemctl reload nginx
 
-echo "==> Staging deploy complete: ${REPO_DIR}/dist"
+echo "==> Staging preview deploy complete: ${REPO_DIR}/dist (production Supabase)"

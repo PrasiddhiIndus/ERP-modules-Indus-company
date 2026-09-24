@@ -42,8 +42,6 @@ function mustNotInclude(rel, patterns, label) {
 const ENV_TEMPLATES = [
   '.env.example',
   '.env.server.example',
-  '.env.staging.example',
-  '.env.server.staging.example',
 ];
 
 /** Keys whose value in a template must stay a placeholder. */

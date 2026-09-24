@@ -105,7 +105,7 @@ export async function fetchApiHealth(options = {}) {
         error: proxyDown
           ? formatApiHealthFailure(
               0,
-              'Node API on port 8787 is not running. Stop any stale process, then run `npm run dev` (or `npm run dev:staging`) from the project root — not `vite` alone.'
+              'Node API on port 8787 is not running. Stop any stale process, then run `npm run dev` from the project root — not `vite` alone.'
             )
           : formatApiHealthFailure(res.status, rawDetail),
       };

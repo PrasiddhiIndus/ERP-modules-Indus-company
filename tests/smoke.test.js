@@ -574,7 +574,7 @@ describe('register employee month visibility (DOL)', () => {
   it('includes inactive DOL-month employees without register activity', () => {
     const list = buildRegisterEmployeeList(
       [],
-      [{ empCode: 'E99', employeeName: 'Left', dateOfLeaving: '2026-03-15' }],
+      [{ empCode: 'E99', employeeName: 'Left', department: 'Ops', dateOfLeaving: '2026-03-15' }],
       { fromDate: march.fromDate, toDate: march.toDate }
     );
     expect(list).toHaveLength(1);
@@ -583,7 +583,7 @@ describe('register employee month visibility (DOL)', () => {
 
   it('excludes active employees who left before the viewed month', () => {
     const list = buildRegisterEmployeeList(
-      [{ empCode: 'E01', employeeName: 'Former', dateOfLeaving: '2026-03-15' }],
+      [{ empCode: 'E01', employeeName: 'Former', department: 'Ops', dateOfLeaving: '2026-03-15' }],
       [],
       { fromDate: april.fromDate, toDate: april.toDate }
     );

@@ -37,12 +37,16 @@ jobs:
       - name: Smoke tests
         run: npm run test:smoke
 
-      - name: Build Project (staging)
+      # Staging / PRs into staging: compile-check only (no staging DB, no staging secrets).
+      # Placeholders match src/lib/supabaseConfig.js so Vite can bundle without a live project.
+      - name: Build Project (staging verify)
         if: github.ref == 'refs/heads/staging' || (github.event_name == 'pull_request' && github.base_ref == 'staging')
-        run: npm run build:staging
+        run: |
+          npm run build
+          test -f dist/index.html
         env:
-          VITE_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL || secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY || secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-key
           VITE_EINVOICE_PROVIDER: backend
           VITE_EINVOICE_API_URL: /api/billing/e-invoice
 
