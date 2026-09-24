@@ -1434,6 +1434,8 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
 
   // Fill any days still missing from the approved leave date range (partial applied marks,
   // invalid applied_mark, or attendance-marks not yet written after approval).
+  // Half-day requests store the base leave type (CL/PL/SL); merge promotes to P/CL when
+  // the Admin cell is HD or a machine punch exists that day.
   for (const req of approvedById.values()) {
     const empCode = normalizeAttendanceEmpCode(req.employee_code);
     const mark = registerMarkFromApprovedLeaveType(req.leave_type_code);
@@ -1473,6 +1475,16 @@ function isRegisterHalfDayAttendanceMark(mark) {
   return m === "HD" || isRegisterCompositeHalfDayMark(m);
 }
 
+/** Leave codes from Indus One / leave ledger (not HD attendance). */
+function isIndusOneApprovedLeaveDisplayMark(mark) {
+  const m = normalizeRegisterMarkForDb(mark) || String(mark ?? "").trim();
+  if (!m) return false;
+  if (isRegisterCompositeHalfDayMark(m)) return true;
+  if (REGISTER_LWP_COMPOSITE_MARKS.has(m)) return true;
+  if (REGISTER_LEAVE_RED_CELL_MARKS.has(m)) return true;
+  return false;
+}
+
 function buildLeaveSourcedDaySet(registerRows, masterCodeMap = null) {
   const byCode = new Map();
   for (const row of registerRows || []) {
@@ -1501,11 +1513,21 @@ function buildManualSourcedDaySet(registerRows, masterCodeMap = null) {
   return byCode;
 }
 
-/** Stamp saved manual register rows on top of overlay marks (priority 1). */
+/** Stamp saved manual register rows on top of tour/blank overlay only.
+ * Never re-assert saved Admin attendance (HD/P/…) over Indus One leave (or any other
+ * non-tour mark already chosen by the leave merge).
+ */
 export function applyManualRegisterRowsToMarks(marks, registerRows, masterCodeMap = null) {
   const next = {};
   for (const [code, days] of Object.entries(marks || {})) {
-    next[code] = { ...(days || {}) };
+    const gridCode = resolveRegisterGridEmpCode(code, masterCodeMap) || normalizeAttendanceEmpCode(code);
+    if (!gridCode) continue;
+    if (!next[gridCode]) next[gridCode] = {};
+    for (const [dayKey, mark] of Object.entries(days || {})) {
+      const day = Number(dayKey);
+      if (!Number.isFinite(day)) continue;
+      next[gridCode][day] = mark;
+    }
   }
   for (const row of registerRows || []) {
     if (!isManualMarkSource(row?.mark_source)) continue;
@@ -1513,6 +1535,10 @@ export function applyManualRegisterRowsToMarks(marks, registerRows, masterCodeMa
     const day = dayOfMonthFromIsoDate(row.register_date);
     const canonical = normalizeRegisterMarkForDb(row.mark);
     if (!code || !day) continue;
+    const current = next[code]?.[day];
+    // Manual wins over tour T and empty cells only — not over Indus One leave overlay.
+    if (current && current !== "T" && canonical && current !== canonical) continue;
+    if (current && isIndusOneApprovedLeaveDisplayMark(current)) continue;
     if (!next[code]) next[code] = {};
     if (canonical) next[code][day] = canonical;
     else delete next[code][day];
@@ -1520,11 +1546,21 @@ export function applyManualRegisterRowsToMarks(marks, registerRows, masterCodeMa
   return next;
 }
 
+function compositeHalfDayLeaveMark(mark) {
+  const m = normalizeRegisterMarkForDb(mark) || String(mark ?? "").trim().toUpperCase();
+  if (!m) return null;
+  if (isRegisterCompositeHalfDayMark(m)) return m;
+  if (m === "CL") return "P/CL";
+  if (m === "PL") return "P/PL";
+  if (m === "SL") return "P/SL";
+  return null;
+}
+
 /**
- * Merge approved leave into register marks for Daily Attendance Register display.
- * When register rows are loaded, leave marks already stored on admin_attendance_register
- * are kept as-is (register table is the display source of truth).
- * Approved leave only fills blank cells. Machine punch (P) still wins over leave overlay.
+ * Merge approved Indus One leave into register marks for Daily Attendance Register display.
+ * Indus One approved leave takes priority over existing register/manual marks (including HD).
+ * Machine punch Present (P) still wins over full-day leave; half-day leave (P/CL, P/PL, P/SL)
+ * replaces HD even when a punch exists. Overlay remains editable in Admin.
  */
 export function mergeApprovedLeaveMarksIntoManualMarks(
   manualMarks,
@@ -1534,52 +1570,63 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
   const presentKeys = buildPresentKeysFromPunches(punches);
   const approvedByCode = buildApprovedLeaveDaySet(approvedLeaveMarks);
   const leaveSourcedByCode = buildLeaveSourcedDaySet(registerRows, masterCodeMap);
-  const manualSourcedByCode = buildManualSourcedDaySet(registerRows, masterCodeMap);
-  const preferRegisterMarks = Array.isArray(registerRows) && registerRows.length > 0;
 
+  // Always re-key onto the same grid codes the register UI uses, so leave overlay
+  // lands on the same cell as a saved Admin HD (not a parallel alias key).
   const next = {};
-  for (const [code, days] of Object.entries(manualMarks || {})) {
-    const approvedDays = approvedByCode.get(code);
-    const leaveSourcedDays = leaveSourcedByCode.get(code);
-    const kept = {};
+  for (const [rawCode, days] of Object.entries(manualMarks || {})) {
+    const code =
+      resolveRegisterGridEmpCode(rawCode, masterCodeMap) || normalizeAttendanceEmpCode(rawCode);
+    if (!code) continue;
+    const approvedDays = approvedByCode.get(code) || approvedByCode.get(normalizeAttendanceEmpCode(rawCode));
+    const leaveSourcedDays =
+      leaveSourcedByCode.get(code) || leaveSourcedByCode.get(normalizeAttendanceEmpCode(rawCode));
+    if (!next[code]) next[code] = {};
     for (const [dayKey, mark] of Object.entries(days || {})) {
       const day = Number(dayKey);
       if (!Number.isFinite(day)) continue;
-      // Keep leave (and all other marks) already fetched from admin_attendance_register.
-      if (preferRegisterMarks) {
-        kept[day] = mark;
-        continue;
-      }
       const leaveSourced = leaveSourcedDays?.has(day);
       const unapprovedLeave =
         !isRegisterHalfDayAttendanceMark(mark) &&
         (leaveSourced || (isRegisterLeaveMark(mark) && !approvedDays?.has(day)));
-      if (unapprovedLeave && !approvedDays?.has(day)) continue;
-      kept[day] = mark;
+      // When register rows were loaded we still keep the stored mark here; the
+      // leave pass below overrides it (including saved manual HD).
+      if (unapprovedLeave && !approvedDays?.has(day) && !registerRows?.length) continue;
+      next[code][day] = mark;
     }
-    if (Object.keys(kept).length) next[code] = kept;
   }
 
   for (const [empCode, days] of Object.entries(approvedLeaveMarks || {})) {
-    const code = normalizeAttendanceEmpCode(empCode);
+    const code =
+      resolveRegisterGridEmpCode(empCode, masterCodeMap) || normalizeAttendanceEmpCode(empCode);
     if (!code) continue;
     if (!next[code]) next[code] = {};
     for (const [dayKey, mark] of Object.entries(days || {})) {
       const day = Number(dayKey);
-      const canonical = normalizeRegisterMarkForDb(mark);
+      let canonical = normalizeRegisterMarkForDb(mark);
       if (!Number.isFinite(day) || !canonical) continue;
       const iso = monthKey ? registerDateFromDay(monthKey, day) : null;
-      if (iso && presentKeys.has(`${code}|${iso}`)) continue;
       const existing = next[code][day];
-      if (existing === "P" || existing === "P(OD)" || isRegisterHalfDayAttendanceMark(existing)) continue;
-      if (manualSourcedByCode.get(code)?.has(day)) continue;
-      // Register leave/manual marks stay; approved leave may replace blank / auto WO / auto NH.
-      if (preferRegisterMarks && existing) {
-        const replaceAutoCalendar = existing === "WO" || isRegisterNhphMark(existing);
-        if (!replaceAutoCalendar) continue;
-      } else if (existing && !isRegisterLeaveMark(existing) && existing !== "") {
-        if (!(existing === "WO" || isRegisterNhphMark(existing))) continue;
+      const punchKey = iso ? `${normalizeAttendanceEmpCode(code)}|${iso}` : null;
+      const hasPunch = Boolean(punchKey && presentKeys.has(punchKey));
+      const existingIsHd = existing === "HD";
+      const composite = compositeHalfDayLeaveMark(canonical);
+
+      // Admin HD (or punch on that day) + Indus One CL/PL/SL → show P/CL etc.
+      if (composite && (existingIsHd || hasPunch) && existing !== "P" && existing !== "P(OD)") {
+        canonical = composite;
       }
+
+      const leaveIsHalfDayComposite = isRegisterCompositeHalfDayMark(canonical);
+
+      // Full-day leave: biometric punch Present still wins.
+      // Half-day composite / any leave: override saved Admin marks including HD.
+      if (hasPunch) {
+        if (!leaveIsHalfDayComposite) continue;
+        if (existing === "P" || existing === "P(OD)") continue;
+      }
+
+      // Saved Admin mark (HD, manual P, WO, …) is always overridable by approved leave here.
       next[code][day] = canonical;
     }
   }
@@ -2030,7 +2077,8 @@ export function mergeApprovedTourIntoRegisterView(
   const nextRemarks = { ...(manualRemarks || {}) };
 
   for (const [empCode, days] of Object.entries(tourMarks)) {
-    const code = normalizeAttendanceEmpCode(empCode);
+    const code =
+      resolveRegisterGridEmpCode(empCode, masterCodeMap) || normalizeAttendanceEmpCode(empCode);
     if (!code) continue;
     if (!nextMarks[code]) nextMarks[code] = {};
     for (const [dayKey, mark] of Object.entries(days || {})) {
@@ -2039,9 +2087,11 @@ export function mergeApprovedTourIntoRegisterView(
       if (!Number.isFinite(day) || canonical !== "T") continue;
       if (manualSourcedByCode.get(code)?.has(day)) continue;
       const iso = monthKey ? registerDateFromDay(monthKey, day) : null;
-      if (iso && presentKeys.has(`${code}|${iso}`)) continue;
+      if (iso && presentKeys.has(`${normalizeAttendanceEmpCode(code)}|${iso}`)) continue;
       const existing = nextMarks[code][day];
       if (existing === "P") continue;
+      // Keep Indus One leave overlay over tour T.
+      if (isIndusOneApprovedLeaveDisplayMark(existing)) continue;
       const tourRemark = String(tourRemarks[code]?.[day] || tourRemarks[empCode]?.[day] || "").trim();
       const existingRemark = String(nextRemarks[code]?.[day] || "").trim();
       nextMarks[code][day] = "T";
@@ -2935,7 +2985,7 @@ export async function migrateLocalRegisterMarksToDb(supabase, monthKey, fromDate
 }
 
 export async function loadRegisterMarksForMonth(supabase, monthMeta, options = {}) {
-  const { masterCodeMap = null, prefetchedRows = null } = options;
+  const { masterCodeMap = null, prefetchedRows = null, punches = [] } = options;
   const range = {
     fromDate: monthMeta.fromDate,
     toDate: monthMeta.toDate,
@@ -2956,7 +3006,43 @@ export async function loadRegisterMarksForMonth(supabase, monthMeta, options = {
       marks: mergeRegisterMarksWithLocal(data.marks, local),
     };
   }
-  return data;
+
+  // Same leave/tour overlay as refreshApprovedToursOnRegister — required on normal load
+  // so Indus One approved leave (e.g. P/CL) overrides stored Admin marks (e.g. HD).
+  try {
+    if (!monthMeta?.fromDate || !monthMeta?.toDate) return data;
+    const [approvedLeaveMarks, tourData] = await Promise.all([
+      fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
+      fetchApprovedTourMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
+    ]);
+    const registerRows = data.rows || [];
+    const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(data.marks || {}, approvedLeaveMarks, {
+      punches: punches || [],
+      monthKey: monthMeta.monthKey,
+      registerRows,
+      masterCodeMap,
+    });
+    const finalized = finalizeRegisterMarksAndRemarks({
+      marks: afterLeave,
+      remarks: data.remarks || {},
+      tourData,
+      registerRows,
+      masterCodeMap,
+      punches: punches || [],
+      monthKey: monthMeta.monthKey,
+    });
+    return {
+      ...data,
+      marks: finalized.marks,
+      remarks: finalized.remarks,
+    };
+  } catch (err) {
+    console.warn(
+      "Leave/tour overlay on register load failed; using raw register marks:",
+      err?.message || err
+    );
+    return data;
+  }
 }
 
 /** Fast path: build month marks/remarks from already-fetched register rows (no extra network). */
