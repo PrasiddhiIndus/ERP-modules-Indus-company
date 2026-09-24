@@ -721,14 +721,14 @@ export function EmployeeLeaveManagementPage() {
               value={ledgerEditDraft[key] ?? ""}
               onChange={(e) => updateLedgerDraftField(key, e.target.value)}
               disabled={ledgerEditSaving}
-              className="h-5 w-11 max-w-[44px] rounded border border-gray-300 px-0.5 text-[10px] leading-tight text-right tabular-nums"
+              className="mx-auto block h-5 w-11 max-w-[44px] rounded border border-gray-300 px-0.5 text-[10px] leading-tight text-center tabular-nums"
             />
           );
         }
         return fmtNum(r[key]);
       },
-      headerClassName: minW,
-      cellClassName: `text-right tabular-nums ${minW}`,
+      headerClassName: `!text-center ${minW}`,
+      cellClassName: `text-center tabular-nums ${minW}`,
     }),
     [ledgerEditDraft, ledgerEditSaving, ledgerEditingId, sortLabel, updateLedgerDraftField]
   );

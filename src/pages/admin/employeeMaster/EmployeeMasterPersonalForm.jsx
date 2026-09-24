@@ -632,6 +632,16 @@ export default function EmployeeMasterPersonalForm({
               className={ctrlMuted}
             />
           </div>
+          <div className="col-span-full">
+            <label className={lbl}>Remarks</label>
+            <textarea
+              value={formData.remarks ?? ''}
+              onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+              rows={3}
+              className={ctrl}
+              placeholder="Notes about employment dates, confirmation, exit, or other HR remarks"
+            />
+          </div>
         </div>
       </section>
 
