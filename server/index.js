@@ -174,10 +174,10 @@ function isStagingErpEnv() {
 }
 
 /**
- * Keep production and staging Supabase completely separate.
- * - Staging (ERP_ENV=staging): prefer VITE_* staging URL/anon from .env.staging.
- * - Production / default: if the service_role JWT is for production, pin SUPABASE_URL to
- *   production even when .env.server accidentally still has the staging URL.
+ * Keep production Supabase pinned on every host.
+ * - If ERP_ENV=staging is still set (legacy): prefer VITE_* URL/anon when present.
+ * - Default: if the service_role JWT is for production, pin SUPABASE_URL to
+ *   production even when .env.server accidentally still has the retired staging URL.
  */
 function applyEnvironmentSupabasePin() {
   if (isStagingErpEnv()) {
@@ -1021,24 +1021,20 @@ function normalizeBuyerForB2B(payload, sellerGstin) {
 }
 
 function buildSupabaseEnvWarning(projectRef, serviceRoleOk, diagnosis = null) {
-  // Staging hosts are allowed to use the staging project; never warn them about production.
+  // Retired staging DB: any host still on xjzhlbpgnpcmbdlufhwo must switch to production.
+  if (projectRef === STAGING_SUPABASE_PROJECT_REF) {
+    return (
+      'API is still on the retired staging Supabase project. ' +
+      `Set production SUPABASE_URL (${PRODUCTION_SUPABASE_PROJECT_REF}) and matching service_role key, then restart.`
+    );
+  }
+
   if (isStagingErpEnv()) {
-    if (projectRef && projectRef !== STAGING_SUPABASE_PROJECT_REF) {
-      return (
-        'Staging API SUPABASE_URL is not the staging project. ' +
-        `Set ERP_ENV=staging and staging SUPABASE_URL (${STAGING_SUPABASE_PROJECT_REF}).`
-      );
-    }
+    // Preview host may still set ERP_ENV=staging for port isolation; DB must be production.
     return null;
   }
 
   // Production / default — after auto-pin these should be rare; keep for ops logs/health only.
-  if (projectRef === STAGING_SUPABASE_PROJECT_REF) {
-    return (
-      'Attendance sync API is still on the staging Supabase project. ' +
-      `Set production SUPABASE_URL (${PRODUCTION_SUPABASE_PROJECT_REF}) and matching service_role key, then restart.`
-    );
-  }
   if (!serviceRoleOk) {
     if (diagnosis === 'project_mismatch') {
       return (
