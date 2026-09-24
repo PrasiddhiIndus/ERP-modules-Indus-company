@@ -2,8 +2,9 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
-// Env: `.env.production` for `npm run build`, `.env.staging` for `npm run build:staging` / `dev:staging`.
+// Env: `.env.production` for `npm run build`, `.env` / `.env.local` for local dev.
 // Vite loads `.env`, then `.env.[mode]` from envDir (repo root by default).
+// Staging preview uses the same production Supabase project (no separate staging mode).
 export default defineConfig({
   envDir: '.',
   plugins: [
