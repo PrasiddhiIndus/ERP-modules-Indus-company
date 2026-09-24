@@ -16,6 +16,7 @@ import {
   buildMonthlyRegisterGrid,
   buildRegisterEmployeeList,
   computeEmployeeRegisterSummary,
+  finalizeRegisterMarksAndRemarks,
   isEmployeeRelevantForRegisterMonth,
   isInactiveEmployeeRelevantForRegisterMonth,
   mergeApprovedLeaveMarksIntoManualMarks,
@@ -260,7 +261,7 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
     expect(merged['101'][10]).toBe('PL');
   });
 
-  it('does not overwrite register leave with approved leave overlay', () => {
+  it('Indus One approved leave overlays register leave mark', () => {
     const registerRows = [
       {
         employee_code: '101',
@@ -275,7 +276,7 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
       { '101': { 10: 'PL' } },
       { monthKey, registerRows }
     );
-    expect(merged['101'][10]).toBe('CL');
+    expect(merged['101'][10]).toBe('PL');
   });
 
   it('restores non-leave marks from fresh register rows after rejection', () => {
@@ -343,7 +344,7 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
     expect(merged['101'][12]).toBe('SL');
   });
 
-  it('does not replace a manual weekoff with approved leave', () => {
+  it('approved leave replaces a manual weekoff', () => {
     const registerRows = [
       {
         employee_code: '101',
@@ -358,7 +359,7 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
       { '101': { 12: 'SL' } },
       { monthKey, registerRows }
     );
-    expect(merged['101'][12]).toBe('WO');
+    expect(merged['101'][12]).toBe('SL');
   });
 
   it('keeps punch-derived HD from register even with stale leave_request_id', () => {
@@ -379,7 +380,7 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
     expect(merged['101'][10]).toBe('HD');
   });
 
-  it('does not overwrite manual HD with approved leave', () => {
+  it('approved leave overlays manual HD (Indus One half-day leave wins)', () => {
     const registerRows = [
       {
         employee_code: '101',
@@ -391,10 +392,64 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
     ];
     const merged = mergeApprovedLeaveMarksIntoManualMarks(
       { '101': { 10: 'HD' } },
-      { '101': { 10: 'PL' } },
+      { '101': { 10: 'P/CL' } },
       { monthKey, registerRows }
     );
-    expect(merged['101'][10]).toBe('HD');
+    expect(merged['101'][10]).toBe('P/CL');
+  });
+
+  it('approved leave overlays punch HD when Indus One half-day leave is approved', () => {
+    const registerRows = [
+      {
+        employee_code: '101',
+        register_date: '2026-07-10',
+        mark: 'HD',
+        mark_source: 'punch',
+        leave_request_id: null,
+      },
+    ];
+    const merged = mergeApprovedLeaveMarksIntoManualMarks(
+      { '101': { 10: 'HD' } },
+      { '101': { 10: 'P/CL' } },
+      { monthKey, registerRows, punches: [{ empCode: '101', punchDate: '2026-07-10' }] }
+    );
+    expect(merged['101'][10]).toBe('P/CL');
+  });
+
+  it('promotes Indus One CL over Admin HD to P/CL when punch exists', () => {
+    const registerRows = [
+      {
+        employee_code: '101',
+        register_date: '2026-07-10',
+        mark: 'HD',
+        mark_source: 'manual',
+        leave_request_id: null,
+      },
+    ];
+    const merged = mergeApprovedLeaveMarksIntoManualMarks(
+      { '101': { 10: 'HD' } },
+      { '101': { 10: 'CL' } },
+      { monthKey, registerRows, punches: [{ empCode: '101', punchDate: '2026-07-10' }] }
+    );
+    expect(merged['101'][10]).toBe('P/CL');
+  });
+
+  it('promotes Indus One CL over Admin HD to P/CL even without punch keys', () => {
+    const registerRows = [
+      {
+        employee_code: '101',
+        register_date: '2026-07-10',
+        mark: 'HD',
+        mark_source: 'manual',
+        leave_request_id: null,
+      },
+    ];
+    const merged = mergeApprovedLeaveMarksIntoManualMarks(
+      { '101': { 10: 'HD' } },
+      { '101': { 10: 'CL' } },
+      { monthKey, registerRows }
+    );
+    expect(merged['101'][10]).toBe('P/CL');
   });
 
   it('normalizes composite register marks case-insensitively', () => {
@@ -418,6 +473,46 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
       { monthKey, registerRows, punches: [{ empCode: '101', punchDate: '2026-07-10' }] }
     );
     expect(merged['101'][10]).toBe('P/CL');
+  });
+
+  it('manual stamp does not overwrite Indus One leave overlay', () => {
+    const marks = applyManualRegisterRowsToMarks(
+      { '101': { 10: 'P/CL' } },
+      [
+        {
+          employee_code: '101',
+          register_date: '2026-07-10',
+          mark: 'HD',
+          mark_source: 'manual',
+        },
+      ]
+    );
+    expect(marks['101'][10]).toBe('P/CL');
+  });
+
+  it('finalize path keeps leave over saved manual HD', () => {
+    const registerRows = [
+      {
+        employee_code: '101',
+        register_date: '2026-07-10',
+        mark: 'HD',
+        mark_source: 'manual',
+        leave_request_id: null,
+      },
+    ];
+    const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(
+      { '101': { 10: 'HD' } },
+      { '101': { 10: 'P/CL' } },
+      { monthKey, registerRows }
+    );
+    const finalized = finalizeRegisterMarksAndRemarks({
+      marks: afterLeave,
+      remarks: {},
+      tourData: { marks: {}, remarks: {} },
+      registerRows,
+      monthKey,
+    });
+    expect(finalized.marks['101'][10]).toBe('P/CL');
   });
 
   it('splits composite marks into present and leave display parts', () => {

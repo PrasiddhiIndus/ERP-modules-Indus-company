@@ -2121,9 +2121,10 @@ export function EmployeeAttendanceDailyPage() {
         )}
 
         <CollapsibleHelp label="how marks are saved">
-          Attendance marks you enter here are saved to the company register. Present (P) from machine
-          punches takes priority over approved leave on the same day. Blank cells mean no punch and no
-          approved leave for that date. Payroll reports use this register for the selected month.
+          Attendance marks you enter here are saved to the company register. Indus One approved
+          leave takes priority over existing marks (including HD); Present (P) from machine punches
+          still wins over full-day leave. Blank cells mean no punch and no approved leave for that
+          date. Payroll reports use this register for the selected month.
         </CollapsibleHelp>
       </SectionCard>
 
