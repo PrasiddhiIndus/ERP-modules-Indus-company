@@ -174,10 +174,10 @@ function isStagingErpEnv() {
 }
 
 /**
- * Keep production and staging Supabase completely separate.
- * - Staging (ERP_ENV=staging): prefer VITE_* staging URL/anon from .env.staging.
- * - Production / default: if the service_role JWT is for production, pin SUPABASE_URL to
- *   production even when .env.server accidentally still has the staging URL.
+ * Keep production Supabase pinned on every host.
+ * - If ERP_ENV=staging is still set (legacy): prefer VITE_* URL/anon when present.
+ * - Default: if the service_role JWT is for production, pin SUPABASE_URL to
+ *   production even when .env.server accidentally still has the retired staging URL.
  */
 function applyEnvironmentSupabasePin() {
   if (isStagingErpEnv()) {
@@ -1021,24 +1021,20 @@ function normalizeBuyerForB2B(payload, sellerGstin) {
 }
 
 function buildSupabaseEnvWarning(projectRef, serviceRoleOk, diagnosis = null) {
-  // Staging hosts are allowed to use the staging project; never warn them about production.
+  // Retired staging DB: any host still on xjzhlbpgnpcmbdlufhwo must switch to production.
+  if (projectRef === STAGING_SUPABASE_PROJECT_REF) {
+    return (
+      'API is still on the retired staging Supabase project. ' +
+      `Set production SUPABASE_URL (${PRODUCTION_SUPABASE_PROJECT_REF}) and matching service_role key, then restart.`
+    );
+  }
+
   if (isStagingErpEnv()) {
-    if (projectRef && projectRef !== STAGING_SUPABASE_PROJECT_REF) {
-      return (
-        'Staging API SUPABASE_URL is not the staging project. ' +
-        `Set ERP_ENV=staging and staging SUPABASE_URL (${STAGING_SUPABASE_PROJECT_REF}).`
-      );
-    }
+    // Preview host may still set ERP_ENV=staging for port isolation; DB must be production.
     return null;
   }
 
   // Production / default — after auto-pin these should be rare; keep for ops logs/health only.
-  if (projectRef === STAGING_SUPABASE_PROJECT_REF) {
-    return (
-      'Attendance sync API is still on the staging Supabase project. ' +
-      `Set production SUPABASE_URL (${PRODUCTION_SUPABASE_PROJECT_REF}) and matching service_role key, then restart.`
-    );
-  }
   if (!serviceRoleOk) {
     if (diagnosis === 'project_mismatch') {
       return (
@@ -2527,6 +2523,33 @@ function warnIfSupabaseEnvMisaligned() {
   // eslint-disable-next-line no-console
   console.warn(`[server] Supabase env notice (API stays up): ${warning}`);
 }
+
+/** API clients expect JSON — never leak Express HTML 500 pages into the ERP UI. */
+app.use((err, req, res, next) => {
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+  const status = Number(err?.status || err?.statusCode) || 500;
+  const raw = String(err?.message || '').trim();
+  const isCors = /cors/i.test(raw);
+  let message;
+  if (isCors) {
+    message =
+      'This page is not allowed to reach the file server from the current address. Open the ERP from the usual company URL and try again.';
+  } else if (status >= 500) {
+    message = IS_PRODUCTION
+      ? 'Something went wrong on the server. Please try again.'
+      : raw || 'Internal Server Error';
+  } else {
+    message = raw || 'Request failed.';
+  }
+  if (status >= 500) {
+    // eslint-disable-next-line no-console
+    console.error('[server] Unhandled API error:', err?.stack || err?.message || err);
+  }
+  res.status(status).json({ error: message, message });
+});
 
 const httpServer = app.listen(PORT, '0.0.0.0', () => {
   // eslint-disable-next-line no-console

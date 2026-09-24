@@ -2,8 +2,8 @@ import { API_STATUS } from "../config/apiConstants";
 import { MONITORED_APIS } from "../config/apiRegistry";
 import { resetHealthCheckTokenCache } from "../config/apiCheckHandlers";
 
-const HISTORY_STORAGE_KEY = "erp_api_health_history_v1";
-const SNAPSHOT_CACHE_KEY = "erp_api_health_snapshots_v1";
+const HISTORY_STORAGE_KEY = "erp_api_health_history_v2";
+const SNAPSHOT_CACHE_KEY = "erp_api_health_snapshots_v2";
 const MAX_HISTORY_PER_API = 40;
 const DEFAULT_BATCH_SIZE = 4;
 const BATCH_DELAY_MS = 60;

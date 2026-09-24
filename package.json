@@ -6,23 +6,17 @@
   "scripts": {
     "start": "node scripts/run-server.mjs",
     "dev": "concurrently -k \"npm run server\" \"vite --host 0.0.0.0\"",
-    "dev:staging": "concurrently -k \"npm run server:staging\" \"vite --host 0.0.0.0 --mode staging\"",
     "dev:frontend": "vite",
-    "dev:frontend:staging": "vite --mode staging",
     "server": "node --watch scripts/run-server.mjs",
-    "server:staging": "node --watch scripts/run-server.mjs --staging",
     "kill-api-port": "powershell -NoProfile -Command \"Get-NetTCPConnection -LocalPort 8787 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }\"",
     "dev:full": "npm run dev",
     "build": "vite build --mode production",
-    "build:staging": "vite build --mode staging",
     "lint": "eslint .",
     "security-check": "node scripts/security-check.mjs",
     "hooks:install": "node scripts/install-git-hooks.mjs",
     "test": "vitest run",
     "test:smoke": "vitest run tests/smoke.test.js",
     "preview": "vite preview",
-    "preview:staging": "vite preview --mode staging",
-    "staging:create-rahul-admin": "node scripts/staging-create-rahul-admin.mjs",
     "supabase:consolidate-migrations": "node scripts/consolidate-migrations.mjs"
   },
   "dependencies": {

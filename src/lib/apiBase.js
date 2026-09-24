@@ -14,8 +14,45 @@ export function apiUrl(path) {
   return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath;
 }
 
+/** True when a response body looks like an Express/proxy HTML error page (never show that in the ERP UI). */
+export function isRawServerHtmlDump(text) {
+  const raw = String(text || '');
+  if (!raw.trim()) return false;
+  return (
+    /^\s*</.test(raw) ||
+    /<!DOCTYPE/i.test(raw) ||
+    /<html[\s>]/i.test(raw) ||
+    /<pre>\s*Internal Server Error/i.test(raw)
+  );
+}
+
+/**
+ * Turn proxy/Express HTML dumps (and other raw failures) into a short business message.
+ * Use for any banner that might receive `err.message` from fetch/API code.
+ */
+export function humanizeApiErrorMessage(errOrText, fallback = 'Something went wrong. Please try again.') {
+  const raw = String(errOrText?.message || errOrText || '').trim();
+  if (!raw) return fallback;
+  if (isRawServerHtmlDump(raw) || /Internal Server Error/i.test(raw)) {
+    return 'The company API server had a temporary problem. Please try again in a moment.';
+  }
+  if (/Failed to fetch|NetworkError|Load failed|ECONNREFUSED|ECONNRESET|socket hang up/i.test(raw)) {
+    return 'Could not reach the company API server. Check your connection and try again.';
+  }
+  // Strip accidental HTML tags if a partial dump slipped through.
+  if (/<[^>]+>/.test(raw)) {
+    const stripped = raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!stripped || /Internal Server Error/i.test(stripped)) {
+      return 'The company API server had a temporary problem. Please try again in a moment.';
+    }
+    return stripped.slice(0, 220);
+  }
+  return raw.length > 280 ? `${raw.slice(0, 277)}…` : raw;
+}
+
 /** Quick check that the Node API (eTimeOffice proxy, e-invoice, R2) is reachable. */
 function formatApiHealthFailure(status, errMessage) {
+  const detail = humanizeApiErrorMessage(errMessage, '');
   if (status === 0) {
     return [
       'Cannot reach the Node API server.',
@@ -23,7 +60,7 @@ function formatApiHealthFailure(status, errMessage) {
       import.meta.env.DEV
         ? 'In dev, /api is proxied to http://127.0.0.1:8787 — if the server process crashed, check the terminal for errors (e.g. missing npm packages).'
         : 'Set VITE_API_BASE_URL to your deployed API URL and ensure that service is running.',
-      errMessage ? `Detail: ${errMessage}` : '',
+      detail ? `Detail: ${detail}` : '',
     ]
       .filter(Boolean)
       .join(' ');
@@ -31,11 +68,13 @@ function formatApiHealthFailure(status, errMessage) {
   if (status >= 500) {
     return [
       `API health check failed (${status}).`,
-      'The frontend is up but the Node server on port 8787 is not responding.',
-      'Run `npm install` then `npm run dev` or `npm run server` and check the server terminal for startup errors.',
+      'The frontend is up but the Node API is not responding correctly.',
+      import.meta.env.DEV
+        ? 'Run `npm install` then `npm run dev` or `npm run server` and check the server terminal for startup errors.'
+        : 'Ask IT to confirm the API process is running on the server.',
     ].join(' ');
   }
-  return `API health check failed (${status}).`;
+  return detail || `API health check failed (${status}).`;
 }
 
 export async function fetchApiHealth(options = {}) {
@@ -55,7 +94,10 @@ export async function fetchApiHealth(options = {}) {
       const proxyDown =
         import.meta.env.DEV &&
         res.status === 500 &&
-        (/ECONNREFUSED|proxy error|socket hang up/i.test(text) || !String(text || '').trim());
+        (/ECONNREFUSED|proxy error|socket hang up/i.test(text) ||
+          !String(text || '').trim() ||
+          isRawServerHtmlDump(text));
+      const rawDetail = data?.message || data?.error || (isRawServerHtmlDump(text) ? '' : text.slice(0, 120));
       return {
         ok: false,
         status: res.status,
@@ -63,9 +105,9 @@ export async function fetchApiHealth(options = {}) {
         error: proxyDown
           ? formatApiHealthFailure(
               0,
-              'Node API on port 8787 is not running. Stop any stale process, then run `npm run dev` (or `npm run dev:staging`) from the project root — not `vite` alone.'
+              'Node API on port 8787 is not running. Stop any stale process, then run `npm run dev` from the project root — not `vite` alone.'
             )
-          : formatApiHealthFailure(res.status, data?.message || text.slice(0, 120)),
+          : formatApiHealthFailure(res.status, rawDetail),
       };
     }
     return { ok: true, status: res.status, data };
@@ -96,13 +138,26 @@ async function fetchApiWithBearer(path, token, options = {}) {
         Authorization: `Bearer ${token}`,
       },
     });
-    const data = await res.json().catch(() => ({}));
+    const text = await res.text().catch(() => '');
+    let data = {};
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = isRawServerHtmlDump(text) ? {} : { message: text.slice(0, 180) };
+      }
+    }
     const errText = String(data?.error || data?.message || '').trim();
     return {
       ok: res.ok,
       status: res.status,
       data,
-      error: res.ok ? undefined : errText || `Request failed (${res.status})`,
+      error: res.ok
+        ? undefined
+        : humanizeApiErrorMessage(
+            errText || (res.status >= 500 ? 'Internal Server Error' : ''),
+            `Request failed (${res.status})`
+          ),
     };
   } catch (err) {
     const aborted = err?.name === 'AbortError';
@@ -110,7 +165,9 @@ async function fetchApiWithBearer(path, token, options = {}) {
       ok: false,
       status: 0,
       data: {},
-      error: aborted ? 'API request timed out.' : err?.message || 'Unable to reach API server.',
+      error: aborted
+        ? 'API request timed out.'
+        : humanizeApiErrorMessage(err, 'Unable to reach API server.'),
     };
   } finally {
     clearTimeout(timer);

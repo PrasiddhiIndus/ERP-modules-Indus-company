@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { apiUrl } from './apiBase';
+import { apiUrl, humanizeApiErrorMessage, isRawServerHtmlDump } from './apiBase';
 import { getAdminApiAccessToken } from './userManagementAuthToken';
 
 function softwareSubR2Url(subpath) {
@@ -13,6 +13,11 @@ function sleep(ms) {
 
 function isTransientHttpStatus(status) {
   return status === 0 || status === 502 || status === 503 || status === 504;
+}
+
+/** Never show Express/proxy HTML in the subscriptions page banner. */
+export function humanizeSoftwareSubError(err, fallback = 'Unable to complete this action.') {
+  return humanizeApiErrorMessage(err, fallback);
 }
 
 /** Bearer fetch to software-subscription R2 routes; refreshes JWT on 401; retries transient proxy failures. */
@@ -49,7 +54,7 @@ async function softwareSubR2Fetch(subpath, init = {}) {
         const looksLikeProxyBlip =
           !peek.trim() ||
           /ECONNRESET|ECONNREFUSED|proxy error|socket hang up/i.test(peek) ||
-          /^\s*</.test(peek);
+          isRawServerHtmlDump(peek);
         if (looksLikeProxyBlip) {
           await sleep(400 * (attempt + 1));
           continue;
@@ -68,7 +73,9 @@ async function softwareSubR2Fetch(subpath, init = {}) {
       }
     }
   }
-  throw new Error(lastError?.message || 'Unable to reach the file server. Try again.');
+  throw new Error(
+    humanizeSoftwareSubError(lastError, 'Unable to reach the file server. Try again.')
+  );
 }
 
 async function readJsonSafe(res) {
@@ -77,7 +84,14 @@ async function readJsonSafe(res) {
   try {
     return JSON.parse(text);
   } catch {
-    return { message: text.slice(0, 180) };
+    if (isRawServerHtmlDump(text) || /Internal Server Error/i.test(text)) {
+      // eslint-disable-next-line no-console
+      console.warn('[softwareSubR2] file server returned HTML instead of JSON');
+      return {
+        message: 'Invoice files could not be processed just now. Please try again in a moment.',
+      };
+    }
+    return { message: 'Invoice file request failed. Please try again.' };
   }
 }
 

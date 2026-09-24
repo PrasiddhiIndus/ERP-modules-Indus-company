@@ -31,11 +31,8 @@ const supabaseAnonKey = getSupabaseAnonKey() || 'placeholder-key'
 const isConfigured = isSupabaseEnvConfigured()
 
 if (!isConfigured) {
-  const mode = import.meta.env.MODE || 'development'
   const envHint =
-    mode === 'staging'
-      ? 'copy .env.staging.example to .env.staging, set staging VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then restart (npm run dev:staging).'
-      : 'copy .env.example to .env, set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (anon key only), restart dev server.'
+    'copy .env.example to .env, set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (anon key only), restart dev server.';
   console.warn(`⚠️ Supabase env missing: ${envHint}`)
 } else if (import.meta.env.PROD && !supabaseUrlLooksValid(supabaseUrl)) {
   console.warn('⚠️ VITE_SUPABASE_URL should be a valid https URL')
