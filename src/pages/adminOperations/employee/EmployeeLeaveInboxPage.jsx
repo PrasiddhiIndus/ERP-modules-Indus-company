@@ -230,8 +230,8 @@ export function EmployeeLeavesPage() {
         const status = String(r.status || "").toLowerCase();
         return {
           id: r.id,
-          empDisplay: emp.full_name || r.employee_code || "—",
-          empCode: r.employee_code || emp.employee_code || "—",
+          empDisplay: emp.full_name || emp.employee_code || r.employee_code || "—",
+          empCode: emp.employee_code || r.employee_code || "—",
           department: emp.department || "—",
           leaveLabel: leaveTypeLabel(leaveTypes.byCode, r.leave_type_code),
           dateRange: formatLeaveDateRange(r.from_date, r.to_date),
