@@ -347,8 +347,9 @@ function normalizeLmsLeaveRows(rows, employeeByUserId) {
 function normalizeAdminLeaveRows(rows, employeeByMasterId) {
   return (rows || []).map((row) => {
     const employee = employeeByMasterId[row.employee_master_id];
+    // Prefer live Employee Master code after employee_code changes on master.
     const empCode =
-      normalizeAttendanceEmpCode(row.employee_code || employee?.employee_code) || null;
+      normalizeAttendanceEmpCode(employee?.employee_code || row.employee_code) || null;
     return {
       ...row,
       leave_type_code: leaveTypeCodeFromRow(row),
@@ -732,8 +733,9 @@ function normalizeMergedLeaveRows(rows, employeeByMasterId, employeeByUserId, em
     const codeKey = normalizeAttendanceEmpCode(row.employee_code);
     const byCode = codeKey && employeeByCode ? employeeByCode[codeKey] : null;
     const employee = byMaster || byUser || byCode || null;
+    // Prefer live Employee Master code so inbox reflects code changes (e.g. 10919 → V-00007).
     const empCode =
-      normalizeAttendanceEmpCode(row.employee_code || employee?.employee_code) || null;
+      normalizeAttendanceEmpCode(employee?.employee_code || row.employee_code) || null;
     return {
       ...row,
       leave_type_code: leaveTypeCodeFromRow(row),

@@ -75,6 +75,7 @@ import {
   normalizeRegisterMarkForDb,
   computeDayAttendanceBreakdown,
   registerMarkStatusLabel,
+  dbRowsToManualMarkSources,
 } from "../../../lib/attendanceDaily";
 import { RegisterMarkPicker } from "./RegisterMarkPicker";
 import { BulkMarkEmployeePicker } from "./BulkMarkEmployeePicker";
@@ -286,6 +287,7 @@ export function EmployeeAttendanceDailyPage() {
   const [selectedDepartments, setSelectedDepartments] = useState([]);
   const [punches, setPunches] = useState([]);
   const [manualMarks, setManualMarks] = useState({});
+  const [manualMarkSources, setManualMarkSources] = useState({});
   const [manualRemarks, setManualRemarks] = useState({});
   const [activeEmployees, setActiveEmployees] = useState([]);
   const [masterRegisterCodeMap, setMasterRegisterCodeMap] = useState(null);
@@ -464,6 +466,7 @@ export function EmployeeAttendanceDailyPage() {
       setPunches(punchRows);
       setActiveEmployees(registerEmployees);
       setManualMarks(mergedRegister.marks);
+      setManualMarkSources(mergedRegister.markSources || dbRowsToManualMarkSources(monthRegisterRows, masterCodeMap));
       setManualRemarks(mergedRegister.remarks);
 
       if (employees.length > employeesWithCode.length) {
@@ -510,6 +513,7 @@ export function EmployeeAttendanceDailyPage() {
               monthKey: monthMeta.monthKey,
             });
             setManualMarks(merged.marks);
+            setManualMarkSources(dbRowsToManualMarkSources(refreshedRows, masterCodeMap));
             setManualRemarks(merged.remarks);
           }
 
@@ -615,6 +619,7 @@ export function EmployeeAttendanceDailyPage() {
             monthKey: monthMeta.monthKey,
           });
           setManualMarks(finalized.marks);
+          setManualMarkSources(dbRowsToManualMarkSources(mergedRows, masterCodeMap));
           setManualRemarks(finalized.remarks);
         } catch (syncErr) {
           if (loadGeneration !== loadGenerationRef.current) return;
@@ -646,6 +651,7 @@ export function EmployeeAttendanceDailyPage() {
       if (loadGeneration !== loadGenerationRef.current) return;
       setPunches([]);
       setManualMarks({});
+      setManualMarkSources({});
       setManualRemarks({});
       setYearRegisterRows([]);
       setConfiguredHolidays([]);
@@ -741,6 +747,7 @@ export function EmployeeAttendanceDailyPage() {
         if (cancelled) return;
         setActiveEmployees(registerEmployees);
         setManualMarks(finalized.marks);
+        setManualMarkSources(dbRowsToManualMarkSources(mergedRows, masterRegisterCodeMapRef.current));
         setManualRemarks(finalized.remarks);
       } catch (err) {
         console.warn("Leave realtime refresh failed:", err);
@@ -761,6 +768,9 @@ export function EmployeeAttendanceDailyPage() {
           monthRegisterRowsRef.current = merged.registerRows;
         }
         setManualMarks(merged.marks);
+        setManualMarkSources(
+          dbRowsToManualMarkSources(merged.registerRows || monthRegisterRowsRef.current, masterRegisterCodeMapRef.current)
+        );
         setManualRemarks(merged.remarks);
       } catch (err) {
         console.warn("Tour realtime refresh failed:", err);
@@ -795,9 +805,10 @@ export function EmployeeAttendanceDailyPage() {
       year: monthMeta.year,
       month: monthMeta.month,
       manualMarks,
+      markSources: manualMarkSources,
       applyLeavingDisplay: true,
     });
-  }, [punches, activeEmployees, manualMarks, monthMeta]);
+  }, [punches, activeEmployees, manualMarks, manualMarkSources, monthMeta]);
 
   const punchByEmpDate = useMemo(() => buildPunchLookupByEmpDate(punches), [punches]);
 
@@ -943,7 +954,17 @@ export function EmployeeAttendanceDailyPage() {
       };
       const next = applyCellToMarks(manualMarks);
       const nextRemarks = applyCellToRemarks(manualRemarks);
+      const applyCellToSources = (prev) => {
+        const nextSrc = { ...prev };
+        const empSrc = { ...(nextSrc[empCodeKey] || {}) };
+        if (!value) delete empSrc[day];
+        else empSrc[day] = "manual";
+        if (Object.keys(empSrc).length) nextSrc[empCodeKey] = empSrc;
+        else delete nextSrc[empCodeKey];
+        return nextSrc;
+      };
       setManualMarks(next);
+      setManualMarkSources(applyCellToSources(manualMarkSources));
       setManualRemarks(nextRemarks);
       if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
       if (isCommentMark) {
@@ -981,6 +1002,7 @@ export function EmployeeAttendanceDailyPage() {
           if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, patched);
           return patched;
         });
+        setManualMarkSources((prev) => applyCellToSources(prev));
         setYearRegisterRows((prev) => {
           const code = normalizeAttendanceEmpCode(empCodeKey);
           const filtered = prev.filter(
@@ -1007,6 +1029,7 @@ export function EmployeeAttendanceDailyPage() {
             masterCodeMap: masterRegisterCodeMap,
           });
           setManualMarks(registerData?.marks || {});
+          setManualMarkSources(registerData?.markSources || {});
           setManualRemarks(registerData?.remarks || {});
         } catch {
           /* ignore reload failure */
@@ -1021,6 +1044,7 @@ export function EmployeeAttendanceDailyPage() {
       employeeNameByCode,
       holidayDatesInYear,
       leaveBalancesByCode,
+      manualMarkSources,
       manualMarks,
       manualRemarks,
       masterRegisterCodeMap,
@@ -1407,6 +1431,24 @@ export function EmployeeAttendanceDailyPage() {
 
       setManualMarks(next);
       setManualRemarks(nextRemarks);
+      setManualMarkSources((prev) => {
+        const nextSrc = { ...prev };
+        for (const row of upserts) {
+          const code = normalizeAttendanceEmpCode(row.employee_code);
+          const day = dayOfMonthFromIsoDate(row.register_date);
+          if (!code || !day) continue;
+          if (!nextSrc[code]) nextSrc[code] = {};
+          nextSrc[code][day] = "manual";
+        }
+        for (const row of deletes) {
+          const code = normalizeAttendanceEmpCode(row.employee_code);
+          const day = dayOfMonthFromIsoDate(row.register_date);
+          if (!code || !day || !nextSrc[code]) continue;
+          delete nextSrc[code][day];
+          if (!Object.keys(nextSrc[code]).length) delete nextSrc[code];
+        }
+        return nextSrc;
+      });
       if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
       setSavingMark(true);
       try {
@@ -1429,6 +1471,7 @@ export function EmployeeAttendanceDailyPage() {
             masterCodeMap: masterRegisterCodeMap,
           });
           setManualMarks(registerData?.marks || {});
+          setManualMarkSources(registerData?.markSources || {});
           setManualRemarks(registerData?.remarks || {});
         } catch {
           /* ignore */
@@ -1489,6 +1532,24 @@ export function EmployeeAttendanceDailyPage() {
 
     setManualMarks(next);
     setManualRemarks(nextRemarks);
+    setManualMarkSources((prev) => {
+      const nextSrc = { ...prev };
+      for (const row of upserts) {
+        const code = normalizeAttendanceEmpCode(row.employee_code);
+        const day = dayOfMonthFromIsoDate(row.register_date);
+        if (!code || !day) continue;
+        if (!nextSrc[code]) nextSrc[code] = {};
+        nextSrc[code][day] = "manual";
+      }
+      for (const row of deletes) {
+        const code = normalizeAttendanceEmpCode(row.employee_code);
+        const day = dayOfMonthFromIsoDate(row.register_date);
+        if (!code || !day || !nextSrc[code]) continue;
+        delete nextSrc[code][day];
+        if (!Object.keys(nextSrc[code]).length) delete nextSrc[code];
+      }
+      return nextSrc;
+    });
     setSavingMark(true);
     try {
       if (upserts.length) {
@@ -1510,6 +1571,7 @@ export function EmployeeAttendanceDailyPage() {
           masterCodeMap: masterRegisterCodeMap,
         });
         setManualMarks(registerData?.marks || {});
+        setManualMarkSources(registerData?.markSources || {});
         setManualRemarks(registerData?.remarks || {});
       } catch {
         /* ignore */
