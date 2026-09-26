@@ -767,11 +767,13 @@ export function buildPresentKeysFromPunches(punches) {
 /**
  * One row per active employee; dayMarks[1..n] hold register codes (P, A, WO, …).
  * manualMarks[empCode][day] overrides auto Present from raw punches.
+ * markSources[empCode][day] (optional) distinguishes auto_wo from manual so
+ * WO-excluded depts stay blank on 3rd Saturday unless an Admin set the mark.
  */
 export function buildMonthlyRegisterGrid(
   punches,
   activeEmployees,
-  { year, month, manualMarks = {}, applyLeavingDisplay = false } = {}
+  { year, month, manualMarks = {}, markSources = null, applyLeavingDisplay = false } = {}
 ) {
   const daysInMonth = daysInCalendarMonth(year, month);
   const presentKeys = buildPresentKeysFromPunches(punches);
@@ -785,6 +787,7 @@ export function buildMonthlyRegisterGrid(
   const rows = employees.map((emp) => {
     const code = normalizeAttendanceEmpCode(emp.empCode);
     const overrides = manualMarks[code] || {};
+    const sources = markSources?.[code] || {};
     const dateOfLeaving = normalizeDbDate(emp.dateOfLeaving) || "";
     const dayMarks = {};
 
@@ -800,13 +803,21 @@ export function buildMonthlyRegisterGrid(
       } else if (isAutoWeekoffDate(iso, emp.department)) {
         mark = "WO";
       }
-      // These depts work 3rd Saturday — never show WO (blank unless punch/other mark).
+      // Excluded depts work 3rd Saturday — blank (or P if punched), not auto WO.
+      // Manual / leave / tour marks stay so Admin can edit the cell like a normal day.
       if (
         mark === "WO" &&
         isThirdSaturdayOfMonth(year, month, day) &&
         isThirdSaturdayWeekoffExcludedDepartment(emp.department)
       ) {
-        mark = hasPunch ? "P" : "";
+        const src = String(sources[day] ?? "").trim().toLowerCase();
+        const keepEditable =
+          isManualMarkSource(src) ||
+          isLeaveMarkSource(src) ||
+          isTourMarkSource(src);
+        if (!keepEditable) {
+          mark = hasPunch ? "P" : "";
+        }
       }
       if (applyLeavingDisplay && dateOfLeaving && isRegisterDayAfterLeaving(iso, dateOfLeaving)) {
         mark = REGISTER_MARK_LEFT;
@@ -909,6 +920,26 @@ export function dbRowsToManualMarks(rows, masterCodeMap = null) {
     priority[code][day] = rowPri;
   }
   return marks;
+}
+
+/** DB rows → markSources[empCode][dayNumber] (aligned with dbRowsToManualMarks priority). */
+export function dbRowsToManualMarkSources(rows, masterCodeMap = null) {
+  const sources = {};
+  const priority = {};
+  for (const row of rows || []) {
+    const code = resolveRegisterGridEmpCode(row.employee_code, masterCodeMap);
+    const day = dayOfMonthFromIsoDate(row.register_date);
+    const mark = normalizeRegisterMarkForDb(row.mark);
+    if (!code || !day || !mark) continue;
+    const rowPri = registerMarkRowPriority(row);
+    const prevPri = priority[code]?.[day] ?? -1;
+    if (rowPri < prevPri) continue;
+    if (!sources[code]) sources[code] = {};
+    if (!priority[code]) priority[code] = {};
+    sources[code][day] = String(row.mark_source ?? "").trim().toLowerCase() || null;
+    priority[code][day] = rowPri;
+  }
+  return sources;
 }
 
 /** DB rows -> manualRemarks[empCode][dayNumber] (P(OD) / T comments). */
@@ -3035,6 +3066,7 @@ export async function loadRegisterMarksForMonth(supabase, monthMeta, options = {
       ...data,
       marks: finalized.marks,
       remarks: finalized.remarks,
+      markSources: dbRowsToManualMarkSources(registerRows, masterCodeMap),
     };
   } catch (err) {
     console.warn(
@@ -3052,10 +3084,22 @@ export function buildRegisterMonthViewFromPrefetched(monthMeta, prefetchedRows, 
     rows,
     marks: dbRowsToManualMarks(rows, masterCodeMap),
     remarks: dbRowsToManualRemarks(rows, masterCodeMap),
+    markSources: dbRowsToManualMarkSources(rows, masterCodeMap),
   };
   const local = readStoredRegisterMarks(monthMeta.monthKey);
   if (Object.keys(local).length) {
     data.marks = mergeRegisterMarksWithLocal(data.marks, local);
+    // Browser-only overlay marks behave as Admin/manual for 3rd-Saturday editability.
+    for (const [rawCode, days] of Object.entries(local || {})) {
+      const code = normalizeAttendanceEmpCode(rawCode);
+      if (!code) continue;
+      if (!data.markSources[code]) data.markSources[code] = {};
+      for (const [dayKey, mark] of Object.entries(days || {})) {
+        const day = Number(dayKey);
+        if (!Number.isFinite(day) || mark == null || mark === "") continue;
+        if (!data.markSources[code][day]) data.markSources[code][day] = "manual";
+      }
+    }
   }
   return data;
 }

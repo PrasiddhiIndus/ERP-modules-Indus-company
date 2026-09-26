@@ -1291,10 +1291,15 @@ const UserManagement = () => {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
-                  type="search"
+                  type="text"
+                  name="user-management-directory-search"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
                   placeholder="Email, username, or emp code…"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
                   className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 />
               </div>
@@ -1843,7 +1848,7 @@ const UserManagement = () => {
       {/* Create user modal (Super Admin only) */}
       {createOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto relative">
             <div className="flex items-center justify-between p-4 border-b">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Create user</h2>
@@ -1859,12 +1864,26 @@ const UserManagement = () => {
             </div>
 
             <div className="p-4 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* Absorb browser login autofill so it does not fill Create user / Search. */}
+              <div className="absolute w-0 h-0 overflow-hidden opacity-0 pointer-events-none" aria-hidden="true">
+                <input type="text" name="prevent-autofill-username" autoComplete="username" tabIndex={-1} />
+                <input type="password" name="prevent-autofill-password" autoComplete="current-password" tabIndex={-1} />
+              </div>
+              <form
+                autoComplete="off"
+                onSubmit={(e) => e.preventDefault()}
+                className="grid grid-cols-1 md:grid-cols-2 gap-3"
+              >
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                   <input
+                    type="email"
+                    name="new-user-email"
                     value={createForm.email}
                     onChange={(e) => setCreateForm((p) => ({ ...p, email: e.target.value }))}
+                    autoComplete="off"
+                    readOnly
+                    onFocus={(e) => e.target.removeAttribute("readOnly")}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                     placeholder="user@company.com"
                   />
@@ -1873,8 +1892,12 @@ const UserManagement = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Temporary password</label>
                   <input
                     type="password"
+                    name="new-user-temporary-password"
                     value={createForm.password}
                     onChange={(e) => setCreateForm((p) => ({ ...p, password: e.target.value }))}
+                    autoComplete="new-password"
+                    readOnly
+                    onFocus={(e) => e.target.removeAttribute("readOnly")}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                     placeholder="Set a temporary password"
                   />
@@ -1882,8 +1905,11 @@ const UserManagement = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
                   <input
+                    type="text"
+                    name="new-user-display-name"
                     value={createForm.username}
                     onChange={(e) => setCreateForm((p) => ({ ...p, username: e.target.value }))}
+                    autoComplete="off"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                     placeholder="Filled from Employee Master full name"
                   />
@@ -1895,8 +1921,11 @@ const UserManagement = () => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Emp code *</label>
                     <input
+                      type="text"
+                      name="new-user-employee-code"
                       value={createForm.employee_code}
                       onChange={(e) => setCreateForm((p) => ({ ...p, employee_code: e.target.value }))}
+                      autoComplete="off"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono"
                       placeholder="e.g. EMP001"
                     />
@@ -1933,7 +1962,7 @@ const UserManagement = () => {
                     <option value={ROLES.SUPER_ADMIN}>Super Admin</option>
                   </select>
                 </div>
-              </div>
+              </form>
 
               {createForm.role !== ROLES.SUPER_ADMIN ? (
                 <div>
@@ -2143,6 +2172,8 @@ const UserManagement = () => {
                       allowed_sub_modules: [],
                     });
                     setCreateBillingVerticals({ selectedCodes: [], sourcesByCode: {} });
+                    setSearchInput("");
+                    setSearchDebounced("");
                     setPage(1);
                     await reloadProfilesPage(1);
                     setSaveNotice((prev) => prev || "User created successfully.");
