@@ -6,7 +6,9 @@ import {
   allCalendarMonthKeysForYear,
   buildCompOffEmployeeRows,
   compOffMonthLabel,
+  compOffMonthYearLabel,
   compOffCutoffMonthKey,
+  compOffCurrentMonthKey,
   isCompOffMonthBeforeCutoff,
   fetchCompOffMonthlySummary,
   formatCompOffError,
@@ -44,7 +46,7 @@ export default function EmployeeCoBalanceTab({
 
   const monthKeys = useMemo(() => allCalendarMonthKeysForYear(year), [year]);
   const cutoffLabel = compOffCutoffMonthKey();
-  const currentMonthKey = cutoffLabel;
+  const currentMonthKey = compOffCurrentMonthKey();
   const canEditCurrentYear = canEditBalances && year === Number(currentMonthKey.slice(0, 4));
 
   const loadSummary = useCallback(async () => {
@@ -314,7 +316,7 @@ export default function EmployeeCoBalanceTab({
       <p className="text-xs text-gray-600 mb-3">
         Each month shows remaining C/O <strong>earned in that month</strong> (by work date on WO/NH/PH). Marking CO
         reduces that month&apos;s remaining value; credits are not copied into later months. Unused amounts expire 2
-        months after the earning date. Data from <strong>{compOffMonthLabel(cutoffLabel)}</strong> onward — earlier
+        months after the earning date. Data from <strong>{compOffMonthYearLabel(cutoffLabel)}</strong> onward — earlier
         months are blank.
         {canEditCurrentYear ? (
           <>
@@ -387,7 +389,7 @@ export default function EmployeeCoBalanceTab({
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
         <span>
-          {sortedRows.length} employee(s) · C/O data from {compOffMonthLabel(cutoffLabel)} onward
+          {sortedRows.length} employee(s) · C/O data from {compOffMonthYearLabel(cutoffLabel)} onward
         </span>
         <div className="flex items-center gap-2">
           <TinySelect value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="w-[100px]">

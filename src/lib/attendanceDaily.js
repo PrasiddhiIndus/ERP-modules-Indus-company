@@ -2233,6 +2233,12 @@ function canTourSyncApplyToExisting(existing) {
   // LMS tour approval often writes P(OD); convert those cells to T on sync.
   if (mark === "P(OD)") return true;
   if (mark === "T" && !String(existing.mark_remark ?? "").trim()) return true;
+  // Tour on a scheduled weekoff: store T (grid already shows it) so C/O is earned.
+  if (mark === "WO") {
+    if (String(existing.mark_remark ?? "").trim()) return false;
+    const src = String(existing.mark_source ?? "").trim().toLowerCase();
+    return src === REGISTER_MARK_SOURCE_AUTO_WO || !src;
+  }
   if (isTourMarkSource(existing.mark_source, existing.tour_request_id)) {
     return !String(existing.mark_remark ?? "").trim();
   }
