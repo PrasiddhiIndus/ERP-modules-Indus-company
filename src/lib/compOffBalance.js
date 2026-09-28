@@ -1,13 +1,21 @@
 /**
- * C/O (Compensatory Off) credit ledger — month-wise balances from current month onward.
+ * C/O (Compensatory Off) credit ledger — month-wise balances from Sep 2026 onward.
  */
 
 import { normalizeAttendanceEmpCode } from "./attendanceDaily";
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** First month included in C/O ledger (current calendar month, local). */
-export function compOffCutoffMonthKey(date = new Date()) {
+/** Must match indus_one.comp_off_cutoff_date() (2026-09-01). */
+export const COMP_OFF_START_MONTH_KEY = "2026-09";
+
+/** First month included in C/O ledger (fixed start; earlier months are not counted). */
+export function compOffCutoffMonthKey() {
+  return COMP_OFF_START_MONTH_KEY;
+}
+
+/** Current calendar month (local) as YYYY-MM. */
+export function compOffCurrentMonthKey(date = new Date()) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   return `${y}-${m}`;
@@ -31,6 +39,11 @@ export function isCompOffMonthBeforeCutoff(monthKey, refDate = new Date()) {
 /** Month keys from cutoff through December for the given year (data fetch scope). */
 export function compOffMonthKeysForYear(year, refDate = new Date()) {
   return allCalendarMonthKeysForYear(year).filter((mk) => !isCompOffMonthBeforeCutoff(mk, refDate));
+}
+
+/** e.g. "Sep 2026" */
+export function compOffMonthYearLabel(monthKey) {
+  return `${compOffMonthLabel(monthKey)} ${String(monthKey).slice(0, 4)}`;
 }
 
 export function compOffMonthLabel(monthKey) {
@@ -80,7 +93,7 @@ export async function saveCompOffAvailableBalance(supabase, employeeCode, target
  */
 export function buildCompOffEmployeeRows(employees, summaryRows, year, refDate = new Date()) {
   const allMonths = allCalendarMonthKeysForYear(year);
-  const currentMonthKey = compOffCutoffMonthKey(refDate);
+  const currentMonthKey = compOffCurrentMonthKey(refDate);
 
   const byEmpMonth = new Map();
   for (const row of summaryRows || []) {

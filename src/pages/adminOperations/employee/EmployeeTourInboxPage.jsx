@@ -23,6 +23,11 @@ import {
   CollapsibleHelp,
 } from "../components/AdminUi";
 import { RegisterDepartmentFilter } from "./RegisterDepartmentFilter";
+import {
+  ALL_MONTHS,
+  applyMonthToDateRange,
+  buildApprovalMonthOptions,
+} from "./approvalMonthFilter";
 
 const PAGE_SIZES = [25, 50, 100];
 const SEARCH_DEBOUNCE_MS = 400;
@@ -90,6 +95,8 @@ export function EmployeeTourApprovalsPage() {
   const [departmentOptions, setDepartmentOptions] = useState([]);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [monthFilter, setMonthFilter] = useState(ALL_MONTHS);
+  const monthOptions = useMemo(() => buildApprovalMonthOptions(), []);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
@@ -135,11 +142,12 @@ export function EmployeeTourApprovalsPage() {
       }
 
       try {
+        const range = applyMonthToDateRange(monthFilter, fromDate, toDate);
         const result = await fetchTourRequests({
           status: statusFilter,
           empSearch: empSearchDebounced,
-          fromDate,
-          toDate,
+          fromDate: range.fromDate,
+          toDate: range.toDate,
           departments: selectedDepartments,
           page,
           pageSize,
@@ -161,7 +169,16 @@ export function EmployeeTourApprovalsPage() {
         }
       }
     },
-    [statusFilter, empSearchDebounced, fromDate, toDate, selectedDepartments, page, pageSize]
+    [
+      statusFilter,
+      empSearchDebounced,
+      monthFilter,
+      fromDate,
+      toDate,
+      selectedDepartments,
+      page,
+      pageSize,
+    ]
   );
 
   useEffect(() => {
@@ -192,6 +209,7 @@ export function EmployeeTourApprovalsPage() {
     setEmpSearch("");
     setEmpSearchDebounced("");
     setSelectedDepartments([]);
+    setMonthFilter(ALL_MONTHS);
     setFromDate("");
     setToDate("");
     setPage(1);
@@ -315,6 +333,23 @@ export function EmployeeTourApprovalsPage() {
                 setPage(1);
               }}
             />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <label className="text-[10px] font-semibold text-gray-500 uppercase">Month</label>
+            <TinySelect
+              value={monthFilter}
+              onChange={(e) => {
+                setMonthFilter(e.target.value);
+                setPage(1);
+              }}
+              className="min-w-[150px]"
+            >
+              {monthOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </TinySelect>
           </div>
           <div className="flex flex-col gap-0.5">
             <label className="text-[10px] font-semibold text-gray-500 uppercase">From</label>
