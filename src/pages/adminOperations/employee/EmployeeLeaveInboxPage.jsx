@@ -24,6 +24,11 @@ import {
   CollapsibleHelp,
 } from "../components/AdminUi";
 import { RegisterDepartmentFilter } from "./RegisterDepartmentFilter";
+import {
+  ALL_MONTHS,
+  applyMonthToDateRange,
+  buildApprovalMonthOptions,
+} from "./approvalMonthFilter";
 
 const PAGE_SIZES = [25, 50, 100];
 const SEARCH_DEBOUNCE_MS = 400;
@@ -95,6 +100,8 @@ export function EmployeeLeavesPage() {
   const [departmentOptions, setDepartmentOptions] = useState([]);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [monthFilter, setMonthFilter] = useState(ALL_MONTHS);
+  const monthOptions = useMemo(() => buildApprovalMonthOptions(), []);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
@@ -137,12 +144,13 @@ export function EmployeeLeavesPage() {
       }
 
       try {
+        const range = applyMonthToDateRange(monthFilter, fromDate, toDate);
         const result = await fetchLeaveRequests({
           status: statusFilter,
           empSearch: empSearchDebounced,
           leaveType: leaveTypeFilter,
-          fromDate,
-          toDate,
+          fromDate: range.fromDate,
+          toDate: range.toDate,
           departments: selectedDepartments,
           page,
           pageSize,
@@ -171,6 +179,7 @@ export function EmployeeLeavesPage() {
       statusFilter,
       empSearchDebounced,
       leaveTypeFilter,
+      monthFilter,
       fromDate,
       toDate,
       selectedDepartments,
@@ -206,6 +215,7 @@ export function EmployeeLeavesPage() {
     setEmpSearchDebounced("");
     setLeaveTypeFilter("");
     setSelectedDepartments([]);
+    setMonthFilter(ALL_MONTHS);
     setFromDate("");
     setToDate("");
     setPage(1);
@@ -342,6 +352,23 @@ export function EmployeeLeavesPage() {
               {leaveTypes.rows.map((t) => (
                 <option key={t.code} value={t.code}>
                   {t.label || t.code}
+                </option>
+              ))}
+            </TinySelect>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <label className="text-[10px] font-semibold text-gray-500 uppercase">Month</label>
+            <TinySelect
+              value={monthFilter}
+              onChange={(e) => {
+                setMonthFilter(e.target.value);
+                setPage(1);
+              }}
+              className="min-w-[150px]"
+            >
+              {monthOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
                 </option>
               ))}
             </TinySelect>
