@@ -229,9 +229,10 @@ export function capPresentDaysToWorkingDays(presentDays, monthDays) {
 
 /**
  * Salary P.Days from the daily register: present + paid leave on Mon–Sat only.
- * Sundays (week off) are never counted. Result is capped at the month slab.
+ * Sundays (week off) are never counted; 3rd-Saturday WO counts for non-excluded departments.
+ * Result is capped at the month slab.
  */
-export function salaryPresentDaysFromDayMarks(dayMarks, year, month) {
+export function salaryPresentDaysFromDayMarks(dayMarks, year, month, department) {
   const y = Number(year);
   const m = Number(month);
   const cap = workingDaysMonToSat(y, m);
@@ -242,7 +243,7 @@ export function salaryPresentDaysFromDayMarks(dayMarks, year, month) {
   for (let day = 1; day <= last; day += 1) {
     if (new Date(y, m - 1, day).getDay() === 0) continue;
     const mark = marks[day] || marks[String(day)] || "";
-    total += registerPresentDaySummaryCreditForCell(mark, { year: y, month: m, day });
+    total += registerPresentDaySummaryCreditForCell(mark, { year: y, month: m, day, department });
   }
   return capPresentDaysToWorkingDays(total, cap);
 }
@@ -263,7 +264,7 @@ export async function fetchPresentDaysByEmployeeCode(year, month) {
     const result = await fetchMonthlyRegisterPayrollTotals(supabase, monthValue);
     for (const row of result.rows || []) {
       const fromMarks = row.dayMarks
-        ? salaryPresentDaysFromDayMarks(row.dayMarks, y, m)
+        ? salaryPresentDaysFromDayMarks(row.dayMarks, y, m, row.department)
         : capPresentDaysToWorkingDays(row.summary?.totalPresent, cap);
       const value = Number.isFinite(Number(fromMarks)) ? Number(fromMarks) : 0;
       const variants = attendanceEmpCodeLookupVariants(row.empCode);
