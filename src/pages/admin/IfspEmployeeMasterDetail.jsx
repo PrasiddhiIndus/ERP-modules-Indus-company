@@ -8,6 +8,11 @@ import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 import { PageTaskHeader, SectionCard, StatusChip } from "../adminOperations/components/AdminUi";
 import EmployeeMasterPersonalForm from "./employeeMaster/EmployeeMasterPersonalForm";
 import SalaryEmployeeCtc from "../adminOperations/salaryAdmin/SalaryEmployeeCtc";
+import { dbListFormulaOverrideEmployeeIds } from "../adminOperations/salaryAdmin/salaryDb";
+import {
+  FORMULA_OVERRIDE_EVENT,
+  loadLocalFormulaOverrides,
+} from "../adminOperations/salaryAdmin/ctcProfileFormulas";
 import {
   emptyEmployeeDeductions,
   getEmployeeDeductions,
@@ -122,6 +127,7 @@ export default function IfspEmployeeMasterDetail() {
   const activeTab = visibleTabs.some((t) => t.id === tabParam) ? tabParam : "personal";
 
   const [employee, setEmployee] = useState(null);
+  const [customCtcFormula, setCustomCtcFormula] = useState(false);
   const [employees, setEmployees] = useState([]);
   const [salaryVariances, setSalaryVariances] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -135,6 +141,27 @@ export default function IfspEmployeeMasterDetail() {
     },
     [employeeId]
   );
+
+  useEffect(() => {
+    let cancel = false;
+    const refresh = async () => {
+      const local = Object.keys(loadLocalFormulaOverrides(employeeId)).length > 0;
+      let remote = false;
+      try {
+        const ids = await dbListFormulaOverrideEmployeeIds();
+        remote = ids.includes(String(employeeId));
+      } catch {
+        remote = false;
+      }
+      if (!cancel) setCustomCtcFormula(local || remote);
+    };
+    refresh();
+    window.addEventListener(FORMULA_OVERRIDE_EVENT, refresh);
+    return () => {
+      cancel = true;
+      window.removeEventListener(FORMULA_OVERRIDE_EVENT, refresh);
+    };
+  }, [employeeId]);
 
   const reloadLoanAdvanceFromDb = useCallback(async () => {
     if (!employeeId) return;
@@ -403,6 +430,7 @@ export default function IfspEmployeeMasterDetail() {
               <ul className="flex-1 min-h-0 overflow-y-auto py-1 overscroll-contain">
                 {visibleTabs.map((tab) => {
                   const active = activeTab === tab.id;
+                  const formulaTab = tab.id === "ctc" && customCtcFormula;
                   return (
                     <li key={tab.id}>
                       <button
@@ -412,10 +440,19 @@ export default function IfspEmployeeMasterDetail() {
                           "w-full text-left px-3 py-2 text-sm border-l-2 transition-colors",
                           active
                             ? "border-blue-600 bg-blue-50 text-blue-800 font-semibold"
-                            : "border-transparent text-gray-600 hover:bg-gray-50 hover:text-gray-900",
+                            : formulaTab
+                              ? "border-emerald-400 bg-emerald-50 text-emerald-900 font-medium"
+                              : "border-transparent text-gray-600 hover:bg-gray-50 hover:text-gray-900",
                         ].join(" ")}
                       >
-                        {tab.label}
+                        <span className="inline-flex items-center gap-2">
+                          {tab.label}
+                          {formulaTab ? (
+                            <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
+                              Custom
+                            </span>
+                          ) : null}
+                        </span>
                       </button>
                     </li>
                   );

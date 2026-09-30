@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, ChevronDown, History, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, FunctionSquare, History, RefreshCw } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import { toast } from "../../../lib/toast";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
@@ -45,6 +45,14 @@ import {
   todayInputDate,
 } from "./salaryData";
 import SalaryRevisionHistory from "./SalaryRevisionHistory";
+import CtcFormulaPanel from "./CtcFormulaPanel";
+import {
+  applyProfileFormulaOverrides,
+  resolveProfileFormulaOverrides,
+  saveLocalFormulaOverrides,
+  standardFormulas,
+} from "./ctcProfileFormulas";
+import { dbPatchFormulaOverrides } from "./salaryDb";
 import PersonSalaryComponentsPanel from "./PersonSalaryComponentsPanel";
 import {
   CTC_OPTIONAL_PRESETS,
@@ -172,9 +180,18 @@ function ProfileField({ label, children }) {
   );
 }
 
-function SheetRow({ label, monthly, pa, tone = "default", labelClass = "", hint = null }) {
-  const toneClass =
-    tone === "gross"
+function SheetRow({
+  label,
+  monthly,
+  pa,
+  tone = "default",
+  labelClass = "",
+  hint = null,
+  formulaActive = false,
+}) {
+  const toneClass = formulaActive
+    ? "bg-emerald-50"
+    : tone === "gross"
       ? "bg-surface-sunken"
       : tone === "takehome"
         ? "bg-accent-soft"
@@ -197,7 +214,15 @@ function SheetRow({ label, monthly, pa, tone = "default", labelClass = "", hint 
     >
       <div className={`text-[15px] min-w-0 pr-2 ${labelWeight} ${labelClass}`}>
         {label}
-        {hint ? <p className="mt-0.5 text-[11px] font-normal text-ink-muted leading-snug">{hint}</p> : null}
+        {hint ? (
+          <p
+            className={`mt-0.5 text-[11px] font-normal leading-snug ${
+              formulaActive ? "font-mono text-emerald-800" : "text-ink-muted"
+            }`}
+          >
+            {hint}
+          </p>
+        ) : null}
       </div>
       <div className="flex justify-end min-w-0">{monthly}</div>
       <div className="flex justify-end min-w-0">{paNode}</div>
@@ -469,6 +494,9 @@ export default function SalaryEmployeeCtc({
   const [gratuityCustom, setGratuityCustom] = useState("");
   const [specialPerfBonusEnabled, setSpecialPerfBonusEnabled] = useState(false);
   const [specialPerfBonus, setSpecialPerfBonus] = useState("");
+  const [formulaOverrides, setFormulaOverrides] = useState({});
+  const [formulaOpen, setFormulaOpen] = useState(false);
+  const [formulaSaving, setFormulaSaving] = useState(false);
 
   const isRevisionMode = persist && reviseRequested && hasExistingCtc;
   // Shell mode (persist=false): always editable for live formulas; no DB save.
@@ -641,6 +669,7 @@ export default function SalaryEmployeeCtc({
       }
       const declared = Boolean(saved?.declared);
       setSavedStructure(saved);
+      setFormulaOverrides(resolveProfileFormulaOverrides(data.id, saved?.formula_overrides_json));
       setHasExistingCtc(persist ? declared : Boolean(saved));
       setRevisionCount(Number(saved?.revision_count) || 0);
       setRevisionReason(reviseRequested && declared ? "" : saved?.revision_reason || "");
@@ -784,12 +813,103 @@ export default function SalaryEmployeeCtc({
     };
   }, []);
 
-  const parsed = useMemo(() => {
+  const formulaModes = useMemo(
+    () => ({
+      hraCustom: hraIsCustom,
+      empEsicCustom: empEsicIsCustom,
+      erEsicCustom: erEsicIsCustom,
+      leaveCustom: leaveEncashIsCustom,
+      gratuityCustom: gratuityIsCustom,
+      esicEnabled,
+    }),
+    [
+      hraIsCustom,
+      empEsicIsCustom,
+      erEsicIsCustom,
+      leaveEncashIsCustom,
+      gratuityIsCustom,
+      esicEnabled,
+    ]
+  );
+
+  const withFormulas = useCallback(
+    (structure) => applyProfileFormulaOverrides(structure, formulaOverrides, formulaModes),
+    [formulaOverrides, formulaModes]
+  );
+
+  const standardFormulaBook = useMemo(
+    () =>
+      standardFormulas({
+        esicCeiling: parseRupeeInput(esicCeiling) ?? DEFAULT_ESIC_CEILING,
+        esicEmpRatePct: parseRateInput(esicEmpRate) ?? DEFAULT_EMP_ESIC_RATE_PCT,
+        esicErRatePct: parseRateInput(esicErRate) ?? DEFAULT_ER_ESIC_RATE_PCT,
+      }),
+    [esicCeiling, esicEmpRate, esicErRate]
+  );
+
+  const baseStructure = useMemo(() => {
     if (gross === "" && basic === "" && !(hraIsCustom && hraCustom !== "")) {
       return emptyCtcStructure();
     }
     return computeCtcStructure(buildArgs());
   }, [gross, basic, hraIsCustom, hraCustom, buildArgs]);
+
+  const parsed = useMemo(
+    () => withFormulas(baseStructure),
+    [baseStructure, withFormulas]
+  );
+
+  const formulaSyncRef = useRef(0);
+
+  useEffect(() => {
+    const active = Object.keys(formulaOverrides).length;
+    const shouldSync = parsed?.declared && (active > 0 || formulaSyncRef.current > 0);
+    formulaSyncRef.current = active;
+    if (!shouldSync) return;
+    const setIf = (setter, next) => {
+      const s = next == null || next === "" ? "" : String(next);
+      setter((cur) => (String(cur ?? "") === s ? cur : s));
+    };
+    if (formulaOverrides.BAS || !basicIsCustom) setIf(setBasic, parsed.basic_monthly);
+    if (formulaOverrides.HRA || !hraIsCustom) setIf(setHraCustom, parsed.hra_monthly);
+    if (formulaOverrides.EPF) setIf(setEmpPf, parsed.emp_pf_monthly);
+    if (formulaOverrides.PT) setIf(setPt, parsed.pt_monthly);
+    if (formulaOverrides.EESI || !empEsicIsCustom) {
+      setIf(setEmpEsicCustom, parsed.emp_esic_monthly);
+    }
+    if (formulaOverrides.ERES || !erEsicIsCustom) {
+      setIf(setErEsicCustom, parsed.er_esic_monthly);
+    }
+    if (formulaOverrides.GRA || !gratuityIsCustom) {
+      setIf(setGratuityCustom, parsed.gratuity_monthly);
+    }
+    if (formulaOverrides.LEN || !leaveEncashIsCustom) {
+      setIf(setLeaveEncashCustom, parsed.leave_encash_monthly);
+    }
+    if (formulaOverrides.ERPF) setIf(setErPf, parsed.er_pf_monthly);
+    if (formulaOverrides.MED) {
+      setMediclaimEnabled(true);
+      setIf(setMediclaim, parsed.mediclaim_monthly);
+    }
+    if (formulaOverrides.LIC) {
+      setLicEnabled(true);
+      setIf(setLic, parsed.lic_monthly);
+    }
+    if (formulaOverrides.SPB) {
+      setSpecialPerfBonusEnabled(true);
+      setIf(setSpecialPerfBonus, parsed.special_perf_bonus_monthly);
+    }
+    if (formulaOverrides.BON) setIf(setBonus, parsed.bonus_monthly);
+  }, [
+    parsed,
+    formulaOverrides,
+    basicIsCustom,
+    hraIsCustom,
+    empEsicIsCustom,
+    erEsicIsCustom,
+    gratuityIsCustom,
+    leaveEncashIsCustom,
+  ]);
 
   const profileCustoms = useMemo(() => {
     const all = getProfileCustomComponents(employeeId);
@@ -1571,7 +1691,7 @@ export default function SalaryEmployeeCtc({
       return;
     }
     if (!employee || !canEdit) return;
-    const structure = computeCtcStructure(buildArgs());
+    const structure = withFormulas(computeCtcStructure(buildArgs()));
     if (!structure.declared) {
       toast.warning("Enter Gross salary before saving.");
       return;
@@ -1582,7 +1702,11 @@ export default function SalaryEmployeeCtc({
       );
       return;
     }
-    if (normalizeComponentMode(structure.basic_mode) === MODE_AUTO && structure.basic_monthly < BASIC_SLAB_MIN) {
+    if (
+      !formulaOverrides.BAS &&
+      normalizeComponentMode(structure.basic_mode) === MODE_AUTO &&
+      structure.basic_monthly < BASIC_SLAB_MIN
+    ) {
       toast.warning(`Auto Basic cannot be below ₹${BASIC_SLAB_MIN.toLocaleString("en-IN")}.`);
       return;
     }
@@ -1668,6 +1792,7 @@ export default function SalaryEmployeeCtc({
       // Manual P.A. + annual CTC only persist when Save CTC is clicked
       ctc_annual: sheetCtcPa ?? structure.ctc_annual,
       pa_overrides_json: paToSave,
+      formula_overrides_json: formulaOverrides,
       custom_component_amounts_json: Object.fromEntries(
         Object.entries(customAmounts || {})
           .map(([k, v]) => {
@@ -1831,6 +1956,32 @@ export default function SalaryEmployeeCtc({
     toast.success(successTitle);
   };
 
+  const handleSaveFormulas = async (next) => {
+    if (!employee) return;
+    setFormulaSaving(true);
+    try {
+      const savedMap = saveLocalFormulaOverrides(employee.id, next || {});
+      setFormulaOverrides(savedMap);
+      if (persist) {
+        try {
+          await dbPatchFormulaOverrides(employee.id, savedMap);
+        } catch (err) {
+          console.warn("CTC formula: salary record not updated", err);
+        }
+      }
+      setFormulaOpen(false);
+      toast.success(
+        Object.keys(savedMap).length
+          ? canEdit
+            ? "Formula saved for this profile. Save CTC to keep the new amounts on the salary record."
+            : "Formula saved for this profile. Use Revise CTC, then save, to keep the new amounts."
+          : "This profile is back on the standard formulas."
+      );
+    } finally {
+      setFormulaSaving(false);
+    }
+  };
+
   const shellClass = embedded
     ? "min-h-[28rem] flex flex-col bg-canvas"
     : "-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] flex flex-col bg-canvas";
@@ -1864,13 +2015,10 @@ export default function SalaryEmployeeCtc({
   const code = employee.employee_code || employee.employee_id || "—";
   const metaLine = [code, employee.designation, employee.department].filter(Boolean).join(" · ");
 
-  const basicHint = basicIsCustom
-    ? "Custom: negotiated figure — used for helper / labour designations without the office slab."
-    : `Auto: ${BASIC_GROSS_PERCENT}% of Gross, floored at ₹${BASIC_SLAB_MIN.toLocaleString("en-IN")}.`;
+  const shownFormula = (code, standardText) =>
+    formulaOverrides[code] || standardText || standardFormulaBook[code] || "";
 
-  const hraHint = hraIsCustom
-    ? "Custom: fixed amount — stays put even if Gross or Basic change."
-    : `Auto: ${HRA_PERCENT}% of Basic.`;
+  const hasFormulaOverride = Object.keys(formulaOverrides).length > 0;
 
   return (
     <div className={shellClass}>
@@ -1894,6 +2042,18 @@ export default function SalaryEmployeeCtc({
             ) : null}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setFormulaOpen(true)}
+              className={`h-9 px-3 rounded-md border text-xs font-semibold inline-flex items-center gap-1.5 ${
+                hasFormulaOverride
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                  : "border-border-strong bg-white text-ink hover:bg-row-hover"
+              }`}
+            >
+              <FunctionSquare className="h-3.5 w-3.5" />
+              Formula
+            </button>
             {persist && hasExistingCtc ? (
               <button
                 type="button"
@@ -1991,7 +2151,11 @@ export default function SalaryEmployeeCtc({
             </div>
           ) : null}
 
-          <div className="w-full bg-white border border-border shadow-[0_1px_3px_rgba(40,35,25,0.04)] overflow-hidden">
+          <div
+            className={`w-full border shadow-[0_1px_3px_rgba(40,35,25,0.04)] overflow-hidden ${
+              hasFormulaOverride ? "bg-emerald-50/70 border-emerald-200" : "bg-white border-border"
+            }`}
+          >
             <div className="px-6 sm:px-8 lg:px-10 py-5 sm:py-6 border-b border-divider flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
                 <h2 className="text-lg sm:text-xl font-bold text-ink-strong">{name}</h2>
@@ -2005,6 +2169,11 @@ export default function SalaryEmployeeCtc({
                   <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ink-muted">
                     Version {(revisionCount || 0) + 1}
                     {revisionCount > 0 ? ` · ${revisionCount} prior revision${revisionCount === 1 ? "" : "s"}` : ""}
+                  </span>
+                ) : null}
+                {hasFormulaOverride ? (
+                  <span className="inline-flex items-center px-2 py-1 rounded-md bg-emerald-100 text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-800">
+                    Custom formula
                   </span>
                 ) : null}
               </div>
@@ -2114,21 +2283,30 @@ export default function SalaryEmployeeCtc({
                   <ModeToggle
                     value={basicMode}
                     onChange={handleBasicModeChange}
-                    disabled={!canEdit}
-                    autoLabel="Auto (slab)"
+                    disabled={!canEdit || Boolean(formulaOverrides.BAS)}
                     customLabel="Custom"
                     ariaLabel="Basic calculation mode"
                   />
                 </div>
               }
-              hint={basicHint}
+              hint={shownFormula(
+                "BAS",
+                basicIsCustom
+                  ? "Custom amount entered for this profile."
+                  : `Auto: ${BASIC_GROSS_PERCENT}% of Gross, floored at ₹${BASIC_SLAB_MIN.toLocaleString("en-IN")}.`
+              )}
+              formulaActive={Boolean(formulaOverrides.BAS)}
               monthly={
-                <AmountInput
-                  value={basic}
-                  onChange={handleBasicChange}
-                  label="Basic monthly"
-                  readOnly={!canEdit || !basicIsCustom}
-                />
+                formulaOverrides.BAS ? (
+                  <MoneyCell value={parsed.basic_monthly} />
+                ) : (
+                  <AmountInput
+                    value={basic}
+                    onChange={handleBasicChange}
+                    label="Basic monthly"
+                    readOnly={!canEdit || !basicIsCustom}
+                  />
+                )
               }
               pa={renderPaField("basic", sheetPa.basic, { label: "Basic P.A." })}
             />
@@ -2139,31 +2317,40 @@ export default function SalaryEmployeeCtc({
                   <ModeToggle
                     value={hraIsCustom ? MODE_CUSTOM : MODE_AUTO}
                     onChange={handleHraModeChange}
-                    disabled={!canEdit}
-                    autoLabel={`Auto (${HRA_PERCENT}%)`}
+                    disabled={!canEdit || Boolean(formulaOverrides.HRA)}
                     customLabel="Custom"
                     ariaLabel="HRA calculation mode"
                   />
                 </div>
               }
-              hint={hraHint}
+              hint={shownFormula(
+                "HRA",
+                hraIsCustom
+                  ? "Custom amount entered for this profile."
+                  : `Auto: ${HRA_PERCENT}% of Basic.`
+              )}
+              formulaActive={Boolean(formulaOverrides.HRA)}
               monthly={
-                hraIsCustom ? (
+                formulaOverrides.HRA || !hraIsCustom ? (
+                  <MoneyCell value={parsed.hra_monthly} />
+                ) : (
                   <AmountInput
                     value={hraCustom}
                     onChange={handleHraCustomChange}
                     label="HRA monthly"
                     readOnly={!canEdit}
                   />
-                ) : (
-                  <MoneyCell value={parsed.hra_monthly} />
                 )
               }
               pa={renderPaField("hra", sheetPa.hra, { label: "HRA P.A." })}
             />
             <SheetRow
               label="Special Allowance"
-              hint="Balancing figure: Gross − Basic − HRA. Always system-calculated."
+              hint={shownFormula(
+                "SPA",
+                "Balancing figure: Gross − Basic − HRA. Always system-calculated."
+              )}
+              formulaActive={Boolean(formulaOverrides.SPA)}
               monthly={<MoneyCell value={parsed.declared ? parsed.special_allowance_monthly : null} />}
               pa={renderPaField("special", sheetPa.special, { label: "Special Allowance P.A." })}
             />
@@ -2260,25 +2447,37 @@ export default function SalaryEmployeeCtc({
             />
             <SheetRow
               label="Less : Employee PF"
+              hint={shownFormula("EPF", "12% of Basic, capped at ₹1,800.")}
+              formulaActive={Boolean(formulaOverrides.EPF)}
               monthly={
-                <AmountInput
-                  value={empPf}
-                  onChange={canEdit ? setEmpPf : () => {}}
-                  label="Employee PF monthly"
-                  readOnly={!canEdit}
-                />
+                formulaOverrides.EPF ? (
+                  <MoneyCell value={parsed.emp_pf_monthly} />
+                ) : (
+                  <AmountInput
+                    value={empPf}
+                    onChange={canEdit ? setEmpPf : () => {}}
+                    label="Employee PF monthly"
+                    readOnly={!canEdit}
+                  />
+                )
               }
               pa={renderPaField("emp_pf", sheetPa.emp_pf, { label: "Employee PF P.A." })}
             />
             <SheetRow
               label="Less : P. Tax"
+              hint={shownFormula("PT", "₹200 when Gross is ₹12,000 or more, otherwise ₹0.")}
+              formulaActive={Boolean(formulaOverrides.PT)}
               monthly={
-                <AmountInput
-                  value={pt}
-                  onChange={canEdit ? setPt : () => {}}
-                  label="Professional tax monthly"
-                  readOnly={!canEdit}
-                />
+                formulaOverrides.PT ? (
+                  <MoneyCell value={parsed.pt_monthly} />
+                ) : (
+                  <AmountInput
+                    value={pt}
+                    onChange={canEdit ? setPt : () => {}}
+                    label="Professional tax monthly"
+                    readOnly={!canEdit}
+                  />
+                )
               }
               pa={renderPaField("pt", sheetPa.pt, { label: "P. Tax P.A." })}
             />
@@ -2293,14 +2492,15 @@ export default function SalaryEmployeeCtc({
                   <ModeToggle
                     value={empEsicMode}
                     onChange={handleEmpEsicModeChange}
-                    disabled={!canEdit}
+                    disabled={!canEdit || Boolean(formulaOverrides.EESI)}
                     autoLabel="Auto"
                     customLabel="Custom"
                     ariaLabel="Employee ESIC calculation mode"
                   />
                 </div>
               }
-              hint={
+              hint={shownFormula(
+                "EESI",
                 empEsicIsCustom
                   ? "Manual amount — used even when Gross is above the ESIC ceiling"
                   : parsed.esic_eligible
@@ -2308,17 +2508,18 @@ export default function SalaryEmployeeCtc({
                     : esicEnabled
                       ? `Gross above ₹${Number(parsed.esic_ceiling || DEFAULT_ESIC_CEILING).toLocaleString("en-IN")} ceiling — no ESIC`
                       : "ESIC turned off for this structure"
-              }
+              )}
+              formulaActive={Boolean(formulaOverrides.EESI)}
               monthly={
-                empEsicIsCustom ? (
+                formulaOverrides.EESI || !empEsicIsCustom ? (
+                  <MoneyCell value={parsed.declared ? parsed.emp_esic_monthly : null} />
+                ) : (
                   <AmountInput
                     value={empEsicCustom}
                     onChange={handleEmpEsicCustomChange}
                     label="Employee ESIC monthly"
                     readOnly={!canEdit}
                   />
-                ) : (
-                  <MoneyCell value={parsed.declared ? parsed.emp_esic_monthly : null} />
                 )
               }
               pa={renderPaField("emp_esic", sheetPa.emp_esic, { label: "Employee ESIC P.A." })}
@@ -2326,6 +2527,8 @@ export default function SalaryEmployeeCtc({
             <SheetRow
               label="TAKE HOME"
               tone="takehome"
+              hint={shownFormula("TH", "Gross − Employee PF − P. Tax − Employee ESIC.")}
+              formulaActive={Boolean(formulaOverrides.TH)}
               monthly={<MoneyCell value={parsed.take_home_monthly} strong />}
               pa={renderPaField("take_home", sheetPa.take_home, {
                 label: "Take home P.A.",
@@ -2337,13 +2540,19 @@ export default function SalaryEmployeeCtc({
 
             <SheetRow
               label="Add : Employer PF"
+              hint={shownFormula("ERPF", "13% of Basic, capped at ₹1,950.")}
+              formulaActive={Boolean(formulaOverrides.ERPF)}
               monthly={
-                <AmountInput
-                  value={erPf}
-                  onChange={canEdit ? setErPf : () => {}}
-                  label="Employer PF monthly"
-                  readOnly={!canEdit}
-                />
+                formulaOverrides.ERPF ? (
+                  <MoneyCell value={parsed.er_pf_monthly} />
+                ) : (
+                  <AmountInput
+                    value={erPf}
+                    onChange={canEdit ? setErPf : () => {}}
+                    label="Employer PF monthly"
+                    readOnly={!canEdit}
+                  />
+                )
               }
               pa={renderPaField("er_pf", sheetPa.er_pf, { label: "Employer PF P.A." })}
             />
@@ -2358,14 +2567,15 @@ export default function SalaryEmployeeCtc({
                   <ModeToggle
                     value={erEsicMode}
                     onChange={handleErEsicModeChange}
-                    disabled={!canEdit}
+                    disabled={!canEdit || Boolean(formulaOverrides.ERES)}
                     autoLabel="Auto"
                     customLabel="Custom"
                     ariaLabel="Employer ESIC calculation mode"
                   />
                 </div>
               }
-              hint={
+              hint={shownFormula(
+                "ERES",
                 erEsicIsCustom
                   ? "Manual amount — used even when Gross is above the ESIC ceiling"
                   : parsed.esic_eligible
@@ -2373,17 +2583,18 @@ export default function SalaryEmployeeCtc({
                     : esicEnabled
                       ? `Gross above ceiling — Auto shows ₹0; switch to Custom to enter an amount`
                       : "ESIC turned off for this structure"
-              }
+              )}
+              formulaActive={Boolean(formulaOverrides.ERES)}
               monthly={
-                erEsicIsCustom ? (
+                formulaOverrides.ERES || !erEsicIsCustom ? (
+                  <MoneyCell value={parsed.declared ? parsed.er_esic_monthly : null} />
+                ) : (
                   <AmountInput
                     value={erEsicCustom}
                     onChange={handleErEsicCustomChange}
                     label="Employer ESIC monthly"
                     readOnly={!canEdit}
                   />
-                ) : (
-                  <MoneyCell value={parsed.declared ? parsed.er_esic_monthly : null} />
                 )
               }
               pa={renderPaField("er_esic", sheetPa.er_esic, { label: "Employer ESIC P.A." })}
@@ -2395,28 +2606,30 @@ export default function SalaryEmployeeCtc({
                   <ModeToggle
                     value={gratuityMode}
                     onChange={handleGratuityModeChange}
-                    disabled={!canEdit}
+                    disabled={!canEdit || Boolean(formulaOverrides.GRA)}
                     autoLabel="Auto"
                     customLabel="Custom"
                     ariaLabel="Gratuity calculation mode"
                   />
                 </div>
               }
-              hint={
+              hint={shownFormula(
+                "GRA",
                 gratuityIsCustom
                   ? "Manual amount — overrides the Govt. accrual formula"
                   : "Auto: Basic × 4.81% — as per Govt. rules"
-              }
+              )}
+              formulaActive={Boolean(formulaOverrides.GRA)}
               monthly={
-                gratuityIsCustom ? (
+                formulaOverrides.GRA || !gratuityIsCustom ? (
+                  <MoneyCell value={parsed.declared ? parsed.gratuity_monthly : null} />
+                ) : (
                   <AmountInput
                     value={gratuityCustom}
                     onChange={handleGratuityCustomChange}
                     label="Gratuity monthly"
                     readOnly={!canEdit}
                   />
-                ) : (
-                  <MoneyCell value={parsed.declared ? parsed.gratuity_monthly : null} />
                 )
               }
               pa={renderPaField("gratuity", sheetPa.gratuity, { label: "Gratuity P.A." })}
@@ -2428,28 +2641,30 @@ export default function SalaryEmployeeCtc({
                   <ModeToggle
                     value={leaveEncashMode}
                     onChange={handleLeaveEncashModeChange}
-                    disabled={!canEdit}
+                    disabled={!canEdit || Boolean(formulaOverrides.LEN)}
                     autoLabel="Auto"
                     customLabel="Custom"
                     ariaLabel="Leave Encashment calculation mode"
                   />
                 </div>
               }
-              hint={
+              hint={shownFormula(
+                "LEN",
                 leaveEncashIsCustom
                   ? "Manual amount — overrides the company-policy formula"
                   : "Auto: (Basic × 7) ÷ (26 × 12) — company policy from Basic"
-              }
+              )}
+              formulaActive={Boolean(formulaOverrides.LEN)}
               monthly={
-                leaveEncashIsCustom ? (
+                formulaOverrides.LEN || !leaveEncashIsCustom ? (
+                  <MoneyCell value={parsed.declared ? parsed.leave_encash_monthly : null} />
+                ) : (
                   <AmountInput
                     value={leaveEncashCustom}
                     onChange={handleLeaveEncashCustomChange}
                     label="Leave Encashment monthly"
                     readOnly={!canEdit}
                   />
-                ) : (
-                  <MoneyCell value={parsed.declared ? parsed.leave_encash_monthly : null} />
                 )
               }
               pa={renderPaField("leave_encash", sheetPa.leave_encash, {
@@ -2465,11 +2680,15 @@ export default function SalaryEmployeeCtc({
                     if (!canEdit) return;
                     setMediclaimEnabled(on);
                   }}
-                  disabled={!canEdit}
+                  disabled={!canEdit || Boolean(formulaOverrides.MED)}
                 />
               }
+              hint={shownFormula("MED", "Optional amount. Tick to include it in CTC.")}
+              formulaActive={Boolean(formulaOverrides.MED)}
               monthly={
-                mediclaimEnabled ? (
+                formulaOverrides.MED ? (
+                  <MoneyCell value={parsed.mediclaim_monthly} />
+                ) : mediclaimEnabled ? (
                   <AmountInput
                     value={mediclaim}
                     onChange={canEdit ? setMediclaim : () => {}}
@@ -2491,11 +2710,15 @@ export default function SalaryEmployeeCtc({
                     if (!canEdit) return;
                     setLicEnabled(on);
                   }}
-                  disabled={!canEdit}
+                  disabled={!canEdit || Boolean(formulaOverrides.LIC)}
                 />
               }
+              hint={shownFormula("LIC", "Optional amount. Tick to include it in CTC.")}
+              formulaActive={Boolean(formulaOverrides.LIC)}
               monthly={
-                licEnabled ? (
+                formulaOverrides.LIC ? (
+                  <MoneyCell value={parsed.lic_monthly} />
+                ) : licEnabled ? (
                   <AmountInput
                     value={lic}
                     onChange={canEdit ? setLic : () => {}}
@@ -2517,16 +2740,20 @@ export default function SalaryEmployeeCtc({
                     if (!canEdit) return;
                     setSpecialPerfBonusEnabled(on);
                   }}
-                  disabled={!canEdit}
+                  disabled={!canEdit || Boolean(formulaOverrides.SPB)}
                 />
               }
-              hint={
+              hint={shownFormula(
+                "SPB",
                 specialPerfBonusEnabled
                   ? "Optional Part B amount — enter the monthly accrual for variable annual performance bonus"
                   : "Tick to include this optional employer cost in Part B / CTC"
-              }
+              )}
+              formulaActive={Boolean(formulaOverrides.SPB)}
               monthly={
-                specialPerfBonusEnabled ? (
+                formulaOverrides.SPB ? (
+                  <MoneyCell value={parsed.special_perf_bonus_monthly} />
+                ) : specialPerfBonusEnabled ? (
                   <AmountInput
                     value={specialPerfBonus}
                     onChange={canEdit ? setSpecialPerfBonus : () => {}}
@@ -2543,13 +2770,19 @@ export default function SalaryEmployeeCtc({
             />
             <SheetRow
               label="Add : Bonus"
+              hint={shownFormula("BON", "Optional amount added to employer cost.")}
+              formulaActive={Boolean(formulaOverrides.BON)}
               monthly={
-                <AmountInput
+                formulaOverrides.BON ? (
+                  <MoneyCell value={parsed.bonus_monthly} />
+                ) : (
+                  <AmountInput
                     value={bonus}
                     onChange={canEdit ? setBonus : () => {}}
                     label="Bonus monthly"
-                  readOnly={!canEdit}
-                />
+                    readOnly={!canEdit}
+                  />
+                )
               }
               pa={renderPaField("bonus", sheetPa.bonus, { label: "Bonus P.A." })}
             />
@@ -2591,6 +2824,8 @@ export default function SalaryEmployeeCtc({
             <SheetRow
               label="Total (B)"
               tone="total"
+              hint={shownFormula("TOTAL_B", "Employer PF + Employer ESIC + Gratuity + Leave encashment + optional costs + Bonus.")}
+              formulaActive={Boolean(formulaOverrides.TOTAL_B)}
               monthly={<MoneyCell value={parsed.total_b_monthly} strong />}
               pa={renderPaField("total_b", sheetPa.total_b, {
                 label: "Total (B) P.A.",
@@ -2599,6 +2834,8 @@ export default function SalaryEmployeeCtc({
             <SheetRow
               label="CTC (PART A + B)"
               tone="ctc"
+              hint={shownFormula("CTC", "Gross + Total (B).")}
+              formulaActive={Boolean(formulaOverrides.CTC)}
               monthly={<MoneyCell value={parsed.ctc_monthly} strong />}
               pa={renderPaField("ctc", sheetPa.ctc, {
                 label: "CTC P.A.",
@@ -2751,6 +2988,17 @@ export default function SalaryEmployeeCtc({
           />
         </Drawer>
       ) : null}
+      <CtcFormulaPanel
+        open={formulaOpen}
+        onClose={() => setFormulaOpen(false)}
+        employeeName={employee?.full_name || ""}
+        structure={baseStructure}
+        savedOverrides={formulaOverrides}
+        modes={formulaModes}
+        canEdit
+        saving={formulaSaving}
+        onSave={handleSaveFormulas}
+      />
     </div>
   );
 }
