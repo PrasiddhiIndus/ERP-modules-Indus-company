@@ -57,11 +57,12 @@ export function isManualFormula(text) {
 export function normalizeFormulaMap(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const out = {};
-  for (const line of CTC_FORMULA_LINES) {
-    if (line.locked) continue;
-    const text = String(raw[line.code] ?? "").trim();
+  for (const [code, val] of Object.entries(raw)) {
+    const key = String(code || "").trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9_]{0,24}$/.test(key) || key === "GROSS") continue;
+    const text = String(val ?? "").trim();
     if (!text || isManualFormula(text)) continue;
-    out[line.code] = text;
+    out[key] = text;
   }
   return out;
 }
@@ -158,10 +159,11 @@ export function diffFromStandard(overrides, settings) {
   return next;
 }
 
-export function validateProfileFormula(text) {
+export function validateProfileFormula(text, extraCodes = []) {
   const trimmed = String(text || "").trim();
   if (!trimmed || isManualFormula(trimmed)) return { ok: true };
-  return validateFormula(trimmed, KNOWN_CODES);
+  const known = [...KNOWN_CODES, ...extraCodes.map((code) => String(code || "").trim())];
+  return validateFormula(trimmed, known);
 }
 
 function valuesFromStructure(structure) {
@@ -235,11 +237,16 @@ export function applyProfileFormulaOverrides(structure, overrides, modes = {}) {
     esicErRatePct: structure.esic_er_rate_pct,
   };
   const diff = diffFromStandard(overrides, settings);
-  if (!Object.keys(diff).length) return structure;
+  const systemCodes = new Set([...CALC_ORDER, "TH", "TOTAL_B", "CTC"]);
+  const systemDiff = {};
+  for (const [code, text] of Object.entries(diff)) {
+    if (systemCodes.has(code)) systemDiff[code] = text;
+  }
+  if (!Object.keys(systemDiff).length) return structure;
 
   const standard = standardFormulas(settings);
   const values = valuesFromStructure(structure);
-  const changed = new Set(Object.keys(diff));
+  const changed = new Set(Object.keys(systemDiff));
 
   const shouldCascade = (code) => {
     if (code === "HRA") return !modes.hraCustom && changed.has("BAS");
@@ -256,8 +263,8 @@ export function applyProfileFormulaOverrides(structure, overrides, modes = {}) {
   };
 
   for (const code of CALC_ORDER) {
-    if (diff[code]) {
-      const next = tryEval(diff[code], values);
+    if (systemDiff[code]) {
+      const next = tryEval(systemDiff[code], values);
       if (next != null) {
         values[code] = next;
         changed.add(code);
@@ -273,15 +280,15 @@ export function applyProfileFormulaOverrides(structure, overrides, modes = {}) {
     }
   }
 
-  if (diff.TH) {
-    const next = tryEval(diff.TH, values);
+  if (systemDiff.TH) {
+    const next = tryEval(systemDiff.TH, values);
     if (next != null) values.TH = next;
   } else {
     values.TH = roundMoney(values.GROSS - values.EPF - values.PT - values.EESI);
   }
 
-  if (diff.TOTAL_B) {
-    const next = tryEval(diff.TOTAL_B, values);
+  if (systemDiff.TOTAL_B) {
+    const next = tryEval(systemDiff.TOTAL_B, values);
     if (next != null) values.TOTAL_B = next;
   } else {
     values.TOTAL_B = roundMoney(
@@ -296,8 +303,8 @@ export function applyProfileFormulaOverrides(structure, overrides, modes = {}) {
     );
   }
 
-  if (diff.CTC) {
-    const next = tryEval(diff.CTC, values);
+  if (systemDiff.CTC) {
+    const next = tryEval(systemDiff.CTC, values);
     if (next != null) values.CTC = next;
   } else {
     values.CTC = roundMoney(values.GROSS + values.TOTAL_B);
@@ -341,4 +348,17 @@ export function applyProfileFormulaOverrides(structure, overrides, modes = {}) {
 export function previewFormulaValues(structure, overrides, modes) {
   const applied = applyProfileFormulaOverrides(structure, overrides, modes);
   return valuesFromStructure(applied?.declared ? applied : structure);
+}
+
+/** Monthly amount for an added component formula. Manual returns the entered amount. */
+export function previewComponentAmount(formula, structure, manualAmount, extraValues = {}) {
+  const values = {
+    ...valuesFromStructure(structure || {}),
+    ...extraValues,
+  };
+  if (!formula || isManualFormula(formula)) {
+    const n = Number(String(manualAmount ?? "").replace(/,/g, ""));
+    return Number.isFinite(n) ? roundMoney(n) : null;
+  }
+  return tryEval(formula, values);
 }
