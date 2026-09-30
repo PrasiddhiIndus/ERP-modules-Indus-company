@@ -5,6 +5,7 @@ import {
   salaryPresentDaysFromDayMarks,
   workingDaysMonToSat,
 } from "../src/pages/adminOperations/salaryAdmin/salaryMonthProcessing.js";
+import { attachRegisterRowSummaries, buildMonthlyRegisterGrid } from "../src/lib/attendanceDaily.js";
 
 describe("salary working-day slab", () => {
   it("counts Monday–Saturday only (Sundays excluded)", () => {
@@ -39,5 +40,29 @@ describe("salary working-day slab", () => {
 
     const withLeave = { ...feb, 3: "PL", 4: "CL" };
     expect(salaryPresentDaysFromDayMarks(withLeave, 2026, 2)).toBe(24);
+  });
+
+  it("counts 3rd-Saturday WO as paid except for WO-excluded departments", () => {
+    // Sep 2026: Sundays 6/13/20/27, 3rd Saturday 19.
+    const sep = {};
+    for (let d = 1; d <= 30; d += 1) sep[d] = [6, 13, 19, 20, 27].includes(d) ? "WO" : "P";
+    expect(salaryPresentDaysFromDayMarks(sep, 2026, 9, "HR")).toBe(26);
+    expect(salaryPresentDaysFromDayMarks(sep, 2026, 9, "Production")).toBe(25);
+    expect(salaryPresentDaysFromDayMarks(sep, 2026, 9, "Maintenance-FTC")).toBe(25);
+  });
+});
+
+describe("register Total present", () => {
+  it("adds 3rd-Saturday WO for non-excluded departments only", () => {
+    const emps = [
+      { empCode: "1001", employeeName: "A", department: "HR" },
+      { empCode: "1002", employeeName: "B", department: "R&M" },
+    ];
+    const { rows, daysInMonth } = buildMonthlyRegisterGrid([], emps, { year: 2026, month: 9 });
+    const [hr, rm] = attachRegisterRowSummaries(rows, {}, daysInMonth, { year: 2026, month: 9 });
+    expect(hr.dayMarks[19]).toBe("WO");
+    expect(hr.summary.totalPresent).toBe(1);
+    expect(rm.dayMarks[19]).toBe("");
+    expect(rm.summary.totalPresent).toBe(0);
   });
 });
