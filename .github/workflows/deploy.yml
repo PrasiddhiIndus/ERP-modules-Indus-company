@@ -1,10 +1,14 @@
 name: Indus ERP CI/CD
 
+# Staging is a merge branch only. It has no server and no checks.
+# Developers merge into staging, then staging merges into main.
+# Lint, tests, build, and deploy run only for production (main).
+
 on:
   push:
-    branches: [staging, main]
+    branches: [main]
   pull_request:
-    branches: [staging, main]
+    branches: [main]
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -37,21 +41,7 @@ jobs:
       - name: Smoke tests
         run: npm run test:smoke
 
-      # Staging / PRs into staging: compile-check only (no staging DB, no staging secrets).
-      # Placeholders match src/lib/supabaseConfig.js so Vite can bundle without a live project.
-      - name: Build Project (staging verify)
-        if: github.ref == 'refs/heads/staging' || (github.event_name == 'pull_request' && github.base_ref == 'staging')
-        run: |
-          npm run build
-          test -f dist/index.html
-        env:
-          VITE_SUPABASE_URL: https://placeholder.supabase.co
-          VITE_SUPABASE_ANON_KEY: placeholder-key
-          VITE_EINVOICE_PROVIDER: backend
-          VITE_EINVOICE_API_URL: /api/billing/e-invoice
-
       - name: Build Project (production)
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main')
         run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
