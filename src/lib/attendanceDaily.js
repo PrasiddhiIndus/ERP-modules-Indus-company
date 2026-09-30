@@ -376,10 +376,23 @@ export function registerSummaryLeaveCreditForCell(mark, { year, month, day, depa
 }
 
 /**
+ * 3rd-Saturday WO is a paid day (salary slab counts Mon–Sat) for departments that get it off.
+ * WO-excluded depts (Production / R&M / M&M / Maintenance-FTC) work that day — never credited here.
+ */
+export function isPaidThirdSaturdayWeekoffCell(mark, { year, month, day, department } = {}) {
+  if (String(mark ?? "").trim() !== "WO") return false;
+  if (!year || !month || !day) return false;
+  if (!isThirdSaturdayOfMonth(year, month, day)) return false;
+  return !(department != null && isThirdSaturdayWeekoffExcludedDepartment(department));
+}
+
+/**
  * Present credit for register summary Total present column only.
- * P/PL, P/CL, P/SL count as 1 (display); does not change day-level present/absent logic.
+ * P/PL, P/CL, P/SL count as 1 (display); 3rd-Saturday WO counts as 1 (see above).
+ * Does not change day-level present/absent logic.
  */
 export function registerPresentDaySummaryCreditForCell(mark, { year, month, day, department } = {}) {
+  if (isPaidThirdSaturdayWeekoffCell(mark, { year, month, day, department })) return 1;
   const compositeCredit = registerCompositePaidLeaveSummaryCredit(mark);
   if (compositeCredit > 0) return compositeCredit;
   return registerPresentDayCreditForCell(mark, { year, month, day, department });
@@ -3169,6 +3182,7 @@ export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { 
       empCode: row.empCode,
       employeeId: row.employeeId,
       employeeName: row.employeeName,
+      department: row.department,
       summary: row.summary,
       dayMarks: row.dayMarks,
     })),
