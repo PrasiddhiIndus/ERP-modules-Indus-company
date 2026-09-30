@@ -24,7 +24,11 @@ const SALARY_TABLES = Object.freeze({
 });
 
 /** Newer columns — omit from writes when the live DB has not been migrated yet. */
-const OPTIONAL_STRUCTURE_COLUMNS = ["pa_overrides_json", "custom_component_amounts_json"];
+const OPTIONAL_STRUCTURE_COLUMNS = [
+  "pa_overrides_json",
+  "custom_component_amounts_json",
+  "formula_overrides_json",
+];
 
 const omittedStructureColumns = new Set();
 let structureColumnProbe = null;
@@ -161,6 +165,16 @@ function paOverridesOrEmpty(v) {
   return {};
 }
 
+function formulaOverridesOrEmpty(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  const out = {};
+  for (const [k, val] of Object.entries(v)) {
+    const text = String(val ?? "").trim();
+    if (text) out[String(k)] = text;
+  }
+  return out;
+}
+
 function customAmountsOrEmpty(v) {
   const raw = paOverridesOrEmpty(v);
   const out = {};
@@ -181,6 +195,7 @@ export function structureRowToUi(row, revisions = []) {
     declared: Boolean(row.declared),
     pa_overrides_json: paOverridesOrEmpty(row.pa_overrides_json),
     custom_component_amounts_json: customAmountsOrEmpty(row.custom_component_amounts_json),
+    formula_overrides_json: formulaOverridesOrEmpty(row.formula_overrides_json),
     revisions: Array.isArray(revisions) ? revisions : [],
     revision_count: Number(row.revision_count) || 0,
   };
@@ -234,6 +249,9 @@ export function uiPayloadToStructureColumns(payload, employeeMasterId) {
     ctc_annual: numOrNull(payload.ctc_annual),
     pa_overrides_json: paOverridesOrEmpty(payload.pa_overrides_json),
     custom_component_amounts_json: customAmountsOrEmpty(payload.custom_component_amounts_json),
+    ...(payload.formula_overrides_json !== undefined
+      ? { formula_overrides_json: formulaOverridesOrEmpty(payload.formula_overrides_json) }
+      : {}),
     declared: payload.declared !== false,
     wef_date: payload.wef_date || null,
     revision_reason: payload.revision_reason?.trim?.() || payload.revision_reason || null,
@@ -283,6 +301,7 @@ function structureSnapshotForRevision(row) {
     ...rest,
     pa_overrides_json: paOverridesOrEmpty(row.pa_overrides_json),
     custom_component_amounts_json: customAmountsOrEmpty(row.custom_component_amounts_json),
+    formula_overrides_json: formulaOverridesOrEmpty(row.formula_overrides_json),
     ctc_annual: row.ctc_annual,
     ctc_monthly: row.ctc_monthly,
     gross_monthly: row.gross_monthly,
@@ -357,6 +376,46 @@ export async function dbGetSalaryRevisions(employeeMasterId) {
     .order("revision_no", { ascending: false });
   if (error) throw error;
   return (data || []).map(revisionRowToUi);
+}
+
+/** Store formula text only. Does not rewrite salary amounts. */
+export async function dbPatchFormulaOverrides(employeeMasterId, overrides) {
+  await probeOptionalStructureColumns();
+  if (omittedStructureColumns.has("formula_overrides_json")) return { saved: false };
+  const id = toMasterId(employeeMasterId);
+  if (id == null) return { saved: false };
+  const { data, error } = await salaryTable("structures")
+    .update({ formula_overrides_json: formulaOverridesOrEmpty(overrides) })
+    .eq("employee_master_id", id)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    if (isUnknownColumnError(error)) {
+      omittedStructureColumns.add("formula_overrides_json");
+      return { saved: false };
+    }
+    throw error;
+  }
+  return { saved: Boolean(data) };
+}
+
+/** Employee ids whose CTC uses a saved formula instead of the company standard. */
+export async function dbListFormulaOverrideEmployeeIds() {
+  await probeOptionalStructureColumns();
+  if (omittedStructureColumns.has("formula_overrides_json")) return [];
+  const { data, error } = await salaryTable("structures").select(
+    "employee_master_id, formula_overrides_json"
+  );
+  if (error) {
+    if (isUnknownColumnError(error)) {
+      omittedStructureColumns.add("formula_overrides_json");
+      return [];
+    }
+    throw error;
+  }
+  return (data || [])
+    .filter((row) => Object.keys(formulaOverridesOrEmpty(row.formula_overrides_json)).length > 0)
+    .map((row) => String(row.employee_master_id));
 }
 
 export async function dbGetRevisionCount(employeeMasterId) {

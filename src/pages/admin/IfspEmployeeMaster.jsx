@@ -22,6 +22,11 @@ import {
 } from '../../lib/employeeHierarchy';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { syncScopeDraftBankFromMaster } from '../adminOperations/salaryAdmin/salaryMonthProcessing';
+import { dbListFormulaOverrideEmployeeIds } from '../adminOperations/salaryAdmin/salaryDb';
+import {
+  FORMULA_OVERRIDE_EVENT,
+  localOverrideIdSet,
+} from '../adminOperations/salaryAdmin/ctcProfileFormulas';
 import { normalizeAttendanceEmpCode } from '../../lib/attendanceDaily';
 import { parseSalaryBankImportFile } from '../../lib/salaryBankExcel';
 import { applySalaryBankImportToMaster } from '../../lib/salaryBankImportApply';
@@ -203,6 +208,7 @@ function computeAgeFromDob(dateOfBirth) {
 const IfspEmployeeMaster = ({ embedded = false }) => {
   const navigate = useNavigate();
   const [employees, setEmployees] = useState([]);
+  const [formulaProfileIds, setFormulaProfileIds] = useState(() => localOverrideIdSet());
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState(null);
@@ -1156,6 +1162,31 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   }, [fetchEmployees]);
 
   useEffect(() => {
+    let cancel = false;
+    const refresh = async () => {
+      const localIds = localOverrideIdSet();
+      let remoteIds = [];
+      try {
+        remoteIds = await dbListFormulaOverrideEmployeeIds();
+      } catch {
+        remoteIds = [];
+      }
+      if (cancel) return;
+      const next = new Set(localIds);
+      remoteIds.forEach((id) => next.add(String(id)));
+      setFormulaProfileIds(next);
+    };
+    refresh();
+    window.addEventListener(FORMULA_OVERRIDE_EVENT, refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      cancel = true;
+      window.removeEventListener(FORMULA_OVERRIDE_EVENT, refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+
+  useEffect(() => {
     persistDepartmentFilter(departmentFilter);
   }, [departmentFilter]);
 
@@ -1841,10 +1872,11 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                 const totalExp = computeTotalExperienceYears(employee.date_of_joining, employee.other_experience);
                 const age = computeAgeFromDob(employee.date_of_birth);
                 const rowNo = startIndex + idx + 1;
+                const customFormula = formulaProfileIds.has(String(employee.id));
                 return (
                   <tr
                     key={employee.id}
-                    className="hover:bg-gray-50 cursor-pointer"
+                    className={`${customFormula ? "bg-emerald-50 hover:bg-emerald-100" : "hover:bg-gray-50"} cursor-pointer`}
                     onClick={() => openEmployeeProfile(employee)}
                   >
                     <td className={tdCenter} title={String(employee.id)}>{rowNo}</td>
@@ -1857,7 +1889,16 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                     <ListTd field="employee_code" title={employee.employee_code || ''} center>
                       {employee.employee_code || '–'}
                     </ListTd>
-                    <ListTd field="full_name" title={employee.full_name || ''}>{employee.full_name || '–'}</ListTd>
+                    <ListTd field="full_name" title={employee.full_name || ''}>
+                      <span className="inline-flex items-center gap-2">
+                        <span>{employee.full_name || '–'}</span>
+                        {customFormula ? (
+                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
+                            Custom formula
+                          </span>
+                        ) : null}
+                      </span>
+                    </ListTd>
                     <ListTd field="age" title={age != null ? String(age) : ''} center>
                       {age != null ? age : '–'}
                     </ListTd>
