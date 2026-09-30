@@ -4,6 +4,7 @@ import { formatINR } from "./salaryData";
 import {
   CTC_FORMULA_LINES,
   canonFormula,
+  previewComponentAmount,
   previewFormulaValues,
   standardFormulas,
   validateProfileFormula,
@@ -26,25 +27,47 @@ export default function CtcFormulaPanel({
   employeeName,
   structure,
   savedOverrides,
+  extraLines = [],
+  manualAmounts = {},
   modes,
   canEdit,
   saving,
   onSave,
 }) {
-  const standard = useMemo(() => standardFormulas(structure || {}), [structure]);
+  const formulaLines = useMemo(() => {
+    const seen = new Set(CTC_FORMULA_LINES.map((line) => line.code));
+    const extras = (extraLines || [])
+      .filter((line) => line?.code && !seen.has(String(line.code).toUpperCase()))
+      .map((line) => ({
+        part: line.part === "B" ? "B" : "A",
+        code: String(line.code).toUpperCase(),
+        name: line.name || line.code,
+        note: "Added component",
+        locked: false,
+      }));
+    return [...CTC_FORMULA_LINES, ...extras];
+  }, [extraLines]);
+
+  const standard = useMemo(() => {
+    const book = standardFormulas(structure || {});
+    for (const line of formulaLines) {
+      if (!book[line.code]) book[line.code] = "Manual";
+    }
+    return book;
+  }, [structure, formulaLines]);
   const [draft, setDraft] = useState({});
   const [errors, setErrors] = useState({});
 
   useEffect(() => {
     if (!open) return;
     const next = {};
-    for (const line of CTC_FORMULA_LINES) {
+    for (const line of formulaLines) {
       if (line.locked) continue;
       next[line.code] = savedOverrides?.[line.code] || standard[line.code] || "";
     }
     setDraft(next);
     setErrors({});
-  }, [open, savedOverrides, standard]);
+  }, [open, savedOverrides, standard, formulaLines]);
 
   const preview = useMemo(() => {
     if (!structure?.declared) return null;
@@ -53,22 +76,25 @@ export default function CtcFormulaPanel({
 
   const changedCodes = useMemo(() => {
     const set = new Set();
-    for (const line of CTC_FORMULA_LINES) {
+    for (const line of formulaLines) {
       if (line.locked) continue;
       const text = String(draft[line.code] || "").trim();
       if (text && canonFormula(text) !== canonFormula(standard[line.code])) set.add(line.code);
     }
     return set;
-  }, [draft, standard]);
+  }, [draft, standard, formulaLines]);
 
   const save = () => {
     const next = {};
     const nextErrors = {};
-    for (const line of CTC_FORMULA_LINES) {
+    for (const line of formulaLines) {
       if (line.locked) continue;
       const text = String(draft[line.code] || "").trim();
       if (!text || canonFormula(text) === canonFormula(standard[line.code])) continue;
-      const check = validateProfileFormula(text);
+      const check = validateProfileFormula(
+        text,
+        formulaLines.map((row) => row.code)
+      );
       if (!check.ok) nextErrors[line.code] = check.error || "This formula could not be read.";
       else next[line.code] = text;
     }
@@ -77,8 +103,11 @@ export default function CtcFormulaPanel({
     onSave(next);
   };
 
+  const systemCodes = useMemo(() => new Set(CTC_FORMULA_LINES.map((line) => line.code)), []);
+
   const partBlock = (part, title) => {
-    const lines = CTC_FORMULA_LINES.filter((line) => line.part === part);
+    const rows = formulaLines.filter((line) => line.part === part);
+    if (!rows.length) return null;
     return (
       <section key={part} className="space-y-2">
         <h3 className="text-sm font-semibold text-ink-strong">{title}</h3>
@@ -89,9 +118,18 @@ export default function CtcFormulaPanel({
             <span>New formula</span>
             <span className="text-right">Monthly</span>
           </div>
-          {lines.map((line) => {
+          {rows.map((line) => {
             const changed = changedCodes.has(line.code);
-            const monthly = preview ? preview[line.code] : null;
+            const monthly = systemCodes.has(line.code)
+              ? preview
+                ? preview[line.code]
+                : null
+              : previewComponentAmount(
+                  draft[line.code],
+                  structure,
+                  manualAmounts[line.code],
+                  preview || {}
+                );
             return (
               <div
                 key={line.code}
@@ -187,7 +225,8 @@ export default function CtcFormulaPanel({
           The current company formula is on the left. Type a new formula on the right and save it
           for this profile only. The CTC sheet recalculates from the new formula. Bank accounts,
           attendance, and other employees stay unchanged. Save CTC when the new amounts should be
-          kept on the salary record.
+          kept on the salary record. Components you add on this profile, including ticked extras such
+          as LTA, appear in Part A or Part B below so you can set a formula for them.
         </p>
         <p className="text-[11px] text-ink-muted">
           Use component names such as GROSS, BAS, and HRA. You can use MAX, MIN, IF, and % —
