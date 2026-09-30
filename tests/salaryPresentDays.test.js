@@ -5,7 +5,12 @@ import {
   salaryPresentDaysFromDayMarks,
   workingDaysMonToSat,
 } from "../src/pages/adminOperations/salaryAdmin/salaryMonthProcessing.js";
-import { attachRegisterRowSummaries, buildMonthlyRegisterGrid } from "../src/lib/attendanceDaily.js";
+import {
+  attachRegisterRowSummaries,
+  buildMonthlyRegisterGrid,
+  mergeApprovedLeaveMarksIntoManualMarks,
+  normalizeRegisterMarkForDb,
+} from "../src/lib/attendanceDaily.js";
 
 describe("salary working-day slab", () => {
   it("counts Monday–Saturday only (Sundays excluded)", () => {
@@ -64,5 +69,33 @@ describe("register Total present", () => {
     expect(hr.summary.totalPresent).toBe(1);
     expect(rm.dayMarks[19]).toBe("");
     expect(rm.summary.totalPresent).toBe(0);
+  });
+});
+
+describe("approved comp-off (C/O) leave", () => {
+  it("normalizes Indus One C/O aliases to CO instead of L", () => {
+    expect(normalizeRegisterMarkForDb("C/O")).toBe("CO");
+    expect(normalizeRegisterMarkForDb("comp off")).toBe("CO");
+    expect(normalizeRegisterMarkForDb("Compensatory Off")).toBe("CO");
+    expect(normalizeRegisterMarkForDb("CO")).toBe("CO");
+  });
+
+  it("shows approved C/O as CO over a saved manual CO and counts it present", () => {
+    const merged = mergeApprovedLeaveMarksIntoManualMarks(
+      { 7838: { 7: "CO", 8: "CO" } },
+      { 7838: { 7: "C/O", 8: "C/O" } },
+      { monthKey: "2026-09" }
+    );
+    expect(merged["7838"][7]).toBe("CO");
+    expect(merged["7838"][8]).toBe("CO");
+
+    const { rows, daysInMonth } = buildMonthlyRegisterGrid(
+      [],
+      [{ empCode: "7838", employeeName: "X", department: "NFPA" }],
+      { year: 2026, month: 9, manualMarks: merged }
+    );
+    const [row] = attachRegisterRowSummaries(rows, merged, daysInMonth, { year: 2026, month: 9 });
+    expect(row.dayMarks[7]).toBe("CO");
+    expect(row.summary.leave).toBe(0);
   });
 });
