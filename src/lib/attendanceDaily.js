@@ -498,6 +498,8 @@ export const REGISTER_MARKS_DB_ALLOWED = new Set([
  * Preserves specific leave codes (PL, CL, SL, …) for register display and limits.
  * @returns {string|null} canonical mark, or null to delete the cell
  */
+const REGISTER_COMP_OFF_ALIASES = new Set(["CO", "C/O", "COMP OFF", "COMPENSATORY OFF"]);
+
 export function normalizeRegisterMarkForDb(mark) {
   const m = String(mark ?? "").trim();
   if (!m) return null;
@@ -509,6 +511,8 @@ export function normalizeRegisterMarkForDb(mark) {
   if (isRegisterLeftMark(m)) return REGISTER_MARK_LEFT;
   if (m === "P(OD)") return "P(OD)";
   if (REGISTER_MARKS_DB_ALLOWED.has(m)) return m;
+  // Indus One stores comp-off leave as C/O (same aliases as indus_one.admin_leave_normalize_register_mark).
+  if (REGISTER_COMP_OFF_ALIASES.has(m.toUpperCase().replace(/\s+/g, " "))) return "CO";
   if (m === "A" || m === "LEAVE") return "L";
   return "L";
 }
