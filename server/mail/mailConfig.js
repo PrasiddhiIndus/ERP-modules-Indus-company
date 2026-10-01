@@ -9,6 +9,7 @@ export function getMicrosoftGraphMailConfig() {
   const notificationEmail = String(process.env.MICROSOFT_NOTIFICATION_EMAIL || '')
     .trim()
     .toLowerCase();
+  const notificationName = String(process.env.MICROSOFT_NOTIFICATION_NAME || '').trim();
   const timeoutMs = Math.max(
     5000,
     Number(process.env.MICROSOFT_GRAPH_TIMEOUT_MS || 30000) || 30000
@@ -23,6 +24,7 @@ export function getMicrosoftGraphMailConfig() {
     clientId,
     clientSecret,
     notificationEmail,
+    notificationName,
     timeoutMs,
   };
 }
@@ -77,6 +79,8 @@ export function buildGraphMessagePayload({
   replyTo,
   replyToName,
   attachments,
+  fromAddress,
+  fromName,
 }) {
   const bodyText = String(text || '');
   const bodyHtml =
@@ -101,6 +105,15 @@ export function buildGraphMessagePayload({
       },
     ],
   };
+
+  if (fromAddress) {
+    message.from = {
+      emailAddress: {
+        address: String(fromAddress).trim(),
+        name: String(fromName || '').trim() || undefined,
+      },
+    };
+  }
 
   if (replyTo) {
     message.replyTo = [

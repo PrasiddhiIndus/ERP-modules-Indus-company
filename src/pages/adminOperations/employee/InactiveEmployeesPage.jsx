@@ -32,6 +32,8 @@ const INACTIVE_SELECT_FIELDS = [
   "designation",
   "date_of_joining",
   "date_of_leaving",
+  "date_of_resignation",
+  "date_of_relieving",
   "status",
   "status_reason",
   "status_changed_at",
@@ -67,7 +69,12 @@ function compareInactiveRows(a, b, field, direction) {
     return mul * (score(a) - score(b));
   }
 
-  if (field === "date_of_joining" || field === "date_of_resignation" || field === "date_of_leaving") {
+  if (
+    field === "date_of_joining" ||
+    field === "date_of_resignation" ||
+    field === "date_of_relieving" ||
+    field === "date_of_leaving"
+  ) {
     const va = a[field] || "";
     const vb = b[field] || "";
     if (!va && !vb) return 0;
@@ -271,6 +278,14 @@ export function InactiveEmployeesPage() {
         cellClassName: COL_DATE,
         headerRender: () => sortableHeader("date_of_leaving", "DOL / LWD"),
         render: (row) => formatDateDdMmYyyy(row.date_of_leaving) || "—",
+      },
+      {
+        key: "date_of_relieving",
+        label: "Date of Relieving",
+        headerClassName: COL_DATE,
+        cellClassName: COL_DATE,
+        headerRender: () => sortableHeader("date_of_relieving", "Relieving"),
+        render: (row) => formatDateDdMmYyyy(row.date_of_relieving) || "—",
       },
       {
         key: "experience_label",
@@ -525,6 +540,7 @@ export function InactiveEmployeesPage() {
               <DetailField label="Date of joining" value={formatDateDdMmYyyy(selected.date_of_joining)} />
               <DetailField label="Date of resignation" value={formatDateDdMmYyyy(selected.date_of_resignation)} />
               <DetailField label="Last working date" value={formatDateDdMmYyyy(selected.date_of_leaving)} />
+              <DetailField label="Date of relieving" value={formatDateDdMmYyyy(selected.date_of_relieving)} />
               <DetailField label="Total experience" value={selected.experience_label} />
               <DetailField label="Address" value={selected.display_address} className="col-span-2" />
               {selected.status_reason ? (

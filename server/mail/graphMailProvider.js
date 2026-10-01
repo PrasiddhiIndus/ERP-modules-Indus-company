@@ -162,6 +162,8 @@ export async function sendMail({
     replyTo: reply.replyTo,
     replyToName: reply.replyToName,
     attachments,
+    fromAddress: config.notificationEmail,
+    fromName: config.notificationName,
   });
 
   logMailInfo('graph.send.attempt', {

@@ -40,6 +40,22 @@ describe("employeeExitDocuments", () => {
       address: "Test Address",
     });
     expect(row.experience_label).toMatch(/Year/);
+    expect(row.date_of_resignation).toBe("");
     expect(resolveResignationDate(row)).toBe("2026-06-18");
+  });
+
+  it("maps resignation, relieving, and leaving dates from Employee Master", () => {
+    const row = mapInactiveEmployeeRow({
+      full_name: "Test Employee",
+      date_of_joining: "2024-01-10",
+      date_of_resignation: "2026-08-01",
+      date_of_leaving: "2026-08-31",
+      date_of_relieving: "2026-09-02",
+      status_changed_at: "2026-09-15T10:00:00Z",
+    });
+    expect(row.date_of_resignation).toBe("2026-08-01");
+    expect(row.date_of_leaving).toBe("2026-08-31");
+    expect(row.date_of_relieving).toBe("2026-09-02");
+    expect(resolveResignationDate(row)).toBe("2026-08-01");
   });
 });
