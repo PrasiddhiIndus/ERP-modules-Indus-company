@@ -5,6 +5,7 @@
 
 import { supabase } from "../../../lib/supabase";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
+import { resolveSalarySubject, withDbKey, withUiKey } from "./salarySubject";
 
 export const PERSON_COMPONENTS_TABLE = "admin_salary_person_components";
 export const PERSON_COMPONENT_HISTORY_TABLE = "admin_salary_person_component_history";
@@ -12,6 +13,10 @@ export const PERSON_COMPONENT_HISTORY_TABLE = "admin_salary_person_component_his
 function toMasterId(employeeMasterId) {
   const n = Number(employeeMasterId);
   return Number.isFinite(n) ? n : null;
+}
+
+function componentsTable(subject) {
+  return supabase.from(subject.tables.person_components);
 }
 
 function isDbUnavailable(err) {
@@ -110,7 +115,7 @@ function uiToDbColumns(ui, employeeMasterId, userId, { forInsert = false } = {})
 }
 
 async function insertHistory({
-  employeeMasterId,
+  subject,
   componentId,
   code,
   name,
@@ -120,35 +125,39 @@ async function insertHistory({
   remarks,
   userId,
 }) {
-  const { error } = await supabase.from(PERSON_COMPONENT_HISTORY_TABLE).insert({
-    employee_master_id: employeeMasterId,
-    component_id: componentId || null,
-    code: String(code || "").toUpperCase(),
-    name: name || null,
-    parent_code: parentCode || null,
-    action,
-    snapshot_json: snapshot || {},
-    remarks: remarks || null,
-    created_by: userId,
-  });
+  const { error } = await supabase.from(subject.tables.person_component_history).insert(
+    withDbKey(
+      {
+        employee_master_id: subject.id,
+        component_id: componentId || null,
+        code: String(code || "").toUpperCase(),
+        name: name || null,
+        parent_code: parentCode || null,
+        action,
+        snapshot_json: snapshot || {},
+        remarks: remarks || null,
+        created_by: userId,
+      },
+      subject
+    )
+  );
   if (error) console.warn("Person component history insert failed", error);
 }
 
 /** Load components for one employee from DB. */
 export async function dbFetchPersonComponents(employeeMasterId) {
-  const id = toMasterId(employeeMasterId);
-  if (id == null) return [];
-  const { data, error } = await supabase
-    .from(PERSON_COMPONENTS_TABLE)
+  const subject = resolveSalarySubject(employeeMasterId);
+  if (!subject) return [];
+  const { data, error } = await componentsTable(subject)
     .select("*")
-    .eq("employee_master_id", id)
+    .eq(subject.keyColumn, subject.id)
     .order("sort_order", { ascending: true })
     .order("code", { ascending: true });
   if (error) {
     if (isDbUnavailable(error)) return null; // signal missing table
     throw error;
   }
-  return (data || []).map(mapPersonComponentRow).filter(Boolean);
+  return (data || []).map((row) => mapPersonComponentRow(withUiKey(row, subject))).filter(Boolean);
 }
 
 /**
@@ -157,8 +166,9 @@ export async function dbFetchPersonComponents(employeeMasterId) {
  * @returns {Promise<object[]|null>} saved UI rows, or null if DB unavailable
  */
 export async function dbReplacePersonComponents(employeeMasterId, list, { amounts = null } = {}) {
-  const id = toMasterId(employeeMasterId);
-  if (id == null) return [];
+  const subject = resolveSalarySubject(employeeMasterId);
+  if (!subject) return [];
+  const id = subject.uiKey;
 
   let existing;
   try {
@@ -190,15 +200,14 @@ export async function dbReplacePersonComponents(employeeMasterId, list, { amount
     };
     const prev = byCode.get(code);
     if (prev?.id && /^[0-9a-f-]{36}$/i.test(String(prev.id))) {
-      const cols = uiToDbColumns(ui, id, userId);
-      const { data, error } = await supabase
-        .from(PERSON_COMPONENTS_TABLE)
+      const cols = withDbKey(uiToDbColumns(ui, subject.id, userId), subject);
+      const { data, error } = await componentsTable(subject)
         .update(cols)
         .eq("id", prev.id)
         .select("*")
         .single();
       if (error) throw error;
-      const mapped = mapPersonComponentRow(data);
+      const mapped = mapPersonComponentRow(withUiKey(data, subject));
       saved.push(mapped);
       const changed =
         prev.name !== mapped.name ||
@@ -208,7 +217,7 @@ export async function dbReplacePersonComponents(employeeMasterId, list, { amount
         Boolean(prev.active) !== Boolean(mapped.active);
       if (changed) {
         await insertHistory({
-          employeeMasterId: id,
+          subject,
           componentId: mapped.id,
           code: mapped.code,
           name: mapped.name,
@@ -219,17 +228,16 @@ export async function dbReplacePersonComponents(employeeMasterId, list, { amount
         });
       }
     } else {
-      const cols = uiToDbColumns(ui, id, userId, { forInsert: true });
-      const { data, error } = await supabase
-        .from(PERSON_COMPONENTS_TABLE)
+      const cols = withDbKey(uiToDbColumns(ui, subject.id, userId, { forInsert: true }), subject);
+      const { data, error } = await componentsTable(subject)
         .insert(cols)
         .select("*")
         .single();
       if (error) throw error;
-      const mapped = mapPersonComponentRow(data);
+      const mapped = mapPersonComponentRow(withUiKey(data, subject));
       saved.push(mapped);
       await insertHistory({
-        employeeMasterId: id,
+        subject,
         componentId: mapped.id,
         code: mapped.code,
         name: mapped.name,
@@ -245,10 +253,10 @@ export async function dbReplacePersonComponents(employeeMasterId, list, { amount
     const code = String(prev.code).toUpperCase();
     if (nextCodes.has(code)) continue;
     if (!prev.id) continue;
-    const { error } = await supabase.from(PERSON_COMPONENTS_TABLE).delete().eq("id", prev.id);
+    const { error } = await componentsTable(subject).delete().eq("id", prev.id);
     if (error) throw error;
     await insertHistory({
-      employeeMasterId: id,
+      subject,
       componentId: null,
       code,
       name: prev.name,
@@ -264,9 +272,9 @@ export async function dbReplacePersonComponents(employeeMasterId, list, { amount
 
 /** Update monthly amounts on person component rows + history. */
 export async function dbSyncPersonComponentAmounts(employeeMasterId, amountsMap) {
-  const id = toMasterId(employeeMasterId);
-  if (id == null) return;
-  const existing = await dbFetchPersonComponents(id);
+  const subject = resolveSalarySubject(employeeMasterId);
+  if (!subject) return;
+  const existing = await dbFetchPersonComponents(subject.uiKey);
   if (existing === null) return null;
   const userId = await currentUserId();
   const map = amountsMap && typeof amountsMap === "object" ? amountsMap : {};
@@ -281,8 +289,7 @@ export async function dbSyncPersonComponentAmounts(employeeMasterId, amountsMap)
       (nextAmt == null && prevAmt != null) ||
       (nextAmt != null && prevAmt != null && Math.abs(nextAmt - prevAmt) > 0.001);
     if (!changed) continue;
-    const { data, error } = await supabase
-      .from(PERSON_COMPONENTS_TABLE)
+    const { data, error } = await componentsTable(subject)
       .update({
         amount_monthly: Number.isFinite(nextAmt) ? nextAmt : null,
         updated_by: userId,
@@ -291,9 +298,9 @@ export async function dbSyncPersonComponentAmounts(employeeMasterId, amountsMap)
       .select("*")
       .single();
     if (error) throw error;
-    const mapped = mapPersonComponentRow(data);
+    const mapped = mapPersonComponentRow(withUiKey(data, subject));
     await insertHistory({
-      employeeMasterId: id,
+      subject,
       componentId: mapped.id,
       code: mapped.code,
       name: mapped.name,
@@ -342,12 +349,16 @@ export async function dbListAllPersonComponents({ limit = 500 } = {}) {
 
 /** History for one employee (or recent global if no id). */
 export async function dbFetchPersonComponentHistory(employeeMasterId = null, { limit = 100 } = {}) {
+  const subject =
+    employeeMasterId != null && employeeMasterId !== "" ? resolveSalarySubject(employeeMasterId) : null;
   let q = supabase
-    .from(PERSON_COMPONENT_HISTORY_TABLE)
+    .from(subject ? subject.tables.person_component_history : PERSON_COMPONENT_HISTORY_TABLE)
     .select("*")
     .order("created_at", { ascending: false })
     .limit(limit);
-  if (employeeMasterId != null && employeeMasterId !== "") {
+  if (subject) {
+    q = q.eq(subject.keyColumn, subject.id);
+  } else if (employeeMasterId != null && employeeMasterId !== "") {
     q = q.eq("employee_master_id", toMasterId(employeeMasterId));
   }
   const { data, error } = await q;

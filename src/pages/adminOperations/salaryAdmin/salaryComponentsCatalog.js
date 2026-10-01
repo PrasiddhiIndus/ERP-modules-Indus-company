@@ -12,6 +12,7 @@ import {
   dbSyncPersonComponentAmounts,
   isPersonComponentsDbUnavailable,
 } from "./salaryPersonComponentsDb";
+import { isPeopleSalaryKey } from "./salarySubject";
 
 const STORAGE_KEY = "admin_salary_components_master_v1";
 const PERSON_KEY = "admin_salary_component_person_overrides_v1";
@@ -492,7 +493,9 @@ export async function persistPersonComponents(employeeMasterId, list, { amounts 
 /** All employee IDs that have cached person components in this browser. */
 export function listCachedPersonComponentEmployeeIds() {
   const all = readJson(PERSON_COMPONENTS_KEY, {});
-  return Object.keys(all || {}).filter((k) => Array.isArray(all[k]) && all[k].length > 0);
+  return Object.keys(all || {}).filter(
+    (k) => !isPeopleSalaryKey(k) && Array.isArray(all[k]) && all[k].length > 0
+  );
 }
 
 /**

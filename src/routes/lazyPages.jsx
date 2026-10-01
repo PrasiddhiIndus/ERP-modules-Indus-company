@@ -94,6 +94,7 @@ export const AccountsFinance = lazy(() => import("../pages/finance/Finance"));
 
 // HR / admin / compliance
 export const PeopleManagement = lazy(() => import("../pages/peopleManagement/PeopleManagement"));
+export const PeoplePersonProfile = lazy(() => import("../pages/peopleManagement/PersonProfile"));
 export const IfspEmployeeCompliance = lazy(() => import("../pages/compliance/IfspEmployeeCompliance"));
 export const GeneralCompliance = lazy(() => import("../pages/compliance/GeneralCompliance"));
 export const IfspEmployeeAttendance = lazy(() => import("../pages/admin/IfspEmployeeAttendance"));
@@ -324,7 +325,7 @@ export const FireTenderManufacturing = lazy(() => import("../pages/fireTenderMan
 export const AMC = lazy(() => import("../pages/amc/AMC"));
 export const Settings = lazy(() => import("../pages/Settings"));
 export const CrmOutreach = lazy(() => import("../pages/crmOutreach/CrmOutreach"));
-export const UserManagement = lazy(() => import("../pages/UserManagement"));
+export const UserManagement = lazy(() => import("../pages/userAccess/UserManagementHub"));
 export const SoftwareSubscriptions = lazy(() => import("../pages/SoftwareSubscriptions"));
 export const ApiHealthDashboard = lazy(() => import("../pages/apiMonitoring/ApiHealthDashboard"));
 export const IndusLmsTrainings = lazy(() => import("../pages/IndusLmsTrainings"));
