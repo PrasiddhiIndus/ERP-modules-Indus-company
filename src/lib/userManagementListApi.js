@@ -141,6 +141,8 @@ function applyFilters(query, filters, includeEmpCode) {
  */
 export async function fetchUserManagementProfiles(
   supabase,
+  // A cached "unsupported" verdict must not stick: always probe, and only a genuine
+  // missing-column error downgrades to the no-employee-code select.
   { page = 1, pageSize = 10, filters = DEFAULT_USER_MGMT_FILTERS, preferEmpCode = true } = {}
 ) {
   const safePage = Math.max(1, Number(page) || 1);
@@ -154,7 +156,7 @@ export async function fetchUserManagementProfiles(
     return query.range(from, to);
   };
 
-  if (preferEmpCode) {
+  {
     let result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP, true);
     if (result.error && isMissingProfileIsActiveError(result.error)) {
       result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP_NO_ACTIVE, true);
@@ -176,21 +178,8 @@ export async function fetchUserManagementProfiles(
       if (result.data) result.data = normalizeProfileListRows(result.data);
       return { ...result, empCodeSupported: false };
     }
-    return { ...result, empCodeSupported: !result.error };
+    return { ...result, empCodeSupported: result.error ? undefined : true };
   }
-
-  let result = await buildQuery(PROFILE_LIST_SELECT, false);
-  if (result.error && isMissingProfileIsActiveError(result.error)) {
-    result = await buildQuery(PROFILE_LIST_SELECT_NO_ACTIVE, false);
-  }
-  if (result.error && isMissingProfileModuleAccessPendingError(result.error)) {
-    result = await buildQuery(PROFILE_LIST_SELECT_NO_PENDING, false);
-  }
-  if (result.error && isMissingProfileAllowedSubModulesError(result.error)) {
-    result = await buildQuery(PROFILE_LIST_SELECT_NO_SUB, false);
-  }
-  if (result.data) result.data = normalizeProfileListRows(result.data);
-  return { ...result, empCodeSupported: false };
 }
 
 /**
@@ -249,7 +238,7 @@ export async function fetchAllUserManagementProfiles(
     }
 
     if (result.error) {
-      return { data: null, error: result.error, empCodeSupported: false };
+      return { data: null, error: result.error, empCodeSupported: undefined };
     }
 
     const chunk = normalizeProfileListRows(result.data ?? []);

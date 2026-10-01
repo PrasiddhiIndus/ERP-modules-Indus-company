@@ -78,6 +78,7 @@ import {
   ProjectsQuotationHub,
   AccountsFinance,
   PeopleManagement,
+  PeoplePersonProfile,
   IfspEmployeeCompliance,
   GeneralCompliance,
   IfspEmployeeAttendance,
@@ -499,6 +500,7 @@ function App() {
               <Route path="hr-managers" element={<Navigate to="sites" replace />} />
             </Route>
             <Route path="people-management" element={<PeopleManagement />} />
+            <Route path="people-management/:personId" element={<PeoplePersonProfile />} />
             
             {/* Compliance — Rahul, Bency, Latha, Vivek, Vaisakh only */}
             <Route

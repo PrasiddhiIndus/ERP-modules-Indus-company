@@ -26,6 +26,7 @@ import {
 import { mapApiPunchToDbRow } from '../shared/attendancePunchSync.mjs';
 import { adminUpdateProfile } from './adminProfileApi.js';
 import { adminCreateUser } from './adminCreateUserApi.js';
+import { hrCreateSiteLogin } from './hrCreateSiteLoginApi.js';
 import { adminBulkCreateUsers } from './adminBulkCreateUserApi.js';
 import { adminBulkDeleteUsers } from './adminBulkDeleteUserApi.js';
 import { fetchAllLeaveInboxTables } from './adminLeaveRequestsApi.js';
@@ -1171,6 +1172,35 @@ app.post('/api/admin/create-user', async (req, res) => {
       hint: err?.hint ?? null,
       version: err?.version ?? 'server-create-2',
     });
+  }
+});
+
+/** HR People Management — create a login for a site employee. */
+app.post('/api/hr/create-site-login', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length).trim() : '';
+    if (!jwt) return res.status(401).json({ ok: false, error: 'Missing Authorization Bearer token' });
+
+    const supabaseUrl = getSupabaseUrlForServer();
+    const serviceRoleKey = getSupabaseServiceRoleKeyForServer();
+    const anonKey = getSupabaseAnonKeyForServer();
+    if (!supabaseUrl || !serviceRoleKey) {
+      return res.status(500).json({
+        ok: false,
+        error: 'Server missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY (.env.server)',
+      });
+    }
+
+    const result = await hrCreateSiteLogin(req.body, jwt, supabaseUrl, serviceRoleKey, anonKey);
+    return res.json(result);
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    if (status >= 500) {
+      // eslint-disable-next-line no-console
+      console.error('[api/hr/create-site-login]', err?.message || err);
+    }
+    return res.status(status).json({ ok: false, error: err?.message || String(err), version: err?.version });
   }
 });
 

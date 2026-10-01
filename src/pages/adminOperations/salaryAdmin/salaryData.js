@@ -33,6 +33,7 @@ import {
   dbReviseSalaryStructure,
   dbSaveSalaryStructure,
 } from "./salaryDb";
+import { isPeopleSalaryKey } from "./salarySubject";
 
 /** @deprecated Legacy browser key — kept only for one-time migration into admin_salary. */
 const STORAGE_KEY = "admin_salary_ctc_ui_v1";
@@ -284,7 +285,7 @@ function saveLegacySalaryStructure(employeeMasterId, payload, { revise = false, 
  */
 export async function migrateLegacySalaryStructuresToDb() {
   const store = readLegacyStore();
-  const ids = Object.keys(store);
+  const ids = Object.keys(store).filter((id) => !isPeopleSalaryKey(id));
   if (ids.length === 0) return { migrated: 0 };
 
   let migrated = 0;
@@ -307,6 +308,7 @@ function loadLegacyStructureMap() {
   const store = readLegacyStore();
   const map = new Map();
   for (const [id, row] of Object.entries(store)) {
+    if (isPeopleSalaryKey(id)) continue;
     if (row && typeof row === "object" && row.declared) {
       map.set(String(id), row);
     }
