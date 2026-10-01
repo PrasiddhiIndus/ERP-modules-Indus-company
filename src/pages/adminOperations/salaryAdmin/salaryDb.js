@@ -6,6 +6,7 @@
  */
 
 import { supabase } from "../../../lib/supabase";
+import { resolveSalarySubject, withDbKey, withUiKey } from "./salarySubject";
 
 /** @deprecated Prefer public table names; kept for docs/compat. */
 export const ADMIN_SALARY_SCHEMA = "public";
@@ -113,6 +114,11 @@ async function withStructureColumnFallback(run) {
 function salaryTable(name) {
   const table = SALARY_TABLES[name] || name;
   return supabase.from(table);
+}
+
+/** Structure / revision tables for this salary key (Employee Master or site people). */
+function subjectTable(subject, name) {
+  return supabase.from(subject.tables[name]);
 }
 
 function toMasterId(employeeMasterId) {
@@ -349,44 +355,44 @@ export async function dbFetchSalaryStructureMap({ withRevisions = false } = {}) 
 }
 
 export async function dbGetSalaryStructure(employeeMasterId, { withRevisions = true } = {}) {
-  const id = toMasterId(employeeMasterId);
-  if (id == null) return null;
+  const subject = resolveSalarySubject(employeeMasterId);
+  if (!subject) return null;
 
-  const { data, error } = await salaryTable("structures")
+  const { data, error } = await subjectTable(subject, "structures")
     .select("*")
-    .eq("employee_master_id", id)
+    .eq(subject.keyColumn, subject.id)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
 
   let revisions = [];
   if (withRevisions) {
-    revisions = await dbGetSalaryRevisions(id);
+    revisions = await dbGetSalaryRevisions(subject.uiKey);
   }
-  return structureRowToUi(data, revisions);
+  return structureRowToUi(withUiKey(data, subject), revisions);
 }
 
 export async function dbGetSalaryRevisions(employeeMasterId) {
-  const id = toMasterId(employeeMasterId);
-  if (id == null) return [];
+  const subject = resolveSalarySubject(employeeMasterId);
+  if (!subject) return [];
 
-  const { data, error } = await salaryTable("structure_revisions")
+  const { data, error } = await subjectTable(subject, "structure_revisions")
     .select("*")
-    .eq("employee_master_id", id)
+    .eq(subject.keyColumn, subject.id)
     .order("revision_no", { ascending: false });
   if (error) throw error;
-  return (data || []).map(revisionRowToUi);
+  return (data || []).map((row) => revisionRowToUi(withUiKey(row, subject)));
 }
 
 /** Store formula text only. Does not rewrite salary amounts. */
 export async function dbPatchFormulaOverrides(employeeMasterId, overrides) {
   await probeOptionalStructureColumns();
   if (omittedStructureColumns.has("formula_overrides_json")) return { saved: false };
-  const id = toMasterId(employeeMasterId);
-  if (id == null) return { saved: false };
-  const { data, error } = await salaryTable("structures")
+  const subject = resolveSalarySubject(employeeMasterId);
+  if (!subject) return { saved: false };
+  const { data, error } = await subjectTable(subject, "structures")
     .update({ formula_overrides_json: formulaOverridesOrEmpty(overrides) })
-    .eq("employee_master_id", id)
+    .eq(subject.keyColumn, subject.id)
     .select("id")
     .maybeSingle();
   if (error) {
@@ -437,19 +443,19 @@ function isUniqueEmployeeStructureConflict(err) {
 
 /** Lightweight lookup — avoids full-column select failures blocking upsert. */
 async function findStructureLiteByEmployee(employeeMasterId) {
-  const id = toMasterId(employeeMasterId);
-  if (id == null) return null;
-  const { data, error } = await salaryTable("structures")
+  const subject = resolveSalarySubject(employeeMasterId);
+  if (!subject) return null;
+  const { data, error } = await subjectTable(subject, "structures")
     .select("id, revision_count, declared")
-    .eq("employee_master_id", id)
+    .eq(subject.keyColumn, subject.id)
     .maybeSingle();
   if (error) throw error;
   return data || null;
 }
 
-async function updateStructureById(structureId, body, revisionCount, userId) {
+async function updateStructureById(subject, structureId, body, revisionCount, userId) {
   return withStructureColumnFallback((selectCols, shapeCols) =>
-    salaryTable("structures")
+    subjectTable(subject, "structures")
       .update({
         ...shapeCols(body),
         revision_count: Number(revisionCount) || 0,
@@ -466,12 +472,13 @@ async function updateStructureById(structureId, body, revisionCount, userId) {
  * Always updates when a row already exists for the employee (never duplicate-insert).
  */
 export async function dbSaveSalaryStructure(employeeMasterId, payload) {
-  const id = toMasterId(employeeMasterId);
-  if (id == null) throw new Error("Invalid employee.");
+  const subject = resolveSalarySubject(employeeMasterId);
+  if (!subject) throw new Error("Invalid employee.");
+  const id = subject.uiKey;
 
   const userId = await currentAuthUserId();
 
-  const cols = uiPayloadToStructureColumns(payload, id);
+  const cols = withDbKey(uiPayloadToStructureColumns(payload, subject.id), subject);
 
   // Prefer lite id lookup so we update even when full-column get fails/returns empty.
   let existingLite = await findStructureLiteByEmployee(id);
@@ -492,6 +499,7 @@ export async function dbSaveSalaryStructure(employeeMasterId, payload) {
 
   if (existingLite?.id) {
     const { data, error } = await updateStructureById(
+      subject,
       existingLite.id,
       cols,
       existingLite.revision_count,
@@ -499,11 +507,11 @@ export async function dbSaveSalaryStructure(employeeMasterId, payload) {
     );
     if (error) throw error;
     const revisions = await dbGetSalaryRevisions(id);
-    return structureRowToUi(data, revisions);
+    return structureRowToUi(withUiKey(data, subject), revisions);
   }
 
   const { data, error } = await withStructureColumnFallback((selectCols, shapeCols) =>
-    salaryTable("structures")
+    subjectTable(subject, "structures")
       .upsert(
         {
           ...shapeCols(cols),
@@ -511,7 +519,7 @@ export async function dbSaveSalaryStructure(employeeMasterId, payload) {
           created_by: userId,
           updated_by: userId,
         },
-        { onConflict: "employee_master_id" }
+        { onConflict: subject.keyColumn }
       )
       .select(selectCols)
       .single()
@@ -521,21 +529,22 @@ export async function dbSaveSalaryStructure(employeeMasterId, payload) {
     // Row exists (race / stale read) — update instead of failing
     const again = await findStructureLiteByEmployee(id);
     if (!again?.id) throw error;
-    const retry = await updateStructureById(again.id, cols, again.revision_count, userId);
+    const retry = await updateStructureById(subject, again.id, cols, again.revision_count, userId);
     if (retry.error) throw retry.error;
     const revisions = await dbGetSalaryRevisions(id);
-    return structureRowToUi(retry.data, revisions);
+    return structureRowToUi(withUiKey(retry.data, subject), revisions);
   }
   if (error) throw error;
-  return structureRowToUi(data, []);
+  return structureRowToUi(withUiKey(data, subject), []);
 }
 
 /**
  * Revise CTC: archive current row, then update with new payload.
  */
 export async function dbReviseSalaryStructure(employeeMasterId, payload, meta = {}) {
-  const id = toMasterId(employeeMasterId);
-  if (id == null) throw new Error("Invalid employee.");
+  const subject = resolveSalarySubject(employeeMasterId);
+  if (!subject) throw new Error("Invalid employee.");
+  const id = subject.uiKey;
 
   let prev = null;
   try {
@@ -581,9 +590,9 @@ export async function dbReviseSalaryStructure(employeeMasterId, payload, meta = 
 
   let nextCount = (Number(prev.revision_count) || 0) + 1;
   try {
-    const { data: maxRev } = await salaryTable("structure_revisions")
+    const { data: maxRev } = await subjectTable(subject, "structure_revisions")
       .select("revision_no")
-      .eq("employee_master_id", id)
+      .eq(subject.keyColumn, subject.id)
       .order("revision_no", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -597,9 +606,9 @@ export async function dbReviseSalaryStructure(employeeMasterId, payload, meta = 
   const archivedReason = prev.revision_reason || null;
   const snapshot = structureSnapshotForRevision(prev);
 
-  const revisionInsert = {
+  const revisionInsert = withDbKey({
     structure_id: prev.id,
-    employee_master_id: id,
+    employee_master_id: subject.id,
     revision_no: nextCount,
     revised_at: new Date().toISOString(),
     wef_date: archivedWef,
@@ -645,9 +654,9 @@ export async function dbReviseSalaryStructure(employeeMasterId, payload, meta = 
     date_of_birth: prev.date_of_birth,
     date_of_joining: prev.date_of_joining,
     snapshot_json: snapshot,
-  };
+  }, subject);
 
-  let { error: revError } = await salaryTable("structure_revisions").insert(revisionInsert);
+  let { error: revError } = await subjectTable(subject, "structure_revisions").insert(revisionInsert);
   if (
     revError &&
     (String(revError.code) === "23505" ||
@@ -656,24 +665,27 @@ export async function dbReviseSalaryStructure(employeeMasterId, payload, meta = 
       ))
   ) {
     nextCount += 1;
-    ({ error: revError } = await salaryTable("structure_revisions").insert({
+    ({ error: revError } = await subjectTable(subject, "structure_revisions").insert({
       ...revisionInsert,
       revision_no: nextCount,
     }));
   }
   if (revError) throw revError;
 
-  const cols = uiPayloadToStructureColumns(
-    {
-      ...payload,
-      wef_date: meta.wef_date ?? payload.wef_date ?? null,
-      revision_reason: meta.reason?.trim() || null,
-    },
-    id
+  const cols = withDbKey(
+    uiPayloadToStructureColumns(
+      {
+        ...payload,
+        wef_date: meta.wef_date ?? payload.wef_date ?? null,
+        revision_reason: meta.reason?.trim() || null,
+      },
+      subject.id
+    ),
+    subject
   );
 
   const { data, error } = await withStructureColumnFallback((selectCols, shapeCols) =>
-    salaryTable("structures")
+    subjectTable(subject, "structures")
       .update({
         ...shapeCols(cols),
         revision_count: nextCount,
@@ -686,7 +698,7 @@ export async function dbReviseSalaryStructure(employeeMasterId, payload, meta = 
   if (error) throw error;
 
   const revisions = await dbGetSalaryRevisions(id);
-  return structureRowToUi(data, revisions);
+  return structureRowToUi(withUiKey(data, subject), revisions);
 }
 
 // ─── Processing runs / lines ─────────────────────────────────────────────────

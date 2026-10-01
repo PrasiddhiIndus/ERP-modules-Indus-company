@@ -52,6 +52,8 @@ import {
   standardFormulas,
 } from "./ctcProfileFormulas";
 import { dbPatchFormulaOverrides } from "./salaryDb";
+import { peopleSalaryKey } from "./salarySubject";
+import { fetchPersonProfile, fetchPersonSensitiveDetails } from "../../../lib/peopleDirectoryApi";
 import PersonSalaryComponentsPanel from "./PersonSalaryComponentsPanel";
 import {
   CTC_OPTIONAL_PRESETS,
@@ -440,9 +442,17 @@ export default function SalaryEmployeeCtc({
   employeeId: employeeIdProp = null,
   embedded = false,
   persist = true,
+  subject = "employee",
 } = {}) {
   const { employeeId: employeeIdParam } = useParams();
-  const employeeId = employeeIdProp ?? employeeIdParam;
+  const recordId = employeeIdProp ?? employeeIdParam;
+  const isSiteEmployee = subject === "person";
+  /** Salary storage key — bare id for Employee Master, "people:<id>" for site employees. */
+  const employeeId = isSiteEmployee ? peopleSalaryKey(recordId) : recordId;
+  const profilePath = isSiteEmployee
+    ? `/app/people-management/${recordId}`
+    : `/app/admin/employee/master/${recordId}`;
+  const backLabel = isSiteEmployee ? "Back to People Management" : "Back to Employee Master";
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const reviseRequested = persist && searchParams.get("mode") === "revise";
@@ -631,14 +641,38 @@ export default function SalaryEmployeeCtc({
     try {
       setLoading(true);
       setError("");
-      const { data, error: fetchError } = await supabase
-        .from(EMPLOYEE_MASTER_TABLE)
-        .select(
-          "id, employee_id, employment_type, employee_code, full_name, designation, department, location, date_of_birth, date_of_joining, confirmation_date, bank_account_no, ifsc_code"
-        )
-        .eq("id", employeeId)
-        .maybeSingle();
-      if (fetchError) throw fetchError;
+      let data = null;
+      if (isSiteEmployee) {
+        const person = await fetchPersonProfile(supabase, recordId);
+        if (person) {
+          const sensitive = await fetchPersonSensitiveDetails(supabase, recordId).catch(() => null);
+          data = {
+            id: employeeId,
+            employee_id: null,
+            employment_type: null,
+            employee_code: person.unique_code,
+            full_name: person.full_name,
+            designation: person.designation,
+            department: person.category_name,
+            location: person.current_site_name,
+            date_of_birth: sensitive?.date_of_birth || person.date_of_birth || null,
+            date_of_joining: person.joining_date,
+            confirmation_date: null,
+            bank_account_no: sensitive?.bank_account_no || null,
+            ifsc_code: sensitive?.ifsc_code || null,
+          };
+        }
+      } else {
+        const res = await supabase
+          .from(EMPLOYEE_MASTER_TABLE)
+          .select(
+            "id, employee_id, employment_type, employee_code, full_name, designation, department, location, date_of_birth, date_of_joining, confirmation_date, bank_account_no, ifsc_code"
+          )
+          .eq("id", recordId)
+          .maybeSingle();
+        if (res.error) throw res.error;
+        data = res.data;
+      }
       if (!data) {
         setEmployee(null);
         setError("Employee not found.");
@@ -660,7 +694,9 @@ export default function SalaryEmployeeCtc({
       setRevisionCount(Number(saved?.revision_count) || 0);
       setRevisionReason(reviseRequested && declared ? "" : saved?.revision_reason || "");
 
-      const level = normalizeEmployeeLevel(saved?.employee_level);
+      const level = saved?.employee_level || !isSiteEmployee
+        ? normalizeEmployeeLevel(saved?.employee_level)
+        : EMP_LEVEL_HELPER;
       setEmployeeLevel(level);
 
       const basicSaved = parseRupeeInput(saved?.basic_monthly) ?? 0;
@@ -783,7 +819,7 @@ export default function SalaryEmployeeCtc({
     } finally {
       setLoading(false);
     }
-  }, [employeeId, reviseRequested, persist]);
+  }, [employeeId, recordId, isSiteEmployee, reviseRequested, persist]);
 
   useEffect(() => {
     load();
@@ -1398,9 +1434,11 @@ export default function SalaryEmployeeCtc({
   ]);
 
   const fy = currentCompensationYear();
-  const segment = employee
-    ? employmentTypeLabel(employee.employment_type || employee.employee_id) || "—"
-    : "—";
+  const segment = isSiteEmployee
+    ? "Site employee"
+    : employee
+      ? employmentTypeLabel(employee.employment_type || employee.employee_id) || "—"
+      : "—";
 
   const handleLevelChange = (raw) => {
     if (!canEdit) return;
@@ -1670,7 +1708,7 @@ export default function SalaryEmployeeCtc({
       setSearchParams(next, { replace: true });
       return;
     }
-    navigate(`/app/admin/employee/master/${employeeId}?tab=ctc&mode=revise`, {
+    navigate(`${profilePath}?tab=ctc&mode=revise`, {
       replace: true,
     });
   };
@@ -1683,7 +1721,7 @@ export default function SalaryEmployeeCtc({
       setSearchParams(next, { replace: true });
       return;
     }
-    navigate(`/app/admin/employee/master/${employeeId}?tab=ctc`, { replace: true });
+    navigate(`${profilePath}?tab=ctc`, { replace: true });
   };
 
   const handleSave = async () => {
@@ -1848,7 +1886,11 @@ export default function SalaryEmployeeCtc({
         return;
       }
       if (/foreign key|employee_master|23503/i.test(`${code} ${msg}`)) {
-        toast.error("This employee is missing from Employee Master. Save the employee first, then save CTC.");
+        toast.error(
+          isSiteEmployee
+            ? "This site employee record could not be found. Refresh People Management and try again."
+            : "This employee is missing from Employee Master. Save the employee first, then save CTC."
+        );
         return;
       }
       if (
@@ -2000,11 +2042,11 @@ export default function SalaryEmployeeCtc({
       <div className={`${embedded ? "p-6 space-y-3 bg-canvas" : "-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] bg-canvas p-6 space-y-3"}`}>
         {!embedded ? (
           <Link
-            to={`/app/admin/employee/master/${employeeId}?tab=ctc`}
+            to={`${profilePath}?tab=ctc`}
             className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to Employee Master
+            {backLabel}
           </Link>
         ) : null}
         <p className="text-sm text-red-600">{error || "Employee not found."}</p>
@@ -2092,11 +2134,11 @@ export default function SalaryEmployeeCtc({
         {!embedded ? (
           <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-2.5 border-t border-border bg-surface-sunken">
             <Link
-              to={`/app/admin/employee/master/${employeeId}?tab=ctc`}
+              to={`${profilePath}?tab=ctc`}
               className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-secondary hover:text-accent"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
-              Back to Employee Master
+              {backLabel}
             </Link>
           </div>
         ) : null}
@@ -2181,7 +2223,9 @@ export default function SalaryEmployeeCtc({
             </div>
 
             <div className="px-6 sm:px-8 lg:px-10 py-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-10 gap-y-6 border-b border-divider">
-              <ProfileField label="Location">Indus Head Office</ProfileField>
+              <ProfileField label="Location">
+                {isSiteEmployee ? employee.location || "No active site" : "Indus Head Office"}
+              </ProfileField>
               <ProfileField label="Employee Code">{employee.employee_code || "—"}</ProfileField>
               <ProfileField label="Employee Name">{employee.full_name || "—"}</ProfileField>
               <ProfileField label="Designation">{employee.designation || "—"}</ProfileField>
