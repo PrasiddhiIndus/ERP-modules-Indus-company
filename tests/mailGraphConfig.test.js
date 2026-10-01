@@ -31,6 +31,26 @@ describe('Microsoft Graph mail config', () => {
     expect(payload.message.replyTo[0].emailAddress.address).toBe('events@indusfiresafety.com');
   });
 
+  it('sets the sender display name on the from address', () => {
+    const payload = buildGraphMessagePayload({
+      to: 'client@example.com',
+      subject: 'Hello',
+      text: 'Hi',
+      fromAddress: 'notifications@indusfire.com',
+      fromName: 'Indus Fire & Safety',
+    });
+
+    expect(payload.message.from.emailAddress).toEqual({
+      address: 'notifications@indusfire.com',
+      name: 'Indus Fire & Safety',
+    });
+  });
+
+  it('omits from when no sender address is given', () => {
+    const payload = buildGraphMessagePayload({ to: 'client@example.com', subject: 'Hi', text: 'x' });
+    expect(payload.message.from).toBeUndefined();
+  });
+
   it('normalizes attachments for Graph fileAttachment', () => {
     const payload = buildGraphMessagePayload({
       to: 'client@example.com',

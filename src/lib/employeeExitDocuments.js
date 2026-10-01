@@ -254,6 +254,7 @@ export function calculateExperienceParts(dojIso, dolIso) {
 function buildCommonContext(employee, options = {}) {
   const doj = normalizeToIsoDate(employee?.date_of_joining);
   const dol = normalizeToIsoDate(employee?.date_of_leaving);
+  const relieving = normalizeToIsoDate(employee?.date_of_relieving) || dol;
   const resignation = resolveResignationDate(employee);
   const documentDate = options.documentDate || resolveDocumentDate(employee);
   const place = String(employee?.location || options.place || DEFAULT_PLACE).trim() || DEFAULT_PLACE;
@@ -262,11 +263,12 @@ function buildCommonContext(employee, options = {}) {
   const department = String(employee?.department || "").trim();
   const title = titlePrefix(employee?.gender);
   const pronouns = pronounSets(employee?.gender);
-  const dotDol = formatDotDateParts(dol);
+  const dotRelieving = formatDotDateParts(relieving);
 
   return {
     doj,
     dol,
+    relieving,
     resignation,
     documentDate,
     place,
@@ -275,7 +277,7 @@ function buildCommonContext(employee, options = {}) {
     department,
     title,
     pronouns,
-    dotDol,
+    dotRelieving,
     address: resolveEmployeeAddress(employee),
   };
 }
@@ -340,9 +342,9 @@ function buildExperienceReplacements(employee, options) {
     38: `${p.subject[1]} maintained good professional conduct and interpersonal relationships with colleagues and management.`,
     39: p.subject[0],
     40: `${p.subject[1]} has been relieved from the `,
-    42: ctx.dotDol.day,
-    43: ctx.dotDol.month,
-    44: ctx.dotDol.year,
+    42: ctx.dotRelieving.day,
+    43: ctx.dotRelieving.month,
+    44: ctx.dotRelieving.year,
     47: p.possessive[0],
     48: p.object,
     56: ctx.place,
@@ -357,7 +359,7 @@ function buildRelievingReplacements(employee, options) {
 
   return {
     3: titledName,
-    7: formatOrdinalDateLong(ctx.dol),
+    7: formatOrdinalDateLong(ctx.relieving),
     11: titledName,
     18: `Place: ${ctx.place}`,
     19: `Date: ${formatOrdinalDateLong(ctx.documentDate)}`,
@@ -436,7 +438,8 @@ export function mapInactiveEmployeeRow(row) {
     ...row,
     date_of_joining: doj,
     date_of_leaving: dol,
-    date_of_resignation: resolveResignationDate(row),
+    date_of_resignation: normalizeToIsoDate(row?.date_of_resignation) || "",
+    date_of_relieving: normalizeToIsoDate(row?.date_of_relieving) || "",
     experience_label: experience.label,
     experience_years: experience.years,
     experience_months: experience.months,

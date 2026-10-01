@@ -218,6 +218,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const [filterEmployeeCode, setFilterEmployeeCode] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState(readStoredDepartmentFilter);
   const [designationFilter, setDesignationFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('Active');
   const [sortField, setSortField] = useState('employee_id');
   const [sortDirection, setSortDirection] = useState('asc');
   const [currentPage, setCurrentPage] = useState(1);
@@ -348,6 +349,23 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     return Array.from(seen.values()).sort((a, b) =>
       a.localeCompare(b, undefined, { sensitivity: 'base' })
     );
+  }, [employees]);
+
+  const statusCounts = useMemo(() => {
+    const seen = new Map([
+      ['active', { value: 'Active', count: 0 }],
+      ['inactive', { value: 'Inactive', count: 0 }],
+    ]);
+    let total = 0;
+    (employees || []).forEach((row) => {
+      if (!isInHouseEmployeeType(row)) return;
+      total += 1;
+      const raw = String(row?.status || '').trim();
+      const key = isActiveEmployeeRow(row) ? 'active' : raw.toLowerCase();
+      if (!seen.has(key)) seen.set(key, { value: raw, count: 0 });
+      seen.get(key).count += 1;
+    });
+    return { total, options: Array.from(seen.values()) };
   }, [employees]);
 
   const designations = [
@@ -1559,7 +1577,12 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
   const filteredEmployees = useMemo(() => employees.filter((employee) => {
     if (!isInHouseEmployeeType(employee)) return false;
-    if (!isActiveEmployeeRow(employee)) return false;
+    if (statusFilter !== 'All') {
+      const matchesStatus = statusFilter === 'Active'
+        ? isActiveEmployeeRow(employee)
+        : String(employee.status || '').trim().toLowerCase() === statusFilter.toLowerCase();
+      if (!matchesStatus) return false;
+    }
 
     const st = searchTerm.trim().toLowerCase();
     const matchesSearch =
@@ -1607,6 +1630,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     filterEmployeeCode,
     departmentFilter,
     designationFilter,
+    statusFilter,
   ]);
 
   const sortedFilteredEmployees = useMemo(() => {
@@ -1720,7 +1744,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           <p className="text-sm font-semibold text-gray-900">Filters</p>
         </div>
         <div className="p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 items-center">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 items-center">
             <input
               type="text"
               placeholder="Full name"
@@ -1762,6 +1786,20 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                 <option key={d} value={d}>{d}</option>
               ))}
             </select>
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className={filterInputClass}
+              aria-label="Status"
+            >
+              <option value="All">All Status ({statusCounts.total})</option>
+              {statusCounts.options.map((s) => (
+                <option key={s.value} value={s.value}>{s.value} ({s.count})</option>
+              ))}
+            </select>
             <button
               type="button"
               onClick={() => {
@@ -1771,6 +1809,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                 setFilterEmployeeCode('');
                 setDepartmentFilter('All');
                 setDesignationFilter('All');
+                setStatusFilter('Active');
                 setCurrentPage(1);
               }}
               className="h-10 bg-gray-600 text-white px-3 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2 text-sm"
