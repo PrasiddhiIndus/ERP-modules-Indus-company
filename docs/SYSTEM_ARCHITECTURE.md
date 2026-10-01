@@ -572,7 +572,7 @@ That split â€” **SPA + RLS for the ERP, Node only for secrets and providers** â€
 ```mermaid
 flowchart LR
   Dev[Developer] --> GH[GitHub]
-  GH -->|PR / push staging or main| CI[GitHub Actions]
+  GH -->|PR / push main| CI[GitHub Actions]
   CI --> Lint[eslint]
   CI --> Sec[security-check.mjs]
   CI --> Smoke[vitest smoke]
@@ -584,14 +584,13 @@ flowchart LR
   Deploy --> ViteBuild[vite build]
   Deploy --> Copy[copy dist to nginx root]
   Deploy --> PM2[pm2 restart indus-erp]
-  GH -->|push staging| Stg[/root/deploy-staging.sh]
 ```
 
-- Production workflow: `.github/workflows/deploy.yml` (push to `main`)
-- Staging workflow: `.github/workflows/deploy-staging.yml` (push to `staging`)
-- Node 18. Lint + `npm run security-check` (catches service_role in `VITE_*`, etc.) + smoke tests before build.
+- Production workflow: `.github/workflows/deploy.yml` (pull request and push to `main` only).
+- `staging` is a merge branch. It does not deploy and does not run checks. There is no staging server.
+- Developers merge into `staging`, then `staging` merges into `main`. Lint, security check, smoke tests, and deploy run on production.
 - Production secrets: `VITE_SUPABASE_*`, `PROD_SUPABASE_URL`, `PROD_SUPABASE_SERVICE_ROLE_KEY`, `SERVER_HOST` / `USER` / `SSH_KEY`.
-- Deploy scripts: `scripts/deploy.sh` (production), `scripts/deploy-staging.sh` (staging).
+- Deploy script: `scripts/deploy.sh` (production, https://indus-erp.in).
 
 ---
 

@@ -41,7 +41,6 @@ import {
   reviseSalaryStructure,
   roundPa,
   saveSalaryStructure,
-  suggestedPfFromBasic,
   todayInputDate,
 } from "./salaryData";
 import SalaryRevisionHistory from "./SalaryRevisionHistory";
@@ -587,19 +586,6 @@ export default function SalaryEmployeeCtc({
     ]
   );
 
-  const applyPfFromBasic = useCallback((basicValue) => {
-    const b = parseRupeeInput(basicValue);
-    if (b == null || b <= 0) {
-      setEmpPf("");
-      setErPf("");
-      return false;
-    }
-    const { empPf: emp, erPf: er } = suggestedPfFromBasic(b);
-    setEmpPf(String(emp));
-    setErPf(String(er));
-    return true;
-  }, []);
-
   const syncDerived = useCallback(
     (argsOverride = {}) => {
       const args = { ...buildArgs(), ...argsOverride };
@@ -965,6 +951,21 @@ export default function SalaryEmployeeCtc({
     return on;
   }, [employeeId, catalogRev]);
 
+  const formulaExtraLines = useMemo(() => {
+    const lines = [];
+    for (const preset of CTC_OPTIONAL_PRESETS) {
+      if (!optionalPresetsOn[preset.code]) continue;
+      lines.push({ part: "A", code: preset.code, name: preset.name });
+    }
+    for (const comp of profileCustoms.partA) {
+      lines.push({ part: "A", code: comp.code, name: comp.name });
+    }
+    for (const comp of profileCustoms.partB) {
+      lines.push({ part: "B", code: comp.code, name: comp.name });
+    }
+    return lines;
+  }, [optionalPresetsOn, profileCustoms]);
+
   const toggleOptionalPreset = useCallback(
     async (preset, enabled) => {
       if (!canEdit || !employeeId) return;
@@ -1118,29 +1119,38 @@ export default function SalaryEmployeeCtc({
     const map = {};
     for (const preset of CTC_OPTIONAL_PRESETS) {
       if (!optionalPresetsOn[preset.code]) continue;
-      map[preset.code] = parseRupeeInput(customAmounts[preset.code] ?? "");
+      const formula = formulaOverrides[preset.code];
+      map[preset.code] = formula
+        ? evalComponentFormula(formula, parsed, customExtraVars)
+        : parseRupeeInput(customAmounts[preset.code] ?? "");
     }
     for (const comp of profileCustoms.partA) {
-      const isManual = !comp.effective_formula || /^manual$/i.test(String(comp.effective_formula));
-      const computed = isManual
-        ? parseRupeeInput(customAmounts[comp.code] ?? "")
-        : evalComponentFormula(comp.effective_formula, parsed, customExtraVars);
-      map[comp.code] = computed;
+      const formula =
+        formulaOverrides[comp.code] ||
+        (!comp.effective_formula || /^manual$/i.test(String(comp.effective_formula))
+          ? ""
+          : comp.effective_formula);
+      map[comp.code] = formula
+        ? evalComponentFormula(formula, parsed, customExtraVars)
+        : parseRupeeInput(customAmounts[comp.code] ?? "");
     }
     return map;
-  }, [optionalPresetsOn, profileCustoms.partA, customAmounts, parsed, customExtraVars]);
+  }, [optionalPresetsOn, profileCustoms.partA, customAmounts, parsed, customExtraVars, formulaOverrides]);
 
   const customPartBMonthly = useMemo(() => {
     const map = {};
     for (const comp of profileCustoms.partB) {
-      const isManual = !comp.effective_formula || /^manual$/i.test(String(comp.effective_formula));
-      const computed = isManual
-        ? parseRupeeInput(customAmounts[comp.code] ?? "")
-        : evalComponentFormula(comp.effective_formula, parsed, customExtraVars);
-      map[comp.code] = computed;
+      const formula =
+        formulaOverrides[comp.code] ||
+        (!comp.effective_formula || /^manual$/i.test(String(comp.effective_formula))
+          ? ""
+          : comp.effective_formula);
+      map[comp.code] = formula
+        ? evalComponentFormula(formula, parsed, customExtraVars)
+        : parseRupeeInput(customAmounts[comp.code] ?? "");
     }
     return map;
-  }, [profileCustoms.partB, customAmounts, parsed, customExtraVars]);
+  }, [profileCustoms.partB, customAmounts, parsed, customExtraVars, formulaOverrides]);
 
   const sheetPa = useMemo(() => {
     const effectiveOv = (key) => {
@@ -1687,15 +1697,6 @@ export default function SalaryEmployeeCtc({
       gratuityMode: MODE_CUSTOM,
       gratuityMonthly: parseRupeeInput(raw),
     });
-  };
-
-  const applyPfDefaults = () => {
-    if (!canEdit) return;
-    const b = parsed.basic_monthly ?? parseRupeeInput(basic);
-    if (!applyPfFromBasic(b)) return;
-    if (parsed.gross_monthly != null) {
-      setPt(String(defaultPtForGross(parsed.gross_monthly)));
-    }
   };
 
   const enterReviseMode = () => {
@@ -2414,12 +2415,17 @@ export default function SalaryEmployeeCtc({
                     />
                   }
                   hint={
-                    on
-                      ? "Included in Part A CTC — enter monthly and P.A.; Save CTC to keep."
-                      : "Tick to add this component to CTC"
+                    formulaOverrides[preset.code]
+                      ? shownFormula(preset.code, "Manual")
+                      : on
+                        ? "Manual"
+                        : "Tick to add this component to CTC"
                   }
+                  formulaActive={Boolean(formulaOverrides[preset.code])}
                   monthly={
-                    on ? (
+                    on && formulaOverrides[preset.code] ? (
+                      <MoneyCell value={customPartAMonthly[preset.code]} />
+                    ) : on ? (
                       <AmountInput
                         value={manualVal}
                         onChange={canEdit ? (v) => setCustomAmount(preset.code, v) : () => {}}
@@ -2442,30 +2448,29 @@ export default function SalaryEmployeeCtc({
             })}
 
             {profileCustoms.partA.map((comp) => {
-              const isManual = !comp.effective_formula || /^manual$/i.test(String(comp.effective_formula));
-              const computed = isManual
-                ? null
-                : evalComponentFormula(comp.effective_formula, parsed, customExtraVars);
+              const savedFormula = formulaOverrides[comp.code];
+              const ownFormula =
+                savedFormula ||
+                (!comp.effective_formula || /^manual$/i.test(String(comp.effective_formula))
+                  ? ""
+                  : comp.effective_formula);
               const manualVal = customAmounts[comp.code] ?? "";
               return (
                 <SheetRow
                   key={comp.code}
                   label={comp.name}
-                  hint={
-                    isManual
-                      ? "Manual amount — enter monthly and P.A."
-                      : comp.formula_label || comp.effective_formula || null
-                  }
+                  hint={ownFormula || "Manual"}
+                  formulaActive={Boolean(savedFormula)}
                   monthly={
-                    isManual ? (
+                    ownFormula ? (
+                      <MoneyCell value={customPartAMonthly[comp.code]} />
+                    ) : (
                       <AmountInput
                         value={manualVal}
                         onChange={canEdit ? (v) => setCustomAmount(comp.code, v) : () => {}}
                         label={`${comp.name} monthly`}
                         readOnly={!canEdit}
                       />
-                    ) : (
-                      <MoneyCell value={computed} />
                     )
                   }
                   pa={renderPaField(`custom:${comp.code}`, sheetPa.customPartA[comp.code], {
@@ -2832,30 +2837,29 @@ export default function SalaryEmployeeCtc({
             />
 
             {profileCustoms.partB.map((comp) => {
-              const isManual = !comp.effective_formula || /^manual$/i.test(String(comp.effective_formula));
-              const computed = isManual
-                ? null
-                : evalComponentFormula(comp.effective_formula, parsed, customExtraVars);
+              const savedFormula = formulaOverrides[comp.code];
+              const ownFormula =
+                savedFormula ||
+                (!comp.effective_formula || /^manual$/i.test(String(comp.effective_formula))
+                  ? ""
+                  : comp.effective_formula);
               const manualVal = customAmounts[comp.code] ?? "";
               return (
                 <SheetRow
                   key={comp.code}
                   label={comp.name}
-                  hint={
-                    isManual
-                      ? "Manual amount — enter monthly and P.A."
-                      : comp.formula_label || comp.effective_formula || null
-                  }
+                  hint={ownFormula || "Manual"}
+                  formulaActive={Boolean(savedFormula)}
                   monthly={
-                    isManual ? (
+                    ownFormula ? (
+                      <MoneyCell value={customPartBMonthly[comp.code]} />
+                    ) : (
                       <AmountInput
                         value={manualVal}
                         onChange={canEdit ? (v) => setCustomAmount(comp.code, v) : () => {}}
                         label={`${comp.name} monthly`}
                         readOnly={!canEdit}
                       />
-                    ) : (
-                      <MoneyCell value={computed} />
                     )
                   }
                   pa={renderPaField(`custom:${comp.code}`, sheetPa.customPartB[comp.code], {
@@ -2995,18 +2999,7 @@ export default function SalaryEmployeeCtc({
               Formula preview only — salary save is paused during rewire.
             </span>
           ) : null}
-          {canEdit ? (
-            <button
-              type="button"
-              onClick={applyPfDefaults}
-              disabled={!parsed.basic_monthly || parsed.basic_monthly <= 0}
-              className="h-10 px-4 rounded-md border border-border-strong bg-white text-sm font-medium text-ink hover:bg-row-hover disabled:opacity-40 disabled:pointer-events-none"
-              title="Fill Employee PF 12% and Employer PF 13% of Basic (capped ₹15,000)"
-            >
-              Suggest PF (12% / 13%)
-            </button>
-          ) : null}
-          {persist && !isSiteEmployee ? (
+          {persist ? (
             <button
               type="button"
               onClick={() => navigate("/app/admin/salary-admin/salary-processing")}
@@ -3038,6 +3031,8 @@ export default function SalaryEmployeeCtc({
         employeeName={employee?.full_name || ""}
         structure={baseStructure}
         savedOverrides={formulaOverrides}
+        extraLines={formulaExtraLines}
+        manualAmounts={customAmounts}
         modes={formulaModes}
         canEdit
         saving={formulaSaving}
