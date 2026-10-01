@@ -5,7 +5,6 @@
  */
 
 import { evaluateFormula, validateFormula } from "../../../modules/payroll/formula/evaluator";
-import { isPeopleSalaryKey } from "./salarySubject";
 
 export const FORMULA_OVERRIDE_EVENT = "ctc-formula-overrides-changed";
 const STORAGE_KEY = "admin_ctc_profile_formula_overrides_v1";
@@ -92,7 +91,6 @@ export function loadLocalFormulaOverrides(employeeId) {
 export function localOverrideIdSet() {
   const ids = new Set();
   for (const [id, row] of Object.entries(readStore())) {
-    if (isPeopleSalaryKey(id)) continue;
     if (Object.keys(normalizeFormulaMap(row)).length) ids.add(String(id));
   }
   return ids;

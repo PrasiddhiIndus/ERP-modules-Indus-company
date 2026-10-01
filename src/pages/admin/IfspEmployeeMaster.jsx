@@ -351,21 +351,26 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     );
   }, [employees]);
 
+  const statusesFromData = useMemo(() => {
+    const seen = new Map([['active', 'Active'], ['inactive', 'Inactive']]);
+    (employees || []).forEach((row) => {
+      const value = String(row?.status || '').trim();
+      if (!value) return;
+      const key = value.toLowerCase();
+      if (!seen.has(key)) seen.set(key, value);
+    });
+    return Array.from(seen.values());
+  }, [employees]);
+
   const statusCounts = useMemo(() => {
-    const seen = new Map([
-      ['active', { value: 'Active', count: 0 }],
-      ['inactive', { value: 'Inactive', count: 0 }],
-    ]);
-    let total = 0;
+    const counts = { all: 0 };
     (employees || []).forEach((row) => {
       if (!isInHouseEmployeeType(row)) return;
-      total += 1;
-      const raw = String(row?.status || '').trim();
-      const key = isActiveEmployeeRow(row) ? 'active' : raw.toLowerCase();
-      if (!seen.has(key)) seen.set(key, { value: raw, count: 0 });
-      seen.get(key).count += 1;
+      counts.all += 1;
+      const key = isActiveEmployeeRow(row) ? 'active' : String(row?.status || '').trim().toLowerCase();
+      counts[key] = (counts[key] || 0) + 1;
     });
-    return { total, options: Array.from(seen.values()) };
+    return counts;
   }, [employees]);
 
   const designations = [
@@ -1795,9 +1800,9 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
               className={filterInputClass}
               aria-label="Status"
             >
-              <option value="All">All Status ({statusCounts.total})</option>
-              {statusCounts.options.map((s) => (
-                <option key={s.value} value={s.value}>{s.value} ({s.count})</option>
+              <option value="All">All Status ({statusCounts.all})</option>
+              {statusesFromData.map((s) => (
+                <option key={s} value={s}>{s} ({statusCounts[s.toLowerCase()] || 0})</option>
               ))}
             </select>
             <button
