@@ -20,8 +20,10 @@ import {
   generateUniqueCode,
   listAllSites,
   listAssignments,
+  listPeopleForSites,
   listPeoplePage,
   listSiteDesignations,
+  pickCurrentAssignment,
   updateAssignment,
   updatePerson,
   userFriendlyError,
@@ -78,27 +80,32 @@ export default function PeopleMasterPage() {
     setLoading(true);
     try {
       const from = (page - 1) * pageSize;
-      const [{ rows, count }, allSites] = await Promise.all([
-        listPeoplePage({ search, from, to: from + pageSize - 1 }),
-        listAllSites({ siteIds: siteIdsForQuery(access) }),
-      ]);
-      setPeople(rows);
-      setTotal(count);
+      const allSites = await listAllSites({ siteIds: siteIdsForQuery(access) });
       setSites(allSites);
-      const allAssigns = rows.length
-        ? await listAssignments({ personIds: rows.map((p) => p.id) })
-        : [];
-      const byPerson = {};
-      for (const p of rows) byPerson[p.id] = [];
-      for (const a of allAssigns) {
-        if (!byPerson[a.person_id]) byPerson[a.person_id] = [];
-        byPerson[a.person_id].push(a);
+
+      let rows;
+      let byPerson;
+      if (access.seesAllSites && !siteType) {
+        const result = await listPeoplePage({ search, from, to: from + pageSize - 1 });
+        rows = result.rows;
+        setTotal(result.count);
+        const allAssigns = rows.length ? await listAssignments({ personIds: rows.map((p) => p.id) }) : [];
+        byPerson = {};
+        for (const p of rows) byPerson[p.id] = [];
+        for (const a of allAssigns) (byPerson[a.person_id] ||= []).push(a);
+      } else {
+        const siteIds = filterSitesByType(allSites, siteType).map((s) => s.id);
+        const result = await listPeopleForSites({ siteIds, search });
+        setTotal(result.rows.length);
+        rows = result.rows.slice(from, from + pageSize);
+        byPerson = result.assignmentsByPerson;
       }
+
+      setPeople(rows);
       const map = {};
       for (const p of rows) {
         const assigns = byPerson[p.id] || [];
-        const open = assigns.find((a) => !a.to_date) || assigns[assigns.length - 1];
-        map[p.id] = { all: assigns, current: open };
+        map[p.id] = { all: assigns, current: pickCurrentAssignment(assigns) };
       }
       setAssignmentsByPerson(map);
     } catch (err) {
@@ -106,20 +113,15 @@ export default function PeopleMasterPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, access.seesAllSites, access.allowedSiteIds]);
+  }, [page, pageSize, search, siteType, access.seesAllSites, access.allowedSiteIds]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  const visiblePeople = useMemo(() => {
-    if (access.seesAllSites && !siteType) return people;
-    const allowed = new Set(typedSites.map((s) => s.id));
-    return people.filter((p) => {
-      const cur = assignmentsByPerson[p.id]?.current;
-      return cur && allowed.has(cur.site_id);
-    });
-  }, [people, siteType, typedSites, assignmentsByPerson, access.seesAllSites]);
+  useEffect(() => {
+    setPage(1);
+  }, [siteType]);
 
   const setField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -233,6 +235,13 @@ export default function PeopleMasterPage() {
           toast.error("Assignment cannot start before joining date.");
           return;
         }
+        if (!editingAssignmentId) {
+          const check = await validateMaxWorkers(Number(form.site_id), form.from_date, form.to_date || null);
+          if (!check.allowed) {
+            toast.error(check.message);
+            return;
+          }
+        }
         let personId = editingId;
         if (editingId) await updatePerson(editingId, personPayload);
         else {
@@ -246,11 +255,6 @@ export default function PeopleMasterPage() {
             to_date: form.to_date || null,
           });
         } else {
-          const check = await validateMaxWorkers(Number(form.site_id), form.from_date, form.to_date || null);
-          if (!check.allowed) {
-            toast.error(check.message);
-            return;
-          }
           await createAssignment({
             person_id: personId,
             site_id: Number(form.site_id),
@@ -337,23 +341,23 @@ export default function PeopleMasterPage() {
   };
 
   const columns = [
-    { key: "unique_code", header: "Code" },
-    { key: "full_name", header: "Name" },
-    { key: "designation", header: "Designation", render: (row) => row.designation || "—" },
+    { key: "unique_code", label: "Code" },
+    { key: "full_name", label: "Name" },
+    { key: "designation", label: "Designation", render: (row) => row.designation || "—" },
     {
       key: "site",
-      header: "Current site",
+      label: "Current site",
       render: (row) => siteName(assignmentsByPerson[row.id]?.current?.site_id),
     },
-    { key: "joining_date", header: "Joined", render: (row) => formatDateDisplay(row.joining_date) },
+    { key: "joining_date", label: "Joined", render: (row) => formatDateDisplay(row.joining_date) },
     {
       key: "is_active",
-      header: "Status",
+      label: "Status",
       render: (row) => <StatusChip label={row.is_active === false ? "Inactive" : "Active"} severity={row.is_active === false ? "neutral" : "info"} />,
     },
     {
       key: "actions",
-      header: "",
+      label: "",
       render: (row) => (
         <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
           <button type="button" className="p-1 text-accent" onClick={() => openEdit(row)} aria-label="Edit person">
@@ -379,8 +383,8 @@ export default function PeopleMasterPage() {
         </label>
       </FilterBar>
 
-      <SectionCard title={loading ? "Loading…" : `${visiblePeople.length} people`}>
-        <DenseTable columns={columns} rows={visiblePeople} rowKey="id" onRowClick={openEdit} />
+      <SectionCard title={loading ? "Loading…" : `${total} people`}>
+        <DenseTable columns={columns} rows={people} rowKey="id" onRowClick={openEdit} />
         <div className="flex justify-end gap-2 mt-3">
           <button type="button" className="erp-btn-secondary rounded-control px-3 py-1.5 text-xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</button>
           <button type="button" className="erp-btn-secondary rounded-control px-3 py-1.5 text-xs" disabled={page * pageSize >= total} onClick={() => setPage((p) => p + 1)}>Next</button>
