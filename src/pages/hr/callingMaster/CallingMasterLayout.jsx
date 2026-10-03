@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   ClipboardCheck,
@@ -21,6 +21,18 @@ import {
 import { fetchPendingRequisitionCount } from "../../../lib/candidateRequisitionsApi";
 import { RecruitmentUiProvider } from "./recruitmentUiContext";
 import { getRecruitmentUi } from "./callingMasterConfig";
+import { setCallingSiteTypeFilter } from "./callingMasterStorage";
+import { getAllowedCallingSiteTypes, normalizeCallingSiteType } from "./callingSiteTypeAccess";
+
+const SITE_TYPE_STORAGE_KEY = "hr.callingDatabase.siteType";
+
+function readStoredSiteType() {
+  try {
+    return normalizeCallingSiteType(window.localStorage.getItem(SITE_TYPE_STORAGE_KEY));
+  } catch {
+    return "";
+  }
+}
 
 const TAB_ICONS = {
   ".": LayoutDashboard,
@@ -55,6 +67,31 @@ export default function CallingMasterLayout() {
   );
   const ui = getRecruitmentUi(scope);
 
+  const allowedSiteTypes = useMemo(() => getAllowedCallingSiteTypes(userProfile), [userProfile]);
+  const [pickedSiteType, setPickedSiteType] = useState(readStoredSiteType);
+  const siteTypeFilter = useMemo(() => {
+    if (scope !== "hr") return "";
+    if (allowedSiteTypes.length === 1) return allowedSiteTypes[0];
+    return allowedSiteTypes.includes(pickedSiteType) ? pickedSiteType : "";
+  }, [scope, allowedSiteTypes, pickedSiteType]);
+
+  // Layout effect so the filter is in place before child tabs run their first load.
+  useLayoutEffect(() => {
+    setCallingSiteTypeFilter(siteTypeFilter);
+  }, [siteTypeFilter]);
+
+  useEffect(() => () => setCallingSiteTypeFilter(""), []);
+
+  const handleSiteTypeChange = (value) => {
+    const next = normalizeCallingSiteType(value);
+    setPickedSiteType(next);
+    try {
+      window.localStorage.setItem(SITE_TYPE_STORAGE_KEY, next);
+    } catch {
+      /* storage unavailable */
+    }
+  };
+
   useEffect(() => {
     if (scope !== "admin") {
       setPendingRequisitions(0);
@@ -74,13 +111,38 @@ export default function CallingMasterLayout() {
   }, [scope, pathname]);
 
   return (
-    <RecruitmentUiProvider scope={scope}>
+    <RecruitmentUiProvider scope={scope} siteTypeFilter={siteTypeFilter} allowedSiteTypes={allowedSiteTypes}>
     <div className="mx-auto flex w-full min-h-0 max-w-[1600px] flex-col gap-4 p-4 md:p-6">
-      <div className="shrink-0">
-        <h1 className="type-page-title text-ink">{ui.pageTitle}</h1>
-        <p className="type-meta mt-1.5 max-w-3xl text-ink-secondary">
-          {ui.pageSubtitle}
-        </p>
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="type-page-title text-ink">{ui.pageTitle}</h1>
+          <p className="type-meta mt-1.5 max-w-3xl text-ink-secondary">
+            {ui.pageSubtitle}
+          </p>
+        </div>
+        {scope === "hr" ? (
+          <label className="flex shrink-0 flex-col">
+            <span className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">Fire / Safety</span>
+            {allowedSiteTypes.length > 1 ? (
+              <select
+                value={siteTypeFilter}
+                onChange={(event) => handleSiteTypeChange(event.target.value)}
+                className="h-9 min-w-[11rem] rounded-lg border border-slate-300 bg-white px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">All (Fire + Safety)</option>
+                {allowedSiteTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="inline-flex h-9 min-w-[8rem] items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700">
+                {siteTypeFilter || "—"} only
+              </span>
+            )}
+          </label>
+        ) : null}
       </div>
 
       {scope === "admin" && pendingRequisitions > 0 ? (

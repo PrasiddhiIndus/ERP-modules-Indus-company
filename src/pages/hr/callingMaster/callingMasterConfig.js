@@ -1,4 +1,4 @@
-import { Briefcase, Building2, PhoneCall, UserRound } from "lucide-react";
+import { Briefcase, Building2, MessageSquareText, PhoneCall, UserRound } from "lucide-react";
 
 export const CALLING_MASTER_ROUTE = "calling-master";
 export const CALLING_MASTER_DROPDOWNS_EVENT = "hr-calling-master-dropdowns-updated";
@@ -311,6 +311,7 @@ export const CALLING_MASTER_FILTER_KEYS = [
   "industryWorked",
   "siteSuitable",
   "currentlyWorking",
+  "callOutcome",
 ];
 
 export const CALLING_MASTER_SEARCH_KEYS = [
@@ -351,7 +352,32 @@ export const CALLING_BY_DEPARTMENTS = ["Human Resource", "Human Resource-Safety"
 export const ADMIN_CALLING_BY_DEPARTMENTS = ["Administration", "Administration-FTC"];
 
 /** Fields hidden on the Admin in-house recruitment screens (column still stored). */
-export const ADMIN_RECRUITMENT_HIDDEN_FIELDS = ["fireCourse", "yearCompleted", "hmvLmv", "drivingLicenseYear"];
+export const CALL_OUTCOME_OPTIONS = [
+  "Interested",
+  "Not Interested",
+  "Call Back Later",
+  "No Response",
+  "Busy",
+  "Switched Off",
+  "Not Reachable",
+  "Wrong Number",
+  "Already Placed",
+  "Other",
+];
+
+/** Current-employment fields greyed out when Currently Working = No. */
+export const NOT_WORKING_DISABLED_FIELDS = ["designation", "company", "workingState", "contractor"];
+
+export function formatCallOutcome(record) {
+  if (!record?.callOutcome) return "";
+  if (record.callOutcome === "Other") {
+    const detail = String(record.callOutcomeOther || "").trim();
+    return detail ? `Other: ${detail}` : "Other";
+  }
+  return record.callOutcome;
+}
+
+export const ADMIN_RECRUITMENT_HIDDEN_FIELDS = ["siteType", "callOutcome", "callOutcomeOther", "fireCourse", "yearCompleted", "hmvLmv", "drivingLicenseYear"];
 
 export function isLinkedDropdownMaster(key, scope = "hr") {
   if (key === "callingBy") return true;
@@ -455,6 +481,7 @@ export function getCallingMasterFilterEntries(scope = "hr") {
     ["industryWorked", "Industry Worked"],
     ["siteSuitable", ui.siteSuitableLabel],
     ["currentlyWorking", "Currently Working"],
+    ["callOutcome", "Call Outcome"],
   ];
   return entries.filter(([key]) => !ui.hiddenFieldKeys.has(key));
 }
@@ -464,6 +491,7 @@ export const CALLING_MASTER_FIELDS = [
     icon: PhoneCall,
     fields: [
       { key: "callDate", label: "Date", type: "date", required: true },
+      { key: "siteType", label: "Fire / Safety", type: "select", optionsKey: "siteType", required: true, placeholder: "Select Fire or Safety" },
       { key: "callingBy", label: "Calling By", type: "select", optionsKey: "callingBy", placeholder: "Select caller" },
       { key: "candidateName", label: "Candidate Name", type: "text", required: true, placeholder: "Enter candidate name" },
       { key: "phoneNumber", label: "Mobile Number", type: "tel", required: true, maxLength: 10, placeholder: "Enter mobile number" },
@@ -508,14 +536,24 @@ export const CALLING_MASTER_FIELDS = [
       { key: "remarks", label: "Remarks", type: "textarea", placeholder: "Add call notes / recruiter remarks", fullWidth: true },
     ],
   },
+  {
+    section: "Call Outcome",
+    icon: MessageSquareText,
+    fields: [
+      { key: "callOutcome", label: "Call Outcome", type: "select", optionsKey: "callOutcome", placeholder: "Select outcome" },
+      { key: "callOutcomeOther", label: "Other outcome", type: "text", required: true, placeholder: "Describe the outcome", showWhen: { key: "callOutcome", equals: "Other" } },
+    ],
+  },
 ];
 
 export const CALLING_MASTER_TABLE_COLUMNS = [
   { key: "callDate", label: "Date", widthClassName: "w-[104px] min-w-[104px] max-w-[104px]" },
   { key: "callingBy", label: "Calling By", widthClassName: "w-[118px] min-w-[118px] max-w-[118px]" },
   { key: "candidateName", label: "Candidate Name", widthClassName: "w-[168px] min-w-[168px] max-w-[168px]" },
+  { key: "siteType", label: "Fire / Safety", widthClassName: "w-[96px] min-w-[96px] max-w-[96px]" },
   { key: "phoneNumber", label: "Mobile Number", widthClassName: "w-[118px] min-w-[118px] max-w-[118px]" },
   { key: "cvSubmitted", label: "CV Submitted", widthClassName: "w-[108px] min-w-[108px] max-w-[108px]" },
+  { key: "callOutcome", label: "Call Outcome", widthClassName: "w-[140px] min-w-[140px] max-w-[140px]" },
   { key: "academicQualification", label: "Academic Qualification", widthClassName: "w-[150px] min-w-[150px] max-w-[150px]" },
   { key: "fireCourse", label: "Fire Course", widthClassName: "w-[140px] min-w-[140px] max-w-[140px]" },
   { key: "yearCompleted", label: "Year Completed", widthClassName: "w-[108px] min-w-[108px] max-w-[108px]" },

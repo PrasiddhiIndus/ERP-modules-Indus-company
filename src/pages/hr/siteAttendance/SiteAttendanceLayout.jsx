@@ -1,5 +1,5 @@
 import React, { Suspense, createContext, useContext, useEffect, useMemo, useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { Navigate, NavLink, Outlet, useLocation } from "react-router-dom";
 import PageLoader from "../../../components/PageLoader";
 import {
   Building2,
@@ -17,6 +17,8 @@ import {
 } from "../../../lib/siteAttendance/siteTypes";
 import { useAuth } from "../../../contexts/AuthContext";
 import { resolveSiteAttendanceAccess } from "../../../lib/siteAttendance/siteAttendanceAccess";
+import { getAllowedSiteAttendanceTabs } from "../../../lib/siteAttendance/siteAttendancePageAccess";
+import { getAllowedHrSiteTypes } from "../callingMaster/callingSiteTypeAccess";
 
 const TABS = [
   { to: "dashboard", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -58,11 +60,22 @@ export function useSiteAttendanceAccess() {
 
 export default function SiteAttendanceLayout() {
   const { user, userProfile } = useAuth();
-  const [siteType, setSiteTypeState] = useState(() => getSelectedSiteType());
+  const { pathname } = useLocation();
+  const allowedSiteTypes = useMemo(() => getAllowedHrSiteTypes(userProfile), [userProfile]);
+  const lockedSiteType = allowedSiteTypes.length === 1 ? allowedSiteTypes[0] : "";
+  const [pickedSiteType, setSiteTypeState] = useState(() => getSelectedSiteType());
+  const siteType = lockedSiteType || pickedSiteType;
   const setSiteType = (value) => {
+    if (lockedSiteType) return;
     setSiteTypeState(setSelectedSiteType(value));
   };
-  const typeValue = useMemo(() => ({ siteType, setSiteType }), [siteType]);
+  const typeValue = useMemo(() => ({ siteType, setSiteType }), [siteType, lockedSiteType]);
+
+  const allowedTabs = useMemo(() => getAllowedSiteAttendanceTabs(userProfile), [userProfile]);
+  const visibleTabs = useMemo(() => TABS.filter((tab) => allowedTabs.includes(tab.to)), [allowedTabs]);
+  const currentTab = pathname.split("/site-attendance/")[1]?.split("/")[0] || "";
+  const blockedTab =
+    currentTab && TABS.some((tab) => tab.to === currentTab) && !allowedTabs.includes(currentTab);
   const [access, setAccess] = useState({
     loading: true,
     canAssignHr: false,
@@ -108,14 +121,19 @@ export default function SiteAttendanceLayout() {
             <div>
               <h1 className="type-page-title text-ink">Site attendance</h1>
               <p className="type-meta mt-1.5 max-w-3xl text-ink-secondary">
-                Contract-site roster, daily marks, and monthly summaries. Same site and people records used by Site Employee IOM.
+                Contract-site roster, daily marks, and monthly summaries.
               </p>
             </div>
             <label className="flex flex-col gap-1 min-w-[160px]">
               <span className="text-[11px] font-medium text-ink-secondary">Site type</span>
-              <TinySelect value={siteType} onChange={(e) => setSiteType(e.target.value)}>
-                <option value="">Select type</option>
-                {SITE_TYPES.map((type) => (
+              <TinySelect
+                value={siteType}
+                onChange={(e) => setSiteType(e.target.value)}
+                disabled={Boolean(lockedSiteType)}
+                title={lockedSiteType ? `Your access is limited to ${lockedSiteType} sites` : undefined}
+              >
+                {!lockedSiteType ? <option value="">All</option> : null}
+                {["Fire", "Safety"].filter((type) => SITE_TYPES.includes(type) && allowedSiteTypes.includes(type)).map((type) => (
                   <option key={type} value={type}>
                     {type}
                   </option>
@@ -126,7 +144,7 @@ export default function SiteAttendanceLayout() {
 
           <div className="shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <nav className="flex flex-wrap gap-2 px-3 py-3 sm:px-4" aria-label="Site attendance">
-              {TABS.map((tab) => {
+              {visibleTabs.map((tab) => {
                 const Icon = tab.icon;
                 return (
                   <NavLink key={tab.to} to={tab.to} end={tab.end} className={tabClass}>
@@ -151,7 +169,13 @@ export default function SiteAttendanceLayout() {
 
           <div className="min-h-0 min-w-0 flex-1">
             <Suspense fallback={<PageLoader />}>
-              {access.loading ? <PageLoader /> : <Outlet />}
+              {blockedTab && visibleTabs[0] ? (
+                <Navigate to={visibleTabs[0].to} replace />
+              ) : access.loading ? (
+                <PageLoader />
+              ) : (
+                <Outlet />
+              )}
             </Suspense>
           </div>
         </div>

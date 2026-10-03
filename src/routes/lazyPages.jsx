@@ -75,7 +75,6 @@ export const HrCallingMasterEntry = lazy(() => import("../pages/hr/callingMaster
 export const HrCallingMasterRequisitions = lazy(
   () => import("../pages/hr/callingMaster/CandidateRequisitionsPage")
 );
-export const HrSiteIom = lazy(() => import("../pages/hr/siteIom/SiteIomPage"));
 export const HrSiteAttendance = lazy(() => import("../pages/hr/siteAttendance/SiteAttendanceLayout"));
 export const HrSiteAttendanceDashboard = lazy(() => import("../pages/hr/siteAttendance/DashboardPage"));
 export const HrSiteAttendanceSites = lazy(() => import("../pages/hr/siteAttendance/SiteMasterPage"));

@@ -37,13 +37,34 @@ import {
   CALLING_MASTER_RECORDS_EVENT,
 } from "./callingMasterConfig";
 
+import { normalizeCallingSiteType } from "./callingSiteTypeAccess";
+
 function notify(eventName) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(eventName));
 }
 
+/** Fire / Safety view filter for every Calling Database list ("" = all the user may see). */
+let siteTypeFilter = "";
+
+export function getCallingSiteTypeFilter() {
+  return siteTypeFilter;
+}
+
+export function setCallingSiteTypeFilter(value) {
+  const next = normalizeCallingSiteType(value);
+  if (next === siteTypeFilter) return;
+  siteTypeFilter = next;
+  notify(CALLING_MASTER_RECORDS_EVENT);
+}
+
+function bySiteType(rows) {
+  if (!siteTypeFilter) return rows || [];
+  return (rows || []).filter((row) => row?.siteType === siteTypeFilter);
+}
+
 export async function loadCallingMasterRecords() {
-  return listCallingCandidates();
+  return bySiteType(await listCallingCandidates());
 }
 
 export async function upsertCallingMasterRecord(record) {
@@ -100,7 +121,7 @@ export async function resetAllDropdownMasters() {
 }
 
 export async function loadSelectedOfferCandidates() {
-  return listSelectedOfferCandidates();
+  return bySiteType(await listSelectedOfferCandidates());
 }
 
 export async function peekOfferEmployeeCodeSuggestion() {
@@ -121,7 +142,7 @@ export async function saveSelectedOfferDetails(record) {
 }
 
 export async function loadOfferResponseCandidates() {
-  return listOfferResponseCandidates();
+  return bySiteType(await listOfferResponseCandidates());
 }
 
 export async function loadOfferExpiryDays() {
@@ -147,7 +168,7 @@ export async function runAutoExpireOffers() {
 }
 
 export async function loadJoiningCandidates() {
-  return listJoiningCandidates();
+  return bySiteType(await listJoiningCandidates());
 }
 
 export async function saveJoiningChecklist(id, checklist) {
@@ -175,7 +196,7 @@ export async function closeNoShow(id) {
 }
 
 export async function loadIomCandidates() {
-  return listIomCandidates();
+  return bySiteType(await listIomCandidates());
 }
 
 export async function saveIomEntry(id, entry) {
@@ -190,7 +211,7 @@ export async function confirmIomEntry(record) {
 }
 
 export async function loadConversionCandidates() {
-  return listConversionCandidates();
+  return bySiteType(await listConversionCandidates());
 }
 
 export async function convertToEmployeeMaster(id) {

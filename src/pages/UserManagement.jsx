@@ -74,6 +74,8 @@ import {
   profileHasBillingModuleAccess,
 } from "../lib/billingVerticalAccess";
 import { normalizeBillingVerticalKey } from "../utils/billingPoListFilters";
+import { CALLING_SITE_TYPE_KEYS } from "./hr/callingMaster/callingSiteTypeAccess";
+import { SITE_ATTENDANCE_PAGES } from "../lib/siteAttendance/siteAttendancePageAccess";
 
 const SEARCH_DEBOUNCE_MS = 350;
 
@@ -337,6 +339,95 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function hasFullHrAccess(form) {
+  return (form?.allowed_modules || []).includes("hr") || resolveTeamModuleKey(form?.team) === "hr";
+}
+
+function hasCallingDatabaseAccess(form) {
+  const subs = form?.allowed_sub_modules || [];
+  return (
+    hasFullHrAccess(form) ||
+    subs.some(
+      (key) =>
+        key === "hr.calling-master" ||
+        key === "hr.site-attendance" ||
+        String(key).startsWith("hr.recruitment.")
+    )
+  );
+}
+
+function hasSiteAttendanceAccess(form) {
+  return hasFullHrAccess(form) || (form?.allowed_sub_modules || []).includes("hr.site-attendance");
+}
+
+function toggleCallingSiteTypeKey(subModules, key) {
+  const list = subModules || [];
+  return list.includes(key) ? list.filter((s) => s !== key) : [...list, key];
+}
+
+/** Site Attendance page-wise access. No selection = every page. */
+function SiteAttendancePageAccessEditor({ allowedSubModules = [], onToggle }) {
+  const picked = SITE_ATTENDANCE_PAGES.filter((page) => allowedSubModules.includes(page.value));
+  const summary =
+    picked.length === 0 || picked.length === SITE_ATTENDANCE_PAGES.length
+      ? "Can open every Site Attendance page"
+      : `Can open ${picked.map((page) => page.label).join(", ")}`;
+  return (
+    <div className="mt-3 rounded-lg border border-sky-100 bg-sky-50/40 p-3">
+      <p className="text-sm font-medium text-gray-800">Site Attendance: pages</p>
+      <p className="text-[11px] text-gray-500 mt-0.5">
+        Choose which Site Attendance pages this user can open. Leave all unticked for every page.
+      </p>
+      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
+        {SITE_ATTENDANCE_PAGES.map((page) => (
+          <label key={page.value} className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={allowedSubModules.includes(page.value)}
+              onChange={() => onToggle(page.value)}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            {page.label}
+          </label>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] font-medium text-sky-800">{summary}</p>
+    </div>
+  );
+}
+
+/** HR Fire / Safety split (Recruitment candidates + Site Attendance sites). No selection = both. */
+function CallingSiteTypeAccessEditor({ allowedSubModules = [], onToggle }) {
+  const picked = CALLING_SITE_TYPE_KEYS.filter((item) => allowedSubModules.includes(item.value));
+  const summary =
+    picked.length === 0 || picked.length === CALLING_SITE_TYPE_KEYS.length
+      ? "Sees Fire and Safety"
+      : `Sees ${picked[0].label} only`;
+  return (
+    <div className="mt-3 rounded-lg border border-orange-100 bg-orange-50/40 p-3">
+      <p className="text-sm font-medium text-gray-800">HR: Fire / Safety</p>
+      <p className="text-[11px] text-gray-500 mt-0.5">
+        Limits Recruitment candidates and Site Attendance sites to the ticked type. Leave both
+        unticked for full access.
+      </p>
+      <div className="mt-2 flex flex-wrap gap-4">
+        {CALLING_SITE_TYPE_KEYS.map((item) => (
+          <label key={item.value} className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={allowedSubModules.includes(item.value)}
+              onChange={() => onToggle(item.value)}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            {item.label}
+          </label>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] font-medium text-orange-800">{summary}</p>
     </div>
   );
 }
@@ -1806,6 +1897,28 @@ const UserManagement = () => {
                       onToggleSubModule={toggleSubModule}
                     />
                   </div>
+                  {hasCallingDatabaseAccess(editForm) ? (
+                    <CallingSiteTypeAccessEditor
+                      allowedSubModules={editForm.allowed_sub_modules}
+                      onToggle={(key) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          allowed_sub_modules: toggleCallingSiteTypeKey(prev.allowed_sub_modules, key),
+                        }))
+                      }
+                    />
+                  ) : null}
+                  {hasSiteAttendanceAccess(editForm) ? (
+                    <SiteAttendancePageAccessEditor
+                      allowedSubModules={editForm.allowed_sub_modules}
+                      onToggle={(key) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          allowed_sub_modules: toggleCallingSiteTypeKey(prev.allowed_sub_modules, key),
+                        }))
+                      }
+                    />
+                  ) : null}
                   {editHasBillingAccess ? (
                     <BillingVerticalGrantsEditor
                       selectedCodes={editBillingVerticals.selectedCodes}
@@ -2040,6 +2153,28 @@ const UserManagement = () => {
                       }
                     />
                   </div>
+                  {hasCallingDatabaseAccess(createForm) ? (
+                    <CallingSiteTypeAccessEditor
+                      allowedSubModules={createForm.allowed_sub_modules}
+                      onToggle={(key) =>
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          allowed_sub_modules: toggleCallingSiteTypeKey(prev.allowed_sub_modules, key),
+                        }))
+                      }
+                    />
+                  ) : null}
+                  {hasSiteAttendanceAccess(createForm) ? (
+                    <SiteAttendancePageAccessEditor
+                      allowedSubModules={createForm.allowed_sub_modules}
+                      onToggle={(key) =>
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          allowed_sub_modules: toggleCallingSiteTypeKey(prev.allowed_sub_modules, key),
+                        }))
+                      }
+                    />
+                  ) : null}
                   {createHasBillingAccess ? (
                     <BillingVerticalGrantsEditor
                       selectedCodes={createBillingVerticals.selectedCodes}

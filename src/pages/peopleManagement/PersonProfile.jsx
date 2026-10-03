@@ -477,13 +477,6 @@ function IdBankSection({ personId }) {
           <Field label="IFSC">{details.ifsc_code}</Field>
         </div>
       )}
-      <p className="mt-3 text-[11px] text-gray-500">
-        Updated through{" "}
-        <Link to="/app/hr/site-iom" className="text-accent hover:underline">
-          Site Employee IOM
-        </Link>
-        .
-      </p>
     </SectionCard>
   );
 }
@@ -678,7 +671,7 @@ export default function PersonProfile() {
               <div className="space-y-3">
                 {Number(person.salary_basic) > 0 ? (
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-700">
-                    Salary on the latest Site Employee IOM:{" "}
+                    Salary on the latest IOM:{" "}
                     <span className="font-semibold tabular-nums">{formatINR(person.salary_basic)}</span> per month.
                     Use it as a reference when entering Gross — the CTC below is saved separately.
                   </div>
