@@ -301,21 +301,21 @@ export default function SiteMasterPage() {
   };
 
   const columns = [
-    { key: "site_name", header: "Site" },
-    { key: "location", header: "Location", render: (row) => row.location || "—" },
-    { key: "site_type", header: "Type", render: (row) => row.site_type || "—" },
-    { key: "shift", header: "Shift", render: (row) => (row.shift_type === "ABCG" ? "ABCG" : "P-days") },
-    { key: "cycle", header: "Salary cycle", render: (row) => formatCycle(row) },
-    { key: "max_workers", header: "Max workers", render: (row) => row.max_workers ?? "—" },
+    { key: "site_name", label: "Site" },
+    { key: "location", label: "Location", render: (row) => row.location || "—" },
+    { key: "site_type", label: "Type", render: (row) => row.site_type || "—" },
+    { key: "shift", label: "Shift", render: (row) => (row.shift_type === "ABCG" ? "ABCG" : "P-days") },
+    { key: "cycle", label: "Salary cycle", render: (row) => formatCycle(row) },
+    { key: "max_workers", label: "Max workers", render: (row) => row.max_workers ?? "—" },
     {
       key: "sandwich_rule",
-      header: "Sandwich",
+      label: "Sandwich",
       render: (row) => <StatusChip label={row.sandwich_rule ? "On" : "Off"} severity={row.sandwich_rule ? "info" : "neutral"} />,
     },
-    { key: "duty_hours", header: "Duty hours", render: (row) => (row.duty_hours === 12 ? "12" : "8") },
+    { key: "duty_hours", label: "Duty hours", render: (row) => (row.duty_hours === 12 ? "12" : "8") },
     {
       key: "actions",
-      header: "",
+      label: "",
       render: (row) => (
         <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
           <button type="button" className="p-1 text-accent" onClick={() => openEdit(row)} aria-label="Edit site">
