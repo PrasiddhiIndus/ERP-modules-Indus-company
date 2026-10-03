@@ -339,6 +339,72 @@ export async function listPeopleByIds(ids) {
   return all;
 }
 
+const PAGE_FETCH_SIZE = 1000;
+
+async function fetchAssignmentsWhereIn(column, values) {
+  const unique = [...new Set((values || []).filter((v) => v != null))];
+  const all = [];
+  for (let i = 0; i < unique.length; i += 80) {
+    const chunk = unique.slice(i, i + 80);
+    for (let from = 0; ; from += PAGE_FETCH_SIZE) {
+      const { data, error } = await supabase
+        .from("site_assignments")
+        .select("*")
+        .in(column, chunk)
+        .order("id", { ascending: true })
+        .range(from, from + PAGE_FETCH_SIZE - 1);
+      throwIf(error, "Unable to load assignments.");
+      all.push(...(data || []));
+      if (!data || data.length < PAGE_FETCH_SIZE) break;
+    }
+  }
+  return all;
+}
+
+/** Open assignment (no to-date), else the latest by from-date. */
+export function pickCurrentAssignment(assignments) {
+  const list = assignments || [];
+  const open = list.find((a) => !a.to_date);
+  if (open) return open;
+  return [...list].sort((a, b) => String(a.from_date || "").localeCompare(String(b.from_date || ""))).pop();
+}
+
+/**
+ * People whose current assignment is at one of `siteIds`, filtered by name/code search,
+ * sorted by name. Returns every match so callers can page client-side.
+ */
+export async function listPeopleForSites({ siteIds, search = "" } = {}) {
+  const allowed = new Set((siteIds || []).map((id) => String(id)));
+  if (!allowed.size) return { rows: [], assignmentsByPerson: {} };
+
+  const siteAssigns = await fetchAssignmentsWhereIn("site_id", [...allowed].map(Number));
+  const candidateIds = [...new Set(siteAssigns.map((a) => a.person_id))];
+  if (!candidateIds.length) return { rows: [], assignmentsByPerson: {} };
+
+  const allAssigns = await fetchAssignmentsWhereIn("person_id", candidateIds);
+  const byPerson = {};
+  for (const a of allAssigns) (byPerson[a.person_id] ||= []).push(a);
+
+  const keepIds = candidateIds.filter((id) => {
+    const current = pickCurrentAssignment(byPerson[id]);
+    return current && allowed.has(String(current.site_id));
+  });
+
+  const term = String(search || "").trim().toLowerCase();
+  const people = (await listPeopleByIds(keepIds))
+    .filter(
+      (p) =>
+        !term ||
+        String(p.full_name || "").toLowerCase().includes(term) ||
+        String(p.unique_code || "").toLowerCase().includes(term)
+    )
+    .sort((a, b) => String(a.full_name || "").localeCompare(String(b.full_name || ""), undefined, { sensitivity: "base" }));
+
+  const assignmentsByPerson = {};
+  for (const p of people) assignmentsByPerson[p.id] = byPerson[p.id] || [];
+  return { rows: people, assignmentsByPerson };
+}
+
 export async function createPerson(payload) {
   const { data, error } = await supabase.from("people").insert(payload).select("*");
   throwIf(error, "Unable to create person.");
