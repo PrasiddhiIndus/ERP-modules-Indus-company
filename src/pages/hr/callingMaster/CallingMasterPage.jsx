@@ -35,6 +35,7 @@ import {
   CALLING_MASTER_FILTER_KEYS,
   CALLING_MASTER_SEARCH_KEYS,
   CALLING_PIPELINE_TABS,
+  HR_ONLY_REQUIRED_SECTIONS,
   NOT_WORKING_DISABLED_FIELDS,
   formatCallOutcome,
   getCallingMasterFields,
@@ -216,9 +217,19 @@ function buildExportRows(rows, headers) {
   });
 }
 
-function validateCallingMasterForm(values, existingRows, { requireSiteType = false } = {}) {
+function validateCallingMasterForm(values, existingRows, { requireSiteType = false, formSections = [] } = {}) {
   const errors = {};
   const cleanPhone = String(values.phoneNumber || "").replace(/\D/g, "");
+
+  formSections.forEach((section) => {
+    if (!HR_ONLY_REQUIRED_SECTIONS.has(section.section)) return;
+    section.fields.forEach((field) => {
+      if (!field.required) return;
+      if (field.showWhen && values[field.showWhen.key] !== field.showWhen.equals) return;
+      if (values.currentlyWorking === "No" && NOT_WORKING_DISABLED_FIELDS.includes(field.key)) return;
+      if (!String(values[field.key] ?? "").trim()) errors[field.key] = `${field.label} is required.`;
+    });
+  });
 
   if (requireSiteType && !values.siteType) errors.siteType = "Choose Fire or Safety.";
   if (values.callOutcome === "Other" && !String(values.callOutcomeOther || "").trim()) {
@@ -857,9 +868,10 @@ export default function CallingMasterPage() {
     }
     setFormValues((current) => ({ ...current, [key]: value }));
     setFormErrors((current) => {
-      if (!current[key]) return current;
+      const cleared = key === "currentlyWorking" && value === "No" ? [key, ...NOT_WORKING_DISABLED_FIELDS] : [key];
+      if (!cleared.some((k) => current[k])) return current;
       const next = { ...current };
-      delete next[key];
+      cleared.forEach((k) => delete next[k]);
       return next;
     });
   };
@@ -871,7 +883,10 @@ export default function CallingMasterPage() {
       phoneNumber: String(formValues.phoneNumber || "").replace(/\D/g, ""),
       heightCm: String(formValues.heightCm || "").replace(/[^\d]/g, ""),
     };
-    const errors = validateCallingMasterForm(nextValues, records, { requireSiteType: ui.siteTypeEnabled });
+    const errors = validateCallingMasterForm(nextValues, records, {
+      requireSiteType: ui.siteTypeEnabled,
+      formSections,
+    });
     if (Object.keys(errors).length) {
       setFormErrors(errors);
       pushToast("Form validation pending", "Please correct the highlighted fields.", "warning");

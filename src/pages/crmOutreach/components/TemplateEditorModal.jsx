@@ -1,9 +1,11 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { toast } from '../../../lib/toast';
 import { useCrmOutreach } from '../contexts/CrmOutreachContext';
-import { TEMPLATE_CATEGORIES } from '../data/outreachConstants';
-import { crmOutreachErrorMsg } from '../../../services/crmOutreachApi';
-import MergeTokenChips from './MergeTokenChips';
+import { MERGE_TOKENS, PREVIEW_SAMPLE, TEMPLATE_CATEGORIES } from '../data/outreachConstants';
+import { crmOutreachErrorMsg, renderOutreachTokens } from '../../../services/crmOutreachApi';
+import EmailBodyEditor from './EmailBodyEditor';
+
+const PREVIEW_CLIENT = { name: 'Sample Client Pvt. Ltd.', contact: 'Mr. Sharma' };
 
 const inputCls =
   'h-9 w-full border border-slate-200 rounded-md px-2.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-accent/30';
@@ -30,7 +32,6 @@ export default function TemplateEditorModal() {
   const [sender, setSender] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
-  const bodyRef = useRef(null);
 
   const [saving, setSaving] = useState(false);
 
@@ -51,20 +52,10 @@ export default function TemplateEditorModal() {
     setBody(existing?.body || '');
   }, [templateEditorOpen, existing, activeSenders, templateDraft, editingTemplateId]);
 
-  const insertToken = useCallback((token) => {
-    const el = bodyRef.current;
-    if (!el) {
-      setBody((prev) => prev + token);
-      return;
-    }
-    const start = el.selectionStart ?? body.length;
-    const end = el.selectionEnd ?? body.length;
-    setBody((prev) => prev.slice(0, start) + token + prev.slice(end));
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + token.length, start + token.length);
-    });
-  }, [body.length]);
+  const renderPreview = useCallback(
+    (text) => renderOutreachTokens(text, PREVIEW_CLIENT, PREVIEW_SAMPLE),
+    []
+  );
 
   if (!templateEditorOpen) return null;
 
@@ -106,7 +97,7 @@ export default function TemplateEditorModal() {
         aria-label="Close"
         onClick={closeTemplateEditor}
       />
-      <div className="relative bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-2xl max-h-[90vh] flex flex-col">
+      <div className="relative bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-6xl max-h-[94vh] flex flex-col">
         <div className="erp-card-header border-b border-gray-200 flex items-center justify-between">
           <div>
             <h4 className="type-card-title text-gray-900">
@@ -166,15 +157,14 @@ export default function TemplateEditorModal() {
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-1">
               Body
-              <span className="text-gray-400 font-normal ml-1">click a token to insert</span>
+              <span className="text-gray-400 font-normal ml-1">plain text or HTML/CSS · click a token to insert</span>
             </label>
-            <textarea
-              ref={bodyRef}
-              className={`${inputCls} min-h-[150px] py-2 resize-y leading-relaxed`}
+            <EmailBodyEditor
               value={body}
-              onChange={(e) => setBody(e.target.value)}
+              onChange={setBody}
+              tokens={MERGE_TOKENS}
+              renderPreview={renderPreview}
             />
-            <MergeTokenChips onInsert={insertToken} />
           </div>
         </div>
 

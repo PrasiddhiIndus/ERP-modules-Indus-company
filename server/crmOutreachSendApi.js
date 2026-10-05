@@ -1,4 +1,5 @@
 import { isMailDispatchConfigured, sendOutboundMail } from './mailDispatch.js';
+import { emailHtmlForSending, escapeTokenValues, looksLikeHtmlEmail } from '../shared/emailHtml.mjs';
 
 const PREVIEW_DEFAULTS = {
   event_name: 'Indus Fire Safety Expo 2026',
@@ -162,7 +163,10 @@ export async function sendCrmOutreachCampaign({
     }
 
     const renderedSubject = renderTokens(subject, client, sample);
-    const renderedBody = renderTokens(bodyTemplate, client, sample);
+    const htmlBody = looksLikeHtmlEmail(bodyTemplate);
+    const renderedBody = htmlBody
+      ? renderTokens(bodyTemplate, escapeTokenValues(client), escapeTokenValues(sample))
+      : renderTokens(bodyTemplate, client, sample);
 
     try {
       const sendResult = await sendOutboundMail({
@@ -170,7 +174,7 @@ export async function sendCrmOutreachCampaign({
         fromName: senderMailbox.display_name,
         to: client.email,
         subject: renderedSubject,
-        text: renderedBody,
+        ...(htmlBody ? { html: emailHtmlForSending(renderedBody) } : { text: renderedBody }),
       });
 
       delivered += 1;
