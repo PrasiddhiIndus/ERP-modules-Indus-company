@@ -515,12 +515,15 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     return subModules.some((s) => BILLING_SUB_MODULE_PREFIXES.some((prefix) => s.startsWith(prefix)));
   }
 
-  function hasCrmOutreachAccess(ctx) {
+  /** audience: 'client' | 'inhouse'. Full module / team / Admin → both; else matching sub-module. */
+  function hasCrmOutreachAccess(ctx, audience = 'client') {
     if (isAdmin(ctx)) return true;
     const team = String(ctx.profile?.team || '').trim().toLowerCase();
     if (CRM_OUTREACH_TEAMS.has(team)) return true;
     const modules = parseModules(ctx.profile?.allowed_modules).map((m) => m.toLowerCase());
-    return hasModule(modules, CRM_OUTREACH_MODULES);
+    if (hasModule(modules, CRM_OUTREACH_MODULES)) return true;
+    const subs = subModulesLower(ctx);
+    return subs.includes('crmoutreach.home') || subs.includes(`crmoutreach.${audience}`);
   }
 
   return {
@@ -529,7 +532,8 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     requireHrOrAdmin: middleware((ctx) => hasHrAccess(ctx)),
     requireAttendanceAdmin: middleware((ctx) => hasAttendanceAdminAccess(ctx)),
     requireBillingAccess: middleware((ctx) => hasBillingAccess(ctx)),
-    requireCrmOutreachAccess: middleware((ctx) => hasCrmOutreachAccess(ctx)),
+    requireCrmOutreachAccess: middleware((ctx) => hasCrmOutreachAccess(ctx, 'client')),
+    requireCrmInHouseMailAccess: middleware((ctx) => hasCrmOutreachAccess(ctx, 'inhouse')),
     requireSoftwareSubscriptionsR2: middleware((ctx) => hasSoftwareSubscriptionsR2Access(ctx)),
     requireFleetR2: middleware((ctx) => hasFleetR2Access(ctx)),
     requireHrCallingR2: middleware((ctx) => hasHrCallingR2Access(ctx)),

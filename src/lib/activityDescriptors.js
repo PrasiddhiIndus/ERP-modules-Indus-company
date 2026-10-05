@@ -28,7 +28,7 @@ export const ROUTE_MODULE_MAP = [
   ['/app/marketing/quotation-tracker', 'Marketing · Quotation tracker'],
   ['/app/marketing/lead-master', 'Marketing · Lead master'],
   ['/app/marketing', 'Marketing'],
-  ['/app/crm-outreach', 'Client Master & Mail Outreach'],
+  ['/app/crm-outreach', 'Client/In-House Mail Outreach'],
   ['/app/maintenance', 'Maintenance'],
   ['/app/hr/calling-master', 'HR · Recruitment / Calling master'],
   ['/app/hr/site-attendance', 'HR · Site attendance'],
