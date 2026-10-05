@@ -57,7 +57,8 @@ import {
   FileText,
   Heart,
   Gift,
-  Clock
+  Clock,
+  X
 } from 'lucide-react';
 import { toast } from '../../lib/toast';
 import EmployeeMasterPersonalForm from './employeeMaster/EmployeeMasterPersonalForm';
@@ -2021,11 +2022,28 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       {/* Add Employee modal — edit opens the employee profile page */}
       {showForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3">
-          <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[92vh] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-            <div className="px-4 py-3 border-b border-gray-200 sticky top-0 bg-white z-10">
-              <h2 className="text-lg font-semibold text-gray-900">Add New Employee</h2>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-employee-title"
+            className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[92vh] flex flex-col overflow-hidden"
+          >
+            <div className="px-4 py-3 border-b border-gray-200 bg-white flex items-center justify-between gap-3 shrink-0">
+              <h2 id="add-employee-title" className="text-lg font-semibold text-gray-900">Add New Employee</h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowForm(false);
+                  setEditingEmployee(null);
+                }}
+                aria-label="Close"
+                title="Close"
+                className="h-8 w-8 inline-flex items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <div className="p-4">
+            <div className="p-4 flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:#9ca3af_#f3f4f6] [&::-webkit-scrollbar]:w-3.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-[3px] [&::-webkit-scrollbar-thumb]:border-solid [&::-webkit-scrollbar-thumb]:border-gray-100 [&::-webkit-scrollbar-thumb]:bg-gray-400 hover:[&::-webkit-scrollbar-thumb]:bg-gray-500 [&::-webkit-scrollbar-track]:bg-gray-100">
               <EmployeeMasterPersonalForm
                 employee={null}
                 employees={employees}
