@@ -537,6 +537,7 @@ export default function SiteMasterPage() {
             <button type="button" className="erp-btn-secondary rounded-control px-3 py-1.5 text-xs" onClick={() => setNhPh([...nhPh, { date: "", remarks: "" }])}>Add holiday</button>
           </div>
 
+          {/* Site supervisors and HR executives on this site — hidden for now.
           <div>
             <p className="text-xs font-semibold mb-2">Site supervisors</p>
             {supervisors.map((row, idx) => (
@@ -597,6 +598,7 @@ export default function SiteMasterPage() {
               <button type="button" className="erp-btn-secondary rounded-control px-3 py-1.5 text-xs" onClick={() => setHrAssignments([...hrAssignments, { employee_code: "", from_date: "", to_date: "" }])}>Add HR assignment</button>
             ) : null}
           </div>
+          */}
 
           {editingId ? <p className="text-[11px] text-ink-muted">Created {formatDateDisplay(rows.find((r) => r.id === editingId)?.created_at)}</p> : null}
           <div className="flex justify-end gap-2">
