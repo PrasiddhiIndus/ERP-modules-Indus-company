@@ -29,9 +29,20 @@ export default function PayslipTemplate({
   if (!payslip) return null;
 
   const earnRows = [
-    { label: "Earned basic", amount: payslip.basic_earned },
-    { label: "HRA", amount: payslip.hra_earned },
-    { label: "Other allowances", amount: payslip.special_allowance },
+    ...(payslip.annexure_structure
+      ? [
+          { label: "Basic", amount: payslip.basic_earned },
+          { label: "HRA", amount: payslip.hra_earned },
+          { label: "Conveyance Allowance", amount: payslip.conveyance_earned },
+          { label: "Advance Against Statutory Bonus", amount: payslip.stat_bonus_earned },
+          { label: "Medical Allowance", amount: payslip.medical_earned },
+          { label: "Special Allowance", amount: payslip.special_allowance },
+        ].filter((r) => Number(r.amount) > 0)
+      : [
+          { label: "Earned basic", amount: payslip.basic_earned },
+          { label: "HRA", amount: payslip.hra_earned },
+          { label: "Other allowances", amount: payslip.special_allowance },
+        ]),
     ...(payslip.custom_components || [])
       .filter((c) => c.kind === "earning" && Number(c.amount) > 0)
       .map((c) => ({ label: c.name || c.code || "Earning", amount: c.amount })),

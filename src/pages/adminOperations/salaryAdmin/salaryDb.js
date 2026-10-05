@@ -30,6 +30,29 @@ const OPTIONAL_STRUCTURE_COLUMNS = [
   "formula_overrides_json",
 ];
 
+/** Annexure-I columns. Never dropped silently: saving without them would lose the breakup. */
+const ANNEXURE_STRUCTURE_COLUMNS = [
+  "structure_version",
+  "skill_category",
+  "salary_scheme",
+  "employee_status",
+  "employee_category",
+  "salary_band",
+  "input_basis",
+  "input_amount",
+  "rule_version_id",
+  "validation_status",
+  "is_custom",
+  "custom_overrides_json",
+  "system_values_json",
+  "revision_type",
+  "conveyance_monthly",
+  "stat_bonus_monthly",
+  "medical_allowance_monthly",
+  "ex_gratia_monthly",
+  "pf_wage_monthly",
+];
+
 const omittedStructureColumns = new Set();
 let structureColumnProbe = null;
 
@@ -104,6 +127,14 @@ async function withStructureColumnFallback(run) {
   for (let i = 0; i < 6 && error && isUnknownColumnError(error); i += 1) {
     const col = columnNameFromError(error);
     if (!col || omittedStructureColumns.has(col)) break;
+    if (ANNEXURE_STRUCTURE_COLUMNS.includes(col)) {
+      return {
+        data: null,
+        error: new Error(
+          "The new salary structure is not set up in the database yet. Apply the latest database update and try again."
+        ),
+      };
+    }
     omittedStructureColumns.add(col);
     ({ data, error } = await run("*", omitKnownMissingColumns));
   }
@@ -257,7 +288,49 @@ export function uiPayloadToStructureColumns(payload, employeeMasterId) {
     revision_reason: payload.revision_reason?.trim?.() || payload.revision_reason || null,
     date_of_birth: payload.date_of_birth || null,
     date_of_joining: payload.date_of_joining || null,
+    ...annexureColumns(payload),
   };
+}
+
+function annexureColumns(payload) {
+  if (!payload?.structure_version) return {};
+  return {
+    structure_version: payload.structure_version,
+    skill_category: payload.skill_category || null,
+    salary_scheme: payload.salary_scheme || null,
+    employee_status: payload.employee_status || null,
+    employee_category: payload.employee_category || null,
+    salary_band: numOrNull(payload.salary_band),
+    input_basis: payload.input_basis || null,
+    input_amount: numOrNull(payload.input_amount),
+    rule_version_id: payload.rule_version_id || null,
+    validation_status: payload.validation_status || null,
+    is_custom: Boolean(payload.is_custom),
+    custom_overrides_json: paOverridesOrEmpty(payload.custom_overrides_json),
+    system_values_json: paOverridesOrEmpty(payload.system_values_json),
+    revision_type: payload.revision_type || null,
+    conveyance_monthly: numOrNull(payload.conveyance_monthly),
+    stat_bonus_monthly: numOrNull(payload.stat_bonus_monthly),
+    medical_allowance_monthly: numOrNull(payload.medical_allowance_monthly),
+    ex_gratia_monthly: numOrNull(payload.ex_gratia_monthly),
+    pf_wage_monthly: numOrNull(payload.pf_wage_monthly),
+  };
+}
+
+function dayBefore(isoDate) {
+  const s = String(isoDate || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Last day of the archived record; null when the new record replaces it from the same date. */
+function closingDate(archivedWef, nextWef) {
+  const to = dayBefore(nextWef);
+  const from = String(archivedWef || "").slice(0, 10);
+  if (!to || (from && to < from)) return null;
+  return to;
 }
 
 function revisionRowToUi(row) {
@@ -645,6 +718,9 @@ export async function dbReviseSalaryStructure(employeeMasterId, payload, meta = 
     date_of_birth: prev.date_of_birth,
     date_of_joining: prev.date_of_joining,
     snapshot_json: snapshot,
+    ...(payload.structure_version
+      ? { effective_to: closingDate(archivedWef, meta.wef_date ?? payload.wef_date) }
+      : {}),
   };
 
   let { error: revError } = await salaryTable("structure_revisions").insert(revisionInsert);

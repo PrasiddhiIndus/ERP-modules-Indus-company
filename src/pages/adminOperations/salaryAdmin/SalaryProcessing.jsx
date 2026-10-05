@@ -652,6 +652,22 @@ function EmployeeSalaryDetailPage({
               <Money value={line.special_allowance} />
             </StatementAmt>
           </StatementRow>
+          {[
+            ["Conveyance allowance", line.conveyance_full, line.conveyance_earned],
+            ["Advance against statutory bonus", line.stat_bonus_full, line.stat_bonus_earned],
+            ["Medical allowance", line.medical_full, line.medical_earned],
+          ]
+            .filter(([, full]) => Number(full) > 0)
+            .map(([label, full, earned]) => (
+              <StatementRow key={label} label={label}>
+                <StatementAmt className="hidden sm:block">
+                  <Money value={full} />
+                </StatementAmt>
+                <StatementAmt>
+                  <Money value={earned} />
+                </StatementAmt>
+              </StatementRow>
+            ))}
           <StatementRow label="PF earned basic" hint="From PF basic × days">
             <StatementAmt className="hidden sm:block">
               <Money value={line.pf_basic} />
@@ -2123,6 +2139,9 @@ export default function SalaryProcessing() {
     "B.earn",
     "HRA",
     "Special",
+    "Conv.",
+    "Adv Bonus",
+    "Medical",
     "Custom+",
     "Gross W",
     "PF 12%",
@@ -2313,6 +2332,15 @@ export default function SalaryProcessing() {
                   </td>
                   <td className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100">
                     <Money value={line.special_allowance} />
+                  </td>
+                  <td className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100">
+                    <Money value={line.conveyance_earned} />
+                  </td>
+                  <td className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100">
+                    <Money value={line.stat_bonus_earned} />
+                  </td>
+                  <td className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100">
+                    <Money value={line.medical_earned} />
                   </td>
                   <td className="px-0.5 py-0.5 border-b border-slate-100">
                     <input

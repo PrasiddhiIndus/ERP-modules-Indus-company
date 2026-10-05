@@ -22,6 +22,7 @@ import {
   seedSalaryDeductionsMapFromDb,
 } from "../../admin/employeeMaster/deductions/deductionsDb";
 import { resolvePersonComponentsForPayroll } from "./salaryComponentsCatalog";
+import { annexureFromLine, annexureLineInputs } from "./annexureCtcRecord";
 import {
   appendProcessBatch,
   applyRevisionToRunSheet,
@@ -388,6 +389,19 @@ function toDbLinePayload(line, { includeRunId = false } = {}) {
   return out;
 }
 
+function annexureLineFields(line, cj) {
+  const ax = annexureFromLine(line);
+  if (!ax) return {};
+  return {
+    conveyance_full: num(ax.conveyance_full),
+    conveyance_earned: num(cj.conveyance_earned),
+    stat_bonus_full: num(ax.stat_bonus_full),
+    stat_bonus_earned: num(cj.stat_bonus_earned),
+    medical_full: num(ax.medical_full),
+    medical_earned: num(cj.medical_earned),
+  };
+}
+
 function hydrateMonthLine(line) {
   if (!line) return line;
   const cj = line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
@@ -403,6 +417,7 @@ function hydrateMonthLine(line) {
     custom_ded_full: cj.custom_ded_full ?? 0,
     custom_earn: cj.custom_earn,
     custom_ded: cj.custom_ded,
+    ...annexureLineFields(line, cj),
     department: line.department || cj.department || snap.department || "",
     employee_id: line.employee_id || cj.employee_id || snap.employee_id || "",
     uan_no: line.uan_no || cj.uan_no || snap.uan_no || "",
@@ -481,6 +496,8 @@ export function buildSheetLineFromSources({
   };
 
   const personComps = resolvePersonComponentsForPayroll(employee.id, structureLike);
+  const annexure = computed.declared ? annexureLineInputs(structure) : null;
+  const pfBasicSeed = annexure ? annexure.pf_wage_full : computed.pf_basic;
 
   const snapshot = {
     employee_code: employee.employee_code || employee.employee_id || "",
@@ -500,7 +517,7 @@ export function buildSheetLineFromSources({
     basic_full: basicFull,
     hra_full: hraFull,
     special_full: specialFull,
-    pf_basic: computed.pf_basic,
+    pf_basic: pfBasicSeed,
     present_days: payableDays,
     loan: computed.loan,
     sal_adv: computed.sal_adv,
@@ -510,6 +527,7 @@ export function buildSheetLineFromSources({
     custom_earn_full: personComps.custom_earn_full,
     custom_ded_full: personComps.custom_ded_full,
     custom_components: personComps.items,
+    ...(annexure ? { annexure } : {}),
   };
 
   const draft = {
@@ -530,7 +548,7 @@ export function buildSheetLineFromSources({
     ctc_monthly: structure?.ctc_monthly ?? null,
     present_days: payableDays,
     total_days: monthDays,
-    pf_basic: computed.pf_basic,
+    pf_basic: pfBasicSeed,
     pf_earned_basic: computed.pf_earned_basic,
     basic_full: basicFull,
     basic_earned: computed.basic_earned,
@@ -557,6 +575,7 @@ export function buildSheetLineFromSources({
       custom_ded_full: personComps.custom_ded_full,
       custom_employer_full: personComps.custom_employer_full,
       custom_components: personComps.items,
+      ...(annexure ? { annexure } : {}),
     },
     line_revision_no: 1,
     has_master_variance: false,
@@ -596,15 +615,38 @@ export function recomputeLineFromEdits(line, monthDays, opts) {
   const specialEarned = round0((specialFull / td) * K);
   const customEarn = round0((customEarnFull / td) * K);
   const customDed = round0((customDedFull / td) * K);
-  const gross = basicEarned + hraEarned + specialEarned + customEarn;
-  const empPf = round0(pfEarned * 0.12);
-  const salaryRate = num(line.salary_rate);
-  const esicEligible = salaryRate > 0 && salaryRate <= 21000;
-  const empEsic = esicEligible ? round0((gross * 0.75) / 100) : 0;
+  // Annexure-I records: earnings, PF, ESIC and PT come from the CTC record and are
+  // prorated with the same paid-days rule as Basic / HRA / Special.
+  const annexure = annexureFromLine(line);
+  const conveyanceEarned = annexure ? round0((num(annexure.conveyance_full) / td) * K) : 0;
+  const statBonusEarned = annexure ? round0((num(annexure.stat_bonus_full) / td) * K) : 0;
+  const medicalEarned = annexure ? round0((num(annexure.medical_full) / td) * K) : 0;
+  const gross =
+    basicEarned +
+    hraEarned +
+    specialEarned +
+    conveyanceEarned +
+    statBonusEarned +
+    medicalEarned +
+    customEarn;
+  let empPf;
+  let empEsic;
+  if (annexure) {
+    const pfWage = num(annexure.pf_wage_full);
+    empPf = pfWage > 0 ? round0((num(annexure.ee_pf_full) * pfEarned) / pfWage) : 0;
+    empEsic = round0((num(annexure.ee_esic_full) / td) * K);
+  } else {
+    empPf = round0(pfEarned * 0.12);
+    const salaryRate = num(line.salary_rate);
+    const esicEligible = salaryRate > 0 && salaryRate <= 21000;
+    empEsic = esicEligible ? round0((gross * 0.75) / 100) : 0;
+  }
   const pt =
     options.keepPt && line.pt_amount != null && line.pt_amount !== ""
       ? round0(line.pt_amount)
-      : defaultPtForGross(gross);
+      : annexure
+        ? round0(annexure.pt_full)
+        : defaultPtForGross(gross);
   const loan = round0(line.loan);
   const salAdv = round0(line.sal_adv);
   const unpaid = round0(line.unpaid_paid);
@@ -624,6 +666,16 @@ export function recomputeLineFromEdits(line, monthDays, opts) {
     custom_ded_full: customDedFull,
     custom_earn: customEarn,
     custom_ded: customDed,
+    ...(annexure
+      ? {
+          conveyance_full: num(annexure.conveyance_full),
+          conveyance_earned: conveyanceEarned,
+          stat_bonus_full: num(annexure.stat_bonus_full),
+          stat_bonus_earned: statBonusEarned,
+          medical_full: num(annexure.medical_full),
+          medical_earned: medicalEarned,
+        }
+      : {}),
     gross_wages: gross,
     emp_pf: empPf,
     emp_esic: empEsic,
@@ -642,6 +694,14 @@ export function recomputeLineFromEdits(line, monthDays, opts) {
       custom_earn: customEarn,
       custom_ded: customDed,
       custom_components: cj.custom_components || snap.custom_components || [],
+      ...(annexure
+        ? {
+            annexure,
+            conveyance_earned: conveyanceEarned,
+            stat_bonus_earned: statBonusEarned,
+            medical_earned: medicalEarned,
+          }
+        : {}),
     },
   };
 }

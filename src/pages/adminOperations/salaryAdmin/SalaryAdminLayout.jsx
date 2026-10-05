@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { Calculator, FileBarChart2, LayoutDashboard, Layers } from "lucide-react";
+import { Calculator, FileBarChart2, LayoutDashboard, Layers, SlidersHorizontal } from "lucide-react";
 
 const BASE = "/app/admin/salary-admin";
 
@@ -19,6 +19,13 @@ const MODULES = [
     path: `${BASE}/salary-components`,
     icon: Layers,
     match: (p) => p.startsWith(`${BASE}/salary-components`),
+  },
+  {
+    id: "payroll-rules",
+    label: "Payroll Rules",
+    path: `${BASE}/payroll-rules`,
+    icon: SlidersHorizontal,
+    match: (p) => p.startsWith(`${BASE}/payroll-rules`),
   },
   {
     id: "processing",

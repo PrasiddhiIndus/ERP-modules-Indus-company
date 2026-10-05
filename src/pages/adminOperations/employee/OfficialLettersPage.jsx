@@ -52,6 +52,14 @@ import {
   OFFICIAL_LETTER_TYPES,
   officialLetterTypeLabel,
 } from "../../../lib/officialLetterDocuments";
+import { supabase } from "../../../lib/supabase";
+import { employmentTypeLabel } from "../../../utils/employeeMasterReminders";
+import { getSalaryStructure } from "../salaryAdmin/salaryData";
+import { fetchRuleVersions, findRuleVersionById } from "../salaryAdmin/payrollRulesDb";
+import { buildCtcHistory, isAnnexureRecord } from "../salaryAdmin/annexureCtcRecord";
+import { printAnnexure } from "../salaryAdmin/annexurePrint";
+
+const ANNEXURE_LETTER_TYPES = new Set(["appointment", "confirmation", "promotion"]);
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 const COL_MIN = "min-w-[120px]";
@@ -150,6 +158,7 @@ export function OfficialLettersPage() {
   const [savingLetter, setSavingLetter] = useState(false);
   const [previewHtml, setPreviewHtml] = useState("");
   const [previewTitle, setPreviewTitle] = useState("Letter preview");
+  const [previewLetterType, setPreviewLetterType] = useState("");
   const previewFrameRef = React.useRef(null);
 
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -363,6 +372,7 @@ export function OfficialLettersPage() {
   const handlePreviewLetter = (payload) => {
     try {
       const html = buildOfficialLetterHtml(payload);
+      setPreviewLetterType(payload?.letterType || "");
       setPreviewTitle(
         `${officialLetterTypeLabel(payload?.letterType)} — ${payload?.employeeName || payload?.fullName || "Letter"}`
       );
@@ -385,6 +395,33 @@ export function OfficialLettersPage() {
     } catch (err) {
       console.error(err);
       toast.error("Could not open the print dialog.");
+    }
+  };
+
+  const handlePrintAnnexure = async () => {
+    if (!selected?.id) return;
+    try {
+      const [structure, versions, empRes] = await Promise.all([
+        getSalaryStructure(selected.id),
+        fetchRuleVersions(),
+        supabase.from("admin_ifsp_employee_master").select("*").eq("id", selected.id).maybeSingle(),
+      ]);
+      if (!isAnnexureRecord(structure)) {
+        toast.warning("No salary breakup yet. Create the CTC on the new salary structure in Employee Master first.");
+        return;
+      }
+      const history = buildCtcHistory(structure);
+      const prior = history[1];
+      printAnnexure({
+        employee: empRes.data || selected,
+        record: structure,
+        previous: previewLetterType === "promotion" && isAnnexureRecord(prior) ? prior : null,
+        ruleVersion: findRuleVersionById(versions, structure.rule_version_id),
+        segment: employmentTypeLabel((empRes.data || selected).employment_type),
+      });
+    } catch (err) {
+      console.error("Official letters: Annexure print failed", err);
+      toast.error("Could not print the salary breakup.");
     }
   };
 
@@ -1140,6 +1177,15 @@ export function OfficialLettersPage() {
             >
               Close
             </button>
+            {ANNEXURE_LETTER_TYPES.has(previewLetterType) && selected ? (
+              <button
+                type="button"
+                onClick={handlePrintAnnexure}
+                className="h-8 px-3 rounded-lg border border-gray-200 text-xs font-medium"
+              >
+                Print Annexure-I
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={handlePrintPreview}

@@ -7,7 +7,7 @@ import { employmentTypeLabel } from "../../utils/employeeMasterReminders";
 import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 import { PageTaskHeader, SectionCard, StatusChip } from "../adminOperations/components/AdminUi";
 import EmployeeMasterPersonalForm from "./employeeMaster/EmployeeMasterPersonalForm";
-import SalaryEmployeeCtc from "../adminOperations/salaryAdmin/SalaryEmployeeCtc";
+import AnnexureCtcPanel from "../adminOperations/salaryAdmin/AnnexureCtcPanel";
 import { dbListFormulaOverrideEmployeeIds } from "../adminOperations/salaryAdmin/salaryDb";
 import {
   FORMULA_OVERRIDE_EVENT,
@@ -487,7 +487,10 @@ export default function IfspEmployeeMasterDetail() {
 
             {activeTab === "ctc" ? (
               <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
-                <SalaryEmployeeCtc employeeId={String(employee.id)} embedded persist />
+                <AnnexureCtcPanel
+                  employee={employee}
+                  onEmployeeUpdated={(saved) => setEmployee((prev) => ({ ...prev, ...saved }))}
+                />
               </div>
             ) : null}
 
