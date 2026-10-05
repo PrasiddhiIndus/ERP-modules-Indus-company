@@ -73,6 +73,7 @@ export function normalizeAttachment(attachment) {
 
 export function buildGraphMessagePayload({
   to,
+  bcc,
   subject,
   text,
   html,
@@ -105,6 +106,13 @@ export function buildGraphMessagePayload({
       },
     ],
   };
+
+  const bccList = (Array.isArray(bcc) ? bcc : [])
+    .map((addr) => String(addr || '').trim())
+    .filter(Boolean);
+  if (bccList.length) {
+    message.bccRecipients = bccList.map((address) => ({ emailAddress: { address } }));
+  }
 
   if (fromAddress) {
     message.from = {

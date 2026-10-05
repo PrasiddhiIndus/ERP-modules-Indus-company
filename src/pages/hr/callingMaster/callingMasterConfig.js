@@ -454,13 +454,18 @@ export function getCallingDropdownMasters(scope = "hr") {
   });
 }
 
-export function getCallingMasterFields(scope = "hr") {
+/** Sections whose fields are mandatory only on the HR calling screen. */
+export const HR_ONLY_REQUIRED_SECTIONS = new Set(["Current Employment", "Compensation & Suitability"]);
+
+export function getCallingMasterFields(scope = "hr", { requireEmploymentDetails = true } = {}) {
   const ui = getRecruitmentUi(scope);
+  const relaxRequired = (section) =>
+    (scope === "admin" || !requireEmploymentDetails) && HR_ONLY_REQUIRED_SECTIONS.has(section.section);
   return CALLING_MASTER_FIELDS.map((section) => ({
     ...section,
     fields: section.fields
       .filter((field) => !ui.hiddenFieldKeys.has(field.key))
-      .map((field) => relabelField(field, scope)),
+      .map((field) => relabelField(relaxRequired(section) ? { ...field, required: false } : field, scope)),
   })).filter((section) => section.fields.length > 0);
 }
 
@@ -515,24 +520,24 @@ export const CALLING_MASTER_FIELDS = [
     section: "Current Employment",
     icon: Briefcase,
     fields: [
-      { key: "currentlyWorking", label: "Currently Working", type: "select", optionsKey: "currentlyWorking", placeholder: "Select status" },
-      { key: "designation", label: "Designation", type: "select", optionsKey: "designation", placeholder: "Select designation" },
-      { key: "company", label: "Company", type: "text", placeholder: "Enter company" },
-      { key: "workingState", label: "Working State", type: "select", optionsKey: "workingState", placeholder: "Select working state" },
-      { key: "contractor", label: "Contractor", type: "text", placeholder: "Enter contractor name" },
-      { key: "industryWorked", label: "Industry Worked", type: "select", optionsKey: "industryWorked", placeholder: "Select industry" },
-      { key: "totalExperience", label: "Total Experience (years)", type: "number", placeholder: "Enter total experience" },
+      { key: "currentlyWorking", label: "Currently Working", type: "select", optionsKey: "currentlyWorking", required: true, placeholder: "Select status" },
+      { key: "designation", label: "Designation", type: "select", optionsKey: "designation", required: true, placeholder: "Select designation" },
+      { key: "company", label: "Company", type: "text", required: true, placeholder: "Enter company" },
+      { key: "workingState", label: "Working State", type: "select", optionsKey: "workingState", required: true, placeholder: "Select working state" },
+      { key: "contractor", label: "Contractor", type: "text", required: true, placeholder: "Enter contractor name" },
+      { key: "industryWorked", label: "Industry Worked", type: "select", optionsKey: "industryWorked", required: true, placeholder: "Select industry" },
+      { key: "totalExperience", label: "Total Experience (years)", type: "number", required: true, placeholder: "Enter total experience" },
     ],
   },
   {
     section: "Compensation & Suitability",
     icon: Building2,
     fields: [
-      { key: "salaryGross", label: "Salary Gross", type: "number", placeholder: "Enter salary" },
-      { key: "facilitiesProvided", label: "Facilities Provided", type: "text", placeholder: "Accommodation / PF / ESIC etc." },
-      { key: "hmvLmv", label: "HMV / LMV", type: "select", optionsKey: "hmvLmv", placeholder: "Select license type" },
-      { key: "drivingLicenseYear", label: "Year of Issue", type: "number", placeholder: "e.g. 2018" },
-      { key: "siteSuitable", label: "Site Suitable", type: "select", optionsKey: "siteSuitable", placeholder: "Select site" },
+      { key: "salaryGross", label: "Salary Gross", type: "number", required: true, placeholder: "Enter salary" },
+      { key: "facilitiesProvided", label: "Facilities Provided", type: "text", required: true, placeholder: "Accommodation / PF / ESIC etc." },
+      { key: "hmvLmv", label: "HMV / LMV", type: "select", optionsKey: "hmvLmv", required: true, placeholder: "Select license type" },
+      { key: "drivingLicenseYear", label: "Year of Issue", type: "number", required: true, placeholder: "e.g. 2018" },
+      { key: "siteSuitable", label: "Site Suitable", type: "select", optionsKey: "siteSuitable", required: true, placeholder: "Select site" },
       { key: "remarks", label: "Remarks", type: "textarea", placeholder: "Add call notes / recruiter remarks", fullWidth: true },
     ],
   },

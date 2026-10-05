@@ -5,6 +5,8 @@ import { crmOutreachErrorMsg } from '../../../services/crmOutreachApi';
 import { PREVIEW_SAMPLE } from '../data/outreachConstants';
 import { useCrmOutreach } from '../contexts/CrmOutreachContext';
 import MergeTokenChips from './MergeTokenChips';
+import EmailPreviewFrame from './EmailPreviewFrame';
+import { escapeTokenValues, looksLikeHtmlEmail } from '../../../../shared/emailHtml.mjs';
 import { InlineAlert } from '../../adminOperations/components/AdminUi';
 
 const inputCls =
@@ -98,7 +100,9 @@ export default function ComposeSendModal() {
   }, [body.length]);
 
   const previewClient = recipients[0] || clients[0];
-  const previewBody = renderTokens(body, previewClient, PREVIEW_SAMPLE);
+  const previewBody = looksLikeHtmlEmail(body)
+    ? renderTokens(body, escapeTokenValues(previewClient), escapeTokenValues(PREVIEW_SAMPLE))
+    : renderTokens(body, previewClient, PREVIEW_SAMPLE);
 
   const handleConfirmSend = async () => {
     if (senderError) {
@@ -283,8 +287,8 @@ export default function ComposeSendModal() {
                 <div className="bg-surface-sunken px-3 py-2 text-[11px] text-ink-muted border-b border-border">
                   From: {sender || '—'} · Subject: {subject}
                 </div>
-                <div className="px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap max-h-52 overflow-y-auto">
-                  {previewBody}
+                <div className="h-[340px]">
+                  <EmailPreviewFrame body={previewBody} />
                 </div>
               </div>
               {senderError ? (
