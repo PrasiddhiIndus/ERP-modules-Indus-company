@@ -91,7 +91,31 @@ const SHEET_HEADERS = [
   "CTC",
   "Status",
   "Locked on",
+  "Conveyance",
+  "Adv. Statutory Bonus",
+  "Medical Allowance",
+  "Scheme",
+  "Emp. Status",
+  "Band",
+  "Custom",
+  "CTC W.E.F.",
 ];
+
+function annexureCells(line) {
+  const cj = line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
+  const ax = cj.annexure || line.source_snapshot_json?.annexure || null;
+  if (!ax) return ["", "", "", "", "", "", "", ""];
+  return [
+    num(line.conveyance_earned ?? cj.conveyance_earned),
+    num(line.stat_bonus_earned ?? cj.stat_bonus_earned),
+    num(line.medical_earned ?? cj.medical_earned),
+    ax.scheme === "new" ? "New Scheme" : ax.scheme === "old" ? "Old Scheme" : "",
+    ax.status === "confirmed" ? "Confirmed" : ax.status === "probation" ? "Probation" : "",
+    ax.band != null ? `Band ${ax.band}` : "",
+    ax.is_custom ? "Custom" : "",
+    fmtDate(ax.wef_date),
+  ];
+}
 
 function triggerXlsxDownload(buffer, filename) {
   const blob = new Blob([buffer], {
@@ -209,11 +233,12 @@ export async function exportSalaryProcessingWorkbook({ run, lines }, opts = {}) 
       lineCtcLabel(line),
       lineStatusLabel(line),
       fmtDay(line.lockedOn),
+      ...annexureCells(line),
     ];
     values.forEach((v, i) => {
       ws.getCell(r, i + 1).value = v;
     });
-    moneyCols(ws, r, [10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28]);
+    moneyCols(ws, r, [10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 32, 33, 34]);
     if (line.salaryLocked || line.processStatus === "locked") {
       ws.getRow(r).fill = {
         type: "pattern",
