@@ -442,6 +442,13 @@ export default function EmployeeMasterPersonalForm({
               className={ctrl}
               placeholder="Optional HR code"
             />
+            {employee?.id &&
+            String(employee.employee_code || '').trim() &&
+            String(formData.employee_code || '').trim() !== String(employee.employee_code || '').trim() ? (
+              <p className="mt-1 text-xs text-amber-700">
+                Attendance, leave and comp-off history of {String(employee.employee_code).trim()} will move to the new code.
+              </p>
+            ) : null}
           </div>
           <div>
             <label className={lbl}>Status</label>
@@ -611,6 +618,18 @@ export default function EmployeeMasterPersonalForm({
             />
           </div>
           <div>
+            <label className={lbl}>Previous experience (years)</label>
+            <input
+              type="number"
+              value={formData.other_experience}
+              onChange={(e) => setFormData({ ...formData, other_experience: e.target.value })}
+              className={ctrl}
+              min="0"
+              step="0.1"
+              placeholder="e.g. 3.5"
+            />
+          </div>
+          <div>
             <label className={lbl}>IFSPL experience</label>
             <input
               type="text"
@@ -622,7 +641,7 @@ export default function EmployeeMasterPersonalForm({
             />
           </div>
           <div>
-            <label className={lbl}>Total experience</label>
+            <label className={lbl}>Total experience <span className="font-normal text-gray-400">(IFSPL + previous)</span></label>
             <input
               type="text"
               readOnly
@@ -945,18 +964,7 @@ export default function EmployeeMasterPersonalForm({
               className={ctrl}
             />
           </div>
-          <div className="sm:col-span-2 lg:col-span-1">
-            <label className={lbl}>Previous experience (years)</label>
-            <input
-              type="number"
-              value={formData.other_experience}
-              onChange={(e) => setFormData({ ...formData, other_experience: e.target.value })}
-              className={ctrl}
-              min="0"
-              step="0.1"
-            />
-          </div>
-          <div className="sm:col-span-2 lg:col-span-2">
+          <div className="sm:col-span-2 lg:col-span-3">
             <label className={lbl}>Qualification</label>
             <input
               type="text"
