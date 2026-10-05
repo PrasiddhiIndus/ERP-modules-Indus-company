@@ -442,6 +442,13 @@ export default function EmployeeMasterPersonalForm({
               className={ctrl}
               placeholder="Optional HR code"
             />
+            {employee?.id &&
+            String(employee.employee_code || '').trim() &&
+            String(formData.employee_code || '').trim() !== String(employee.employee_code || '').trim() ? (
+              <p className="mt-1 text-xs text-amber-700">
+                Attendance, leave and comp-off history of {String(employee.employee_code).trim()} will move to the new code.
+              </p>
+            ) : null}
           </div>
           <div>
             <label className={lbl}>Status</label>
