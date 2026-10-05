@@ -33,6 +33,11 @@ import { fetchAllLeaveInboxTables } from './adminLeaveRequestsApi.js';
 import { fetchAllTourInboxTables } from './adminTourRequestsApi.js';
 import { createAuthMiddleware } from './authMiddleware.js';
 import { sendCrmOutreachCampaign } from './crmOutreachSendApi.js';
+import {
+  listInHouseEmployees,
+  processInHouseCampaignBatch,
+  startInHouseCampaign,
+} from './crmInHouseMailApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -1581,6 +1586,59 @@ app.post('/api/crm-outreach/send-campaign', requireCrmOutreachAccess, async (req
       error: err?.message || 'Failed to send campaign.',
       message: err?.message || 'Failed to send campaign.',
     });
+  }
+});
+
+function crmInHouseServiceClient() {
+  return getSupabaseServiceClient(getSupabaseUrlForServer, getSupabaseServiceRoleKeyForServer);
+}
+
+function sendCrmInHouseError(res, err, fallback) {
+  const status = Number(err?.status) || 400;
+  if (status >= 500) console.error('[crm-outreach/inhouse]', err?.message || err);
+  return res.status(status).json({
+    error: err?.message || fallback,
+    message: err?.message || fallback,
+  });
+}
+
+app.get('/api/crm-outreach/inhouse/employees', requireCrmOutreachAccess, async (req, res) => {
+  try {
+    const result = await listInHouseEmployees({ supabaseAdmin: crmInHouseServiceClient() });
+    return res.json(result);
+  } catch (err) {
+    return sendCrmInHouseError(res, err, 'Could not load employees.');
+  }
+});
+
+app.post('/api/crm-outreach/inhouse/campaigns', requireCrmOutreachAccess, async (req, res) => {
+  try {
+    const result = await startInHouseCampaign({
+      supabaseAdmin: crmInHouseServiceClient(),
+      userId: req.user?.id,
+      subject: req.body?.subject,
+      bodyTemplate: req.body?.bodyTemplate,
+      templateId: req.body?.templateId,
+      templateName: req.body?.templateName,
+      recipientProfileIds: req.body?.recipientProfileIds,
+      groupIds: req.body?.groupIds,
+    });
+    return res.json(result);
+  } catch (err) {
+    return sendCrmInHouseError(res, err, 'Failed to start the mail.');
+  }
+});
+
+app.post('/api/crm-outreach/inhouse/campaigns/:id/send-batch', requireCrmOutreachAccess, async (req, res) => {
+  try {
+    const result = await processInHouseCampaignBatch({
+      supabaseAdmin: crmInHouseServiceClient(),
+      userId: req.user?.id,
+      campaignId: req.params.id,
+    });
+    return res.json(result);
+  } catch (err) {
+    return sendCrmInHouseError(res, err, 'Failed to send mail.');
   }
 });
 

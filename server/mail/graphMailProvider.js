@@ -130,6 +130,7 @@ export async function sendMail({
   from,
   fromName,
   to,
+  bcc,
   subject,
   text,
   html,
@@ -156,6 +157,7 @@ export async function sendMail({
 
   const payload = buildGraphMessagePayload({
     to: toMail,
+    bcc,
     subject,
     text,
     html,
@@ -169,6 +171,7 @@ export async function sendMail({
   logMailInfo('graph.send.attempt', {
     mailbox: config.notificationEmail,
     to: maskEmail(toMail),
+    bccCount: payload.message.bccRecipients?.length || 0,
     subject: String(subject || '').slice(0, 120),
     attachmentCount: payload.message.attachments?.length || 0,
     replyTo: reply.replyTo ? maskEmail(reply.replyTo) : null,

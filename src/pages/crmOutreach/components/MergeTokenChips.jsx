@@ -1,10 +1,10 @@
 import React from 'react';
 import { MERGE_TOKENS } from '../data/outreachConstants';
 
-export default function MergeTokenChips({ onInsert, className = '' }) {
+export default function MergeTokenChips({ onInsert, className = '', tokens = MERGE_TOKENS }) {
   return (
     <div className={`flex flex-wrap gap-1.5 mt-2 ${className}`.trim()}>
-      {MERGE_TOKENS.map((token) => (
+      {tokens.map((token) => (
         <button
           key={token}
           type="button"

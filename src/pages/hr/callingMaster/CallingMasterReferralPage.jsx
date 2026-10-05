@@ -56,7 +56,7 @@ function emptyReferralForm(siteType = "") {
 }
 
 function referralSections(scope = "hr") {
-  return getCallingMasterFields(scope)
+  return getCallingMasterFields(scope, { requireEmploymentDetails: false })
     .map((section) => ({
       ...section,
       fields: section.fields.filter((field) => REFERRAL_BASIC_KEYS.has(field.key)),
