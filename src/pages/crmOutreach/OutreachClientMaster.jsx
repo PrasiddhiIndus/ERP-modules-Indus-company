@@ -1,12 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Edit2, FileSpreadsheet, Plus, Search, Send } from 'lucide-react';
+import { Edit2, FileSpreadsheet, Plus, Search, Send, SlidersHorizontal, X } from 'lucide-react';
 import {
   Badge,
   DenseTable,
-  FilterBar,
   InlineAlert,
   KpiTile,
-  PageTaskHeader,
   StatusChip,
   TinyInput,
   TinySelect,
@@ -35,6 +33,20 @@ export default function OutreachClientMaster() {
   const [sortDir, setSortDir] = useState(1);
   const [selected, setSelected] = useState(() => new Set());
   const [importOpen, setImportOpen] = useState(false);
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
+
+  const extraFilterCount = [cityFilter, stateFilter, siteStatusFilter, manpowerFilter].filter((v) => v !== 'all').length;
+  const anyFilterActive = Boolean(search.trim()) || moduleFilter !== 'all' || statusFilter !== 'all' || extraFilterCount > 0;
+
+  const clearFilters = () => {
+    setSearch('');
+    setModuleFilter('all');
+    setStatusFilter('all');
+    setCityFilter('all');
+    setStateFilter('all');
+    setSiteStatusFilter('all');
+    setManpowerFilter('all');
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -169,11 +181,17 @@ export default function OutreachClientMaster() {
         label: 'Client',
         headerRender: () => sortHeader('Client', 'name'),
         render: (row) => (
-          <div className="min-w-[200px]">
-            <p className="font-semibold text-ink text-xs">{row.name}</p>
-            <p className="text-[11px] text-ink-muted mt-0.5">
-              {row.contact} · <span className="font-mono">{row.email}</span>
-            </p>
+          <div className="flex items-center gap-2.5 min-w-[220px]">
+            <span className="w-8 h-8 shrink-0 rounded-full bg-accent-soft text-accent text-xs font-semibold flex items-center justify-center">
+              {String(row.name || '?').trim().charAt(0).toUpperCase()}
+            </span>
+            <div className="min-w-0">
+              <p className="font-semibold text-ink text-[13px] truncate">{row.name}</p>
+              <p className="text-[11px] text-ink-muted mt-0.5 truncate">
+                {row.contact ? `${row.contact} · ` : ''}
+                {row.email}
+              </p>
+            </div>
           </div>
         ),
       },
@@ -192,14 +210,9 @@ export default function OutreachClientMaster() {
       },
       {
         key: 'city',
-        label: 'Location',
-        headerRender: () => sortHeader('Location', 'city'),
-        render: (row) => (
-          <div>
-            <p>{row.city || '—'}</p>
-            {row.state ? <p className="text-[10px] text-ink-muted">{row.state}</p> : null}
-          </div>
-        ),
+        label: 'City',
+        headerRender: () => sortHeader('City', 'city'),
+        render: (row) => row.city || '—',
       },
       {
         key: 'state',
@@ -237,7 +250,7 @@ export default function OutreachClientMaster() {
         label: '',
         widthClassName: 'w-20',
         render: (row) => (
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
             <button
               type="button"
               title="Send mail"
@@ -278,89 +291,116 @@ export default function OutreachClientMaster() {
         <KpiTile label="Mails Sent (30d)" value={loading ? '…' : statsDisplay.mails30d} />
       </div>
 
-      <PageTaskHeader
-        title="Client Master"
-        subtitle="Sort by module, filter, and reach clients directly from their record"
-      >
-        <button
-          type="button"
-          onClick={() => setImportOpen(true)}
-          className="erp-btn-secondary h-8 px-3 text-xs inline-flex items-center gap-1.5"
-        >
-          <FileSpreadsheet className="w-3.5 h-3.5" />
-          Import
-        </button>
-        <button
-          type="button"
-          onClick={() => openClientEditor(null)}
-          className="erp-btn-secondary h-8 px-3 text-xs inline-flex items-center gap-1.5"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Add Client
-        </button>
-      </PageTaskHeader>
-
-      <FilterBar>
-        <div className="flex-1 min-w-[180px] relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-          <TinyInput
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by client, contact, or email…"
-            className="pl-8 w-full"
-          />
+      <div className="rounded-card border border-border bg-surface shadow-card">
+        <div className="flex flex-wrap items-center gap-2 p-3">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+            <TinyInput
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by client, contact, or email…"
+              className="pl-8 w-full"
+            />
+          </div>
+          <TinySelect value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value)} className="min-w-[150px]">
+            <option value="all">All Modules</option>
+            {Object.values(BUSINESS_MODULES).map((m) => (
+              <option key={m.id} value={m.id}>{m.label}</option>
+            ))}
+          </TinySelect>
+          <TinySelect value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="min-w-[130px]">
+            <option value="all">All Statuses</option>
+            <option value="Active">Active</option>
+            <option value="Lead">Lead</option>
+            <option value="Inactive">Inactive</option>
+          </TinySelect>
+          <button
+            type="button"
+            onClick={() => setMoreFiltersOpen((v) => !v)}
+            aria-expanded={moreFiltersOpen}
+            className={`erp-btn-secondary h-8 px-3 text-xs inline-flex items-center gap-1.5 ${
+              moreFiltersOpen || extraFilterCount ? 'border-accent text-accent' : ''
+            }`}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            More filters
+            {extraFilterCount ? (
+              <span className="bg-accent text-white text-[10px] font-mono px-1.5 rounded-full">{extraFilterCount}</span>
+            ) : null}
+          </button>
+          {anyFilterActive ? (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="h-8 px-2 text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1"
+            >
+              <X className="w-3.5 h-3.5" />
+              Clear
+            </button>
+          ) : null}
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setImportOpen(true)}
+              className="erp-btn-secondary h-8 px-3 text-xs inline-flex items-center gap-1.5"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              Import
+            </button>
+            <button
+              type="button"
+              onClick={() => openClientEditor(null)}
+              className="erp-btn-primary h-8 px-3 text-xs inline-flex items-center gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add Client
+            </button>
+          </div>
         </div>
-        <TinySelect value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value)} className="min-w-[150px]">
-          <option value="all">All Modules</option>
-          {Object.values(BUSINESS_MODULES).map((m) => (
-            <option key={m.id} value={m.id}>{m.label}</option>
-          ))}
-        </TinySelect>
-        <TinySelect value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="min-w-[130px]">
-          <option value="all">All Statuses</option>
-          <option value="Active">Active</option>
-          <option value="Lead">Lead</option>
-          <option value="Inactive">Inactive</option>
-        </TinySelect>
-        <TinySelect value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} className="min-w-[130px]">
-          <option value="all">All Cities</option>
-          {cities.map((city) => (
-            <option key={city} value={city}>{city}</option>
-          ))}
-        </TinySelect>
-        <TinySelect value={stateFilter} onChange={(e) => setStateFilter(e.target.value)} className="min-w-[130px]">
-          <option value="all">All States</option>
-          {states.map((state) => (
-            <option key={state} value={state}>{state}</option>
-          ))}
-        </TinySelect>
-        <TinySelect value={siteStatusFilter} onChange={(e) => setSiteStatusFilter(e.target.value)} className="min-w-[140px]">
-          <option value="all">All Site Statuses</option>
-          {SITE_STATUSES.map((status) => (
-            <option key={status} value={status}>{status}</option>
-          ))}
-        </TinySelect>
-        <TinySelect value={manpowerFilter} onChange={(e) => setManpowerFilter(e.target.value)} className="min-w-[150px]">
-          <option value="all">Any Manpower</option>
-          <option value="with">With manpower</option>
-          <option value="without">Without manpower</option>
-        </TinySelect>
-      </FilterBar>
+
+        {moreFiltersOpen ? (
+          <div className="grid gap-2 border-t border-border bg-surface-sunken/50 p-3 sm:grid-cols-2 lg:grid-cols-4">
+            <TinySelect value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} className="w-full">
+              <option value="all">All Cities</option>
+              {cities.map((city) => (
+                <option key={city} value={city}>{city}</option>
+              ))}
+            </TinySelect>
+            <TinySelect value={stateFilter} onChange={(e) => setStateFilter(e.target.value)} className="w-full">
+              <option value="all">All States</option>
+              {states.map((state) => (
+                <option key={state} value={state}>{state}</option>
+              ))}
+            </TinySelect>
+            <TinySelect value={siteStatusFilter} onChange={(e) => setSiteStatusFilter(e.target.value)} className="w-full">
+              <option value="all">All Site Statuses</option>
+              {SITE_STATUSES.map((status) => (
+                <option key={status} value={status}>{status}</option>
+              ))}
+            </TinySelect>
+            <TinySelect value={manpowerFilter} onChange={(e) => setManpowerFilter(e.target.value)} className="w-full">
+              <option value="all">Any Manpower</option>
+              <option value="with">With manpower</option>
+              <option value="without">Without manpower</option>
+            </TinySelect>
+          </div>
+        ) : null}
+      </div>
 
       {selected.size > 0 ? (
-        <div className="flex items-center justify-between rounded-lg bg-ink text-white px-4 py-2.5">
-          <div className="flex items-center gap-2 text-sm">
-            <span className="bg-accent text-ink font-bold font-mono text-xs px-2 py-0.5 rounded-full">
+        <div className="flex items-center justify-between rounded-lg border border-accent-border bg-accent-soft px-4 py-2">
+          <div className="flex items-center gap-2 text-sm text-ink">
+            <span className="bg-accent text-white font-bold font-mono text-xs px-2 py-0.5 rounded-full">
               {selected.size}
             </span>
-            <span>clients selected</span>
+            <span className="font-medium">{selected.size === 1 ? 'client selected' : 'clients selected'}</span>
           </div>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => setSelected(new Set())}
-              className="erp-btn-secondary h-8 px-3 text-xs bg-white/10 border-white/20 text-white hover:bg-white/20"
+              className="erp-btn-secondary h-8 px-3 text-xs"
             >
               Clear
             </button>
