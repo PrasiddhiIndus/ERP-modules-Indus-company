@@ -161,6 +161,7 @@ import {
   SalaryProcessingPage,
   SalaryProcessReportPage,
   SalaryComponentsMasterPage,
+  PayrollRuleMasterPage,
   CompliancePayrollLayoutPage,
   ComplianceDashboardPage,
   CompliancePayrollProcessPage,
@@ -587,6 +588,7 @@ function App() {
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<SalaryDashboardPage />} />
               <Route path="salary-components" element={<SalaryComponentsMasterPage />} />
+              <Route path="payroll-rules" element={<PayrollRuleMasterPage />} />
               <Route path="salary-processing" element={<SalaryProcessingPage />} />
               <Route path="reports" element={<SalaryProcessReportPage />} />
             </Route>

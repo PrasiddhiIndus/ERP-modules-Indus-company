@@ -395,6 +395,7 @@ export function resolveStructureForPayMonth(structure, year, month) {
       row: {
         ...stripStructureRevisions(structure),
         ...rev,
+        structure_version: rev.structure_version ?? null,
         declared: rev.declared !== false,
         employee_master_id: structure.employee_master_id,
       },
