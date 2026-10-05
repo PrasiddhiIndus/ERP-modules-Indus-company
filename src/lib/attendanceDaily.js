@@ -1455,6 +1455,47 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
 
   if (!approvedById.size) return marks;
 
+  // C/O consumes the comp-off ledger only on the days the DB applied (non-reverted)
+  // attendance marks. Those rows are authoritative for C/O; never infer extra C/O
+  // days from the request range (sandwich Sundays, punch days, reverted days).
+  const compOffRequestIds = [...approvedById.values()]
+    .filter((req) => registerMarkFromApprovedLeaveType(req.leave_type_code) === "CO")
+    .map((req) => req.id);
+  const compOffIdSet = new Set(compOffRequestIds);
+  let compOffMarksAuthoritative = false;
+  if (compOffRequestIds.length) {
+    const compOffRows = [];
+    let compOffFetchFailed = false;
+    for (let i = 0; i < compOffRequestIds.length; i += 100) {
+      const { data, error } = await supabase
+        .schema("indus_one")
+        .from("admin_leave_attendance_marks")
+        .select("leave_request_id, employee_code, register_date, applied_mark, reverted")
+        .in("leave_request_id", compOffRequestIds.slice(i, i + 100));
+      if (error) {
+        console.warn("C/O attendance marks fetch failed; using leave date ranges:", error.message);
+        compOffFetchFailed = true;
+        break;
+      }
+      compOffRows.push(...(data || []));
+    }
+    if (!compOffFetchFailed) {
+      compOffMarksAuthoritative = true;
+      for (const row of compOffRows) {
+        if (row.reverted) continue;
+        const date = normalizeDbDate(row.register_date);
+        if (!date || date < fromDate || date > toDate) continue;
+        const req = approvedById.get(row.leave_request_id);
+        if (!req) continue;
+        const empCode = normalizeAttendanceEmpCode(req.employee_code);
+        if (!empCode) continue;
+        if (row.employee_code && !codesMatch(empCode, row.employee_code)) continue;
+        addLeaveMark(marks, empCode, date, row.applied_mark || "CO");
+      }
+    }
+  }
+  const skipCompOffRequest = (req) => compOffMarksAuthoritative && compOffIdSet.has(req?.id);
+
   // Applied marks are best-effort. Do not send hundreds of leave IDs in one GET
   // `.in(...)` — that URL is too long and Supabase returns 500. Filter by month
   // here; date-range fill below covers any remaining gaps.
@@ -1472,6 +1513,7 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
     for (const row of applied || []) {
       const req = approvedById.get(row.leave_request_id);
       if (!req) continue;
+      if (skipCompOffRequest(req)) continue;
       const empCode = normalizeAttendanceEmpCode(req.employee_code);
       if (!empCode) continue;
       if (row.employee_code && !codesMatch(empCode, row.employee_code)) continue;
@@ -1485,6 +1527,7 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
   // Half-day requests store the base leave type (CL/PL/SL); merge promotes to P/CL when
   // the Admin cell is HD or a machine punch exists that day.
   for (const req of approvedById.values()) {
+    if (skipCompOffRequest(req)) continue;
     const empCode = normalizeAttendanceEmpCode(req.employee_code);
     const mark = registerMarkFromApprovedLeaveType(req.leave_type_code);
     const reqFrom = normalizeDbDate(req.from_date);
@@ -3193,12 +3236,43 @@ export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { 
   };
 }
 
-export function computeEmployeeRegisterSummary(row, manualMarksForEmp = {}, daysInMonth, { year, month } = {}) {
+/**
+ * From this month on, punch / P(OD) / tour / HD worked on a WO or NH/PH date is not
+ * counted in Total present — the day is credited as WO / NH/PH (C/O earning is unchanged).
+ * Earlier months keep the old totals.
+ */
+export const OFF_DAY_WORK_EXCLUDED_FROM_PRESENT_START_MONTH = "2026-10";
+const OFF_DAY_WORK_MARKS = new Set(["P", "P(OD)", "T", "HD"]);
+
+function isOffDayWorkExcludedFromPresentMonth(year, month) {
+  if (!year || !month) return false;
+  return monthKeyFromParts(year, month) >= OFF_DAY_WORK_EXCLUDED_FROM_PRESENT_START_MONTH;
+}
+
+function totalPresentCreditMark(mark, { year, month, day, department, holidayDates }) {
+  if (!OFF_DAY_WORK_MARKS.has(String(mark ?? "").trim())) return mark;
+  const iso = registerDateFromDay(monthKeyFromParts(year, month), day);
+  if (!iso) return mark;
+  if (holidayDates?.has(iso)) return REGISTER_MARK_NHPH;
+  if (isAutoWeekoffDate(iso, department)) return "WO";
+  return mark;
+}
+
+export function computeEmployeeRegisterSummary(
+  row,
+  manualMarksForEmp = {},
+  daysInMonth,
+  { year, month, holidayDates = null } = {}
+) {
   const summary = { leave: 0, weekoff: 0, appliedWo: 0, nhph: 0, ot: 0, totalPresent: 0 };
+  const excludeOffDayWork = isOffDayWorkExcludedFromPresentMonth(year, month);
   for (let day = 1; day <= daysInMonth; day += 1) {
     const mark = row.dayMarks[day] || "";
     const cellCtx = { year, month, day, department: row.department };
-    summary.totalPresent += registerPresentDaySummaryCreditForCell(mark, cellCtx);
+    const presentMark = excludeOffDayWork
+      ? totalPresentCreditMark(mark, { ...cellCtx, holidayDates })
+      : mark;
+    summary.totalPresent += registerPresentDaySummaryCreditForCell(presentMark, cellCtx);
     summary.leave += registerSummaryLeaveCreditForCell(mark, cellCtx);
     if (mark === "WO") {
       summary.weekoff += 1;
@@ -3209,10 +3283,14 @@ export function computeEmployeeRegisterSummary(row, manualMarksForEmp = {}, days
   return summary;
 }
 
-export function attachRegisterRowSummaries(rows, manualMarks, daysInMonth, { year, month } = {}) {
+export function attachRegisterRowSummaries(rows, manualMarks, daysInMonth, { year, month, holidayDates = null } = {}) {
   return rows.map((row) => ({
     ...row,
-    summary: computeEmployeeRegisterSummary(row, manualMarks[row.empCode] || {}, daysInMonth, { year, month }),
+    summary: computeEmployeeRegisterSummary(row, manualMarks[row.empCode] || {}, daysInMonth, {
+      year,
+      month,
+      holidayDates,
+    }),
   }));
 }
 

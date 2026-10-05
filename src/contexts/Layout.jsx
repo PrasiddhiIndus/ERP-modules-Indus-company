@@ -552,19 +552,6 @@ const Layout = () => {
                   )}
                   </>
                   )}
-                  {canSub("hr.site-iom") && (
-                  <NavLink
-                    to="hr/site-iom"
-                    className={() =>
-                      subNavClass({
-                        isActive: pathname.startsWith("/app/hr/site-iom"),
-                      })
-                    }
-                  >
-                    <FileText className="w-4 h-4 shrink-0 text-violet-600" />
-                    <span className="type-meta type-truncate">Site Employee IOM</span>
-                  </NavLink>
-                  )}
                   {canSub("hr.site-attendance") && (
                   <NavLink
                     to="hr/site-attendance"

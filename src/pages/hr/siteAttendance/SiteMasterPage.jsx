@@ -74,7 +74,7 @@ function formatCycle(site) {
 }
 
 export default function SiteMasterPage() {
-  const { siteType } = useSiteAttendanceType();
+  const { siteType, allowedSiteTypes = SITE_TYPES } = useSiteAttendanceType();
   const access = useSiteAttendanceAccess();
   const canAssignHr = Boolean(access.canAssignHr);
   const hrTeam = access.hrTeam || [];
@@ -375,7 +375,9 @@ export default function SiteMasterPage() {
               <span className="text-[11px] font-medium">Site type *</span>
               <TinySelect value={form.site_type} onChange={(e) => setField("site_type", e.target.value)}>
                 <option value="">Select</option>
-                {SITE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                {SITE_TYPES.filter((t) => allowedSiteTypes.includes(t) || t === form.site_type).map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
               </TinySelect>
             </label>
             <label className="flex flex-col gap-1 sm:col-span-2">

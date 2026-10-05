@@ -1170,8 +1170,9 @@ export function EmployeeAttendanceDailyPage() {
       attachRegisterRowSummaries(dayFilteredRows, manualMarks, daysInMonth, {
         year: monthMeta?.year,
         month: monthMeta?.month,
+        holidayDates: holidayDatesInYear,
       }),
-    [dayFilteredRows, manualMarks, daysInMonth, monthMeta?.year, monthMeta?.month]
+    [dayFilteredRows, manualMarks, daysInMonth, monthMeta?.year, monthMeta?.month, holidayDatesInYear]
   );
 
   const summaryFooter = useMemo(() => computeRegisterSummaryFooter(rowsWithSummary), [rowsWithSummary]);

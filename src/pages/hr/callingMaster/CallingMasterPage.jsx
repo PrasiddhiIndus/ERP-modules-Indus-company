@@ -31,9 +31,12 @@ import {
   TinySelect,
 } from "../../adminOperations/components/AdminUi";
 import {
+  CALL_OUTCOME_OPTIONS,
   CALLING_MASTER_FILTER_KEYS,
   CALLING_MASTER_SEARCH_KEYS,
   CALLING_PIPELINE_TABS,
+  NOT_WORKING_DISABLED_FIELDS,
+  formatCallOutcome,
   getCallingMasterFields,
   getCallingMasterFilterEntries,
   getCallingMasterTableColumns,
@@ -41,8 +44,10 @@ import {
 } from "./callingMasterConfig";
 import { useRecruitmentUi } from "./recruitmentUiContext";
 import { isReferralCandidate, normalizePipelineStatus, offerResponseLabel } from "./callingMasterApi";
+import { useAuth } from "../../../contexts/AuthContext";
 import {
   deleteCallingMasterRecords,
+  loadCallingByEmployees,
   loadCallingMasterRecords,
   saveSelectedOfferDetails,
   updateCallingMasterPipelineStatus,
@@ -84,6 +89,7 @@ const EMPTY_FILTERS = {
   industryWorked: "",
   siteSuitable: "",
   currentlyWorking: "",
+  callOutcome: "",
 };
 
 const NUMERIC_FIELD_RULES = {
@@ -99,14 +105,17 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function createEmptyFormValues() {
+function createEmptyFormValues(siteType = "", callingBy = "") {
   return {
     id: "",
     callDate: todayIso(),
-    callingBy: "",
+    siteType,
+    callingBy,
     candidateName: "",
     phoneNumber: "",
     cvSubmitted: "",
+    callOutcome: "",
+    callOutcomeOther: "",
     academicQualification: "",
     fireCourse: "",
     yearCompleted: "",
@@ -189,6 +198,10 @@ function buildExportRows(rows, headers) {
   return rows.map((row) => {
     const exportRow = {};
     headers.forEach(({ key, label }) => {
+      if (key === "callOutcome") {
+        exportRow[label] = formatCallOutcome(row);
+        return;
+      }
       if (key === "attachments") {
         const files = Array.isArray(row.attachments) ? row.attachments : [];
         exportRow[label] = files
@@ -203,9 +216,14 @@ function buildExportRows(rows, headers) {
   });
 }
 
-function validateCallingMasterForm(values, existingRows) {
+function validateCallingMasterForm(values, existingRows, { requireSiteType = false } = {}) {
   const errors = {};
   const cleanPhone = String(values.phoneNumber || "").replace(/\D/g, "");
+
+  if (requireSiteType && !values.siteType) errors.siteType = "Choose Fire or Safety.";
+  if (values.callOutcome === "Other" && !String(values.callOutcomeOther || "").trim()) {
+    errors.callOutcomeOther = "Describe the call outcome.";
+  }
 
   if (!values.candidateName.trim()) errors.candidateName = "Candidate name is required.";
   if (!cleanPhone) errors.phoneNumber = "Mobile number is required.";
@@ -249,9 +267,9 @@ function validateCallingMasterForm(values, existingRows) {
   return errors;
 }
 
-function FormField({ field, value, error, onChange, selectOptions }) {
+function FormField({ field, value, error, onChange, selectOptions, disabled = false }) {
   const options = selectOptions?.[field.optionsKey] || [];
-  const inputClassName = `box-border h-10 w-full min-w-0 rounded-lg border px-3 text-sm shadow-sm focus:outline-none focus:ring-2 ${
+  const inputClassName = `box-border h-10 w-full min-w-0 rounded-lg border px-3 text-sm shadow-sm focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${
     error ? "border-rose-300 focus:ring-rose-100" : "border-slate-200 focus:ring-blue-100"
   }`;
 
@@ -269,6 +287,7 @@ function FormField({ field, value, error, onChange, selectOptions }) {
       <select
         value={value}
         onChange={(event) => onChange(field.key, event.target.value)}
+        disabled={disabled}
         className={`${inputClassName} bg-white`}
       >
         <option value="">{field.placeholder || `Select ${field.label}`}</option>
@@ -299,6 +318,7 @@ function FormField({ field, value, error, onChange, selectOptions }) {
         inputMode={field.type === "number" || integerOnly || field.key === "phoneNumber" ? "numeric" : undefined}
         value={value}
         maxLength={field.maxLength}
+        disabled={disabled}
         onChange={(event) => {
           let next = event.target.value;
           if (field.key === "phoneNumber") next = String(next || "").replace(/\D/g, "").slice(0, 10);
@@ -313,9 +333,12 @@ function FormField({ field, value, error, onChange, selectOptions }) {
 
   return (
     <label className={`flex min-w-0 flex-col ${field.fullWidth ? "sm:col-span-2 lg:col-span-4" : ""}`}>
-      <span className="mb-1.5 block truncate text-xs font-medium text-slate-700" title={field.label}>
+      <span
+        className={`mb-1.5 block truncate text-xs font-medium ${disabled ? "text-slate-400" : "text-slate-700"}`}
+        title={disabled ? `${field.label} (not needed when not currently working)` : field.label}
+      >
         {field.label}
-        {field.required ? <span className="text-rose-500"> *</span> : null}
+        {field.required && !disabled ? <span className="text-rose-500"> *</span> : null}
       </span>
       {control}
       {error ? <span className="mt-1 block text-xs text-rose-600">{error}</span> : null}
@@ -348,7 +371,38 @@ export default function CallingMasterPage() {
   const tableColumns = useMemo(() => getCallingMasterTableColumns(ui.scope), [ui.scope]);
   const formSections = useMemo(() => getCallingMasterFields(ui.scope), [ui.scope]);
   const filterEntries = useMemo(() => getCallingMasterFilterEntries(ui.scope), [ui.scope]);
-  const { options: selectOptions } = useCallingMasterDropdowns(ui.scope);
+  const { options: dropdownOptions } = useCallingMasterDropdowns(ui.scope);
+  const selectOptions = useMemo(
+    () => ({ ...dropdownOptions, siteType: ui.allowedSiteTypes, callOutcome: CALL_OUTCOME_OPTIONS }),
+    [dropdownOptions, ui.allowedSiteTypes]
+  );
+  const { userProfile } = useAuth();
+  const [defaultCallingBy, setDefaultCallingBy] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    const myCode = String(userProfile?.employee_code || "").trim().toLowerCase();
+    const myName = String(userProfile?.username || "").trim().toLowerCase();
+    if (!myCode && !myName) {
+      setDefaultCallingBy("");
+      return undefined;
+    }
+    loadCallingByEmployees(ui.scope)
+      .then((employees) => {
+        const me =
+          (myCode && employees.find((row) => String(row.employeeCode || "").trim().toLowerCase() === myCode)) ||
+          (myName && employees.find((row) => String(row.fullName || "").trim().toLowerCase() === myName)) ||
+          null;
+        if (!cancelled) setDefaultCallingBy(me?.fullName || "");
+      })
+      .catch(() => {
+        if (!cancelled) setDefaultCallingBy("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ui.scope, userProfile?.employee_code, userProfile?.username]);
+
   const [records, setRecords] = useState([]);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -384,7 +438,7 @@ export default function CallingMasterPage() {
   useEffect(() => {
     loadRecords(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [ui.siteTypeFilter]);
 
   useEffect(() => {
     const prefill = consumeCallingPrefill();
@@ -394,7 +448,7 @@ export default function CallingMasterPage() {
     setFormErrors({});
     setPendingFiles([]);
     setFormValues({
-      ...createEmptyFormValues(),
+      ...createEmptyFormValues(ui.defaultSiteType, defaultCallingBy),
       designation: prefill.designation || "",
       siteSuitable: prefill.siteSuitable || "",
       totalExperience: prefill.totalExperience || "",
@@ -409,6 +463,11 @@ export default function CallingMasterPage() {
       "info"
     );
   }, []);
+
+  useEffect(() => {
+    if (!defaultCallingBy || !formOpen || formMode !== "create") return;
+    setFormValues((current) => (current.callingBy ? current : { ...current, callingBy: defaultCallingBy }));
+  }, [defaultCallingBy, formOpen, formMode]);
 
   const stageRecords = useMemo(() => {
     // Calling is the master register — shortlisted / selected / rejected rows stay visible here.
@@ -499,7 +558,7 @@ export default function CallingMasterPage() {
         : "Start by adding your first calling record from today’s screening sheet.";
 
   const resetForm = () => {
-    setFormValues(createEmptyFormValues());
+    setFormValues(createEmptyFormValues(ui.defaultSiteType, defaultCallingBy));
     setFormErrors({});
     setFormMode("create");
     setPendingFiles([]);
@@ -720,6 +779,7 @@ export default function CallingMasterPage() {
           );
         }
         if (column.key === "callDate") return formatDateDisplay(row.callDate);
+        if (column.key === "callOutcome") return <TruncateText value={formatCallOutcome(row)} />;
         if (column.key === "cvSubmitted") {
           return (
             <StatusChip
@@ -811,7 +871,7 @@ export default function CallingMasterPage() {
       phoneNumber: String(formValues.phoneNumber || "").replace(/\D/g, ""),
       heightCm: String(formValues.heightCm || "").replace(/[^\d]/g, ""),
     };
-    const errors = validateCallingMasterForm(nextValues, records);
+    const errors = validateCallingMasterForm(nextValues, records, { requireSiteType: ui.siteTypeEnabled });
     if (Object.keys(errors).length) {
       setFormErrors(errors);
       pushToast("Form validation pending", "Please correct the highlighted fields.", "warning");
@@ -1291,16 +1351,21 @@ export default function CallingMasterPage() {
                   <h3 className="text-sm font-semibold text-slate-900">{section.section}</h3>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  {section.fields.map((field) => (
-                    <FormField
-                      key={field.key}
-                      field={field}
-                      value={formValues[field.key]}
-                      error={formErrors[field.key]}
-                      onChange={handleFormValueChange}
-                      selectOptions={selectOptions}
-                    />
-                  ))}
+                  {section.fields
+                    .filter((field) => !field.showWhen || formValues[field.showWhen.key] === field.showWhen.equals)
+                    .map((field) => (
+                      <FormField
+                        key={field.key}
+                        field={field}
+                        value={formValues[field.key]}
+                        error={formErrors[field.key]}
+                        onChange={handleFormValueChange}
+                        selectOptions={selectOptions}
+                        disabled={
+                          formValues.currentlyWorking === "No" && NOT_WORKING_DISABLED_FIELDS.includes(field.key)
+                        }
+                      />
+                    ))}
                 </div>
               </section>
             );

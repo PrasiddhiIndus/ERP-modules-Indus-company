@@ -61,7 +61,6 @@ import {
   HrCallingMasterDropdowns,
   HrCallingMasterEntry,
   HrCallingMasterRequisitions,
-  HrSiteIom,
   HrSiteAttendance,
   HrSiteAttendanceDashboard,
   HrSiteAttendanceSites,
@@ -488,7 +487,6 @@ function App() {
               <Route path="compliance" element={<HrPayrollOpsCompliance />} />
               <Route path="site-setup" element={<HrPayrollOpsSiteSetup />} />
             </Route>
-            <Route path="hr/site-iom" element={<HrSiteIom />} />
             <Route path="hr/site-attendance" element={<HrSiteAttendance />}>
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<HrSiteAttendanceDashboard />} />
