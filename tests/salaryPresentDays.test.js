@@ -72,6 +72,58 @@ describe("register Total present", () => {
   });
 });
 
+describe("worked WO / NH/PH does not add P days (from Oct 2026)", () => {
+  // Oct 2026: Sundays 4/11/18/25, 3rd Saturday 17 (paid WO for HR).
+  const octMarks = () => {
+    const dayMarks = {};
+    for (let d = 1; d <= 31; d += 1) dayMarks[d] = [4, 11, 17, 18, 25].includes(d) ? "WO" : "P";
+    dayMarks[4] = "P";
+    dayMarks[11] = "P(OD)";
+    return dayMarks;
+  };
+
+  it("worked Sundays add nothing to Total present", () => {
+    const rows = [{ empCode: "1001", employeeName: "A", department: "HR", dayMarks: octMarks() }];
+    const [row] = attachRegisterRowSummaries(rows, {}, 31, { year: 2026, month: 10 });
+    // 26 Mon–Sat worked + paid 3rd-Saturday WO = 27; worked Sundays 4/11 add nothing.
+    expect(row.summary.totalPresent).toBe(27);
+  });
+
+  it("worked paid 3rd Saturday still counts like the WO (1), excluded dept counts as work day", () => {
+    const [a, b] = attachRegisterRowSummaries(
+      [
+        { empCode: "1", employeeName: "A", department: "HR", dayMarks: { 17: "P" } },
+        { empCode: "2", employeeName: "B", department: "Production", dayMarks: { 17: "P" } },
+      ],
+      {},
+      31,
+      { year: 2026, month: 10 }
+    );
+    expect(a.summary.totalPresent).toBe(1);
+    expect(b.summary.totalPresent).toBe(1);
+  });
+
+  it("worked NH/PH counts like the holiday, not as an extra present day", () => {
+    const [row] = attachRegisterRowSummaries(
+      [{ empCode: "1", employeeName: "A", department: "HR", dayMarks: { 2: "P", 5: "HD" } }],
+      {},
+      31,
+      { year: 2026, month: 10, holidayDates: new Set(["2026-10-02"]) }
+    );
+    expect(row.summary.totalPresent).toBe(1.5);
+  });
+
+  it("does not change months before Oct 2026", () => {
+    const dayMarks = {};
+    for (let d = 1; d <= 30; d += 1) dayMarks[d] = [6, 13, 19, 20, 27].includes(d) ? "WO" : "P";
+    dayMarks[6] = "P";
+    dayMarks[13] = "P(OD)";
+    const rows = [{ empCode: "1001", employeeName: "A", department: "HR", dayMarks }];
+    const [row] = attachRegisterRowSummaries(rows, {}, 30, { year: 2026, month: 9 });
+    expect(row.summary.totalPresent).toBe(28);
+  });
+});
+
 describe("approved comp-off (C/O) leave", () => {
   it("normalizes Indus One C/O aliases to CO instead of L", () => {
     expect(normalizeRegisterMarkForDb("C/O")).toBe("CO");

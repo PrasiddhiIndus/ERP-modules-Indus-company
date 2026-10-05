@@ -39,6 +39,7 @@ const tabClass = ({ isActive }) =>
 const SiteTypeContext = createContext({
   siteType: "",
   setSiteType: () => {},
+  allowedSiteTypes: SITE_TYPES,
 });
 
 const SiteAttendanceAccessContext = createContext({
@@ -69,7 +70,10 @@ export default function SiteAttendanceLayout() {
     if (lockedSiteType) return;
     setSiteTypeState(setSelectedSiteType(value));
   };
-  const typeValue = useMemo(() => ({ siteType, setSiteType }), [siteType, lockedSiteType]);
+  const typeValue = useMemo(
+    () => ({ siteType, setSiteType, allowedSiteTypes }),
+    [siteType, lockedSiteType, allowedSiteTypes]
+  );
 
   const allowedTabs = useMemo(() => getAllowedSiteAttendanceTabs(userProfile), [userProfile]);
   const visibleTabs = useMemo(() => TABS.filter((tab) => allowedTabs.includes(tab.to)), [allowedTabs]);
@@ -92,16 +96,15 @@ export default function SiteAttendanceLayout() {
         const next = await resolveSiteAttendanceAccess({
           userId: user?.id,
           email: user?.email,
-          role: userProfile?.role,
         });
         if (!cancelled) setAccess({ loading: false, ...next });
       } catch {
         if (!cancelled) {
           setAccess({
             loading: false,
-            canAssignHr: false,
-            seesAllSites: false,
-            allowedSiteIds: [],
+            canAssignHr: true,
+            seesAllSites: true,
+            allowedSiteIds: null,
             hrTeam: [],
             employeeCode: null,
           });
@@ -111,7 +114,7 @@ export default function SiteAttendanceLayout() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, user?.email, userProfile?.role]);
+  }, [user?.id, user?.email]);
 
   return (
     <SiteTypeContext.Provider value={typeValue}>
