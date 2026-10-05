@@ -370,6 +370,7 @@ const {
   requireHrOrAdmin,
   requireAttendanceAdmin,
   requireCrmOutreachAccess,
+  requireCrmInHouseMailAccess,
   requireSoftwareSubscriptionsR2,
   requireFleetR2,
   requireHrCallingR2,
@@ -1602,7 +1603,7 @@ function sendCrmInHouseError(res, err, fallback) {
   });
 }
 
-app.get('/api/crm-outreach/inhouse/employees', requireCrmOutreachAccess, async (req, res) => {
+app.get('/api/crm-outreach/inhouse/employees', requireCrmInHouseMailAccess, async (req, res) => {
   try {
     const result = await listInHouseEmployees({ supabaseAdmin: crmInHouseServiceClient() });
     return res.json(result);
@@ -1611,7 +1612,7 @@ app.get('/api/crm-outreach/inhouse/employees', requireCrmOutreachAccess, async (
   }
 });
 
-app.post('/api/crm-outreach/inhouse/campaigns', requireCrmOutreachAccess, async (req, res) => {
+app.post('/api/crm-outreach/inhouse/campaigns', requireCrmInHouseMailAccess, async (req, res) => {
   try {
     const result = await startInHouseCampaign({
       supabaseAdmin: crmInHouseServiceClient(),
@@ -1629,7 +1630,7 @@ app.post('/api/crm-outreach/inhouse/campaigns', requireCrmOutreachAccess, async 
   }
 });
 
-app.post('/api/crm-outreach/inhouse/campaigns/:id/send-batch', requireCrmOutreachAccess, async (req, res) => {
+app.post('/api/crm-outreach/inhouse/campaigns/:id/send-batch', requireCrmInHouseMailAccess, async (req, res) => {
   try {
     const result = await processInHouseCampaignBatch({
       supabaseAdmin: crmInHouseServiceClient(),

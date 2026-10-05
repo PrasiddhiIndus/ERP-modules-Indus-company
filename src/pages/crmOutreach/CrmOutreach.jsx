@@ -1,4 +1,6 @@
-import React, { Suspense, lazy, useState } from 'react';
+import React, { Suspense, lazy, useMemo, useState } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
+import { getCrmOutreachAudienceAccess } from '../../config/roles';
 import { Building2, RefreshCw, UsersRound } from 'lucide-react';
 import { CrmOutreachProvider, useCrmOutreach } from './contexts/CrmOutreachContext';
 import OutreachTabBar from './components/OutreachTabBar';
@@ -73,7 +75,7 @@ function CrmOutreachInner() {
   const [activeTab, setActiveTab] = useState('clients');
 
   if (loading) {
-    return <PageLoader label="Loading CRM & Outreach…" />;
+    return <PageLoader label="Loading Client Mail Outreach…" />;
   }
 
   return (
@@ -115,7 +117,18 @@ function CrmOutreachInner() {
 }
 
 export default function CrmOutreach() {
-  const [audience, setAudience] = useState(readStoredAudience);
+  const { user, userProfile, accessibleModules } = useAuth();
+  const allowed = useMemo(
+    () =>
+      getCrmOutreachAudienceAccess(userProfile, accessibleModules, {
+        ...(user?.user_metadata || {}),
+        email: userProfile?.email || user?.email,
+      }),
+    [userProfile, accessibleModules, user?.user_metadata, user?.email]
+  );
+  const allowedIds = Object.keys(AUDIENCES).filter((id) => allowed[id]);
+  const [storedAudience, setAudience] = useState(readStoredAudience);
+  const audience = allowed[storedAudience] ? storedAudience : allowedIds[0];
 
   const changeAudience = (next) => {
     const value = next === 'inhouse' ? 'inhouse' : 'client';
@@ -127,10 +140,25 @@ export default function CrmOutreach() {
     }
   };
 
+  if (!audience) {
+    return (
+      <div className="p-4 sm:p-6 max-w-[1600px] mx-auto">
+        <PageTaskHeader title="Mail Outreach" className="mb-5" />
+        <InlineAlert tone="warning">
+          You don&apos;t have access to Client or In-House Mail Outreach. Ask an administrator to grant it in User Management.
+        </InlineAlert>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 sm:p-6 max-w-[1600px] mx-auto">
-      <PageTaskHeader title="Mail Outreach" subtitle={AUDIENCES[audience].hint} className="mb-5">
-        <AudienceToggle audience={audience} onChange={changeAudience} />
+      <PageTaskHeader
+        title={allowedIds.length > 1 ? 'Mail Outreach' : `${AUDIENCES[audience].label} Mail Outreach`}
+        subtitle={AUDIENCES[audience].hint}
+        className="mb-5"
+      >
+        {allowedIds.length > 1 ? <AudienceToggle audience={audience} onChange={changeAudience} /> : null}
       </PageTaskHeader>
       {audience === 'inhouse' ? (
         <Suspense fallback={<PageLoader label="Loading In-House mail…" />}>

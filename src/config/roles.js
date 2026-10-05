@@ -192,6 +192,11 @@ export function getAccessibleSubModulePaths(profile, userMetadata = null) {
       continue;
     }
 
+    if (subKey === CRM_OUTREACH_LEGACY_SUBMODULE_KEY) {
+      paths.add("/app/crm-outreach");
+      continue;
+    }
+
     // --- Standard 2-segment key ---
     const moduleDef = NAV_MODULE_TREE.find((m) => m.value === moduleKey);
     if (!moduleDef) continue;
@@ -273,6 +278,32 @@ export function getNavVisibleModuleKeys(profile, accessibleModules, userMetadata
   // Marketing and crmOutreach grants both expose this module in the sidebar.
   if (visible.has("marketing")) visible.add("crmOutreach");
   return visible;
+}
+
+export const CRM_OUTREACH_CLIENT_SUBMODULE_KEY = "crmOutreach.client";
+export const CRM_OUTREACH_INHOUSE_SUBMODULE_KEY = "crmOutreach.inhouse";
+/** Older single grant — still means both audiences. */
+const CRM_OUTREACH_LEGACY_SUBMODULE_KEY = "crmOutreach.home";
+
+/**
+ * Which Mail Outreach audiences the user may open.
+ * Full module (crmOutreach / marketing), Admin roles or the legacy key → both.
+ * Otherwise only the granted crmOutreach.client / crmOutreach.inhouse sub-modules.
+ */
+export function getCrmOutreachAudienceAccess(profile, accessibleModules, userMetadata = null) {
+  const role = normalizeAppRole(profile?.role);
+  const full =
+    accessibleModules?.has("crmOutreach") ||
+    accessibleModules?.has("marketing") ||
+    role === ROLES.SUPER_ADMIN ||
+    role === ROLES.SUPER_ADMIN_PRO ||
+    role === ROLES.ADMIN;
+  const subs = getEffectiveAllowedSubModules(profile, userMetadata);
+  if (full || subs.includes(CRM_OUTREACH_LEGACY_SUBMODULE_KEY)) return { client: true, inhouse: true };
+  return {
+    client: subs.includes(CRM_OUTREACH_CLIENT_SUBMODULE_KEY),
+    inhouse: subs.includes(CRM_OUTREACH_INHOUSE_SUBMODULE_KEY),
+  };
 }
 
 export const TEAMS = [
@@ -789,9 +820,10 @@ export const NAV_MODULE_TREE = [
   },
   {
     value: "crmOutreach",
-    label: "Client Master & Mail Outreach",
+    label: "Client/In-House Mail Outreach",
     subModules: [
-      { value: "crmOutreach.home", label: "CRM & Outreach", pathPrefix: "/app/crm-outreach" },
+      { value: CRM_OUTREACH_CLIENT_SUBMODULE_KEY, label: "Client Mail Outreach", pathPrefix: "/app/crm-outreach" },
+      { value: CRM_OUTREACH_INHOUSE_SUBMODULE_KEY, label: "In-House Mail Outreach", pathPrefix: "/app/crm-outreach" },
     ],
   },
 ];
