@@ -22,6 +22,7 @@ import { loadCallingByEmployees, saveReferralCandidate } from "./callingMasterSt
 import { useCallingMasterDropdowns } from "./useCallingMasterDropdowns";
 
 const REFERRAL_BASIC_KEYS = new Set([
+  "siteType",
   "candidateName",
   "phoneNumber",
   "academicQualification",
@@ -34,8 +35,9 @@ const REFERRAL_BASIC_KEYS = new Set([
   "siteSuitable",
 ]);
 
-function emptyReferralForm() {
+function emptyReferralForm(siteType = "") {
   return {
+    siteType,
     candidateName: "",
     phoneNumber: "",
     academicQualification: "",
@@ -122,9 +124,10 @@ function ReferralField({ field, value, error, onChange, selectOptions }) {
   );
 }
 
-function validateReferralForm(values) {
+function validateReferralForm(values, { requireSiteType = false } = {}) {
   const errors = {};
   const cleanPhone = String(values.phoneNumber || "").replace(/\D/g, "");
+  if (requireSiteType && !values.siteType) errors.siteType = "Choose Fire or Safety.";
   if (!String(values.candidateName || "").trim()) errors.candidateName = "Candidate name is required.";
   if (!cleanPhone) errors.phoneNumber = "Mobile number is required.";
   else if (!/^\d{10}$/.test(cleanPhone)) errors.phoneNumber = "Mobile number must be exactly 10 digits.";
@@ -136,9 +139,13 @@ function validateReferralForm(values) {
 
 export default function CallingMasterReferralPage() {
   const ui = useRecruitmentUi();
-  const { options: selectOptions } = useCallingMasterDropdowns(ui.scope);
+  const { options: dropdownOptions } = useCallingMasterDropdowns(ui.scope);
+  const selectOptions = useMemo(
+    () => ({ ...dropdownOptions, siteType: ui.allowedSiteTypes }),
+    [dropdownOptions, ui.allowedSiteTypes]
+  );
   const [referrers, setReferrers] = useState([]);
-  const [form, setForm] = useState(emptyReferralForm);
+  const [form, setForm] = useState(() => emptyReferralForm(ui.defaultSiteType));
   const [errors, setErrors] = useState({});
   const [pendingFiles, setPendingFiles] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -153,6 +160,11 @@ export default function CallingMasterReferralPage() {
         setReferrers([]);
       });
   }, [ui.scope]);
+
+  useEffect(() => {
+    if (!ui.defaultSiteType) return;
+    setForm((current) => (current.siteType ? current : { ...current, siteType: ui.defaultSiteType }));
+  }, [ui.defaultSiteType]);
 
   const handleChange = (key, value) => {
     setForm((current) => {
@@ -182,7 +194,7 @@ export default function CallingMasterReferralPage() {
       ...form,
       phoneNumber: String(form.phoneNumber || "").replace(/\D/g, ""),
     };
-    const nextErrors = validateReferralForm(nextValues);
+    const nextErrors = validateReferralForm(nextValues, { requireSiteType: ui.siteTypeEnabled });
     if (Object.keys(nextErrors).length) {
       setErrors(nextErrors);
       pushToast("Form validation pending", "Please correct the highlighted fields.", "warning");
@@ -211,7 +223,7 @@ export default function CallingMasterReferralPage() {
         attachments: [...(Array.isArray(nextValues.attachments) ? nextValues.attachments : []), ...uploaded],
       });
 
-      setForm(emptyReferralForm());
+      setForm(emptyReferralForm(ui.defaultSiteType));
       setPendingFiles([]);
       setErrors({});
       pushToast(

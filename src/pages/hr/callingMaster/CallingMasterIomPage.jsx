@@ -601,7 +601,7 @@ export default function CallingMasterIomPage() {
     <div className="space-y-4">
       <PageTaskHeader
         title="IOM"
-        subtitle="One entry per candidate after the joining checklist is complete. Confirm allocates the reference and adds the New row to Site Employee IOM. Export the list to Excel when needed."
+        subtitle="One entry per candidate after the joining checklist is complete. Confirm allocates the reference. Export the list to Excel when needed."
       >
         <button
           type="button"

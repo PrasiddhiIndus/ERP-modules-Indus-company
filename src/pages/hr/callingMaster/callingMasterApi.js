@@ -16,6 +16,7 @@ import {
   normalizeRecruitmentIomEntry,
   seedOpenIomEntryPayload,
 } from "./callingMasterConfig";
+import { normalizeCallingSiteType } from "./callingSiteTypeAccess";
 
 const CANDIDATES_TABLE = "hr_calling_candidates";
 const DROPDOWN_MASTERS_TABLE = "hr_calling_dropdown_masters";
@@ -105,9 +106,12 @@ export function mapCandidateFromDb(row) {
     id: row.id,
     callDate: row.call_date || "",
     callingBy: row.calling_by || "",
+    siteType: normalizeCallingSiteType(row.site_type),
     candidateName: row.candidate_name || "",
     phoneNumber: row.phone_number || "",
     cvSubmitted: row.cv_submitted || "",
+    callOutcome: row.call_outcome || "",
+    callOutcomeOther: row.call_outcome_other || "",
     academicQualification: row.academic_qualification || "",
     fireCourse: row.fire_course || "",
     yearCompleted: row.year_completed == null ? "" : String(row.year_completed),
@@ -184,7 +188,16 @@ export function mapCandidateFromDb(row) {
 
 /** Map frontend record → DB payload. */
 export function mapCandidateToDb(record) {
+  const siteType = normalizeCallingSiteType(record.siteType);
+  const callOutcome = toText(record.callOutcome);
   return {
+    ...(siteType ? { site_type: siteType } : {}),
+    ...(siteType || callOutcome
+      ? {
+          call_outcome: callOutcome || null,
+          call_outcome_other: callOutcome === "Other" ? toText(record.callOutcomeOther) || null : null,
+        }
+      : {}),
     phone_number: String(record.phoneNumber || "").replace(/\D/g, ""),
     call_date: record.callDate || null,
     calling_by: toText(record.callingBy),
@@ -1176,5 +1189,16 @@ export async function createReferralCandidate(record) {
 
   if (error) throw new Error(friendlyError(error, "Unable to add referral candidate."));
   const row = Array.isArray(data) ? data[0] : data;
+  const siteType = normalizeCallingSiteType(record.siteType);
+  if (row?.id && siteType && row.site_type !== siteType) {
+    const { data: updated, error: typeError } = await supabase
+      .from(CANDIDATES_TABLE)
+      .update({ site_type: siteType })
+      .eq("id", row.id)
+      .select("*")
+      .single();
+    if (typeError) throw new Error(friendlyError(typeError, "Referral added, but Fire / Safety could not be saved."));
+    return mapCandidateFromDb(updated);
+  }
   return mapCandidateFromDb(row);
 }

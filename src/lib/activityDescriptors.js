@@ -31,7 +31,6 @@ export const ROUTE_MODULE_MAP = [
   ['/app/crm-outreach', 'Client Master & Mail Outreach'],
   ['/app/maintenance', 'Maintenance'],
   ['/app/hr/calling-master', 'HR · Recruitment / Calling master'],
-  ['/app/hr/site-iom', 'HR · Site Employee IOM'],
   ['/app/hr/site-attendance', 'HR · Site attendance'],
   ['/app/hr/payroll-ops', 'HR · Payroll'],
   ['/app/hr/payroll/salary', 'HR · Salary management'],
