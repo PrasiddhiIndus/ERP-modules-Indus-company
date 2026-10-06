@@ -1643,6 +1643,28 @@ export async function buildSalaryScopePreviewLines({
  * Skips employees already on the month sheet unless forceFullReprocess (all only).
  * Employees on salary hold are excluded from all / department runs.
  */
+/**
+ * Full reprocess write: run update, line replacement and revision log in one
+ * database transaction. Any failure leaves the previous sheet untouched.
+ */
+export async function reprocessMonthRunAtomic({ runId, runPatch, lines, revision }) {
+  const { data, error } = await supabase.rpc("admin_salary_reprocess_month_run", {
+    p_run_id: runId,
+    p_run_patch: runPatch,
+    p_lines: lines,
+    p_revision: revision || null,
+  });
+  if (error) {
+    if (error.code === "23505" && /month_lines/i.test(String(error.message || ""))) {
+      throw new Error("Duplicate employee detected on this month sheet. Refresh and try again.");
+    }
+    throw error;
+  }
+  const run = Array.isArray(data) ? data[0] : data;
+  if (!run?.id) throw new Error("Salary sheet not found.");
+  return run;
+}
+
 export async function processSalaryMonth({
   year,
   month,
@@ -1883,9 +1905,9 @@ export async function processSalaryMonth({
     allLines = newLines;
     const totals = sumLines(allLines);
     const summary_json = buildSummaryForProcess(null, revisionNo);
-    const { data: run, error: updErr } = await supabase
-      .from(MONTH_RUNS_TABLE)
-      .update({
+    const run = await reprocessMonthRunAtomic({
+      runId: existing.id,
+      runPatch: {
         month_days: days,
         status: "processed",
         revision_no: revisionNo,
@@ -1898,15 +1920,28 @@ export async function processSalaryMonth({
           processed_on: processDay,
           processed_at: processAt,
         },
-      })
-      .eq("id", existing.id)
-      .select("*")
-      .single();
-    if (updErr) throw updErr;
+      },
+      lines: newLines.map((line) => ({
+        ...toDbLinePayload(line, { includeRunId: true }),
+        run_id: existing.id,
+        line_revision_no: revisionNo,
+      })),
+      revision: {
+        revision_no: revisionNo,
+        changed_by: user.id,
+        change_summary_json: {
+          action: "reprocess_from_master",
+          process_mode: mode,
+          employee_count: newLines.length,
+          skipped_duplicate_count: skippedDuplicates.length,
+          skipped_duplicate_ids: skippedDuplicates.map((e) => e.id),
+          departments: mode === PROCESS_MODES.DEPT ? departments : undefined,
+          processed_on: processDay,
+          processed_at: processAt,
+        },
+      },
+    });
     runId = run.id;
-
-    const { error: delErr } = await supabase.from(MONTH_LINES_TABLE).delete().eq("run_id", runId);
-    if (delErr) throw delErr;
   } else {
     revisionNo = 1;
     allLines = newLines;
@@ -1940,7 +1975,7 @@ export async function processSalaryMonth({
 
   const inserts = [];
   const updates = [];
-  for (const line of newLines) {
+  for (const line of fullReprocess ? [] : newLines) {
     const body = {
       ...toDbLinePayload(line, { includeRunId: true }),
       run_id: runId,
@@ -1970,7 +2005,7 @@ export async function processSalaryMonth({
     if (failed?.error) throw failed.error;
   }
 
-  const shouldLogRevision = !existing?.id || fullReprocess;
+  const shouldLogRevision = !existing?.id;
   if (shouldLogRevision) {
     const { error: revErr } = await supabase.from(RUN_REVISIONS_TABLE).insert({
       run_id: runId,
