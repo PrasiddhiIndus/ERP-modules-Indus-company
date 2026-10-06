@@ -34,6 +34,7 @@ import {
   dbSaveSalaryStructure,
 } from "./salaryDb";
 import { isPeopleSalaryKey } from "./salarySubject";
+import { maskAmountText } from "./salaryPrivacy";
 
 /** @deprecated Legacy browser key — kept only for one-time migration into admin_salary. */
 const STORAGE_KEY = "admin_salary_ctc_ui_v1";
@@ -129,6 +130,8 @@ export function parseRateInput(raw) {
 
 export function formatINR(value) {
   if (value == null || value === "" || Number.isNaN(Number(value))) return "—";
+  const masked = maskAmountText(value);
+  if (masked) return masked;
   const n = roundPa(value);
   const hasDec = Math.abs(n % 1) > 1e-9;
   return `₹${n.toLocaleString("en-IN", {
@@ -151,6 +154,8 @@ export function parsePaInput(raw) {
 /** Format P.A. amounts; shows decimals only when present. */
 export function formatPA(value) {
   if (value == null || value === "" || Number.isNaN(Number(value))) return "—";
+  const masked = maskAmountText(value);
+  if (masked) return masked;
   const n = roundPa(value);
   const hasDec = Math.abs(n % 1) > 1e-9;
   return `₹${n.toLocaleString("en-IN", {
@@ -1179,6 +1184,8 @@ export function processingHelpText() {
 
 export function formatINRPlain(value) {
   if (value == null || value === "" || Number.isNaN(Number(value))) return "—";
+  const masked = maskAmountText(value);
+  if (masked) return masked;
   const n = roundPa(value);
   const hasDec = Math.abs(n % 1) > 1e-9;
   return n.toLocaleString("en-IN", {

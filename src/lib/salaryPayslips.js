@@ -4,6 +4,7 @@
  */
 
 import { supabase } from "./supabase";
+import { salaryFiguresHidden } from "../pages/adminOperations/salaryAdmin/salaryPrivacy";
 
 const PAYSLIP_KEY = "admin_salary_payslips_v1";
 export const PAYSLIPS_TABLE = "admin_salary_payslips";
@@ -435,5 +436,6 @@ export async function fetchSalaryHistoryForEmployee(employeeMasterId) {
 
 export function formatPayslipMoney(v) {
   if (v == null || v === "" || Number.isNaN(Number(v))) return "—";
+  if (salaryFiguresHidden()) return "XXXXX";
   return round0(v).toLocaleString("en-IN");
 }

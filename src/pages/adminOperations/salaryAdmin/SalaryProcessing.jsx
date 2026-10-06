@@ -10,6 +10,7 @@ import {
   CollapsibleHelp,
 } from "../components/AdminUi";
 import { formatINRPlain } from "./salaryData";
+import { MASKED_SECRET, salaryFiguresHidden } from "./salaryPrivacy";
 import { departmentInSelection } from "../../../lib/employeeMasterDepartments";
 import { RegisterDepartmentFilter } from "../employee/RegisterDepartmentFilter";
 import {
@@ -58,9 +59,22 @@ const btnGhost =
 const btnPrimary =
   "h-7 px-2.5 text-[11px] font-medium rounded bg-accent text-white disabled:opacity-50 inline-flex items-center gap-1";
 
+function maskedPayInput(value, empty = "") {
+  if (!salaryFiguresHidden()) return value ?? empty;
+  if (value == null || value === "") return empty;
+  return MASKED_SECRET;
+}
+
+function payFiguresLocked(locked) {
+  return Boolean(locked) || salaryFiguresHidden();
+}
+
 function Money({ value, strong = false, blankZero = false }) {
   if (value == null || value === "" || (blankZero && Number(value) === 0)) {
     return <span className="text-slate-300">—</span>;
+  }
+  if (salaryFiguresHidden()) {
+    return <span className="tracking-widest text-slate-400">XXXXX</span>;
   }
   return (
     <span className={`tabular-nums ${strong ? "font-semibold text-slate-900" : "text-slate-700"}`}>
@@ -398,7 +412,7 @@ function EmployeeSalaryDetailPage({
   if (!line) return null;
   const locked = Boolean(readOnly || lineIsSalaryLocked(line));
   const patch = (p) => {
-    if (locked) return;
+    if (locked || salaryFiguresHidden()) return;
     onUpdate(line.id, p);
   };
   const status = resolveLineProcessStatus(line);
@@ -449,7 +463,7 @@ function EmployeeSalaryDetailPage({
             <button
               type="button"
               className={btnPrimary}
-              disabled={saving || !dirty}
+              disabled={saving || !dirty || salaryFiguresHidden()}
               onClick={() => onSave?.(line)}
             >
               {saving ? "Saving…" : "Save"}
@@ -553,26 +567,26 @@ function EmployeeSalaryDetailPage({
             <ProfileFact label="Account number">
               <input
                 className={detailText}
-                value={line.account_no || ""}
+                value={maskedPayInput(line.account_no, "")}
                 onChange={(e) => patch({ account_no: e.target.value })}
-                disabled={locked}
-                readOnly={locked}
+                disabled={payFiguresLocked(locked)}
+                readOnly={payFiguresLocked(locked)}
               />
             </ProfileFact>
             <ProfileFact label="IFSC">
               <input
                 className={detailText}
-                value={line.ifsc || ""}
+                value={maskedPayInput(line.ifsc, "")}
                 onChange={(e) => patch({ ifsc: e.target.value })}
-                disabled={locked}
-                readOnly={locked}
+                disabled={payFiguresLocked(locked)}
+                readOnly={payFiguresLocked(locked)}
               />
             </ProfileFact>
             <ProfileFact label="UAN">
-              <span className="font-mono text-[12px]">{line.uan_no || "—"}</span>
+              <span className="font-mono text-[12px]">{salaryFiguresHidden() ? (line.uan_no ? "XXXXX" : "—") : line.uan_no || "—"}</span>
             </ProfileFact>
             <ProfileFact label="ESIC number">
-              <span className="text-[12px]">{line.esic_no || "—"}</span>
+              <span className="text-[12px]">{salaryFiguresHidden() ? (line.esic_no ? "XXXXX" : "—") : line.esic_no || "—"}</span>
             </ProfileFact>
           </div>
         </section>
@@ -602,7 +616,7 @@ function EmployeeSalaryDetailPage({
               <input
                 type="number"
                 className={`${detailInput} max-w-none`}
-                value={line.pf_basic ?? ""}
+                value={maskedPayInput(line.pf_basic, "")}
                 onChange={(e) => patch({ pf_basic: e.target.value })}
                 disabled={locked}
                 readOnly={locked}
@@ -682,7 +696,7 @@ function EmployeeSalaryDetailPage({
                 type="number"
                 className={detailInput}
                 title={customEarnTitle}
-                value={line.custom_earn_full ?? line.computed_json?.custom_earn_full ?? 0}
+                value={maskedPayInput(line.custom_earn_full ?? line.computed_json?.custom_earn_full ?? 0, 0)}
                 onChange={(e) =>
                   patch({
                     custom_earn_full: e.target.value,
@@ -735,7 +749,7 @@ function EmployeeSalaryDetailPage({
               <input
                 type="number"
                 className={detailInput}
-                value={line.pt_amount ?? ""}
+                value={maskedPayInput(line.pt_amount, "")}
                 onChange={(e) => patch({ pt_amount: e.target.value })}
                 disabled={locked}
                 readOnly={locked}
@@ -748,7 +762,7 @@ function EmployeeSalaryDetailPage({
               <input
                 type="number"
                 className={detailInput}
-                value={line.loan ?? 0}
+                value={maskedPayInput(line.loan ?? 0, 0)}
                 onChange={(e) => patch({ loan: e.target.value })}
                 disabled={locked}
                 readOnly={locked}
@@ -761,7 +775,7 @@ function EmployeeSalaryDetailPage({
               <input
                 type="number"
                 className={detailInput}
-                value={line.sal_adv ?? 0}
+                value={maskedPayInput(line.sal_adv ?? 0, 0)}
                 onChange={(e) => patch({ sal_adv: e.target.value })}
                 disabled={locked}
                 readOnly={locked}
@@ -788,7 +802,7 @@ function EmployeeSalaryDetailPage({
               <input
                 type="number"
                 className={detailInput}
-                value={line.tds ?? 0}
+                value={maskedPayInput(line.tds ?? 0, 0)}
                 onChange={(e) => patch({ tds: e.target.value })}
                 disabled={locked}
                 readOnly={locked}
@@ -802,7 +816,7 @@ function EmployeeSalaryDetailPage({
                 type="number"
                 className={detailInput}
                 title={customDedTitle}
-                value={line.custom_ded_full ?? line.computed_json?.custom_ded_full ?? 0}
+                value={maskedPayInput(line.custom_ded_full ?? line.computed_json?.custom_ded_full ?? 0, 0)}
                 onChange={(e) =>
                   patch({
                     custom_ded_full: e.target.value,
@@ -972,14 +986,14 @@ function ScopeSalarySheetTable({
                   onClick={(e) => e.stopPropagation()}
                 >
                   {rowReadOnly ? (
-                    <span className="px-1.5 text-[11px] font-mono block truncate max-w-[7.5rem]" title={line.account_no || undefined}>
-                      {line.account_no || "—"}
+                    <span className="px-1.5 text-[11px] font-mono block truncate max-w-[7.5rem]" title={salaryFiguresHidden() ? undefined : line.account_no || undefined}>
+                      {salaryFiguresHidden() ? (line.account_no ? "XXXXX" : "—") : line.account_no || "—"}
                     </span>
                   ) : (
                     <input
                       className={`${textIn} w-[7.5rem]`}
-                      value={line.account_no || ""}
-                      title={line.account_no || undefined}
+                      value={maskedPayInput(line.account_no, "")}
+                      title={salaryFiguresHidden() ? undefined : line.account_no || undefined}
                       onChange={(e) => onUpdateLine(line.id, { account_no: e.target.value })}
                     />
                   )}
@@ -989,14 +1003,14 @@ function ScopeSalarySheetTable({
                   onClick={(e) => e.stopPropagation()}
                 >
                   {rowReadOnly ? (
-                    <span className="px-1.5 text-[11px] font-mono block truncate max-w-[5.75rem]" title={line.ifsc || undefined}>
-                      {line.ifsc || "—"}
+                    <span className="px-1.5 text-[11px] font-mono block truncate max-w-[5.75rem]" title={salaryFiguresHidden() ? undefined : line.ifsc || undefined}>
+                      {salaryFiguresHidden() ? (line.ifsc ? "XXXXX" : "—") : line.ifsc || "—"}
                     </span>
                   ) : (
                     <input
                       className={`${textIn} w-[5.75rem]`}
-                      value={line.ifsc || ""}
-                      title={line.ifsc || undefined}
+                      value={maskedPayInput(line.ifsc, "")}
+                      title={salaryFiguresHidden() ? undefined : line.ifsc || undefined}
                       onChange={(e) => onUpdateLine(line.id, { ifsc: e.target.value })}
                     />
                   )}
@@ -1051,7 +1065,7 @@ function ScopeSalarySheetTable({
                     <input
                       type="number"
                       className={numIn}
-                      value={line.pt_amount ?? ""}
+                      value={maskedPayInput(line.pt_amount, "")}
                       onChange={(e) => onUpdateLine(line.id, { pt_amount: e.target.value })}
                     />
                   )}
@@ -1066,7 +1080,7 @@ function ScopeSalarySheetTable({
                     <input
                       type="number"
                       className={numIn}
-                      value={line.loan ?? 0}
+                      value={maskedPayInput(line.loan ?? 0, 0)}
                       onChange={(e) => onUpdateLine(line.id, { loan: e.target.value })}
                     />
                   )}
@@ -1081,7 +1095,7 @@ function ScopeSalarySheetTable({
                     <input
                       type="number"
                       className={numIn}
-                      value={line.sal_adv ?? 0}
+                      value={maskedPayInput(line.sal_adv ?? 0, 0)}
                       onChange={(e) => onUpdateLine(line.id, { sal_adv: e.target.value })}
                     />
                   )}
@@ -1116,7 +1130,7 @@ function ScopeSalarySheetTable({
                     <input
                       type="number"
                       className={numIn}
-                      value={line.tds ?? 0}
+                      value={maskedPayInput(line.tds ?? 0, 0)}
                       onChange={(e) => onUpdateLine(line.id, { tds: e.target.value })}
                     />
                   )}
@@ -1131,7 +1145,7 @@ function ScopeSalarySheetTable({
                     <input
                       type="number"
                       className={numIn}
-                      value={line.custom_ded_full ?? line.computed_json?.custom_ded_full ?? 0}
+                      value={maskedPayInput(line.custom_ded_full ?? line.computed_json?.custom_ded_full ?? 0, 0)}
                       onChange={(e) =>
                         onUpdateLine(line.id, {
                           custom_ded_full: e.target.value,
@@ -1733,6 +1747,7 @@ export default function SalaryProcessing() {
 
   const updateScopeLine = useCallback(
     (id, patch) => {
+      if (salaryFiguresHidden()) return;
       setScopeLines((prev) =>
         prev.map((row) => {
           if (row.id !== id) return row;
@@ -1853,6 +1868,7 @@ export default function SalaryProcessing() {
 
   const saveEmployeeDetail = useCallback(
     async (line) => {
+      if (salaryFiguresHidden()) return;
       if (!line?.employee_master_id) return;
       if (lineIsSalaryLocked(line)) {
         toast.warning("This salary is locked for the month and cannot be changed.");
@@ -2041,6 +2057,7 @@ export default function SalaryProcessing() {
 
   const updateLine = useCallback(
     (id, patch) => {
+      if (salaryFiguresHidden()) return;
       setLines((prev) =>
         prev.map((row) => {
           if (row.id !== id) return row;
@@ -2055,6 +2072,7 @@ export default function SalaryProcessing() {
   );
 
   const handleSave = useCallback(async () => {
+    if (salaryFiguresHidden()) return;
     if (!run?.id) return;
     setSaving(true);
     try {
@@ -2074,6 +2092,7 @@ export default function SalaryProcessing() {
   }, [run?.id, lines]);
 
   const handleExport = useCallback(async () => {
+    if (salaryFiguresHidden()) return;
     if (!run) return;
     try {
       await exportSalaryProcessingWorkbook({ run, lines });
@@ -2084,6 +2103,7 @@ export default function SalaryProcessing() {
   }, [run, lines]);
 
   const handleTabExport = useCallback(async () => {
+    if (salaryFiguresHidden()) return;
     const rows = visibleScopeLines;
     if (!rows.length) {
       toast.warning("No employees on this tab to download.");
@@ -2204,11 +2224,11 @@ export default function SalaryProcessing() {
           >
             Back
           </button>
-          <button type="button" className={btnGhost} onClick={handleExport}>
+          <button type="button" className={btnGhost} onClick={handleExport} disabled={salaryFiguresHidden()}>
             <Download className="h-3 w-3 inline mr-1" />
             Export
           </button>
-          <button type="button" disabled={!dirty || saving} className={btnPrimary} onClick={handleSave}>
+          <button type="button" disabled={!dirty || saving || salaryFiguresHidden()} className={btnPrimary} onClick={handleSave}>
             {saving ? "Saving…" : "Save"}
           </button>
         </PageTaskHeader>
@@ -2265,16 +2285,16 @@ export default function SalaryProcessing() {
                   <td className="px-0.5 py-0.5 border-b border-slate-100">
                     <input
                       className={`${textIn} w-[7.5rem]`}
-                      value={line.account_no || ""}
-                      title={line.account_no || undefined}
+                      value={maskedPayInput(line.account_no, "")}
+                      title={salaryFiguresHidden() ? undefined : line.account_no || undefined}
                       onChange={(e) => updateLine(line.id, { account_no: e.target.value })}
                     />
                   </td>
                   <td className="px-0.5 py-0.5 border-b border-slate-100">
                     <input
                       className={`${textIn} w-[5.75rem]`}
-                      value={line.ifsc || ""}
-                      title={line.ifsc || undefined}
+                      value={maskedPayInput(line.ifsc, "")}
+                      title={salaryFiguresHidden() ? undefined : line.ifsc || undefined}
                       onChange={(e) => updateLine(line.id, { ifsc: e.target.value })}
                     />
                   </td>
@@ -2314,7 +2334,7 @@ export default function SalaryProcessing() {
                     <input
                       type="number"
                       className={numIn}
-                      value={line.pf_basic ?? ""}
+                      value={maskedPayInput(line.pf_basic, "")}
                       onChange={(e) => updateLine(line.id, { pf_basic: e.target.value })}
                     />
                   </td>
@@ -2354,7 +2374,7 @@ export default function SalaryProcessing() {
                               .join(", ") || "Person components (earn)"
                           : "Person components (earn)"
                       }
-                      value={line.custom_earn_full ?? line.computed_json?.custom_earn_full ?? 0}
+                      value={maskedPayInput(line.custom_earn_full ?? line.computed_json?.custom_earn_full ?? 0, 0)}
                       onChange={(e) =>
                         updateLine(line.id, {
                           custom_earn_full: e.target.value,
@@ -2379,7 +2399,7 @@ export default function SalaryProcessing() {
                     <input
                       type="number"
                       className={numIn}
-                      value={line.pt_amount ?? ""}
+                      value={maskedPayInput(line.pt_amount, "")}
                       onChange={(e) => updateLine(line.id, { pt_amount: e.target.value })}
                     />
                   </td>
@@ -2387,7 +2407,7 @@ export default function SalaryProcessing() {
                     <input
                       type="number"
                       className={numIn}
-                      value={line.loan ?? 0}
+                      value={maskedPayInput(line.loan ?? 0, 0)}
                       onChange={(e) => updateLine(line.id, { loan: e.target.value })}
                     />
                   </td>
@@ -2395,7 +2415,7 @@ export default function SalaryProcessing() {
                     <input
                       type="number"
                       className={numIn}
-                      value={line.sal_adv ?? 0}
+                      value={maskedPayInput(line.sal_adv ?? 0, 0)}
                       onChange={(e) => updateLine(line.id, { sal_adv: e.target.value })}
                     />
                   </td>
@@ -2416,7 +2436,7 @@ export default function SalaryProcessing() {
                     <input
                       type="number"
                       className={numIn}
-                      value={line.tds ?? 0}
+                      value={maskedPayInput(line.tds ?? 0, 0)}
                       onChange={(e) => updateLine(line.id, { tds: e.target.value })}
                     />
                   </td>
@@ -2432,7 +2452,7 @@ export default function SalaryProcessing() {
                               .join(", ") || "Person components (deduct)"
                           : "Person components (deduct)"
                       }
-                      value={line.custom_ded_full ?? line.computed_json?.custom_ded_full ?? 0}
+                      value={maskedPayInput(line.custom_ded_full ?? line.computed_json?.custom_ded_full ?? 0, 0)}
                       onChange={(e) =>
                         updateLine(line.id, {
                           custom_ded_full: e.target.value,
@@ -2667,7 +2687,7 @@ export default function SalaryProcessing() {
                 type="button"
                 className={btnGhost}
                 onClick={handleTabExport}
-                disabled={exporting || candidatesLoading || scopeLinesLoading || !visibleScopeLines.length}
+                disabled={exporting || candidatesLoading || scopeLinesLoading || !visibleScopeLines.length || salaryFiguresHidden()}
                 title={`Download ${VIEW_TABS.find((t) => t.id === viewTab)?.label || "this tab"} as Excel`}
               >
                 <Download className="h-3 w-3 inline mr-1 -mt-0.5" />
