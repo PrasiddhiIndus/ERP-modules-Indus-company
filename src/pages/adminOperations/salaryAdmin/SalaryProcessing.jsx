@@ -1552,8 +1552,8 @@ export default function SalaryProcessing() {
     ) {
       pool = pool.filter((e) => selectedSet.has(String(e.id)));
     }
-    const toProcess = pool.filter((e) => !e.alreadyProcessed);
-    const skipped = pool.filter((e) => e.alreadyProcessed);
+    const toProcess = pool.filter((e) => !e.salaryLocked);
+    const skipped = pool.filter((e) => e.salaryLocked);
     const inScope = rows.filter((e) => {
       if (processMode === PROCESS_MODES.HOLD) return holdSet.has(String(e.id));
       if (selectedDepartments.length > 0) {
@@ -2002,7 +2002,7 @@ export default function SalaryProcessing() {
         const count = meta.processedCount ?? result.run?.employee_count ?? pageIds.length;
         let msg = `${count} employee(s) moved to Processed for ${monthLabel(year, month)}`;
         if (meta.skippedDuplicateCount > 0) {
-          msg += ` · skipped ${meta.skippedDuplicateCount} already on sheet`;
+          msg += ` · skipped ${meta.skippedDuplicateCount} locked`;
         }
         if (result.run?.revision_no) {
           msg += ` (rev ${result.run.revision_no})`;

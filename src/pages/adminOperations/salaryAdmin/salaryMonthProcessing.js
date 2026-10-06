@@ -580,13 +580,64 @@ export function buildSheetLineFromSources({
     line_revision_no: 1,
     has_master_variance: false,
   };
-  // Align earned/deduction columns with sample-sheet formulas (M,O–T,Z,AA,AB)
-  // including person-specific component earn/ded.
+  // Align earned/deduction columns with the current CTC (prorated by paid days).
+  const recomputed = recomputeLineFromEdits(draft, monthDays);
   return {
-    ...recomputeLineFromEdits(draft, monthDays),
+    ...recomputed,
     source_snapshot_json: snapshot,
     overrides_json: {},
-    computed_json: draft.computed_json,
+    computed_json: {
+      ...(recomputed.computed_json || {}),
+      custom_components: personComps.items,
+      custom_employer_full: personComps.custom_employer_full,
+      ...(annexure ? { annexure } : {}),
+    },
+  };
+}
+
+function employeeFromPayrollLine(line, emp) {
+  return {
+    id: emp?.id ?? line?.employee_master_id,
+    employee_id: emp?.employee_id ?? line?.employee_id,
+    employee_code: emp?.employee_code ?? line?.employee_code,
+    full_name: emp?.full_name ?? line?.employee_name ?? "",
+    designation: emp?.designation ?? line?.designation ?? "",
+    department: emp?.department ?? line?.department ?? "",
+    date_of_joining: emp?.date_of_joining ?? line?.date_of_joining ?? null,
+    confirmation_date: emp?.confirmation_date ?? line?.confirmation_date ?? null,
+    bank_account_no: emp?.bank_account_no ?? line?.account_no ?? "",
+    ifsc_code: emp?.ifsc_code ?? line?.ifsc ?? "",
+    uan_no: emp?.uan_no ?? line?.uan_no ?? "",
+    esic_no: emp?.esic_no ?? line?.esic_no ?? "",
+  };
+}
+
+/**
+ * Rebuild one sheet line from the CTC in force for this pay month.
+ * Paid days and recovery deductions already on the sheet are kept.
+ */
+export function applyCurrentCtcToSavedLine(saved, structure, monthDays, emp) {
+  if (!saved || !structure?.declared) return saved;
+  const built = buildSheetLineFromSources({
+    employee: employeeFromPayrollLine(saved, emp),
+    structure,
+    presentDays: saved.present_days,
+    monthDays,
+    deductions: {
+      loan: saved.loan,
+      salAdv: saved.sal_adv,
+      unpaidPaid: saved.unpaid_paid,
+      tds: saved.tds,
+    },
+  });
+  return {
+    ...built,
+    id: saved.id || built.id,
+    run_id: saved.run_id,
+    account_no: saved.account_no || built.account_no,
+    ifsc: saved.ifsc || built.ifsc,
+    confirmation_date: saved.confirmation_date ?? built.confirmation_date,
+    line_revision_no: saved.line_revision_no,
   };
 }
 
@@ -609,18 +660,60 @@ export function recomputeLineFromEdits(line, monthDays, opts) {
   const customDedFull = num(
     line.custom_ded_full != null ? line.custom_ded_full : cj.custom_ded_full ?? snap.custom_ded_full
   );
-  const pfEarned = round0((pfBasic / td) * K);
-  const basicEarned = round0((basicFull / td) * K);
-  const hraEarned = round0((hraFull / td) * K);
-  const specialEarned = round0((specialFull / td) * K);
-  const customEarn = round0((customEarnFull / td) * K);
-  const customDed = round0((customDedFull / td) * K);
-  // Annexure-I records: earnings, PF, ESIC and PT come from the CTC record and are
-  // prorated with the same paid-days rule as Basic / HRA / Special.
+  const prorate = (full) => {
+    const base = num(full);
+    if (K <= 0 || td <= 0 || base === 0) return 0;
+    if (Math.abs(K - td) < 1e-6) return round0(base);
+    return round0((base / td) * K);
+  };
+  const pfEarned = prorate(pfBasic);
+  let basicEarned = prorate(basicFull);
+  let hraEarned = prorate(hraFull);
+  let specialEarned = prorate(specialFull);
+  const customEarn = prorate(customEarnFull);
+  const customDed = prorate(customDedFull);
+  // Current CTC: each Part A line is the saved monthly amount, prorated by paid days.
+  // A full month hits those amounts exactly. Gross wages hits the CTC gross.
   const annexure = annexureFromLine(line);
-  const conveyanceEarned = annexure ? round0((num(annexure.conveyance_full) / td) * K) : 0;
-  const statBonusEarned = annexure ? round0((num(annexure.stat_bonus_full) / td) * K) : 0;
-  const medicalEarned = annexure ? round0((num(annexure.medical_full) / td) * K) : 0;
+  let conveyanceEarned = annexure ? prorate(annexure.conveyance_full) : 0;
+  let statBonusEarned = annexure ? prorate(annexure.stat_bonus_full) : 0;
+  let medicalEarned = annexure ? prorate(annexure.medical_full) : 0;
+  const salaryRate = num(line.salary_rate);
+  if (salaryRate > 0) {
+    const target = prorate(salaryRate);
+    const parts = {
+      basic: basicEarned,
+      hra: hraEarned,
+      special: specialEarned,
+      conveyance: conveyanceEarned,
+      bonus: statBonusEarned,
+      medical: medicalEarned,
+    };
+    const sum =
+      parts.basic + parts.hra + parts.special + parts.conveyance + parts.bonus + parts.medical;
+    const diff = round0(target - sum);
+    if (diff !== 0) {
+      const balanceKey =
+        num(line.special_full) > 0
+          ? "special"
+          : annexure && num(annexure.conveyance_full) > 0
+            ? "conveyance"
+            : annexure && num(annexure.medical_full) > 0
+              ? "medical"
+              : annexure && num(annexure.stat_bonus_full) > 0
+                ? "bonus"
+                : num(line.hra_full) > 0
+                  ? "hra"
+                  : "basic";
+      parts[balanceKey] = round0(parts[balanceKey] + diff);
+      basicEarned = parts.basic;
+      hraEarned = parts.hra;
+      specialEarned = parts.special;
+      conveyanceEarned = parts.conveyance;
+      statBonusEarned = parts.bonus;
+      medicalEarned = parts.medical;
+    }
+  }
   const gross =
     basicEarned +
     hraEarned +
@@ -632,12 +725,10 @@ export function recomputeLineFromEdits(line, monthDays, opts) {
   let empPf;
   let empEsic;
   if (annexure) {
-    const pfWage = num(annexure.pf_wage_full);
-    empPf = pfWage > 0 ? round0((num(annexure.ee_pf_full) * pfEarned) / pfWage) : 0;
-    empEsic = round0((num(annexure.ee_esic_full) / td) * K);
+    empPf = prorate(annexure.ee_pf_full);
+    empEsic = prorate(annexure.ee_esic_full);
   } else {
     empPf = round0(pfEarned * 0.12);
-    const salaryRate = num(line.salary_rate);
     const esicEligible = salaryRate > 0 && salaryRate <= 21000;
     empEsic = esicEligible ? round0((gross * 0.75) / 100) : 0;
   }
@@ -645,7 +736,9 @@ export function recomputeLineFromEdits(line, monthDays, opts) {
     options.keepPt && line.pt_amount != null && line.pt_amount !== ""
       ? round0(line.pt_amount)
       : annexure
-        ? round0(annexure.pt_full)
+        ? K <= 0
+          ? 0
+          : round0(annexure.pt_full)
         : defaultPtForGross(gross);
   const loan = round0(line.loan);
   const salAdv = round0(line.sal_adv);
@@ -751,8 +844,38 @@ export async function getMonthRunWithLines(runId) {
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
-  const lines = raw.map((line) => hydrateMonthLine(line));
-  return { run: runRes.data || null, lines };
+  const hydrated = raw.map((line) => hydrateMonthLine(line));
+  const run = runRes.data || null;
+  const lines = await alignUnlockedLinesToCurrentCtc(hydrated, run);
+  return { run, lines };
+}
+
+/** Unlocked sheet rows follow the CTC in force for that pay month. Locked rows stay as paid. */
+async function alignUnlockedLinesToCurrentCtc(lines, run) {
+  if (!run?.pay_year || !run?.pay_month || !(lines || []).length) return lines || [];
+  let map;
+  try {
+    map = await fetchSalaryStructureMapForMonth(run.pay_year, run.pay_month);
+  } catch (err) {
+    console.warn("Salary processing: current CTC could not be loaded", err);
+    return lines;
+  }
+  const days = num(run.month_days, DEFAULT_MONTH_DAYS);
+  return lines.map((line) => {
+    if (salaryLineLocked(line)) return line;
+    const structure = map.get(String(line.employee_master_id));
+    if (!structure?.declared) return recomputeLineFromEdits(line, days);
+    const next = applyCurrentCtcToSavedLine(line, structure, days);
+    return {
+      ...next,
+      alreadyProcessed: true,
+      salaryLocked: false,
+      hasCtc: true,
+      declared: true,
+      processStatus: "processed",
+      pay_month_key: line.pay_month_key || run.month_key || "",
+    };
+  });
 }
 
 function sumLines(lines) {
@@ -1357,27 +1480,32 @@ export async function buildSalaryScopePreviewLines({
   const toCompute = [];
   const planned = (employees || []).map((emp) => {
     const saved = findSavedMonthLine(monthSaved, emp);
-    if (saved) {
+    if (saved && salaryLineLocked(saved)) {
       const base = {
         ...saved,
         id: saved.id || `preview_${emp.id}`,
         pay_month_key: key,
       };
-      const capped = salaryLineLocked(base) ? base : recomputeLineFromEdits(base, days);
       return {
         kind: "saved",
         emp,
         line: decorateScopeLine(
-          capped,
+          base,
           emp,
           {
             alreadyProcessed: true,
+            salaryLocked: true,
             hasCtc: Boolean(emp.hasCtc) || Number(saved.salary_rate) > 0,
             pay_month_key: key,
             identityStats,
           }
         ),
       };
+    }
+    if (saved) {
+      const refreshEmp = { ...emp, _savedLine: { ...saved, id: saved.id || `preview_${emp.id}` } };
+      toCompute.push(refreshEmp);
+      return { kind: "compute", emp: refreshEmp, line: null };
     }
     const hasCtc = Boolean(emp.hasCtc ?? emp._structure?.declared);
     if (!hasCtc) {
@@ -1428,26 +1556,35 @@ export async function buildSalaryScopePreviewLines({
         uan_no: fresh.uan_no ?? emp.uan_no,
         esic_no: fresh.esic_no ?? emp.esic_no,
       };
-      const present = lookupPresentDays(presentMap, emp, days) ?? 0;
-      let line = buildSheetLineFromSources({
-        employee: {
-          id: emp.id,
-          employee_id: bankEmp.employee_id,
-          employee_code: bankEmp.employee_code,
-          full_name: bankEmp.full_name,
-          designation: emp.designation,
-          date_of_joining: bankEmp.date_of_joining,
-          confirmation_date: emp.confirmation_date,
-          bank_account_no: bankEmp.bank_account_no,
-          ifsc_code: bankEmp.ifsc_code,
-          uan_no: bankEmp.uan_no,
-          esic_no: bankEmp.esic_no,
-        },
-        structure,
-        presentDays: present,
-        monthDays: days,
-        deductions: dedMap.get(String(emp.id)) || emptyDedSeed(),
-      });
+      const present = emp._savedLine
+        ? emp._savedLine.present_days
+        : (lookupPresentDays(presentMap, emp, days) ?? 0);
+      let line;
+      if (emp._savedLine && structure?.declared) {
+        line = applyCurrentCtcToSavedLine(emp._savedLine, structure, days, bankEmp);
+      } else if (emp._savedLine) {
+        line = recomputeLineFromEdits({ ...emp._savedLine, pay_month_key: key }, days);
+      } else {
+        line = buildSheetLineFromSources({
+          employee: {
+            id: emp.id,
+            employee_id: bankEmp.employee_id,
+            employee_code: bankEmp.employee_code,
+            full_name: bankEmp.full_name,
+            designation: emp.designation,
+            date_of_joining: bankEmp.date_of_joining,
+            confirmation_date: emp.confirmation_date,
+            bank_account_no: bankEmp.bank_account_no,
+            ifsc_code: bankEmp.ifsc_code,
+            uan_no: bankEmp.uan_no,
+            esic_no: bankEmp.esic_no,
+          },
+          structure,
+          presentDays: present,
+          monthDays: days,
+          deductions: dedMap.get(String(emp.id)) || emptyDedSeed(),
+        });
+      }
       const draft = getScopeLineDraft(key, emp.id);
       if (draft) {
         line = applyScopeLineDraft(line, draft, days);
@@ -1591,21 +1728,28 @@ export async function processSalaryMonth({
   }
 
   const fullReprocess = mode === PROCESS_MODES.BULK && forceFullReprocess && Boolean(existing?.id);
+  const existingByEmp = new Map(
+    (existingLines || []).map((line) => [String(line.employee_master_id), line])
+  );
   let toProcess = eligible;
   let skippedDuplicates = [];
 
-  if (fullReprocess) {
-    toProcess = eligible;
-  } else {
-    skippedDuplicates = eligible.filter((emp) => employeeAlreadyProcessed(emp, processedIndex));
-    toProcess = eligible.filter((emp) => !employeeAlreadyProcessed(emp, processedIndex));
+  if (!fullReprocess) {
+    skippedDuplicates = eligible.filter((emp) => {
+      const prev = existingByEmp.get(String(emp.id));
+      return prev && salaryLineLocked(prev);
+    });
+    toProcess = eligible.filter((emp) => {
+      const prev = existingByEmp.get(String(emp.id));
+      return !(prev && salaryLineLocked(prev));
+    });
   }
 
   if (!toProcess.length) {
     const dupCount = skippedDuplicates.length;
     throw new Error(
       dupCount
-        ? `All ${dupCount} selected employee${dupCount === 1 ? "" : "s"} already processed for ${monthLabel(y, m)}. Open the existing sheet or use full reprocess (All).`
+        ? `All ${dupCount} selected employee${dupCount === 1 ? "" : "s"} are locked for ${monthLabel(y, m)}. Locked salary is left as paid.`
         : "No employees to process."
     );
   }
@@ -1618,8 +1762,28 @@ export async function processSalaryMonth({
   });
   const bankMap = await fetchMasterPayrollFieldsByIds(toProcess.map((e) => e.id));
   newLines = newLines.map((line) => {
-    const draft = getScopeLineDraft(key, line.employee_master_id);
-    let next = draft ? applyScopeLineDraft(line, draft, days) : line;
+    const prev = !fullReprocess ? existingByEmp.get(String(line.employee_master_id)) : null;
+    let seeded = line;
+    if (prev && !salaryLineLocked(prev)) {
+      seeded = recomputeLineFromEdits(
+        {
+          ...line,
+          present_days: prev.present_days ?? line.present_days,
+          loan: prev.loan ?? line.loan,
+          sal_adv: prev.sal_adv ?? line.sal_adv,
+          unpaid_paid: prev.unpaid_paid ?? line.unpaid_paid,
+          tds: prev.tds ?? line.tds,
+          account_no: prev.account_no || line.account_no,
+          ifsc: prev.ifsc || line.ifsc,
+          confirmation_date: prev.confirmation_date ?? line.confirmation_date,
+        },
+        days
+      );
+      seeded = { ...seeded, id: prev.id };
+    }
+    const draft = getScopeLineDraft(key, seeded.employee_master_id);
+    let next = draft ? applyScopeLineDraft(seeded, draft, days) : seeded;
+    if (prev?.id) next = { ...next, id: prev.id };
     const emp = toProcess.find((e) => String(e.id) === String(line.employee_master_id));
     const fresh = bankMap.get(String(line.employee_master_id)) || {};
     return overlayMasterBankOnLine(next, {
@@ -1688,7 +1852,11 @@ export async function processSalaryMonth({
   if (existing?.id && !fullReprocess) {
     runId = existing.id;
     revisionNo = num(existing.revision_no, 1);
-    allLines = [...existingLines, ...newLines];
+    const writtenIds = new Set(newLines.map((line) => String(line.employee_master_id)));
+    allLines = [
+      ...existingLines.filter((line) => !writtenIds.has(String(line.employee_master_id))),
+      ...newLines,
+    ];
     const totals = sumLines(allLines);
     const summary_json = buildSummaryForProcess(existing.summary_json, revisionNo);
     const { error: updErr } = await supabase
@@ -1770,21 +1938,36 @@ export async function processSalaryMonth({
     runId = run.id;
   }
 
-  const payload = newLines.map((l) => ({
-    ...toDbLinePayload(l, { includeRunId: true }),
-    run_id: runId,
-    line_revision_no: revisionNo,
-  }));
+  const inserts = [];
+  const updates = [];
+  for (const line of newLines) {
+    const body = {
+      ...toDbLinePayload(line, { includeRunId: true }),
+      run_id: runId,
+      line_revision_no: revisionNo,
+    };
+    const prev = !fullReprocess ? existingByEmp.get(String(line.employee_master_id)) : null;
+    if (prev?.id && !salaryLineLocked(prev)) updates.push({ id: prev.id, body });
+    else inserts.push(body);
+  }
 
   const chunk = 100;
-  for (let i = 0; i < payload.length; i += chunk) {
-    const { error } = await supabase.from(MONTH_LINES_TABLE).insert(payload.slice(i, i + chunk));
+  for (let i = 0; i < inserts.length; i += chunk) {
+    const { error } = await supabase.from(MONTH_LINES_TABLE).insert(inserts.slice(i, i + chunk));
     if (error) {
       if (error.code === "23505") {
         throw new Error("Duplicate employee detected on this month sheet. Refresh and try again.");
       }
       throw error;
     }
+  }
+  for (let i = 0; i < updates.length; i += chunk) {
+    const batch = updates.slice(i, i + chunk);
+    const results = await Promise.all(
+      batch.map((row) => supabase.from(MONTH_LINES_TABLE).update(row.body).eq("id", row.id))
+    );
+    const failed = results.find((res) => res.error);
+    if (failed?.error) throw failed.error;
   }
 
   const shouldLogRevision = !existing?.id || fullReprocess;
