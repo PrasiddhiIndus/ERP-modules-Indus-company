@@ -4,6 +4,7 @@
  */
 
 import { supabase } from "../../../lib/supabase";
+import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import {
   attendanceEmpCodeLookupVariants,
@@ -1364,6 +1365,36 @@ async function buildLinesForEmployees(employees, { salaryMap, presentMap, monthD
     );
   }
   return lines;
+}
+
+const SALARY_PROCESSING_LIVE_TABLES = [
+  EMPLOYEE_MASTER_TABLE,
+  "admin_salary_structures",
+  "admin_salary_structure_revisions",
+  MONTH_RUNS_TABLE,
+  MONTH_LINES_TABLE,
+  "admin_attendance_register",
+  "admin_salary_loans",
+  "admin_salary_salary_advances",
+  "admin_salary_unpaid_paid",
+];
+
+/**
+ * Call `onChange` when Employee Master, CTC, attendance, deductions or the month sheet change.
+ * Tables must be in the `supabase_realtime` publication (migration 20261006140000).
+ */
+export function subscribeSalaryProcessingRealtime(onChange) {
+  if (!isSupabaseRealtimeEnabled() || typeof onChange !== "function") return () => {};
+  let channel = supabase.channel(`erp-salary-processing-${Math.random().toString(36).slice(2)}`);
+  for (const table of SALARY_PROCESSING_LIVE_TABLES) {
+    channel = channel.on("postgres_changes", { event: "*", schema: "public", table }, (payload) =>
+      onChange({ table, payload })
+    );
+  }
+  channel.subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }
 
 /** Active employees on roll for this pay month, with duplicate flags for the month. */

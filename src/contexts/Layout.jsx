@@ -5,6 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
 import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, isAdminRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath } from "../config/roles";
 import { canAccessSalaryAdmin } from "../pages/adminOperations/salaryAdmin/salaryAccess";
+import { syncSalaryFiguresHidden } from "../pages/adminOperations/salaryAdmin/salaryPrivacy";
 import { canAccessCompliance } from "../pages/compliance/payroll/complianceAccess";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import { resolveModule } from "../lib/activityDescriptors";
@@ -173,6 +174,7 @@ function formatToolbarDate(d = new Date()) {
 
 const Layout = () => {
   const { user, signOut, accessibleModules, subModulePaths, navVisibleModules, userProfile } = useAuth();
+  syncSalaryFiguresHidden(userProfile, user);
   const can = (moduleKey) => Boolean(navVisibleModules?.has(moduleKey));
   const canSub = (subModuleKey) =>
     canSeeSubModule(userProfile, accessibleModules, subModuleKey, {

@@ -4,6 +4,7 @@
  */
 
 import { supabase } from "./supabase";
+import { salaryFiguresHidden } from "../pages/adminOperations/salaryAdmin/salaryPrivacy";
 
 const PAYSLIP_KEY = "admin_salary_payslips_v1";
 export const PAYSLIPS_TABLE = "admin_salary_payslips";
@@ -272,48 +273,44 @@ export async function generateAndSavePayslipsForRun(run, lines, opts = {}) {
   return created;
 }
 
+/** Full slips built from this employee's lines on processed salary months (the saved salary sheet). */
 export async function fetchPayslipsFromMonthLines(employeeMasterId) {
   if (employeeMasterId == null || employeeMasterId === "") return [];
-  const { data, error } = await supabase
+  const { data: lines, error } = await supabase
     .from("admin_salary_month_lines")
-    .select(
-      "employee_master_id, employee_code, employee_name, designation, computed_json, source_snapshot_json, present_days, gross_wages, total_ded, net_salary, bank_amount, run_id"
-    )
+    .select("*")
     .eq("employee_master_id", employeeMasterId);
   if (error) {
     console.warn("Salary slips: sheet load skipped", error);
     return [];
   }
+  const runIds = [...new Set((lines || []).map((l) => l.run_id).filter(Boolean))];
+  if (!runIds.length) return [];
+  const { data: runs, error: runErr } = await supabase
+    .from("admin_salary_month_runs")
+    .select("*")
+    .in("id", runIds);
+  if (runErr) {
+    console.warn("Salary slips: month load skipped", runErr);
+    return [];
+  }
+  const runById = new Map((runs || []).map((r) => [String(r.id), r]));
   const out = [];
-  for (const line of data || []) {
+  for (const line of lines || []) {
+    const run = runById.get(String(line.run_id));
+    if (!run || run.status !== "processed") continue;
     const cj = line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
     const snap =
       line.source_snapshot_json && typeof line.source_snapshot_json === "object"
         ? line.source_snapshot_json
         : {};
-    if (!cj.slip_generated_on && !snap.slip_generated_on && !cj.payslip) continue;
-    if (cj.payslip && typeof cj.payslip === "object") {
-      out.push(cj.payslip);
-      continue;
-    }
-    const monthKey = cj.pay_month_key || snap.pay_month_key || "";
-    if (!monthKey) continue;
-    out.push({
-      id: payslipId(monthKey, line.employee_master_id),
-      employee_master_id: line.employee_master_id,
-      employee_code: line.employee_code || "",
-      employee_name: line.employee_name || "",
-      designation: line.designation || "",
-      month_key: monthKey,
-      processed_on: String(cj.slip_generated_on || snap.slip_generated_on || "").slice(0, 10),
-      present_days: line.present_days,
-      gross_wages: line.gross_wages,
-      total_ded: line.total_ded,
-      net_salary: line.net_salary,
-      bank_amount: line.bank_amount,
-      run_id: line.run_id,
-      status: "generated",
+    const slip = buildPayslipFromLine(run, line, {
+      processedOn: String(
+        cj.slip_generated_on || snap.slip_generated_on || run.summary_json?.processed_on || ""
+      ).slice(0, 10) || undefined,
+      generatedAt: run.summary_json?.processed_at || run.updated_at || line.updated_at || undefined,
     });
+    if (slip) out.push(slip);
   }
   return out;
 }
@@ -435,5 +432,6 @@ export async function fetchSalaryHistoryForEmployee(employeeMasterId) {
 
 export function formatPayslipMoney(v) {
   if (v == null || v === "" || Number.isNaN(Number(v))) return "—";
+  if (salaryFiguresHidden()) return "XXXXX";
   return round0(v).toLocaleString("en-IN");
 }

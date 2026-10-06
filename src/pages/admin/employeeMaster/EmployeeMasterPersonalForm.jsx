@@ -17,6 +17,7 @@ import {
   validateEmployeeHierarchy,
 } from '../../../lib/employeeHierarchy';
 import { EMPLOYEE_MASTER_BASE_DEPARTMENTS } from '../../../lib/employeeMasterDepartments';
+import { MASKED_SECRET, salaryFiguresHidden } from '../../adminOperations/salaryAdmin/salaryPrivacy';
 import { ManagerSearchSelect } from '../../../components/employee/ManagerSearchSelect';
 import FormDateInput from '../../../components/FormDateInput';
 import {
@@ -857,8 +858,9 @@ export default function EmployeeMasterPersonalForm({
           ) : (
             <p className="text-[11px] text-emerald-800">
               Account on file
-              {formData.bank_account_no ? ` · ${formData.bank_account_no}` : ''}
-              {formData.ifsc_code ? ` · ${formData.ifsc_code}` : ''}
+              {salaryFiguresHidden()
+                ? ` · ${MASKED_SECRET}`
+                : `${formData.bank_account_no ? ` · ${formData.bank_account_no}` : ''}${formData.ifsc_code ? ` · ${formData.ifsc_code}` : ''}`}
             </p>
           )}
         </div>
@@ -885,20 +887,30 @@ export default function EmployeeMasterPersonalForm({
             <label className={lbl}>UAN</label>
             <input
               type="text"
-              value={formData.uan_no}
-              onChange={(e) => setBankField('uan_no', e.target.value)}
+              value={salaryFiguresHidden() ? (formData.uan_no ? MASKED_SECRET : '') : formData.uan_no}
+              onChange={(e) => {
+                if (salaryFiguresHidden()) return;
+                setBankField('uan_no', e.target.value);
+              }}
               className={ctrl}
               autoComplete="off"
+              readOnly={salaryFiguresHidden()}
+              disabled={salaryFiguresHidden()}
             />
           </div>
           <div>
             <label className={lbl}>ESIC</label>
             <input
               type="text"
-              value={formData.esic_no}
-              onChange={(e) => setBankField('esic_no', e.target.value)}
+              value={salaryFiguresHidden() ? (formData.esic_no ? MASKED_SECRET : '') : formData.esic_no}
+              onChange={(e) => {
+                if (salaryFiguresHidden()) return;
+                setBankField('esic_no', e.target.value);
+              }}
               className={ctrl}
               autoComplete="off"
+              readOnly={salaryFiguresHidden()}
+              disabled={salaryFiguresHidden()}
             />
           </div>
           <div>
@@ -914,20 +926,30 @@ export default function EmployeeMasterPersonalForm({
             <label className={lbl}>Account number</label>
             <input
               type="text"
-              value={formData.bank_account_no}
-              onChange={(e) => setBankField('bank_account_no', e.target.value)}
-              className={ctrl}
+              value={salaryFiguresHidden() ? (formData.bank_account_no ? MASKED_SECRET : '') : formData.bank_account_no}
+              onChange={(e) => {
+                if (salaryFiguresHidden()) return;
+                setBankField('bank_account_no', e.target.value);
+              }}
+              className={`${ctrl} ${salaryFiguresHidden() ? 'bg-slate-100 text-slate-400' : ''}`}
               autoComplete="off"
+              readOnly={salaryFiguresHidden()}
+              disabled={salaryFiguresHidden()}
             />
           </div>
           <div>
             <label className={lbl}>IFSC</label>
             <input
               type="text"
-              value={formData.ifsc_code}
-              onChange={(e) => setBankField('ifsc_code', e.target.value.toUpperCase())}
-              className={ctrl}
+              value={salaryFiguresHidden() ? (formData.ifsc_code ? MASKED_SECRET : '') : formData.ifsc_code}
+              onChange={(e) => {
+                if (salaryFiguresHidden()) return;
+                setBankField('ifsc_code', e.target.value.toUpperCase());
+              }}
+              className={`${ctrl} ${salaryFiguresHidden() ? 'bg-slate-100 text-slate-400' : ''}`}
               autoComplete="off"
+              readOnly={salaryFiguresHidden()}
+              disabled={salaryFiguresHidden()}
             />
           </div>
         </div>
