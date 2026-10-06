@@ -36,6 +36,11 @@ import {
   saveScopeLineDraft,
   syncScopeDraftBankFromMaster,
   collectRosterIdentityStats,
+  lockMonthRun,
+  unlockMonthRun,
+  monthRunLocked,
+  UNLOCK_REASON_MIN_LENGTH,
+  subscribeSalaryProcessingRealtime,
 } from "./salaryMonthProcessing";
 import {
   USE_MOCK_SALARY_PROCESSING,
@@ -1317,6 +1322,9 @@ export default function SalaryProcessing() {
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [existingRun, setExistingRun] = useState(null);
+  const [unlockOpen, setUnlockOpen] = useState(false);
+  const [unlockReason, setUnlockReason] = useState("");
+  const [lockBusy, setLockBusy] = useState(false);
   const [bankImportOpen, setBankImportOpen] = useState(false);
 
   const [editorOpen, setEditorOpen] = useState(false);
@@ -1332,6 +1340,11 @@ export default function SalaryProcessing() {
   }, [now.year]);
 
   const loadGenRef = useRef(0);
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
+  const liveBlocked = busy || saving || detailDirty || detailSaving || (editorOpen && dirty);
+  const liveBlockedRef = useRef(liveBlocked);
+  liveBlockedRef.current = liveBlocked;
+  const livePendingRef = useRef(false);
 
   const loadCandidates = useCallback(async () => {
     const gen = ++loadGenRef.current;
@@ -1366,6 +1379,7 @@ export default function SalaryProcessing() {
       if (gen === loadGenRef.current) {
         setCandidatesLoading(false);
         setSheetRefreshAt(Date.now());
+        setLastSyncedAt(new Date());
       }
     }
   }, [year, month]);
@@ -1438,6 +1452,32 @@ export default function SalaryProcessing() {
       document.removeEventListener("visibilitychange", refresh);
     };
   }, [loadCandidates]);
+
+  // Live: reload when Employee Master, CTC, attendance, deductions or the month sheet change.
+  // Held back while processing / saving / editing so unsaved edits are not replaced.
+  useEffect(() => {
+    let timer = null;
+    const unsubscribe = subscribeSalaryProcessingRealtime(() => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (document.visibilityState === "hidden" || liveBlockedRef.current) {
+          livePendingRef.current = true;
+          return;
+        }
+        loadCandidates();
+      }, 2000);
+    });
+    return () => {
+      window.clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [loadCandidates]);
+
+  useEffect(() => {
+    if (liveBlocked || !livePendingRef.current) return;
+    livePendingRef.current = false;
+    loadCandidates();
+  }, [liveBlocked, loadCandidates]);
 
   // Sync process mode with list tab (Hold tab → hold workflow)
   useEffect(() => {
@@ -2091,6 +2131,52 @@ export default function SalaryProcessing() {
     }
   }, [run?.id, lines]);
 
+  const monthLocked = monthRunLocked(candidates.existingRun);
+  const canLockMonth = !USE_MOCK_SALARY_PROCESSING && Boolean(candidates.existingRun?.id);
+  const monthLockedAt = candidates.existingRun?.locked_at
+    ? new Date(candidates.existingRun.locked_at)
+    : null;
+  const monthLockedOn =
+    monthLockedAt && !Number.isNaN(monthLockedAt.getTime())
+      ? formatDateDdMmYyyy(
+          `${monthLockedAt.getFullYear()}-${String(monthLockedAt.getMonth() + 1).padStart(2, "0")}-${String(monthLockedAt.getDate()).padStart(2, "0")}`
+        )
+      : "";
+
+  const doLockMonth = useCallback(async () => {
+    const runId = candidates.existingRun?.id;
+    if (!runId) return;
+    setLockBusy(true);
+    try {
+      await lockMonthRun(runId);
+      toast.success(`${monthLabel(year, month)} locked. Reprocess and edits are blocked until unlocked.`);
+      await loadCandidates();
+    } catch (err) {
+      console.error("Salary month lock failed", err);
+      toast.error(err?.message || "Could not lock this month.");
+    } finally {
+      setLockBusy(false);
+    }
+  }, [candidates.existingRun?.id, year, month, loadCandidates]);
+
+  const doUnlockMonth = useCallback(async () => {
+    const runId = candidates.existingRun?.id;
+    if (!runId) return;
+    setLockBusy(true);
+    try {
+      await unlockMonthRun(runId, unlockReason);
+      toast.success(`${monthLabel(year, month)} unlocked.`);
+      setUnlockOpen(false);
+      setUnlockReason("");
+      await loadCandidates();
+    } catch (err) {
+      console.error("Salary month unlock failed", err);
+      toast.error(err?.message || "Could not unlock this month.");
+    } finally {
+      setLockBusy(false);
+    }
+  }, [candidates.existingRun?.id, unlockReason, year, month, loadCandidates]);
+
   const handleExport = useCallback(async () => {
     if (salaryFiguresHidden()) return;
     if (!run) return;
@@ -2211,6 +2297,7 @@ export default function SalaryProcessing() {
           }
         >
           <StatusChip label={`Rev ${run.revision_no}`} severity="info" />
+          {monthRunLocked(run) ? <StatusChip label="Month locked" severity="info" /> : null}
           <button
             type="button"
             className={btnGhost}
@@ -2228,7 +2315,13 @@ export default function SalaryProcessing() {
             <Download className="h-3 w-3 inline mr-1" />
             Export
           </button>
-          <button type="button" disabled={!dirty || saving || salaryFiguresHidden()} className={btnPrimary} onClick={handleSave}>
+          <button
+            type="button"
+            disabled={!dirty || saving || monthRunLocked(run) || salaryFiguresHidden()}
+            className={btnPrimary}
+            onClick={handleSave}
+            title={monthRunLocked(run) ? "Month is locked. Unlock it to save changes." : undefined}
+          >
             {saving ? "Saving…" : "Save"}
           </button>
         </PageTaskHeader>
@@ -2511,6 +2604,15 @@ export default function SalaryProcessing() {
           <RefreshCw className={`w-3.5 h-3.5 inline-block mr-1 -mt-0.5 ${candidatesLoading ? "animate-spin" : ""}`} />
           Refresh
         </button>
+        {lastSyncedAt ? (
+          <span
+            className="text-[11px] text-slate-500 self-center"
+            title="Updates automatically when Employee Master, CTC, attendance or deductions change"
+          >
+            Live · updated{" "}
+            {lastSyncedAt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        ) : null}
       </PageTaskHeader>
 
       <CollapsibleHelp label="how this works">
@@ -2809,8 +2911,40 @@ export default function SalaryProcessing() {
                   · sheet rev {candidates.existingRun.revision_no}
                 </>
               ) : null}
+              {monthLocked ? (
+                <>
+                  {" "}
+                  <StatusChip
+                    label={monthLockedOn ? `Month locked · ${monthLockedOn}` : "Month locked"}
+                    severity="info"
+                  />
+                </>
+              ) : null}
             </p>
             <div className="flex flex-wrap items-center gap-2">
+              {canLockMonth ? (
+                <button
+                  type="button"
+                  className={btnGhost}
+                  disabled={busy || lockBusy || candidatesLoading}
+                  onClick={() => {
+                    if (monthLocked) {
+                      setUnlockReason("");
+                      setUnlockOpen(true);
+                    } else {
+                      doLockMonth();
+                    }
+                  }}
+                  title={
+                    monthLocked
+                      ? "Unlock this month to allow reprocess and edits"
+                      : "Lock this month to block reprocess, edits and delete"
+                  }
+                >
+                  <Lock className="h-3 w-3 inline mr-1" />
+                  {lockBusy ? "Saving…" : monthLocked ? "Unlock month" : "Lock month"}
+                </button>
+              ) : null}
               {viewTab === "held" || processMode === PROCESS_MODES.HOLD ? (
                 <button
                   type="button"
@@ -2826,7 +2960,8 @@ export default function SalaryProcessing() {
                 <button
                   type="button"
                   className={btnPrimary}
-                  disabled={busy || candidatesLoading || !visibleScopeLines.length}
+                  disabled={busy || candidatesLoading || !visibleScopeLines.length || monthLocked}
+                  title={monthLocked ? "Month is locked. Unlock it to make changes." : undefined}
                   onClick={doPublishProcessedSlips}
                 >
                   {busy ? "Locking…" : "Processed"}
@@ -2846,17 +2981,22 @@ export default function SalaryProcessing() {
                   {processMode === PROCESS_MODES.BULK && candidates.existingRun ? (
                     <button
                       type="button"
-                      disabled={busy}
+                      disabled={busy || monthLocked}
                       className={btnGhost}
                       onClick={() => doProcess({ forceFullReprocess: true })}
-                      title="Rebuild entire month sheet as new revision"
+                      title={
+                        monthLocked
+                          ? "Month is locked. Unlock it to reprocess."
+                          : "Rebuild entire month sheet as new revision"
+                      }
                     >
                       Full reprocess
                     </button>
                   ) : null}
                   <button
                     type="button"
-                    disabled={busy || candidatesLoading || !processPreview.toProcess.length}
+                    disabled={busy || candidatesLoading || !processPreview.toProcess.length || monthLocked}
+                    title={monthLocked ? "Month is locked. Unlock it to make changes." : undefined}
                     className={btnPrimary}
                     onClick={() => doProcess()}
                   >
@@ -2896,6 +3036,8 @@ export default function SalaryProcessing() {
             <button
               type="button"
               className={btnPrimary}
+              disabled={monthLocked}
+              title={monthLocked ? "Month is locked. Unlock it to reprocess." : undefined}
               onClick={() => doProcess({ forceFullReprocess: true })}
             >
               Full reprocess (new revision)
@@ -2913,6 +3055,55 @@ export default function SalaryProcessing() {
           {existingRun ? ` (rev ${existingRun.revision_no})` : ""}. Open the sheet, process by
           department for remaining staff, or run a full reprocess from All Employees.
         </p>
+      </Modal>
+
+      <Modal
+        open={unlockOpen}
+        title={`Unlock ${monthLabel(year, month)}`}
+        onClose={() => {
+          if (lockBusy) return;
+          setUnlockOpen(false);
+          setUnlockReason("");
+        }}
+        footer={
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              className={btnGhost}
+              disabled={lockBusy}
+              onClick={() => {
+                setUnlockOpen(false);
+                setUnlockReason("");
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={btnPrimary}
+              disabled={lockBusy || unlockReason.trim().length < UNLOCK_REASON_MIN_LENGTH}
+              onClick={doUnlockMonth}
+            >
+              {lockBusy ? "Unlocking…" : "Unlock"}
+            </button>
+          </div>
+        }
+      >
+        <p className="text-sm text-slate-700 mb-2">
+          Unlocking allows reprocess and edits for this month again. Your name, the time and the
+          reason are recorded.
+        </p>
+        <label className="block text-[11px] font-medium text-slate-700 mb-1" htmlFor="salary-unlock-reason">
+          Reason for unlocking (required)
+        </label>
+        <textarea
+          id="salary-unlock-reason"
+          rows={3}
+          className="w-full px-1.5 py-1 text-[11px] border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent"
+          value={unlockReason}
+          onChange={(e) => setUnlockReason(e.target.value)}
+          placeholder="e.g. Attendance correction approved by HR"
+        />
       </Modal>
 
       <SalaryBankImportModal

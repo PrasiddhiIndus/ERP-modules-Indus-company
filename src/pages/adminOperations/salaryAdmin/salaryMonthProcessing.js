@@ -4,6 +4,7 @@
  */
 
 import { supabase } from "../../../lib/supabase";
+import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import {
   attendanceEmpCodeLookupVariants,
@@ -1366,6 +1367,36 @@ async function buildLinesForEmployees(employees, { salaryMap, presentMap, monthD
   return lines;
 }
 
+const SALARY_PROCESSING_LIVE_TABLES = [
+  EMPLOYEE_MASTER_TABLE,
+  "admin_salary_structures",
+  "admin_salary_structure_revisions",
+  MONTH_RUNS_TABLE,
+  MONTH_LINES_TABLE,
+  "admin_attendance_register",
+  "admin_salary_loans",
+  "admin_salary_salary_advances",
+  "admin_salary_unpaid_paid",
+];
+
+/**
+ * Call `onChange` when Employee Master, CTC, attendance, deductions or the month sheet change.
+ * Tables must be in the `supabase_realtime` publication (migration 20261006140000).
+ */
+export function subscribeSalaryProcessingRealtime(onChange) {
+  if (!isSupabaseRealtimeEnabled() || typeof onChange !== "function") return () => {};
+  let channel = supabase.channel(`erp-salary-processing-${Math.random().toString(36).slice(2)}`);
+  for (const table of SALARY_PROCESSING_LIVE_TABLES) {
+    channel = channel.on("postgres_changes", { event: "*", schema: "public", table }, (payload) =>
+      onChange({ table, payload })
+    );
+  }
+  channel.subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 /** Active employees on roll for this pay month, with duplicate flags for the month. */
 export async function fetchSalaryProcessCandidates({
   year,
@@ -1637,6 +1668,70 @@ export async function buildSalaryScopePreviewLines({
   });
 }
 
+export const MONTH_LOCKED_MESSAGE = "This salary month is locked. Unlock it to make changes.";
+export const UNLOCK_REASON_MIN_LENGTH = 5;
+
+export function monthRunLocked(run) {
+  return Boolean(run?.is_locked);
+}
+
+function assertMonthRunUnlocked(run) {
+  if (monthRunLocked(run)) throw new Error(MONTH_LOCKED_MESSAGE);
+}
+
+function monthLockRpcResult({ data, error }) {
+  if (error) {
+    if (error.hint === "salary_month_locked") throw new Error(MONTH_LOCKED_MESSAGE);
+    throw error;
+  }
+  const run = Array.isArray(data) ? data[0] : data;
+  if (!run?.id) throw new Error("Salary sheet not found.");
+  return run;
+}
+
+/** Lock a processed month: blocks reprocess, edits, slip publishing and delete. */
+export async function lockMonthRun(runId) {
+  if (!runId) throw new Error("Salary sheet not found.");
+  return monthLockRpcResult(
+    await supabase.rpc("admin_salary_lock_month_run", { p_run_id: runId })
+  );
+}
+
+/** Unlock a month; the reason is stored with who and when. */
+export async function unlockMonthRun(runId, reason) {
+  if (!runId) throw new Error("Salary sheet not found.");
+  const text = String(reason ?? "").trim();
+  if (text.length < UNLOCK_REASON_MIN_LENGTH) {
+    throw new Error(`Enter a reason for unlocking (at least ${UNLOCK_REASON_MIN_LENGTH} characters).`);
+  }
+  return monthLockRpcResult(
+    await supabase.rpc("admin_salary_unlock_month_run", { p_run_id: runId, p_reason: text })
+  );
+}
+
+/**
+ * Full reprocess write: run update, line replacement and revision log in one
+ * database transaction. Any failure leaves the previous sheet untouched.
+ */
+export async function reprocessMonthRunAtomic({ runId, runPatch, lines, revision }) {
+  const { data, error } = await supabase.rpc("admin_salary_reprocess_month_run", {
+    p_run_id: runId,
+    p_run_patch: runPatch,
+    p_lines: lines,
+    p_revision: revision || null,
+  });
+  if (error) {
+    if (error.hint === "salary_month_locked") throw new Error(MONTH_LOCKED_MESSAGE);
+    if (error.code === "23505" && /month_lines/i.test(String(error.message || ""))) {
+      throw new Error("Duplicate employee detected on this month sheet. Refresh and try again.");
+    }
+    throw error;
+  }
+  const run = Array.isArray(data) ? data[0] : data;
+  if (!run?.id) throw new Error("Salary sheet not found.");
+  return run;
+}
+
 /**
  * Process a month from Employee Master + CTC + attendance.
  * Modes: all/bulk, dept. Hold is management-only (not processed here).
@@ -1687,6 +1782,7 @@ export async function processSalaryMonth({
     getMonthRunByKey(key),
     fetchAllActiveEmployeesForSalary(),
   ]);
+  assertMonthRunUnlocked(existing);
   const employees = (allEmployees || []).filter((emp) =>
     isEmployeeOnRollForPayMonth(emp.date_of_joining, y, m)
   );
@@ -1883,9 +1979,9 @@ export async function processSalaryMonth({
     allLines = newLines;
     const totals = sumLines(allLines);
     const summary_json = buildSummaryForProcess(null, revisionNo);
-    const { data: run, error: updErr } = await supabase
-      .from(MONTH_RUNS_TABLE)
-      .update({
+    const run = await reprocessMonthRunAtomic({
+      runId: existing.id,
+      runPatch: {
         month_days: days,
         status: "processed",
         revision_no: revisionNo,
@@ -1898,15 +1994,28 @@ export async function processSalaryMonth({
           processed_on: processDay,
           processed_at: processAt,
         },
-      })
-      .eq("id", existing.id)
-      .select("*")
-      .single();
-    if (updErr) throw updErr;
+      },
+      lines: newLines.map((line) => ({
+        ...toDbLinePayload(line, { includeRunId: true }),
+        run_id: existing.id,
+        line_revision_no: revisionNo,
+      })),
+      revision: {
+        revision_no: revisionNo,
+        changed_by: user.id,
+        change_summary_json: {
+          action: "reprocess_from_master",
+          process_mode: mode,
+          employee_count: newLines.length,
+          skipped_duplicate_count: skippedDuplicates.length,
+          skipped_duplicate_ids: skippedDuplicates.map((e) => e.id),
+          departments: mode === PROCESS_MODES.DEPT ? departments : undefined,
+          processed_on: processDay,
+          processed_at: processAt,
+        },
+      },
+    });
     runId = run.id;
-
-    const { error: delErr } = await supabase.from(MONTH_LINES_TABLE).delete().eq("run_id", runId);
-    if (delErr) throw delErr;
   } else {
     revisionNo = 1;
     allLines = newLines;
@@ -1940,7 +2049,7 @@ export async function processSalaryMonth({
 
   const inserts = [];
   const updates = [];
-  for (const line of newLines) {
+  for (const line of fullReprocess ? [] : newLines) {
     const body = {
       ...toDbLinePayload(line, { includeRunId: true }),
       run_id: runId,
@@ -1970,7 +2079,7 @@ export async function processSalaryMonth({
     if (failed?.error) throw failed.error;
   }
 
-  const shouldLogRevision = !existing?.id || fullReprocess;
+  const shouldLogRevision = !existing?.id;
   if (shouldLogRevision) {
     const { error: revErr } = await supabase.from(RUN_REVISIONS_TABLE).insert({
       run_id: runId,
@@ -2035,6 +2144,7 @@ export async function publishSalarySlipsForMonth({ year, month, employeeIds = []
   if (!existing?.id) {
     throw new Error("Process salary from All Employees first, then lock from Processed.");
   }
+  assertMonthRunUnlocked(existing);
   const bundle = await getMonthRunWithLines(existing.id);
   const allLines = bundle.lines || [];
   const idSet = new Set((employeeIds || []).map(String).filter(Boolean));
@@ -2223,6 +2333,7 @@ function detectMasterVariances(line, masterRow, revisionNo, monthKeyStr, runId) 
 export async function saveMonthRunEdits(runId, editedLines) {
   const { run, lines: existing } = await getMonthRunWithLines(runId);
   if (!run) throw new Error("Salary sheet not found.");
+  assertMonthRunUnlocked(run);
   const user = await currentUserMeta();
   const revisionNo = num(run.revision_no, 1) + 1;
   const byId = Object.fromEntries((existing || []).map((l) => [l.id, l]));
