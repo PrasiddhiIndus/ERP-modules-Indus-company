@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Columns3, Eye, GitCompare, PencilLine, Printer, X } from "lucide-react";
+import { Columns3, Download, Eye, GitCompare, PencilLine, Printer, X } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import toast from "../../../lib/toast";
 import { employmentTypeLabel } from "../../../utils/employeeMasterReminders";
@@ -59,6 +59,7 @@ import {
   statusLabel,
 } from "./annexureCtcRecord";
 import { printAnnexure } from "./annexurePrint";
+import { exportCtcDetailsExcel } from "./annexureCtcExcel";
 
 const COMPONENT_LABELS = {
   basic: "Basic",
@@ -663,6 +664,16 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     });
   };
 
+  const exportExcel = async () => {
+    if (salaryFiguresHidden() || !current) return;
+    try {
+      await exportCtcDetailsExcel({ employee, record: current, segment, ruleVersion: ruleVersionFor(current) });
+    } catch (err) {
+      console.error("CTC details: export failed", err);
+      toast.error("Could not export", "Please try again.");
+    }
+  };
+
   const previousOf = (key) => {
     const idx = history.findIndex((h) => h.key === key);
     return idx >= 0 ? history[idx + 1] || null : null;
@@ -749,6 +760,20 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   }`}
                 >
                   <Printer className="h-3.5 w-3.5" /> Print Annexure
+                </button>
+              ) : null}
+              {current ? (
+                <button
+                  type="button"
+                  onClick={exportExcel}
+                  disabled={salaryFiguresHidden()}
+                  className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-xs ${
+                    salaryFiguresHidden()
+                      ? "border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
+                      : "border-border bg-white"
+                  }`}
+                >
+                  <Download className="h-3.5 w-3.5" /> Export CTC Details
                 </button>
               ) : null}
               <button
