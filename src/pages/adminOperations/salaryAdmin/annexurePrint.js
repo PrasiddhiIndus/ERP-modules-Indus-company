@@ -3,7 +3,7 @@
  * Used by the Employee Master CTC tab (current / history / revision) and letters.
  */
 
-import { ANNEXURE_ROWS, roundRupee, schemeLabel } from "./ctcEngine";
+import { roundRupee, schemeLabel, visibleAnnexureRows } from "./ctcEngine";
 import { recordToComponents, statusLabel } from "./annexureCtcRecord";
 
 export const DEFAULT_COMPANY_NAME = "INDUS FIRE SAFETY PRIVATE LIMITED";
@@ -51,7 +51,7 @@ export function buildAnnexureHtml({ employee, record, previous, ruleVersion, seg
        <tr><th>Monthly</th><th>P.A.</th><th>Monthly</th><th>P.A.</th><th>Monthly</th><th>P.A.</th></tr>`
     : `<tr><th class="l">Particulars</th><th>Monthly</th><th>P.A.</th></tr>`;
 
-  const body = ANNEXURE_ROWS.map((row) => {
+  const body = visibleAnnexureRows(cur, prev).map((row) => {
     if (row.heading) {
       return `<tr class="heading"><td colspan="${prev ? 7 : 3}" class="l">${esc(row.label)}</td></tr>`;
     }

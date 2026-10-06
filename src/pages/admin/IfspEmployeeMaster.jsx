@@ -206,6 +206,8 @@ function computeAgeFromDob(dateOfBirth) {
   return age >= 0 ? age : null;
 }
 
+const CREATED_RECENT_DAYS = 30;
+
 const IfspEmployeeMaster = ({ embedded = false }) => {
   const navigate = useNavigate();
   const [employees, setEmployees] = useState([]);
@@ -214,9 +216,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterFullName, setFilterFullName] = useState('');
-  const [filterSystemId, setFilterSystemId] = useState('');
-  const [filterEmployeeCode, setFilterEmployeeCode] = useState('');
+  const [createdFilter, setCreatedFilter] = useState('All');
   const [departmentFilter, setDepartmentFilter] = useState(readStoredDepartmentFilter);
   const [designationFilter, setDesignationFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('Active');
@@ -1590,10 +1590,16 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       if (!matchesStatus) return false;
     }
 
+    if (createdFilter === 'Last30') {
+      const created = Date.parse(employee.created_at || '');
+      if (!Number.isFinite(created) || created < Date.now() - CREATED_RECENT_DAYS * 86400000) return false;
+    }
+
     const st = searchTerm.trim().toLowerCase();
     const matchesSearch =
       !st ||
       String(employee.employee_id || '').toLowerCase().includes(st) ||
+      String(employee.employee_code || '').toLowerCase().includes(st) ||
       String(employee.full_name || '').toLowerCase().includes(st) ||
       String(employee.designation || '').toLowerCase().includes(st) ||
       String(employee.department || '').toLowerCase().includes(st) ||
@@ -1605,35 +1611,14 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       String(employee.uan_no || '').toLowerCase().includes(st) ||
       String(employee.esic_no || '').toLowerCase().includes(st);
 
-    const fn = filterFullName.trim().toLowerCase();
-    const matchesFullName = !fn || String(employee.full_name || '').toLowerCase().includes(fn);
-
-    const sys = filterSystemId.trim().toLowerCase();
-    const matchesSystemId = !sys || String(employee.employee_id || '').toLowerCase().includes(sys);
-
-    const code = filterEmployeeCode.trim().toLowerCase();
-    const matchesEmpCode =
-      !code ||
-      String(employee.employee_code || '').toLowerCase().includes(code) ||
-      String(employee.employee_id || '').toLowerCase().includes(code);
-
     const matchesDepartment = departmentFilter === 'All' || employee.department === departmentFilter;
     const matchesDesignation = designationFilter === 'All' || employee.designation === designationFilter;
 
-    return (
-      matchesSearch &&
-      matchesFullName &&
-      matchesSystemId &&
-      matchesEmpCode &&
-      matchesDepartment &&
-      matchesDesignation
-    );
+    return matchesSearch && matchesDepartment && matchesDesignation;
   }), [
     employees,
     searchTerm,
-    filterFullName,
-    filterSystemId,
-    filterEmployeeCode,
+    createdFilter,
     departmentFilter,
     designationFilter,
     statusFilter,
@@ -1712,16 +1697,6 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           </p>
         </div>
         <div className="flex flex-col sm:flex-row sm:flex-wrap xl:justify-end items-stretch sm:items-center gap-2 w-full xl:w-auto">
-          <div className="relative flex-1 sm:flex-none sm:w-[280px] xl:w-[300px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <input
-              type="text"
-              placeholder="Search anything…"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full h-10 pl-9 pr-3 border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-            />
-          </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -1751,27 +1726,19 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
         </div>
         <div className="p-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 items-center">
-            <input
-              type="text"
-              placeholder="Full name"
-              value={filterFullName}
-              onChange={(e) => setFilterFullName(e.target.value)}
-              className={filterInputClass}
-            />
-            <input
-              type="text"
-              placeholder="Machine ID"
-              value={filterSystemId}
-              onChange={(e) => setFilterSystemId(e.target.value)}
-              className={filterInputClass}
-            />
-            <input
-              type="text"
-              placeholder="Employee code"
-              value={filterEmployeeCode}
-              onChange={(e) => setFilterEmployeeCode(e.target.value)}
-              className={filterInputClass}
-            />
+            <div className="relative sm:col-span-2">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search name, machine ID, employee code…"
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className={`${filterInputClass} pl-9`}
+              />
+            </div>
             <select
               value={departmentFilter}
               onChange={(e) => setDepartmentFilter(e.target.value)}
@@ -1806,13 +1773,23 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                 <option key={s} value={s}>{s} ({statusCounts[s.toLowerCase()] || 0})</option>
               ))}
             </select>
+            <select
+              value={createdFilter}
+              onChange={(e) => {
+                setCreatedFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className={filterInputClass}
+              aria-label="Created"
+            >
+              <option value="All">Created: any time</option>
+              <option value="Last30">Created in last {CREATED_RECENT_DAYS} days</option>
+            </select>
             <button
               type="button"
               onClick={() => {
                 setSearchTerm('');
-                setFilterFullName('');
-                setFilterSystemId('');
-                setFilterEmployeeCode('');
+                setCreatedFilter('All');
                 setDepartmentFilter('All');
                 setDesignationFilter('All');
                 setStatusFilter('Active');

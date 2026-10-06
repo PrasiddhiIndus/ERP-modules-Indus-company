@@ -3,8 +3,14 @@ import {
   SEED_RULES_2026_27,
   STATUS_CONFIRMED,
   STATUS_PROBATION,
+  applyComponentOverrides,
   calculateCtc,
 } from "../src/pages/adminOperations/salaryAdmin/ctcEngine.js";
+
+function partA(result) {
+  const { basic, hra, conveyance, bonus, medical, special } = result;
+  return { basic, hra, conveyance, bonus, medical, special };
+}
 import {
   ANNEXURE_STRUCTURE_VERSION,
   annexureLineInputs,
@@ -126,6 +132,37 @@ describe("Salary Processing with Annexure-I records", () => {
     expect(out.emp_pf).toBeCloseTo(3000, 2);
     expect(out.emp_esic).toBe(0);
     expect(out.net_salary).toBeCloseTo(66800, 2);
+  });
+
+  it("Performance Incentive is paid only when it is part of the CTC", () => {
+    const system = calculateCtc(rules, { skill: "skilled", status: STATUS_PROBATION, monthlyGross: 34000 });
+    const withIncentive = applyComponentOverrides(rules, system, { ...partA(system), perf_incentive: 2600 });
+    const rec = resultToStructurePayload(withIncentive, {
+      rules,
+      ruleVersionId: "v1",
+      scheme: "old",
+      category: "new_probation",
+      revisionType: "initial",
+      wefDate: "2026-04-01",
+    });
+    expect(rec.perf_incentive_enabled).toBe(true);
+    expect(rec.perf_incentive_monthly).toBe(2600);
+    expect(rec.gross_monthly).toBe(36600);
+    expect(recordToComponents(rec).perf_incentive).toBe(2600);
+    expect(rec.ctc_monthly).toBe(system.ctc + 2600);
+
+    const full = recomputeLineFromEdits(lineFor(rec, 26), 26);
+    expect(full.perf_incentive_earned).toBe(2600);
+    expect(full.special_allowance).toBe(0);
+    expect(full.gross_wages).toBe(36600);
+    expect(recomputeLineFromEdits(lineFor(rec, 13), 26).perf_incentive_earned).toBe(1300);
+
+    const without = recordFor(STATUS_PROBATION, 34000);
+    expect(without.perf_incentive_enabled).toBe(false);
+    expect(recordToComponents(without).perf_incentive).toBe(0);
+    expect(recomputeLineFromEdits(lineFor(without, 26), 26).perf_incentive_earned).toBeUndefined();
+    expect(annexureLineInputs(without).perf_incentive_full).toBeUndefined();
+    expect(recordToComponents({ ...rec, perf_incentive_enabled: false }).perf_incentive).toBe(0);
   });
 
   it("earlier-structure lines keep the existing formulas", () => {

@@ -5,7 +5,7 @@
  */
 
 import ExcelJS from "exceljs";
-import { ANNEXURE_ROWS, roundRupee } from "./ctcEngine";
+import { roundRupee, visibleAnnexureRows } from "./ctcEngine";
 import { isAnnexureRecord, recordToComponents, statusLabel } from "./annexureCtcRecord";
 
 const COMPANY_NAME = "Indus Fire Safety Private Limited";
@@ -130,7 +130,7 @@ export function buildCtcDetailsWorkbook({ employee, record, segment, ruleVersion
   styleRange(ws, r, { font: { ...FONT, bold: true }, fill: GREY, border: BOX, alignment: { horizontal: "center" } });
   r += 1;
 
-  for (const row of ANNEXURE_ROWS) {
+  for (const row of visibleAnnexureRows(values)) {
     if (row.heading) {
       ws.mergeCells(`B${r}:C${r}`);
       ws.getCell(`A${r}`).value = row.label;

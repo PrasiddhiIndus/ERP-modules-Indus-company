@@ -51,6 +51,8 @@ const ANNEXURE_STRUCTURE_COLUMNS = [
   "medical_allowance_monthly",
   "ex_gratia_monthly",
   "pf_wage_monthly",
+  "perf_incentive_enabled",
+  "perf_incentive_monthly",
 ];
 
 const omittedStructureColumns = new Set();
@@ -314,6 +316,8 @@ function annexureColumns(payload) {
     medical_allowance_monthly: numOrNull(payload.medical_allowance_monthly),
     ex_gratia_monthly: numOrNull(payload.ex_gratia_monthly),
     pf_wage_monthly: numOrNull(payload.pf_wage_monthly),
+    perf_incentive_enabled: Boolean(payload.perf_incentive_enabled),
+    perf_incentive_monthly: payload.perf_incentive_enabled ? numOrNull(payload.perf_incentive_monthly) ?? 0 : 0,
   };
 }
 

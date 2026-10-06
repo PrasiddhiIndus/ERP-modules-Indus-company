@@ -120,6 +120,7 @@ export function buildPayslipFromLine(run, line, opts = {}) {
     conveyance_earned: num(line.conveyance_earned ?? line.computed_json?.conveyance_earned),
     stat_bonus_earned: num(line.stat_bonus_earned ?? line.computed_json?.stat_bonus_earned),
     medical_earned: num(line.medical_earned ?? line.computed_json?.medical_earned),
+    perf_incentive_earned: num(line.perf_incentive_earned ?? line.computed_json?.perf_incentive_earned),
     annexure_structure: Boolean(line.computed_json?.annexure),
     custom_earn: num(line.custom_earn ?? line.computed_json?.custom_earn),
     custom_ded: num(line.custom_ded ?? line.computed_json?.custom_ded),
