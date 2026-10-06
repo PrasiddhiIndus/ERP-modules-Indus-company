@@ -1637,12 +1637,47 @@ export async function buildSalaryScopePreviewLines({
   });
 }
 
-/**
- * Process a month from Employee Master + CTC + attendance.
- * Modes: all/bulk, dept. Hold is management-only (not processed here).
- * Skips employees already on the month sheet unless forceFullReprocess (all only).
- * Employees on salary hold are excluded from all / department runs.
- */
+export const MONTH_LOCKED_MESSAGE = "This salary month is locked. Unlock it to make changes.";
+export const UNLOCK_REASON_MIN_LENGTH = 5;
+
+export function monthRunLocked(run) {
+  return Boolean(run?.is_locked);
+}
+
+function assertMonthRunUnlocked(run) {
+  if (monthRunLocked(run)) throw new Error(MONTH_LOCKED_MESSAGE);
+}
+
+function monthLockRpcResult({ data, error }) {
+  if (error) {
+    if (error.hint === "salary_month_locked") throw new Error(MONTH_LOCKED_MESSAGE);
+    throw error;
+  }
+  const run = Array.isArray(data) ? data[0] : data;
+  if (!run?.id) throw new Error("Salary sheet not found.");
+  return run;
+}
+
+/** Lock a processed month: blocks reprocess, edits, slip publishing and delete. */
+export async function lockMonthRun(runId) {
+  if (!runId) throw new Error("Salary sheet not found.");
+  return monthLockRpcResult(
+    await supabase.rpc("admin_salary_lock_month_run", { p_run_id: runId })
+  );
+}
+
+/** Unlock a month; the reason is stored with who and when. */
+export async function unlockMonthRun(runId, reason) {
+  if (!runId) throw new Error("Salary sheet not found.");
+  const text = String(reason ?? "").trim();
+  if (text.length < UNLOCK_REASON_MIN_LENGTH) {
+    throw new Error(`Enter a reason for unlocking (at least ${UNLOCK_REASON_MIN_LENGTH} characters).`);
+  }
+  return monthLockRpcResult(
+    await supabase.rpc("admin_salary_unlock_month_run", { p_run_id: runId, p_reason: text })
+  );
+}
+
 /**
  * Full reprocess write: run update, line replacement and revision log in one
  * database transaction. Any failure leaves the previous sheet untouched.
@@ -1655,6 +1690,7 @@ export async function reprocessMonthRunAtomic({ runId, runPatch, lines, revision
     p_revision: revision || null,
   });
   if (error) {
+    if (error.hint === "salary_month_locked") throw new Error(MONTH_LOCKED_MESSAGE);
     if (error.code === "23505" && /month_lines/i.test(String(error.message || ""))) {
       throw new Error("Duplicate employee detected on this month sheet. Refresh and try again.");
     }
@@ -1665,6 +1701,12 @@ export async function reprocessMonthRunAtomic({ runId, runPatch, lines, revision
   return run;
 }
 
+/**
+ * Process a month from Employee Master + CTC + attendance.
+ * Modes: all/bulk, dept. Hold is management-only (not processed here).
+ * Skips employees already on the month sheet unless forceFullReprocess (all only).
+ * Employees on salary hold are excluded from all / department runs.
+ */
 export async function processSalaryMonth({
   year,
   month,
@@ -1709,6 +1751,7 @@ export async function processSalaryMonth({
     getMonthRunByKey(key),
     fetchAllActiveEmployeesForSalary(),
   ]);
+  assertMonthRunUnlocked(existing);
   const employees = (allEmployees || []).filter((emp) =>
     isEmployeeOnRollForPayMonth(emp.date_of_joining, y, m)
   );
@@ -2070,6 +2113,7 @@ export async function publishSalarySlipsForMonth({ year, month, employeeIds = []
   if (!existing?.id) {
     throw new Error("Process salary from All Employees first, then lock from Processed.");
   }
+  assertMonthRunUnlocked(existing);
   const bundle = await getMonthRunWithLines(existing.id);
   const allLines = bundle.lines || [];
   const idSet = new Set((employeeIds || []).map(String).filter(Boolean));
@@ -2258,6 +2302,7 @@ function detectMasterVariances(line, masterRow, revisionNo, monthKeyStr, runId) 
 export async function saveMonthRunEdits(runId, editedLines) {
   const { run, lines: existing } = await getMonthRunWithLines(runId);
   if (!run) throw new Error("Salary sheet not found.");
+  assertMonthRunUnlocked(run);
   const user = await currentUserMeta();
   const revisionNo = num(run.revision_no, 1) + 1;
   const byId = Object.fromEntries((existing || []).map((l) => [l.id, l]));
