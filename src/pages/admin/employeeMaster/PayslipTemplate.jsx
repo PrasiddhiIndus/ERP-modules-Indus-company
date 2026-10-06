@@ -38,6 +38,7 @@ export default function PayslipTemplate({
           { label: "Advance Against Statutory Bonus", amount: payslip.stat_bonus_earned },
           { label: "Medical Allowance", amount: payslip.medical_earned },
           { label: "Special Allowance", amount: payslip.special_allowance },
+          { label: "Performance Incentive", amount: payslip.perf_incentive_earned },
         ].filter((r) => Number(r.amount) > 0)
       : [
           { label: "Earned basic", amount: payslip.basic_earned },

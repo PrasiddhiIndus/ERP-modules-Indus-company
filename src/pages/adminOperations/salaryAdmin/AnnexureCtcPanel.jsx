@@ -22,6 +22,7 @@ import {
   CATEGORY_PROBATION_TO_CONFIRMED,
   DEDUCTION_KEYS,
   INPUT_CTC,
+  OPTIONAL_PART_A_KEYS,
   PART_A_KEYS,
   PART_B_KEYS,
   RETAIN_CTC,
@@ -41,6 +42,7 @@ import {
   roundRupee,
   schemeLabel,
   validateCustomOverride,
+  visibleAnnexureRows,
 } from "./ctcEngine";
 import { fetchRuleVersions, findRuleVersionById, resolveRuleVersion } from "./payrollRulesDb";
 import { dbReviseSalaryStructure, dbSaveSalaryStructure } from "./salaryDb";
@@ -68,6 +70,7 @@ const COMPONENT_LABELS = {
   bonus: "Advance Against Statutory Bonus",
   medical: "Medical Allowance",
   special: "Special Allowance",
+  perf_incentive: "Performance Incentive",
   ee_pf: "Employee PF",
   pt: "P.Tax",
   ee_esic: "Employee ESIC",
@@ -79,8 +82,11 @@ const COMPONENT_LABELS = {
   ex_gratia: "Ex Gratia",
 };
 
+const PERF_INCENTIVE = "perf_incentive";
+const STANDARD_PART_A_KEYS = PART_A_KEYS.filter((k) => !OPTIONAL_PART_A_KEYS.includes(k));
+
 const CUSTOM_GROUPS = [
-  { title: "Part A (Gross)", keys: PART_A_KEYS },
+  { title: "Part A (Gross)", keys: STANDARD_PART_A_KEYS },
   { title: "Deductions", keys: DEDUCTION_KEYS },
   { title: "Part B (employer cost)", keys: PART_B_KEYS },
 ];
@@ -170,6 +176,7 @@ function emptyForm(employee) {
     overrideReason: "",
     entryMode: ENTRY_CALCULATE,
     manual: {},
+    perfIncentiveOn: false,
   };
 }
 
@@ -191,6 +198,7 @@ function formFromRecord(record, employee) {
     revisionType: "increment",
     entryMode: record.is_custom ? ENTRY_MANUAL : ENTRY_CALCULATE,
     manual: record.is_custom ? manualSeed(recordToComponents(record), record.custom_overrides_json) : {},
+    perfIncentiveOn: Boolean(record.is_custom && record.perf_incentive_enabled),
   };
 }
 
@@ -228,7 +236,7 @@ function AnnexureTable({ groups, change, highlightCustom }) {
           </tr>
         </thead>
         <tbody>
-          {ANNEXURE_ROWS.map((row) => {
+          {visibleAnnexureRows(...groups.map((g) => g.values)).map((row) => {
             if (row.heading) {
               return (
                 <tr key={row.label} className="bg-gray-50">
@@ -245,7 +253,7 @@ function AnnexureTable({ groups, change, highlightCustom }) {
               <tr key={row.key} className={row.total ? "bg-slate-50 font-semibold" : "border-t border-gray-100"}>
                 <td className="px-2 py-1 text-gray-800 whitespace-nowrap">
                   {row.label}
-                  {highlightCustom?.[row.key] != null ? (
+                  {!row.optional && highlightCustom?.[row.key] != null ? (
                     <span className="ml-1.5 text-[10px] font-semibold text-amber-700">
                       Custom · system ₹{money(highlightCustom[row.key])}
                     </span>
@@ -288,7 +296,15 @@ function diffValues(a, b) {
  * Direct entry of one employee's components. Part A left blank counts as 0; a blank deduction or
  * Part B line keeps its normal calculation from Basic. Totals are shown, never entered.
  */
-function ManualComponentEntry({ values, onChange, result, reason, onReasonChange }) {
+function ManualComponentEntry({
+  values,
+  onChange,
+  result,
+  reason,
+  onReasonChange,
+  perfIncentiveOn,
+  onPerfIncentiveToggle,
+}) {
   const totals = [
     { label: "Gross (Part A)", value: result?.gross },
     { label: "Take Home", value: result?.take_home },
@@ -302,7 +318,7 @@ function ManualComponentEntry({ values, onChange, result, reason, onReasonChange
         blank to calculate it from Basic as usual.
       </p>
       {CUSTOM_GROUPS.map((group) => {
-        const isPartA = group.keys === PART_A_KEYS;
+        const isPartA = group.keys === STANDARD_PART_A_KEYS;
         return (
           <div key={group.title} className="space-y-1.5">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">{group.title}</p>
@@ -328,6 +344,30 @@ function ManualComponentEntry({ values, onChange, result, reason, onReasonChange
                 </label>
               );
             })}
+            {isPartA ? (
+              <div className="flex items-center justify-between gap-2 min-h-[1.75rem]">
+                <label className="inline-flex items-center gap-1.5 text-ink-secondary cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-accent"
+                    checked={perfIncentiveOn}
+                    onChange={(e) => onPerfIncentiveToggle(e.target.checked)}
+                  />
+                  {COMPONENT_LABELS[PERF_INCENTIVE]}
+                </label>
+                {perfIncentiveOn ? (
+                  <TinyInput
+                    type="number"
+                    step="1"
+                    min="0"
+                    className="w-28 text-right tabular-nums"
+                    value={values[PERF_INCENTIVE] ?? ""}
+                    placeholder="Amount"
+                    onChange={(e) => onChange(PERF_INCENTIVE, e.target.value)}
+                  />
+                ) : null}
+              </div>
+            ) : null}
           </div>
         );
       })}
@@ -422,6 +462,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     if (isManual) {
       const entered = {};
       for (const k of PART_A_KEYS) entered[k] = roundRupee(parseEntered(form.manual[k]) ?? 0);
+      if (!form.perfIncentiveOn) entered[PERF_INCENTIVE] = 0;
       for (const k of STAT_KEYS) {
         const v = parseEntered(form.manual[k]);
         if (v != null) entered[k] = v;
@@ -489,9 +530,16 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
       } else if (currentIsAnnexure) {
         manual = manualSeed(recordToComponents(current), current.is_custom ? current.custom_overrides_json : null);
       }
-      return { ...f, entryMode: mode, manual };
+      return { ...f, entryMode: mode, manual, perfIncentiveOn: Number(manual[PERF_INCENTIVE]) > 0 };
     });
   };
+
+  const setPerfIncentiveOn = (on) =>
+    setForm((f) => {
+      if (on) return { ...f, perfIncentiveOn: true };
+      const { [PERF_INCENTIVE]: _dropped, ...manual } = f.manual;
+      return { ...f, perfIncentiveOn: false, manual };
+    });
 
   const setManualValue = (key, value) =>
     setForm((f) => {
@@ -532,6 +580,12 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
       );
     }
     if (calc.error) return toast.error("Cannot save", calc.error);
+    if (isManual && form.perfIncentiveOn && !(parseEntered(form.manual[PERF_INCENTIVE]) > 0)) {
+      return toast.error(
+        "Performance Incentive amount required",
+        "Enter the monthly amount, or untick Performance Incentive."
+      );
+    }
 
     const checks = isConfirmationFlow ? [calc.confirmation.before, calc.confirmation.after] : [calc.final];
     const blocked = checks.find((r) => r.validation.blocksSave);
@@ -946,6 +1000,8 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   result={calc.final && !calc.empty && !calc.error ? calc.final : null}
                   reason={form.overrideReason}
                   onReasonChange={(v) => setField("overrideReason", v)}
+                  perfIncentiveOn={form.perfIncentiveOn}
+                  onPerfIncentiveToggle={setPerfIncentiveOn}
                 />
               ) : (
                 <>
@@ -1373,7 +1429,7 @@ function ScenarioMatrix({ open, onClose, ruleVersions, wef, skill, gross, ctc, r
             </tr>
           </thead>
           <tbody>
-            {ANNEXURE_ROWS.filter((r) => !r.heading).map((row) => (
+            {visibleAnnexureRows(...columns.map((c) => c.result)).filter((r) => !r.heading).map((row) => (
               <tr key={row.key} className={row.total ? "bg-slate-50 font-semibold" : "border-t border-gray-100"}>
                 <td className="px-2 py-1 whitespace-nowrap">{row.label}</td>
                 {columns.map((c) => (

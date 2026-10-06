@@ -104,7 +104,11 @@ export const PART_A_KEYS = Object.freeze([
   "bonus",
   "medical",
   "special",
+  "perf_incentive",
 ]);
+
+/** Opt-in Part A lines: never calculated (always 0 unless entered) and hidden wherever they are 0. */
+export const OPTIONAL_PART_A_KEYS = Object.freeze(["perf_incentive"]);
 
 export const PART_B_KEYS = Object.freeze([
   "er_pf",
@@ -128,6 +132,7 @@ export const ANNEXURE_ROWS = Object.freeze([
   { key: "bonus", label: "Advance Against Statutory Bonus" },
   { key: "medical", label: "Medical Allowance" },
   { key: "special", label: "Special Allowance" },
+  { key: "perf_incentive", label: "Performance Incentive", optional: true },
   { key: "gross", label: "GROSS (PART A)", total: true },
   { key: "ee_pf", label: "Less: Employee PF" },
   { key: "pt", label: "Less: P.Tax" },
@@ -143,6 +148,13 @@ export const ANNEXURE_ROWS = Object.freeze([
   { key: "total_b", label: "Total (B)", total: true },
   { key: "ctc", label: "CTC (PART A + B)", total: true },
 ]);
+
+/** Annexure rows to show: optional rows only when at least one of the value sets has an amount. */
+export function visibleAnnexureRows(...valueSets) {
+  return ANNEXURE_ROWS.filter(
+    (row) => !row.optional || valueSets.some((values) => Number(values?.[row.key]) > 0)
+  );
+}
 
 function num(v) {
   if (v == null || v === "") return null;
@@ -285,7 +297,7 @@ export function componentsFromGross(rules, { skill, status, gross }) {
     band,
     gross_input: g,
     band_medical: bandMedical,
-    parts: { basic, hra, conveyance, bonus, medical, special },
+    parts: { basic, hra, conveyance, bonus, medical, special, perf_incentive: 0 },
   });
 }
 

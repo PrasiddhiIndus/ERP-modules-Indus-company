@@ -70,6 +70,7 @@ export function recordToComponents(row) {
     bonus: n(row.stat_bonus_monthly),
     medical: n(row.medical_allowance_monthly),
     special: n(row.special_allowance_monthly),
+    perf_incentive: row.perf_incentive_enabled ? n(row.perf_incentive_monthly) : 0,
     gross: n(row.gross_monthly),
     ee_pf: n(row.emp_pf_monthly),
     pt: n(row.pt_monthly),
@@ -111,6 +112,8 @@ export function resultToStructurePayload(result, meta) {
     conveyance_monthly: r(result.conveyance),
     stat_bonus_monthly: r(result.bonus),
     medical_allowance_monthly: r(result.medical),
+    perf_incentive_enabled: n(result.perf_incentive) > 0,
+    perf_incentive_monthly: n(result.perf_incentive) > 0 ? r(result.perf_incentive) : 0,
     emp_pf_monthly: r(result.ee_pf),
     pf_wage_monthly: r(result.pf_wage),
     pt_monthly: r(result.pt),
@@ -251,6 +254,7 @@ export function annexureLineInputs(structure) {
   const medical = n(structure.medical_allowance_monthly);
   const exGratia = n(structure.ex_gratia_monthly);
   const pfWage = n(structure.pf_wage_monthly);
+  const perfIncentive = structure.perf_incentive_enabled ? n(structure.perf_incentive_monthly) : 0;
   const hasBreakup = conveyance > 0 || bonus > 0 || medical > 0 || exGratia > 0 || pfWage > 0;
   if (!versioned && !hasBreakup) return null;
   return {
@@ -258,6 +262,7 @@ export function annexureLineInputs(structure) {
     conveyance_full: n(structure.conveyance_monthly),
     stat_bonus_full: n(structure.stat_bonus_monthly),
     medical_full: n(structure.medical_allowance_monthly),
+    ...(perfIncentive > 0 ? { perf_incentive_full: perfIncentive } : {}),
     ee_pf_full: n(structure.emp_pf_monthly),
     pf_wage_full: n(structure.pf_wage_monthly) || n(structure.basic_monthly),
     ee_esic_full: n(structure.emp_esic_monthly),

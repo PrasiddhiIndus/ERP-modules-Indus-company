@@ -94,6 +94,7 @@ const SHEET_HEADERS = [
   "Conveyance",
   "Adv. Statutory Bonus",
   "Medical Allowance",
+  "Performance Incentive",
   "Scheme",
   "Emp. Status",
   "Band",
@@ -101,14 +102,21 @@ const SHEET_HEADERS = [
   "CTC W.E.F.",
 ];
 
-function annexureCells(line) {
+function linePerfIncentive(line) {
+  const cj = line?.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
+  return num(line?.perf_incentive_earned ?? cj.perf_incentive_earned);
+}
+
+function annexureCells(line, withPerfIncentive) {
   const cj = line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
   const ax = cj.annexure || line.source_snapshot_json?.annexure || null;
-  if (!ax) return ["", "", "", "", "", "", "", ""];
+  if (!ax) return Array(withPerfIncentive ? 9 : 8).fill("");
+  const perfIncentive = linePerfIncentive(line);
   return [
     num(line.conveyance_earned ?? cj.conveyance_earned),
     num(line.stat_bonus_earned ?? cj.stat_bonus_earned),
     num(line.medical_earned ?? cj.medical_earned),
+    ...(withPerfIncentive ? [perfIncentive > 0 ? perfIncentive : ""] : []),
     ax.scheme === "new" ? "New Scheme" : ax.scheme === "old" ? "Old Scheme" : "",
     ax.status === "confirmed" ? "Confirmed" : ax.status === "probation" ? "Probation" : "",
     ax.band != null ? `Band ${ax.band}` : "",
@@ -188,16 +196,20 @@ export async function exportSalaryProcessingWorkbook({ run, lines }, opts = {}) 
   ws.getCell("Q3").font = { bold: true };
   ws.getCell("Q3").numFmt = "0";
 
-  SHEET_HEADERS.forEach((h, i) => {
-    ws.getCell(4, i + 1).value = h;
-  });
-  styleHeaderRow(ws, 4, SHEET_HEADERS.length);
-
   const sorted = [...(lines || [])].sort((a, b) =>
     String(a.employee_code || "").localeCompare(String(b.employee_code || ""), undefined, {
       numeric: true,
     })
   );
+  const withPerfIncentive = sorted.some((line) => linePerfIncentive(line) > 0);
+  const headers = withPerfIncentive
+    ? SHEET_HEADERS
+    : SHEET_HEADERS.filter((h) => h !== "Performance Incentive");
+
+  headers.forEach((h, i) => {
+    ws.getCell(4, i + 1).value = h;
+  });
+  styleHeaderRow(ws, 4, headers.length);
 
   sorted.forEach((line, idx) => {
     const r = 5 + idx;
@@ -233,12 +245,15 @@ export async function exportSalaryProcessingWorkbook({ run, lines }, opts = {}) 
       lineCtcLabel(line),
       lineStatusLabel(line),
       fmtDay(line.lockedOn),
-      ...annexureCells(line),
+      ...annexureCells(line, withPerfIncentive),
     ];
     values.forEach((v, i) => {
       ws.getCell(r, i + 1).value = v;
     });
-    moneyCols(ws, r, [10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 32, 33, 34]);
+    moneyCols(ws, r, [
+      10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 32, 33, 34,
+      ...(withPerfIncentive ? [35] : []),
+    ]);
     if (line.salaryLocked || line.processStatus === "locked") {
       ws.getRow(r).fill = {
         type: "pattern",
