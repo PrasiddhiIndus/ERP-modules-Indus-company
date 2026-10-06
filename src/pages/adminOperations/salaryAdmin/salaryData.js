@@ -34,6 +34,7 @@ import {
   dbSaveSalaryStructure,
 } from "./salaryDb";
 import { isPeopleSalaryKey } from "./salarySubject";
+import { ANNEXURE_STRUCTURE_VERSION } from "./annexureCtcRecord";
 
 /** @deprecated Legacy browser key — kept only for one-time migration into admin_salary. */
 const STORAGE_KEY = "admin_salary_ctc_ui_v1";
@@ -367,6 +368,36 @@ function stripStructureRevisions(structure) {
   return rest;
 }
 
+/** Annexure-I columns of the current CTC record; an earlier-structure revision must not inherit them. */
+const ANNEXURE_ONLY_COLUMNS = [
+  "skill_category",
+  "salary_scheme",
+  "employee_status",
+  "employee_category",
+  "salary_band",
+  "input_basis",
+  "input_amount",
+  "rule_version_id",
+  "validation_status",
+  "is_custom",
+  "custom_overrides_json",
+  "system_values_json",
+  "revision_type",
+  "conveyance_monthly",
+  "stat_bonus_monthly",
+  "medical_allowance_monthly",
+  "ex_gratia_monthly",
+  "pf_wage_monthly",
+];
+
+function baseForRevision(structure, rev) {
+  const base = stripStructureRevisions(structure);
+  if (rev.structure_version === ANNEXURE_STRUCTURE_VERSION) return base;
+  const out = { ...base };
+  for (const key of ANNEXURE_ONLY_COLUMNS) delete out[key];
+  return out;
+}
+
 /**
  * CTC in force for a pay month: latest version whose W.E.F. is on or before that month.
  * A September revision must not change July processing.
@@ -393,7 +424,7 @@ export function resolveStructureForPayMonth(structure, year, month) {
       start,
       rank: 0,
       row: {
-        ...stripStructureRevisions(structure),
+        ...baseForRevision(structure, rev),
         ...rev,
         structure_version: rev.structure_version ?? null,
         declared: rev.declared !== false,
