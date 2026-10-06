@@ -11,6 +11,7 @@ import {
   TinyInput,
 } from "../components/AdminUi";
 import toast from "../../../lib/toast";
+import { MASKED_SECRET, salaryFiguresHidden } from "./salaryPrivacy";
 import {
   RULE_CODES,
   SCHEME_NEW,
@@ -152,6 +153,10 @@ export default function PayrollRuleMaster() {
     setDraft((d) => ({ ...d, rules: { ...d.rules, [code]: value } }));
 
   const saveInPlace = async () => {
+    if (salaryFiguresHidden()) {
+      toast.error("Not saved", "Payroll rules are not saved for this login.");
+      return;
+    }
     if (!selected) return;
     if (!locked && !rulesComplete(draft.rules)) {
       toast.error("Rules incomplete", "Fill every rule value before saving.");
@@ -178,6 +183,10 @@ export default function PayrollRuleMaster() {
   };
 
   const saveNewVersion = async () => {
+    if (salaryFiguresHidden()) {
+      toast.error("Not saved", "Payroll rules are not saved for this login.");
+      return;
+    }
     if (!newFrom) {
       toast.error("Effective From required", "Pick the date the new rules start.");
       return;
@@ -335,12 +344,16 @@ export default function PayrollRuleMaster() {
                               <span className="text-ink-secondary">{RULE_LABELS[code].label}</span>
                               <span className="inline-flex items-center gap-1">
                                 <TinyInput
-                                  type="number"
+                                  type="text"
                                   step="any"
-                                  value={draft.rules[code]}
-                                  onChange={(e) => setRule(code, e.target.value)}
-                                  disabled={locked}
-                                  className="w-28 text-right tabular-nums"
+                                  value={salaryFiguresHidden() ? MASKED_SECRET : draft.rules[code]}
+                                  onChange={(e) => {
+                                    if (salaryFiguresHidden()) return;
+                                    setRule(code, e.target.value);
+                                  }}
+                                  disabled={locked || salaryFiguresHidden()}
+                                  readOnly={salaryFiguresHidden()}
+                                  className={`w-28 text-right tabular-nums ${salaryFiguresHidden() ? "bg-slate-100 text-slate-400" : ""}`}
                                 />
                                 <span className="w-8 text-ink-muted">{RULE_LABELS[code].unit}</span>
                               </span>

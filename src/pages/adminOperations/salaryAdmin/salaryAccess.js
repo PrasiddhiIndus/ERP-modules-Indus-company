@@ -44,6 +44,17 @@ export function canAccessSalaryAdmin(profile, user = null) {
   return isSalaryAdminAllowedEmail(resolveUserEmail(profile, user));
 }
 
+/**
+ * Frontend-only mask for this login. Screens still open.
+ * Amounts and account numbers render as XXXXX, and CTC revision does not save.
+ * Every other salary-admin email is unchanged.
+ */
+export const SALARY_FIGURES_HIDDEN_EMAIL = "rahul.ifspl@gmail.com";
+
+export function isSalaryFiguresHidden(profile, user = null) {
+  return resolveUserEmail(profile, user) === SALARY_FIGURES_HIDDEN_EMAIL;
+}
+
 export function isSalaryAdminPath(pathname) {
   return String(pathname || "").startsWith(SALARY_ADMIN_PATH_PREFIX);
 }

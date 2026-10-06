@@ -1,6 +1,7 @@
 import React from "react";
 import { INDUS_LOGO_SRC } from "../../../constants/branding";
 import { rupeesInWords } from "../../../lib/amountInWords";
+import { MASKED_SECRET, salaryFiguresHidden } from "../../adminOperations/salaryAdmin/salaryPrivacy";
 
 const COMPANY_NAME = "Indus Fire Safety Pvt Ltd";
 const COMPANY_ADDRESS =
@@ -76,16 +77,21 @@ export default function PayslipTemplate({
   const lopDays = Number(payslip.lop_days || 0);
 
   const workLocation = payslip.work_location || "Head Office";
-  const uan = displayOrFallback(payslip.uan_number || payslip.uan, "Not linked");
-  const esicNo = displayOrFallback(
-    payslip.esic_number,
-    Number(payslip.emp_esic) > 0 ? "Not linked" : "Not applicable"
-  );
+  const hidePay = salaryFiguresHidden();
+  const uan = hidePay
+    ? MASKED_SECRET
+    : displayOrFallback(payslip.uan_number || payslip.uan, "Not linked");
+  const esicNo = hidePay
+    ? MASKED_SECRET
+    : displayOrFallback(
+        payslip.esic_number,
+        Number(payslip.emp_esic) > 0 ? "Not linked" : "Not applicable"
+      );
   const pan = displayOrFallback(payslip.pan_card || payslip.pan, "Not linked");
-  const bankAc = displayOrFallback(payslip.account_no, "Not linked");
+  const bankAc = hidePay ? MASKED_SECRET : displayOrFallback(payslip.account_no, "Not linked");
 
   const net = Number(payslip.net_salary) || 0;
-  const words = rupeesInWords(net);
+  const words = hidePay ? MASKED_SECRET : rupeesInWords(net);
 
   const metaLine = [
     payslip.employee_code ? `Employee code ${payslip.employee_code}` : null,
@@ -608,6 +614,7 @@ function padRows(rows, minLen) {
 }
 
 function money2(v) {
+  if (salaryFiguresHidden()) return v == null || v === "" || Number.isNaN(Number(v)) ? "—" : MASKED_SECRET;
   if (v == null || v === "" || Number.isNaN(Number(v))) return "—";
   return Number(v).toLocaleString("en-IN", {
     minimumFractionDigits: 2,
