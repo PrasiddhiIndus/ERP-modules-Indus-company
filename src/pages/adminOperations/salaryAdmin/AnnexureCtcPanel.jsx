@@ -44,6 +44,7 @@ import {
 } from "./ctcEngine";
 import { fetchRuleVersions, findRuleVersionById, resolveRuleVersion } from "./payrollRulesDb";
 import { dbReviseSalaryStructure, dbSaveSalaryStructure } from "./salaryDb";
+import { MASKED_SECRET, salaryFiguresHidden } from "./salaryPrivacy";
 import { getSalaryStructure } from "./salaryData";
 import { listMonthRuns } from "./salaryMonthProcessing";
 import {
@@ -84,6 +85,7 @@ const CUSTOM_GROUPS = [
 ];
 
 function money(v) {
+  if (salaryFiguresHidden()) return v == null || !Number.isFinite(Number(v)) ? "—" : MASKED_SECRET;
   if (v == null || !Number.isFinite(Number(v))) return "—";
   return roundRupee(v).toLocaleString("en-IN", { maximumFractionDigits: 0 });
 }
@@ -516,6 +518,10 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
 
   // ── Save ────────────────────────────────────────────────────────────────
   const save = async () => {
+    if (salaryFiguresHidden()) {
+      toast.error("Not saved", "CTC revision is not saved for this login.");
+      return;
+    }
     const wef = toDay(form.wef);
     if (!wef) return toast.error("W.E.F. required", "Pick the Effective From date.");
     if (calc.empty) {
@@ -645,7 +651,8 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     findRuleVersionById(ruleVersions, row?.rule_version_id) ||
     resolveRuleVersion(ruleVersions, row?.salary_scheme || SCHEME_OLD, row?.wef_date);
 
-  const print = (row, { previous = null, internal = false } = {}) =>
+  const print = (row, { previous = null, internal = false } = {}) => {
+    if (salaryFiguresHidden()) return;
     printAnnexure({
       employee,
       record: row,
@@ -654,6 +661,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
       segment,
       internal,
     });
+  };
 
   const previousOf = (key) => {
     const idx = history.findIndex((h) => h.key === key);
@@ -729,16 +737,33 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
               {currentIsAnnexure ? (
                 <button
                   type="button"
-                  onClick={() => print(current)}
-                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-white text-xs"
+                  onClick={() => {
+                    if (salaryFiguresHidden()) return;
+                    print(current);
+                  }}
+                  disabled={salaryFiguresHidden()}
+                  className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-xs ${
+                    salaryFiguresHidden()
+                      ? "border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
+                      : "border-border bg-white"
+                  }`}
                 >
                   <Printer className="h-3.5 w-3.5" /> Print Annexure
                 </button>
               ) : null}
               <button
                 type="button"
-                onClick={startEdit}
-                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-deep"
+                onClick={() => {
+                  if (salaryFiguresHidden()) return;
+                  startEdit();
+                }}
+                disabled={salaryFiguresHidden()}
+                title={salaryFiguresHidden() ? "Revision is not available for this login" : undefined}
+                className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium ${
+                  salaryFiguresHidden()
+                    ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                    : "bg-accent text-white hover:bg-accent-deep"
+                }`}
               >
                 <PencilLine className="h-3.5 w-3.5" />
                 {current ? "New revision" : "Create CTC"}

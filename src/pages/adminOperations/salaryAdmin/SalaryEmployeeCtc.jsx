@@ -52,6 +52,7 @@ import {
   standardFormulas,
 } from "./ctcProfileFormulas";
 import { dbPatchFormulaOverrides } from "./salaryDb";
+import { salaryFiguresHidden } from "./salaryPrivacy";
 import PersonSalaryComponentsPanel from "./PersonSalaryComponentsPanel";
 import {
   CTC_OPTIONAL_PRESETS,
@@ -1662,6 +1663,7 @@ export default function SalaryEmployeeCtc({
   };
 
   const enterReviseMode = () => {
+    if (salaryFiguresHidden()) return;
     if (!persist) return;
     if (embedded) {
       const next = new URLSearchParams(searchParams);
@@ -1687,6 +1689,10 @@ export default function SalaryEmployeeCtc({
   };
 
   const handleSave = async () => {
+    if (salaryFiguresHidden()) {
+      toast.warning("CTC revision is not saved for this login.");
+      return;
+    }
     if (!persist) {
       toast.warning("Salary save is paused while salary admin is being rewired.");
       return;
@@ -2072,7 +2078,12 @@ export default function SalaryEmployeeCtc({
               <button
                 type="button"
                 onClick={enterReviseMode}
-                className="h-9 px-3 rounded-md bg-accent text-white text-xs font-semibold hover:bg-accent-deep inline-flex items-center gap-1.5"
+                disabled={salaryFiguresHidden()}
+                className={`h-9 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 ${
+                  salaryFiguresHidden()
+                    ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                    : "bg-accent text-white hover:bg-accent-deep"
+                }`}
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 Revise CTC
@@ -2137,7 +2148,12 @@ export default function SalaryEmployeeCtc({
                 <button
                   type="button"
                   onClick={enterReviseMode}
-                  className="h-8 px-3 rounded-md border border-slate-300 bg-white text-xs font-semibold text-accent hover:bg-white"
+                  disabled={salaryFiguresHidden()}
+                  className={`h-8 px-3 rounded-md border text-xs font-semibold ${
+                    salaryFiguresHidden()
+                      ? "border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
+                      : "border-slate-300 bg-white text-accent hover:bg-white"
+                  }`}
                 >
                   Revise CTC
                 </button>
@@ -2935,7 +2951,12 @@ export default function SalaryEmployeeCtc({
             <button
               type="button"
               onClick={handleSave}
-              className="h-10 px-5 rounded-md bg-ink-strong text-white text-sm font-semibold hover:bg-ink inline-flex items-center gap-1.5"
+              disabled={salaryFiguresHidden()}
+              className={`h-10 px-5 rounded-md text-sm font-semibold inline-flex items-center gap-1.5 ${
+                salaryFiguresHidden()
+                  ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                  : "bg-ink-strong text-white hover:bg-ink"
+              }`}
             >
               {isRevisionMode ? "Save revision" : "Save CTC"}
             </button>
@@ -2944,7 +2965,12 @@ export default function SalaryEmployeeCtc({
             <button
               type="button"
               onClick={enterReviseMode}
-              className="h-10 px-5 rounded-md bg-accent text-white text-sm font-semibold hover:bg-accent-deep inline-flex items-center gap-1.5"
+              disabled={salaryFiguresHidden()}
+              className={`h-10 px-5 rounded-md text-sm font-semibold inline-flex items-center gap-1.5 ${
+                salaryFiguresHidden()
+                  ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                  : "bg-accent text-white hover:bg-accent-deep"
+              }`}
             >
               <RefreshCw className="h-4 w-4" />
               Revise CTC
