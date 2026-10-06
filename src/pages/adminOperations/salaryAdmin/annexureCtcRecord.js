@@ -242,9 +242,17 @@ export function historyRowSummary(row) {
 
 // ─── Salary Processing ──────────────────────────────────────────────────────
 
-/** Full-month values Salary Processing needs from an Annexure-I record (null for older records). */
+/** Full-month values Salary Processing needs from the current CTC record. */
 export function annexureLineInputs(structure) {
-  if (!isAnnexureRecord(structure)) return null;
+  if (!structure || structure.declared === false) return null;
+  const versioned = isAnnexureRecord(structure);
+  const conveyance = n(structure.conveyance_monthly);
+  const bonus = n(structure.stat_bonus_monthly);
+  const medical = n(structure.medical_allowance_monthly);
+  const exGratia = n(structure.ex_gratia_monthly);
+  const pfWage = n(structure.pf_wage_monthly);
+  const hasBreakup = conveyance > 0 || bonus > 0 || medical > 0 || exGratia > 0 || pfWage > 0;
+  if (!versioned && !hasBreakup) return null;
   return {
     structure_version: ANNEXURE_STRUCTURE_VERSION,
     conveyance_full: n(structure.conveyance_monthly),
