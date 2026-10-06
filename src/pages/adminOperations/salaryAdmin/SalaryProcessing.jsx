@@ -675,6 +675,7 @@ function EmployeeSalaryDetailPage({
             ["Conveyance allowance", line.conveyance_full, line.conveyance_earned],
             ["Advance against statutory bonus", line.stat_bonus_full, line.stat_bonus_earned],
             ["Medical allowance", line.medical_full, line.medical_earned],
+            ["Performance incentive", line.perf_incentive_full, line.perf_incentive_earned],
           ]
             .filter(([, full]) => Number(full) > 0)
             .map(([label, full, earned]) => (
@@ -2228,6 +2229,7 @@ export default function SalaryProcessing() {
     });
   }, [lines, q]);
 
+  const showPerfIncentive = (lines || []).some((l) => Number(l.perf_incentive_full) > 0);
   const editorHeaders = [
     "Sr No",
     "Code",
@@ -2248,6 +2250,7 @@ export default function SalaryProcessing() {
     "Conv.",
     "Adv Bonus",
     "Medical",
+    ...(showPerfIncentive ? ["Perf. Inc."] : []),
     "Custom+",
     "Gross W",
     "PF 12%",
@@ -2455,6 +2458,11 @@ export default function SalaryProcessing() {
                   <td className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100">
                     <Money value={line.medical_earned} />
                   </td>
+                  {showPerfIncentive ? (
+                    <td className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100">
+                      <Money value={line.perf_incentive_earned} />
+                    </td>
+                  ) : null}
                   <td className="px-0.5 py-0.5 border-b border-slate-100">
                     <input
                       type="number"

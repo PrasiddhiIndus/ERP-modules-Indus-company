@@ -301,7 +301,7 @@ describe("custom override", () => {
 
   it("every component except the totals accepts a custom value", () => {
     expect(OVERRIDE_KEYS).toEqual([
-      "basic", "hra", "conveyance", "bonus", "medical", "special",
+      "basic", "hra", "conveyance", "bonus", "medical", "special", "perf_incentive",
       "ee_pf", "pt", "ee_esic",
       "er_pf", "er_esic", "mediclaim", "leave_encashment", "gratuity", "ex_gratia",
     ]);
