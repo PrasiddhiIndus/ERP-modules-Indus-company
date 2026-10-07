@@ -676,6 +676,7 @@ function EmployeeSalaryDetailPage({
             ["Advance against statutory bonus", line.stat_bonus_full, line.stat_bonus_earned],
             ["Medical allowance", line.medical_full, line.medical_earned],
             ["Performance incentive", line.perf_incentive_full, line.perf_incentive_earned],
+            ...(line.computed_json?.extra_earnings || []).map((c) => [c.label, c.full, c.earned]),
           ]
             .filter(([, full]) => Number(full) > 0)
             .map(([label, full, earned]) => (
@@ -837,6 +838,14 @@ function EmployeeSalaryDetailPage({
               />
             </StatementAmt>
           </StatementRow>
+          {(line.computed_json?.extra_deductions || []).map((c) => (
+            <StatementRow key={c.id || c.label} label={c.label}>
+              <span className="hidden sm:block" />
+              <StatementAmt>
+                <Money value={c.earned} />
+              </StatementAmt>
+            </StatementRow>
+          ))}
           <StatementRow label="Total deductions" total>
             <span className="hidden sm:block" />
             <StatementAmt strong>
@@ -2230,6 +2239,14 @@ export default function SalaryProcessing() {
   }, [lines, q]);
 
   const showPerfIncentive = (lines || []).some((l) => Number(l.perf_incentive_full) > 0);
+  const extraTotal = (l, key) =>
+    (l.computed_json?.[key] || []).reduce((s, c) => s + (Number(c.earned) || 0), 0);
+  const extraTitle = (l, key) =>
+    (l.computed_json?.[key] || [])
+      .map((c) => (salaryFiguresHidden() ? c.label : `${c.label}: ${c.earned}`))
+      .join("\n");
+  const showExtraEarn = (lines || []).some((l) => (l.computed_json?.extra_earnings || []).length);
+  const showExtraDed = (lines || []).some((l) => (l.computed_json?.extra_deductions || []).length);
   const editorHeaders = [
     "Sr No",
     "Code",
@@ -2251,6 +2268,7 @@ export default function SalaryProcessing() {
     "Adv Bonus",
     "Medical",
     ...(showPerfIncentive ? ["Perf. Inc."] : []),
+    ...(showExtraEarn ? ["Other earn."] : []),
     "Custom+",
     "Gross W",
     "PF 12%",
@@ -2261,6 +2279,7 @@ export default function SalaryProcessing() {
     "U/P",
     "TDS",
     "Custom−",
+    ...(showExtraDed ? ["Other ded."] : []),
     "Tot Ded",
     "Net",
     "Bank",
@@ -2463,6 +2482,14 @@ export default function SalaryProcessing() {
                       <Money value={line.perf_incentive_earned} />
                     </td>
                   ) : null}
+                  {showExtraEarn ? (
+                    <td
+                      className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100"
+                      title={extraTitle(line, "extra_earnings")}
+                    >
+                      <Money value={extraTotal(line, "extra_earnings")} />
+                    </td>
+                  ) : null}
                   <td className="px-0.5 py-0.5 border-b border-slate-100">
                     <input
                       type="number"
@@ -2565,6 +2592,14 @@ export default function SalaryProcessing() {
                       }
                     />
                   </td>
+                  {showExtraDed ? (
+                    <td
+                      className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100"
+                      title={extraTitle(line, "extra_deductions")}
+                    >
+                      <Money value={extraTotal(line, "extra_deductions")} />
+                    </td>
+                  ) : null}
                   <td className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100">
                     <Money value={line.total_ded} />
                   </td>

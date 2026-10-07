@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Columns3, Download, Eye, GitCompare, PencilLine, Printer, X } from "lucide-react";
+import { Columns3, Download, Eye, GitCompare, PencilLine, Plus, Printer, Trash2, X } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import toast from "../../../lib/toast";
 import { employmentTypeLabel } from "../../../utils/employeeMasterReminders";
@@ -15,12 +15,14 @@ import {
   TinySelect,
 } from "../components/AdminUi";
 import {
-  ANNEXURE_ROWS,
   CATEGORY_EXISTING_CONFIRMED,
   CATEGORY_NEW_JOINER_NEW_SCHEME,
   CATEGORY_NEW_PROBATION,
   CATEGORY_PROBATION_TO_CONFIRMED,
   DEDUCTION_KEYS,
+  EXTRA_PART_A,
+  EXTRA_PART_B,
+  EXTRA_PART_OPTIONS,
   INPUT_CTC,
   OPTIONAL_PART_A_KEYS,
   PART_A_KEYS,
@@ -33,14 +35,18 @@ import {
   SKILL_SKILLED,
   STATUS_CONFIRMED,
   STATUS_PROBATION,
+  annexureRowsFor,
   applyComponentOverrides,
+  applyExtraComponents,
   calculateConfirmation,
   calculateCtc,
   findOverlappingRecord,
   minimumValidGross,
+  normalizeExtraComponents,
   resolveCategory,
   roundRupee,
   schemeLabel,
+  sumExtraComponents,
   validateCustomOverride,
   visibleAnnexureRows,
 } from "./ctcEngine";
@@ -177,7 +183,31 @@ function emptyForm(employee) {
     entryMode: ENTRY_CALCULATE,
     manual: {},
     perfIncentiveOn: false,
+    extras: [],
   };
+}
+
+let extraSeq = 0;
+function newExtraRow(part = EXTRA_PART_A) {
+  extraSeq += 1;
+  return { id: `x${Date.now().toString(36)}${extraSeq}`, part, label: "", monthly: "" };
+}
+
+/** Saved components → editable rows (amounts as text). */
+function extraRowsFromRecord(record) {
+  return normalizeExtraComponents(record?.extra_components_json).map((c) => ({
+    ...c,
+    monthly: String(c.monthly),
+  }));
+}
+
+/** Rows with only a name or only an amount — not saved silently. */
+function incompleteExtraRow(rows) {
+  return (rows || []).find((r) => {
+    const hasLabel = Boolean(String(r.label || "").trim());
+    const hasAmount = parseEntered(r.monthly) > 0;
+    return hasLabel !== hasAmount && (hasLabel || String(r.monthly || "").trim() !== "");
+  });
 }
 
 function formFromRecord(record, employee) {
@@ -187,14 +217,18 @@ function formFromRecord(record, employee) {
     return { ...base, gross: record.gross_monthly ? String(roundRupee(record.gross_monthly)) : "", revisionType: "increment" };
   }
   const byCtc = record.input_basis === INPUT_CTC;
+  const extras = extraRowsFromRecord(record);
+  const extraA = sumExtraComponents(extras, EXTRA_PART_A);
+  const extraB = sumExtraComponents(extras, EXTRA_PART_B);
   return {
     ...base,
+    extras,
     skill: record.skill_category || SKILL_SKILLED,
     category:
       record.employee_status === STATUS_CONFIRMED ? CATEGORY_EXISTING_CONFIRMED : record.employee_category || CATEGORY_NEW_PROBATION,
     scheme: record.salary_scheme || SCHEME_OLD,
-    ctc: byCtc ? String(roundRupee(record.ctc_monthly)) : "",
-    gross: byCtc ? "" : String(roundRupee(record.gross_monthly)),
+    ctc: byCtc ? String(roundRupee(record.ctc_monthly - extraA - extraB)) : "",
+    gross: byCtc ? "" : String(roundRupee(record.gross_monthly - extraA)),
     revisionType: "increment",
     entryMode: record.is_custom ? ENTRY_MANUAL : ENTRY_CALCULATE,
     manual: record.is_custom ? manualSeed(recordToComponents(record), record.custom_overrides_json) : {},
@@ -236,7 +270,7 @@ function AnnexureTable({ groups, change, highlightCustom }) {
           </tr>
         </thead>
         <tbody>
-          {visibleAnnexureRows(...groups.map((g) => g.values)).map((row) => {
+          {annexureRowsFor(...groups.map((g) => g.values)).map((row) => {
             if (row.heading) {
               return (
                 <tr key={row.label} className="bg-gray-50">
@@ -253,7 +287,7 @@ function AnnexureTable({ groups, change, highlightCustom }) {
               <tr key={row.key} className={row.total ? "bg-slate-50 font-semibold" : "border-t border-gray-100"}>
                 <td className="px-2 py-1 text-gray-800 whitespace-nowrap">
                   {row.label}
-                  {!row.optional && highlightCustom?.[row.key] != null ? (
+                  {!row.optional && !row.extra && highlightCustom?.[row.key] != null ? (
                     <span className="ml-1.5 text-[10px] font-semibold text-amber-700">
                       Custom · system ₹{money(highlightCustom[row.key])}
                     </span>
@@ -286,7 +320,7 @@ function AnnexureTable({ groups, change, highlightCustom }) {
 
 function diffValues(a, b) {
   const out = {};
-  for (const row of ANNEXURE_ROWS) {
+  for (const row of annexureRowsFor(a, b)) {
     if (row.key) out[row.key] = (Number(b?.[row.key]) || 0) - (Number(a?.[row.key]) || 0);
   }
   return out;
@@ -386,6 +420,77 @@ function ManualComponentEntry({
   );
 }
 
+/**
+ * Components for this employee only, added on top of the calculated breakup in their part.
+ * Collapsed until used so the usual entry stays short.
+ */
+function ExtraComponentsEditor({ rows, onAdd, onRemove, onUpdate }) {
+  const filled = normalizeExtraComponents(rows).length;
+  return (
+    <details className="rounded-lg border border-gray-200 p-2.5" open={rows.length > 0}>
+      <summary className="cursor-pointer font-medium text-ink">
+        Additional components{filled ? ` (${filled})` : ""}
+      </summary>
+      <div className="mt-2 space-y-2">
+        <p className="text-[11px] text-ink-muted">
+          For this employee only. Part A adds to Gross, Take Home and CTC; a deduction reduces Take Home; Part B
+          adds to Total (B) and CTC. Shown on the Annexure, payslips and salary processing.
+        </p>
+        {rows.map((row) => (
+          <div key={row.id} className="space-y-1 rounded-md bg-gray-50 p-2">
+            <div className="flex items-center gap-1.5">
+              <TinySelect
+                className="flex-1"
+                value={row.part}
+                onChange={(e) => onUpdate(row.id, { part: e.target.value })}
+                aria-label="Part"
+              >
+                {EXTRA_PART_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </TinySelect>
+              <button
+                type="button"
+                className="text-ink-muted hover:text-critical"
+                title="Remove component"
+                onClick={() => onRemove(row.id)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <TinyInput
+                className="flex-1"
+                placeholder="Component name"
+                value={row.label}
+                onChange={(e) => onUpdate(row.id, { label: e.target.value })}
+              />
+              <TinyInput
+                type="number"
+                step="1"
+                min="0"
+                className="w-28 text-right tabular-nums"
+                placeholder="Monthly ₹"
+                value={row.monthly}
+                onChange={(e) => onUpdate(row.id, { monthly: e.target.value })}
+              />
+            </div>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={onAdd}
+          className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md border border-border bg-white text-[11px] font-medium"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add component
+        </button>
+      </div>
+    </details>
+  );
+}
+
 function Fact({ label, children }) {
   return (
     <div className="min-w-0">
@@ -458,7 +563,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
   const resolved = resolveCategory(form.category, form.scheme, form.schemeAfter);
   const confirmationWef = isConfirmationFlow ? toDay(form.confirmationDate) : "";
 
-  const calc = useMemo(() => {
+  const calcBase = useMemo(() => {
     if (isManual) {
       const entered = {};
       for (const k of PART_A_KEYS) entered[k] = roundRupee(parseEntered(form.manual[k]) ?? 0);
@@ -518,6 +623,23 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
       return { error: err?.message || "Could not calculate." };
     }
   }, [form, ruleVersions, resolved.scheme, resolved.schemeAfter, resolved.status, isConfirmationFlow, isManual, confirmationWef]);
+
+  const calc = useMemo(() => {
+    const extras = form.extras;
+    if (calcBase.empty || calcBase.error || !normalizeExtraComponents(extras).length) return calcBase;
+    if (calcBase.confirmation) {
+      const before = applyExtraComponents(calcBase.confirmation.before, extras);
+      const after = applyExtraComponents(calcBase.confirmation.after, extras);
+      return { ...calcBase, confirmation: { before, after, change: diffValues(before, after) }, final: after };
+    }
+    return { ...calcBase, final: applyExtraComponents(calcBase.final, extras) };
+  }, [calcBase, form.extras]);
+
+  const setExtras = (update) => setForm((f) => ({ ...f, extras: update(f.extras || []) }));
+  const addExtraRow = () => setExtras((rows) => [...rows, newExtraRow()]);
+  const removeExtraRow = (id) => setExtras((rows) => rows.filter((r) => r.id !== id));
+  const updateExtraRow = (id, patch) =>
+    setExtras((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
   const setEntryMode = (mode) => {
     setForm((f) => {
@@ -584,6 +706,12 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
       return toast.error(
         "Performance Incentive amount required",
         "Enter the monthly amount, or untick Performance Incentive."
+      );
+    }
+    if (incompleteExtraRow(form.extras)) {
+      return toast.error(
+        "Additional component incomplete",
+        "Each additional component needs a name and a monthly amount, or remove the row."
       );
     }
 
@@ -1030,6 +1158,12 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   </label>
                 </>
               )}
+              <ExtraComponentsEditor
+                rows={form.extras || []}
+                onAdd={addExtraRow}
+                onRemove={removeExtraRow}
+                onUpdate={updateExtraRow}
+              />
               <label className="block">
                 <span className="text-ink-secondary">
                   {isConfirmationFlow ? "Probation W.E.F." : "W.E.F. / Effective From"}
@@ -1265,6 +1399,18 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                           <Fact label="Gross used">₹{money(ck.gross_used)}</Fact>
                           <Fact label="Calculated CTC">₹{money(ck.calculated_ctc)}</Fact>
                           <Fact label="CTC difference">₹{money(ck.ctc_difference)}</Fact>
+                          {(final?.extra_components || []).length ? (
+                            <>
+                              <Fact label="Additional components (A + B)">
+                                ₹
+                                {money(
+                                  sumExtraComponents(final.extra_components, EXTRA_PART_A) +
+                                    sumExtraComponents(final.extra_components, EXTRA_PART_B)
+                                )}
+                              </Fact>
+                              <Fact label="Final CTC">₹{money(final.ctc)}</Fact>
+                            </>
+                          ) : null}
                         </div>
                       );
                     })()}

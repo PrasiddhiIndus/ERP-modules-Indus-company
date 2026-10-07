@@ -10,6 +10,8 @@ import {
   CATEGORY_NEW_PROBATION,
   CATEGORY_PROBATION_TO_CONFIRMED,
   STATUS_CONFIRMED,
+  extraComponentKey,
+  normalizeExtraComponents,
   normalizeScheme,
   normalizeSkill,
   normalizeStatus,
@@ -63,7 +65,11 @@ function n(v) {
 /** CTC record (current row or archived snapshot) → Annexure row values (monthly). */
 export function recordToComponents(row) {
   if (!row) return null;
+  const extras = normalizeExtraComponents(row.extra_components_json);
+  const extraValues = {};
+  for (const c of extras) extraValues[extraComponentKey(c.id)] = c.monthly;
   return {
+    ...(extras.length ? { extra_components: extras, ...extraValues } : {}),
     basic: n(row.basic_monthly),
     hra: n(row.hra_monthly),
     conveyance: n(row.conveyance_monthly),
@@ -114,6 +120,7 @@ export function resultToStructurePayload(result, meta) {
     medical_allowance_monthly: r(result.medical),
     perf_incentive_enabled: n(result.perf_incentive) > 0,
     perf_incentive_monthly: n(result.perf_incentive) > 0 ? r(result.perf_incentive) : 0,
+    extra_components_json: normalizeExtraComponents(result.extra_components),
     emp_pf_monthly: r(result.ee_pf),
     pf_wage_monthly: r(result.pf_wage),
     pt_monthly: r(result.pt),
@@ -255,6 +262,7 @@ export function annexureLineInputs(structure) {
   const exGratia = n(structure.ex_gratia_monthly);
   const pfWage = n(structure.pf_wage_monthly);
   const perfIncentive = structure.perf_incentive_enabled ? n(structure.perf_incentive_monthly) : 0;
+  const extras = normalizeExtraComponents(structure.extra_components_json);
   const hasBreakup = conveyance > 0 || bonus > 0 || medical > 0 || exGratia > 0 || pfWage > 0;
   if (!versioned && !hasBreakup) return null;
   return {
@@ -263,6 +271,7 @@ export function annexureLineInputs(structure) {
     stat_bonus_full: n(structure.stat_bonus_monthly),
     medical_full: n(structure.medical_allowance_monthly),
     ...(perfIncentive > 0 ? { perf_incentive_full: perfIncentive } : {}),
+    ...(extras.length ? { extra_components: extras } : {}),
     ee_pf_full: n(structure.emp_pf_monthly),
     pf_wage_full: n(structure.pf_wage_monthly) || n(structure.basic_monthly),
     ee_esic_full: n(structure.emp_esic_monthly),

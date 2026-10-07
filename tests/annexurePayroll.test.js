@@ -3,7 +3,9 @@ import {
   SEED_RULES_2026_27,
   STATUS_CONFIRMED,
   STATUS_PROBATION,
+  annexureRowsFor,
   applyComponentOverrides,
+  applyExtraComponents,
   calculateCtc,
 } from "../src/pages/adminOperations/salaryAdmin/ctcEngine.js";
 
@@ -163,6 +165,58 @@ describe("Salary Processing with Annexure-I records", () => {
     expect(recomputeLineFromEdits(lineFor(without, 26), 26).perf_incentive_earned).toBeUndefined();
     expect(annexureLineInputs(without).perf_incentive_full).toBeUndefined();
     expect(recordToComponents({ ...rec, perf_incentive_enabled: false }).perf_incentive).toBe(0);
+  });
+
+  it("additional components adjust totals, Annexure rows and the monthly line", () => {
+    const system = calculateCtc(rules, { skill: "skilled", status: STATUS_PROBATION, monthlyGross: 34000 });
+    const extras = [
+      { id: "a1", part: "A", label: "Site allowance", monthly: 2000 },
+      { id: "d1", part: "D", label: "Canteen", monthly: 520 },
+      { id: "b1", part: "B", label: "Insurance", monthly: 300 },
+      { id: "e1", part: "A", label: "", monthly: 999 },
+    ];
+    const withExtras = applyExtraComponents(system, extras);
+    expect(withExtras.gross).toBe(system.gross + 2000);
+    expect(withExtras.take_home).toBe(system.take_home + 2000 - 520);
+    expect(withExtras.total_b).toBe(system.total_b + 300);
+    expect(withExtras.ctc).toBe(system.ctc + 2300);
+    expect(withExtras.basic).toBe(system.basic);
+    expect(withExtras.ee_pf).toBe(system.ee_pf);
+    expect(applyExtraComponents(system, [])).toBe(system);
+
+    const rec = resultToStructurePayload(withExtras, {
+      rules,
+      ruleVersionId: "v1",
+      scheme: "old",
+      category: "new_probation",
+      revisionType: "initial",
+      wefDate: "2026-04-01",
+    });
+    expect(rec.extra_components_json).toHaveLength(3);
+    expect(rec.gross_monthly).toBe(36000);
+    const values = recordToComponents(rec);
+    const keys = annexureRowsFor(values).map((r) => r.key);
+    expect(keys.indexOf("x_a1")).toBe(keys.indexOf("gross") - 1);
+    expect(keys.indexOf("x_d1")).toBe(keys.indexOf("take_home") - 1);
+    expect(keys.indexOf("x_b1")).toBe(keys.indexOf("total_b") - 1);
+    expect(annexureRowsFor(recordToComponents(recordFor(STATUS_PROBATION, 34000))).some((r) => r.extra)).toBe(false);
+
+    const full = recomputeLineFromEdits(lineFor(rec, 26), 26);
+    expect(full.gross_wages).toBe(36000);
+    expect(full.conveyance_earned).toBe(3784);
+    expect(full.computed_json.extra_earnings).toEqual([{ id: "a1", label: "Site allowance", full: 2000, earned: 2000 }]);
+    expect(full.computed_json.extra_deductions[0].earned).toBe(520);
+    expect(full.net_salary).toBe(31632 + 2000 - 520);
+
+    const half = recomputeLineFromEdits(lineFor(rec, 13), 26);
+    expect(half.computed_json.extra_earnings[0].earned).toBe(1000);
+    expect(half.computed_json.extra_deductions[0].earned).toBe(260);
+
+    const removed = recomputeLineFromEdits(
+      { ...lineFor(recordFor(STATUS_PROBATION, 34000), 26), computed_json: { ...lineFor(recordFor(STATUS_PROBATION, 34000), 26).computed_json, extra_earnings: [{ earned: 5 }] } },
+      26
+    );
+    expect(removed.computed_json.extra_earnings).toBeUndefined();
   });
 
   it("earlier-structure lines keep the existing formulas", () => {
