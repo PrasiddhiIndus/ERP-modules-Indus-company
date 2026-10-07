@@ -32,7 +32,6 @@ export const ROUTE_MODULE_MAP = [
   ['/app/maintenance', 'Maintenance'],
   ['/app/hr/calling-master', 'HR · Recruitment / Calling master'],
   ['/app/hr/site-attendance', 'HR · Site attendance'],
-  ['/app/hr/payroll-ops', 'HR · Payroll'],
   ['/app/hr/payroll/salary', 'HR · Salary management'],
   ['/app/hr/employee-master', 'HR · Employee master'],
   ['/app/hr', 'HR'],
