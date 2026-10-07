@@ -577,6 +577,10 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
               </div>
             </FormSection>
           ) : null}
+
+          <FormSection title="Remarks" hint="Notes about this enquiry.">
+            <ValueBox value={displayValue(form.remarks)} tall />
+          </FormSection>
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-white px-4 py-3.5 sm:px-6">
