@@ -3,7 +3,7 @@
  * Used by the Employee Master CTC tab (current / history / revision) and letters.
  */
 
-import { roundRupee, schemeLabel, visibleAnnexureRows } from "./ctcEngine";
+import { annexureRowsFor, roundRupee, schemeLabel } from "./ctcEngine";
 import { recordToComponents, statusLabel } from "./annexureCtcRecord";
 
 export const DEFAULT_COMPANY_NAME = "INDUS FIRE SAFETY PRIVATE LIMITED";
@@ -51,18 +51,18 @@ export function buildAnnexureHtml({ employee, record, previous, ruleVersion, seg
        <tr><th>Monthly</th><th>P.A.</th><th>Monthly</th><th>P.A.</th><th>Monthly</th><th>P.A.</th></tr>`
     : `<tr><th class="l">Particulars</th><th>Monthly</th><th>P.A.</th></tr>`;
 
-  const body = visibleAnnexureRows(cur, prev).map((row) => {
+  const body = annexureRowsFor(prev, cur).map((row) => {
     if (row.heading) {
       return `<tr class="heading"><td colspan="${prev ? 7 : 3}" class="l">${esc(row.label)}</td></tr>`;
     }
-    const v = cur[row.key];
+    const v = Number(cur[row.key]) || 0;
     const mark =
       overrides[row.key] != null
         ? ` <span class="custom">(Custom; system ₹${money(systemValues[row.key])})</span>`
         : "";
     const cls = row.total ? ' class="total"' : "";
     if (prev) {
-      const p = prev[row.key];
+      const p = Number(prev[row.key]) || 0;
       return `<tr${cls}><td class="l">${esc(row.label)}${mark}</td><td>${money(p)}</td><td>${money(p * 12)}</td><td>${money(v)}</td><td>${money(v * 12)}</td><td>${money(v - p)}</td><td>${money((v - p) * 12)}</td></tr>`;
     }
     return `<tr${cls}><td class="l">${esc(row.label)}${mark}</td><td>${money(v)}</td><td>${money(v * 12)}</td></tr>`;

@@ -406,6 +406,12 @@ function annexureLineFields(line, cj) {
           perf_incentive_earned: num(cj.perf_incentive_earned),
         }
       : {}),
+    ...(Array.isArray(cj.extra_earnings) || Array.isArray(cj.extra_deductions)
+      ? {
+          extra_earnings: Array.isArray(cj.extra_earnings) ? cj.extra_earnings : [],
+          extra_deductions: Array.isArray(cj.extra_deductions) ? cj.extra_deductions : [],
+        }
+      : {}),
   };
 }
 
@@ -649,8 +655,9 @@ export function applyCurrentCtcToSavedLine(saved, structure, monthDays, emp) {
 }
 
 /** Recompute earned / deduction totals from editable inputs (sample sheet formulas). */
-export function recomputeLineFromEdits(line, monthDays, opts) {
+export function recomputeLineFromEdits(lineIn, monthDays, opts) {
   const options = opts || {};
+  const { extra_earnings: _staleEarn, extra_deductions: _staleDed, ...line } = lineIn;
   const td = num(monthDays, DEFAULT_MONTH_DAYS) || DEFAULT_MONTH_DAYS;
   const rawPresent = line.present_days;
   const presentUnknown = rawPresent === "" || rawPresent == null;
@@ -659,7 +666,11 @@ export function recomputeLineFromEdits(line, monthDays, opts) {
   const basicFull = num(line.basic_full);
   const hraFull = num(line.hra_full);
   const specialFull = num(line.special_full);
-  const cj = line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
+  const {
+    extra_earnings: _staleCjEarn,
+    extra_deductions: _staleCjDed,
+    ...cj
+  } = line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
   const snap = line.source_snapshot_json && typeof line.source_snapshot_json === "object" ? line.source_snapshot_json : {};
   const customEarnFull = num(
     line.custom_earn_full != null ? line.custom_earn_full : cj.custom_earn_full ?? snap.custom_earn_full
@@ -686,6 +697,18 @@ export function recomputeLineFromEdits(line, monthDays, opts) {
   let statBonusEarned = annexure ? prorate(annexure.stat_bonus_full) : 0;
   let medicalEarned = annexure ? prorate(annexure.medical_full) : 0;
   const perfIncentiveEarned = annexure ? prorate(annexure.perf_incentive_full) : 0;
+  const extraComponents = annexure && Array.isArray(annexure.extra_components) ? annexure.extra_components : [];
+  const extraLines = (part) =>
+    extraComponents
+      .filter((c) => c.part === part)
+      .map((c) => ({ id: c.id, label: c.label, full: num(c.monthly), earned: prorate(c.monthly) }));
+  const extraEarnings = extraLines("A");
+  const extraDeductions = extraLines("D");
+  const extraEarnTotal = extraEarnings.reduce((s, c) => s + c.earned, 0);
+  const extraDedTotal = extraDeductions.reduce((s, c) => s + c.earned, 0);
+  const extraFields = extraComponents.length
+    ? { extra_earnings: extraEarnings, extra_deductions: extraDeductions }
+    : {};
   const salaryRate = num(line.salary_rate);
   if (salaryRate > 0) {
     const target = prorate(salaryRate);
@@ -704,7 +727,8 @@ export function recomputeLineFromEdits(line, monthDays, opts) {
       parts.conveyance +
       parts.bonus +
       parts.medical +
-      perfIncentiveEarned;
+      perfIncentiveEarned +
+      extraEarnTotal;
     const diff = round0(target - sum);
     if (diff !== 0) {
       const balanceKey =
@@ -736,6 +760,7 @@ export function recomputeLineFromEdits(line, monthDays, opts) {
     statBonusEarned +
     medicalEarned +
     perfIncentiveEarned +
+    extraEarnTotal +
     customEarn;
   let empPf;
   let empEsic;
@@ -759,7 +784,7 @@ export function recomputeLineFromEdits(line, monthDays, opts) {
   const salAdv = round0(line.sal_adv);
   const unpaid = round0(line.unpaid_paid);
   const tds = round0(line.tds);
-  const totalDed = empPf + empEsic + pt + loan + salAdv + unpaid + tds + customDed;
+  const totalDed = empPf + empEsic + pt + loan + salAdv + unpaid + tds + customDed + extraDedTotal;
   const net = gross - totalDed;
   const bank = round0(net);
   return {
@@ -788,6 +813,7 @@ export function recomputeLineFromEdits(line, monthDays, opts) {
                 perf_incentive_earned: perfIncentiveEarned,
               }
             : {}),
+          ...extraFields,
         }
       : {}),
     gross_wages: gross,
@@ -815,6 +841,7 @@ export function recomputeLineFromEdits(line, monthDays, opts) {
             stat_bonus_earned: statBonusEarned,
             medical_earned: medicalEarned,
             ...(num(annexure.perf_incentive_full) > 0 ? { perf_incentive_earned: perfIncentiveEarned } : {}),
+            ...extraFields,
           }
         : {}),
     },

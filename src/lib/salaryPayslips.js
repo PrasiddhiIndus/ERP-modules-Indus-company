@@ -70,6 +70,14 @@ export function todayProcessDate() {
   return `${y}-${m}-${day}`;
 }
 
+/** Employee-specific CTC components on a processed line → [{ label, amount }] for this month. */
+function extraLines(line, key) {
+  const list = Array.isArray(line?.computed_json?.[key]) ? line.computed_json[key] : [];
+  return list
+    .map((c) => ({ label: String(c?.label || "").trim(), amount: num(c?.earned) }))
+    .filter((c) => c.label && c.amount > 0);
+}
+
 /**
  * Build a payslip record from a processed salary line + run meta.
  * @param {{ processedOn?: string }} [opts] — calendar day Process salary was clicked
@@ -121,6 +129,8 @@ export function buildPayslipFromLine(run, line, opts = {}) {
     stat_bonus_earned: num(line.stat_bonus_earned ?? line.computed_json?.stat_bonus_earned),
     medical_earned: num(line.medical_earned ?? line.computed_json?.medical_earned),
     perf_incentive_earned: num(line.perf_incentive_earned ?? line.computed_json?.perf_incentive_earned),
+    extra_earnings: extraLines(line, "extra_earnings"),
+    extra_deductions: extraLines(line, "extra_deductions"),
     annexure_structure: Boolean(line.computed_json?.annexure),
     custom_earn: num(line.custom_earn ?? line.computed_json?.custom_earn),
     custom_ded: num(line.custom_ded ?? line.computed_json?.custom_ded),

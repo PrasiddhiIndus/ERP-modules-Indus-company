@@ -156,6 +156,91 @@ export function visibleAnnexureRows(...valueSets) {
   );
 }
 
+// ─── Employee-specific additional components ────────────────────────────────
+// Entered on one employee's CTC record only. Added on top of the calculated breakup:
+// Part A → Gross, Take Home and CTC; Deduction → Take Home; Part B → Total (B) and CTC.
+
+export const EXTRA_PART_A = "A";
+export const EXTRA_PART_DEDUCTION = "D";
+export const EXTRA_PART_B = "B";
+
+export const EXTRA_PART_OPTIONS = Object.freeze([
+  { value: EXTRA_PART_A, label: "Part A (Gross)" },
+  { value: EXTRA_PART_DEDUCTION, label: "Deductions" },
+  { value: EXTRA_PART_B, label: "Part B (employer cost)" },
+]);
+
+export function extraComponentKey(id) {
+  return `x_${id}`;
+}
+
+/** Saved / entered list → clean list (label and a positive whole-rupee amount required). */
+export function normalizeExtraComponents(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((c, i) => ({
+      id: String(c?.id || `x${i + 1}`),
+      part: c?.part === EXTRA_PART_DEDUCTION || c?.part === EXTRA_PART_B ? c.part : EXTRA_PART_A,
+      label: String(c?.label || "").trim(),
+      monthly: roundRupee(num(c?.monthly) ?? 0),
+    }))
+    .filter((c) => c.label && c.monthly > 0);
+}
+
+export function sumExtraComponents(list, part) {
+  return normalizeExtraComponents(list)
+    .filter((c) => c.part === part)
+    .reduce((s, c) => s + c.monthly, 0);
+}
+
+/** Breakup + additional components. Without components the breakup is returned unchanged. */
+export function applyExtraComponents(result, list) {
+  const extras = normalizeExtraComponents(list);
+  if (!result || !extras.length) return result;
+  const a = sumExtraComponents(extras, EXTRA_PART_A);
+  const d = sumExtraComponents(extras, EXTRA_PART_DEDUCTION);
+  const b = sumExtraComponents(extras, EXTRA_PART_B);
+  const out = {
+    ...result,
+    extra_components: extras,
+    gross: result.gross + a,
+    sum_part_a: (result.sum_part_a ?? result.gross) + a,
+    take_home: result.take_home + a - d,
+    total_b: result.total_b + b,
+    ctc: result.ctc + a + b,
+  };
+  for (const c of extras) out[extraComponentKey(c.id)] = c.monthly;
+  return out;
+}
+
+/**
+ * Annexure rows including each value set's additional components, placed at the end of
+ * their section (Part A before Gross, deductions before Take Home, Part B before Total B).
+ */
+export function annexureRowsFor(...valueSets) {
+  const byId = new Map();
+  for (const values of valueSets) {
+    for (const c of values?.extra_components || []) byId.set(c.id, c);
+  }
+  const rowFor = (c) => ({
+    key: extraComponentKey(c.id),
+    label:
+      c.part === EXTRA_PART_DEDUCTION ? `Less: ${c.label}` : c.part === EXTRA_PART_B ? `ADD: ${c.label}` : c.label,
+    extra: true,
+  });
+  const before = {
+    gross: EXTRA_PART_A,
+    take_home: EXTRA_PART_DEDUCTION,
+    total_b: EXTRA_PART_B,
+  };
+  const rows = [];
+  for (const row of visibleAnnexureRows(...valueSets)) {
+    const part = before[row.key];
+    if (part) for (const c of byId.values()) if (c.part === part) rows.push(rowFor(c));
+    rows.push(row);
+  }
+  return rows;
+}
+
 function num(v) {
   if (v == null || v === "") return null;
   const n = Number(String(v).replace(/,/g, ""));

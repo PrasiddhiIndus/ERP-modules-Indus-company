@@ -39,6 +39,7 @@ export default function PayslipTemplate({
           { label: "Medical Allowance", amount: payslip.medical_earned },
           { label: "Special Allowance", amount: payslip.special_allowance },
           { label: "Performance Incentive", amount: payslip.perf_incentive_earned },
+          ...(payslip.extra_earnings || []),
         ].filter((r) => Number(r.amount) > 0)
       : [
           { label: "Earned basic", amount: payslip.basic_earned },
@@ -58,6 +59,7 @@ export default function PayslipTemplate({
     { label: "Salary advance", amount: payslip.sal_adv },
     { label: "Unpaid / Paid", amount: payslip.unpaid_paid },
     { label: "TDS", amount: payslip.tds },
+    ...(payslip.extra_deductions || []),
     ...(payslip.custom_components || [])
       .filter((c) => c.kind === "deduction" && Number(c.amount) > 0)
       .map((c) => ({ label: c.name || c.code || "Deduction", amount: c.amount })),
@@ -229,21 +231,6 @@ export default function PayslipTemplate({
           <div style={{ fontSize: 14, fontWeight: 600, color: INK }}>{payslip.employee_name || "—"}</div>
           <div style={{ marginTop: 2, fontSize: 10, color: MUTED }}>{metaLine || "—"}</div>
         </div>
-        <span
-          style={{
-            flexShrink: 0,
-            fontSize: 9,
-            fontWeight: 600,
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            color: "#fff",
-            background: BLUE,
-            borderRadius: 3,
-            padding: "4px 10px",
-          }}
-        >
-          Processed
-        </span>
       </div>
 
       {/* Meta panels — 3 columns like invoice buyer blocks */}
