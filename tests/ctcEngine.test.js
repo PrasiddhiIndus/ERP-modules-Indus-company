@@ -259,6 +259,47 @@ describe.each([SCHEME_OLD, SCHEME_NEW])("Compensation Scheme 2026-27 (%s scheme)
   });
 });
 
+describe("minimum wage revision from 1 Oct 2026 (Skilled 13,897 / Semi-skilled 13,637)", () => {
+  const rules = { ...SEED_RULES_2026_27, BENCH_SKILLED: 13897, BENCH_SEMI: 13637 };
+
+  it("derived values move with the benchmark; bands unchanged", () => {
+    expectClose(benchmarkLimit(rules, "skilled"), 27794);
+    expectClose(benchmarkLimit(rules, "semi_skilled"), 27274);
+    expectClose(minimumValidGross(rules, "skilled"), 20614);
+    expectClose(minimumValidGross(rules, "semi_skilled"), 20228);
+  });
+
+  it("same Gross: Basic/HRA/Bonus rise to the new benchmark, Conveyance absorbs it", () => {
+    const before = calculateCtc(SEED_RULES_2026_27, { skill, status: STATUS_PROBATION, monthlyGross: 27000 });
+    const after = calculateCtc(rules, { skill, status: STATUS_PROBATION, monthlyGross: 27000 });
+    expectBreakup(before, { basic: 13585, hra: 5434, bonus: 1132, medical: 2500, conveyance: 4349 });
+    expectBreakup(after, { band: 2, basic: 13897, hra: 5559, bonus: 1158, medical: 2500, conveyance: 3886, gross: 27000 });
+    expectSums(after);
+  });
+
+  it("semi-skilled at the same Gross", () => {
+    const r = calculateCtc(rules, { skill: "semi_skilled", status: STATUS_PROBATION, monthlyGross: 27000 });
+    expectBreakup(r, { basic: 13637, hra: 5455, bonus: 1136, medical: 2500, conveyance: 4272, gross: 27000 });
+  });
+
+  it("lower Gross: Medical is restricted once Conveyance is used up", () => {
+    const r = calculateCtc(rules, { skill, status: STATUS_PROBATION, monthlyGross: 22000 });
+    expectBreakup(r, { basic: 13897, medical: 1386, conveyance: 0, gross: 22000 });
+    expect(r.validation.code).toBe(VALIDATION_OK_MEDICAL_RESTRICTED);
+  });
+
+  it("Gross that was valid before can fall below the new minimum", () => {
+    const r = calculateCtc(rules, { skill, status: STATUS_PROBATION, monthlyGross: 20500 });
+    expect(r.validation.code).toBe(VALIDATION_ERROR_GROSS_BELOW_MIN);
+    expectClose(r.validation.minimum_gross, 20614);
+  });
+
+  it("Gross above the benchmark limit is unchanged", () => {
+    const r = calculateCtc(rules, { skill, status: STATUS_PROBATION, monthlyGross: 34000 });
+    expectBreakup(r, CASE1);
+  });
+});
+
 describe("lifecycle categories", () => {
   it("#12 New Joiner / New Scheme forces New Scheme", () => {
     const r = resolveCategory(CATEGORY_NEW_JOINER_NEW_SCHEME, SCHEME_OLD);
