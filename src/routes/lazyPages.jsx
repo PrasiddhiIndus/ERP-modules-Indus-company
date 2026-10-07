@@ -72,9 +72,20 @@ export const HrCallingMasterIom = lazy(() => import("../pages/hr/callingMaster/C
 export const HrCallingMasterConversion = lazy(() => import("../pages/hr/callingMaster/CallingMasterConversionPage"));
 export const HrCallingMasterDropdowns = lazy(() => import("../pages/hr/callingMaster/CallingMasterDropdownPage"));
 export const HrCallingMasterEntry = lazy(() => import("../pages/hr/callingMaster/CallingMasterEntry"));
-export const HrCallingMasterRequisitions = lazy(
-  () => import("../pages/hr/callingMaster/CandidateRequisitionsPage")
-);
+export const AdminRecruitmentLayout = lazy(() => import("../pages/adminOperations/recruitment/RecruitmentLayout"));
+export const AdminRecruitmentDashboard = lazy(() => import("../pages/adminOperations/recruitment/RecruitmentDashboard"));
+export const AdminRecruitmentRequisitions = lazy(() => import("../pages/adminOperations/recruitment/RequisitionsPage"));
+export const AdminRecruitmentCandidates = lazy(() => import("../pages/adminOperations/recruitment/CandidatesPage"));
+export const AdminRecruitmentCandidate360 = lazy(() => import("../pages/adminOperations/recruitment/Candidate360Page"));
+export const AdminRecruitmentInterviews = lazy(() => import("../pages/adminOperations/recruitment/InterviewsPage"));
+export const AdminRecruitmentOffers = lazy(() => import("../pages/adminOperations/recruitment/OffersPage"));
+export const AdminRecruitmentDocuments = lazy(() => import("../pages/adminOperations/recruitment/DocumentsPage"));
+export const AdminRecruitmentJoining = lazy(() => import("../pages/adminOperations/recruitment/JoiningPage"));
+export const AdminRecruitmentConversion = lazy(() => import("../pages/adminOperations/recruitment/ConversionPage"));
+export const AdminRecruitmentCommunication = lazy(() => import("../pages/adminOperations/recruitment/CommunicationPage"));
+export const AdminRecruitmentReports = lazy(() => import("../pages/adminOperations/recruitment/ReportsPage"));
+export const AdminRecruitmentSettings = lazy(() => import("../pages/adminOperations/recruitment/SettingsPage"));
+export const CandidatePortal = lazy(() => import("../pages/adminOperations/recruitment/CandidatePortalPage"));
 export const HrSiteAttendance = lazy(() => import("../pages/hr/siteAttendance/SiteAttendanceLayout"));
 export const HrSiteAttendanceDashboard = lazy(() => import("../pages/hr/siteAttendance/DashboardPage"));
 export const HrSiteAttendanceSites = lazy(() => import("../pages/hr/siteAttendance/SiteMasterPage"));

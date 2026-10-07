@@ -60,7 +60,20 @@ import {
   HrCallingMasterConversion,
   HrCallingMasterDropdowns,
   HrCallingMasterEntry,
-  HrCallingMasterRequisitions,
+  AdminRecruitmentLayout,
+  AdminRecruitmentDashboard,
+  AdminRecruitmentRequisitions,
+  AdminRecruitmentCandidates,
+  AdminRecruitmentCandidate360,
+  AdminRecruitmentInterviews,
+  AdminRecruitmentOffers,
+  AdminRecruitmentDocuments,
+  AdminRecruitmentJoining,
+  AdminRecruitmentConversion,
+  AdminRecruitmentCommunication,
+  AdminRecruitmentReports,
+  AdminRecruitmentSettings,
+  CandidatePortal,
   HrSiteAttendance,
   HrSiteAttendanceDashboard,
   HrSiteAttendanceSites,
@@ -353,6 +366,7 @@ function App() {
           {!import.meta.env.PROD && <Route path="/register" element={<Register />} />}
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/candidate-portal/:token" element={<CandidatePortal />} />
 
           {/* Protected with Layout */}
           <Route
@@ -525,19 +539,26 @@ function App() {
             {/* Unified Admin module routes */}
             <Route path="admin" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/dashboard" element={<AdminOpsDashboard />} />
-            <Route path="admin/recruitment" element={<HrCallingMaster />}>
-              <Route index element={<HrCallingMasterEntry />} />
-              <Route path="requisitions" element={<HrCallingMasterRequisitions />} />
-              <Route path="candidates" element={<HrCallingMasterCandidates />} />
-              <Route path="referral" element={<HrCallingMasterReferral />} />
-              <Route path="offer-generation" element={<HrCallingMasterOffers />} />
-              <Route path="offer-response" element={<HrCallingMasterOfferResponse />} />
-              <Route path="joining" element={<HrCallingMasterJoining />} />
-              <Route path="iom" element={<HrCallingMasterIom />} />
-              <Route path="conversion" element={<HrCallingMasterConversion />} />
-              <Route path="dropdown-master" element={<HrCallingMasterDropdowns />} />
-              <Route path="database" element={<Navigate to="/app/admin/recruitment" replace />} />
+            <Route path="admin/recruitment" element={<AdminRecruitmentLayout />}>
+              <Route index element={<AdminRecruitmentDashboard />} />
+              <Route path="requisitions" element={<AdminRecruitmentRequisitions />} />
+              <Route path="candidates" element={<AdminRecruitmentCandidates />} />
+              <Route path="candidates/:candidateId" element={<AdminRecruitmentCandidate360 />} />
+              <Route path="interviews" element={<AdminRecruitmentInterviews />} />
+              <Route path="offers" element={<AdminRecruitmentOffers />} />
+              <Route path="documents" element={<AdminRecruitmentDocuments />} />
+              <Route path="joining" element={<AdminRecruitmentJoining />} />
+              <Route path="conversion" element={<AdminRecruitmentConversion />} />
+              <Route path="communication" element={<AdminRecruitmentCommunication />} />
+              <Route path="reports" element={<AdminRecruitmentReports />} />
+              <Route path="settings" element={<AdminRecruitmentSettings />} />
+              <Route path="referral" element={<Navigate to="/app/admin/recruitment/candidates" replace />} />
+              <Route path="offer-generation" element={<Navigate to="/app/admin/recruitment/offers" replace />} />
+              <Route path="offer-response" element={<Navigate to="/app/admin/recruitment/offers" replace />} />
+              <Route path="iom" element={<Navigate to="/app/admin/recruitment/joining" replace />} />
+              <Route path="dropdown-master" element={<Navigate to="/app/admin/recruitment/settings" replace />} />
             </Route>
+            <Route path="admin/recruitment/classic/*" element={<Navigate to="/app/admin/recruitment" replace />} />
             <Route path="admin/payroll/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/master" element={<IfspEmployeeMaster />} />
             <Route path="admin/employee/master/:employeeId" element={<IfspEmployeeMasterDetail />} />
