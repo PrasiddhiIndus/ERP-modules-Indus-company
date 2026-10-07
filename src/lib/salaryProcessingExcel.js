@@ -102,6 +102,16 @@ const SHEET_HEADERS = [
   "CTC W.E.F.",
 ];
 
+function lineExtraTotal(line, key) {
+  const list = line?.computed_json?.[key];
+  return Array.isArray(list) ? list.reduce((s, c) => s + num(c?.earned), 0) : 0;
+}
+
+function lineHasExtras(line) {
+  const cj = line?.computed_json || {};
+  return (cj.extra_earnings || []).length > 0 || (cj.extra_deductions || []).length > 0;
+}
+
 function linePerfIncentive(line) {
   const cj = line?.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
   return num(line?.perf_incentive_earned ?? cj.perf_incentive_earned);
@@ -202,9 +212,11 @@ export async function exportSalaryProcessingWorkbook({ run, lines }, opts = {}) 
     })
   );
   const withPerfIncentive = sorted.some((line) => linePerfIncentive(line) > 0);
-  const headers = withPerfIncentive
-    ? SHEET_HEADERS
-    : SHEET_HEADERS.filter((h) => h !== "Performance Incentive");
+  const withExtras = sorted.some(lineHasExtras);
+  const headers = [
+    ...(withPerfIncentive ? SHEET_HEADERS : SHEET_HEADERS.filter((h) => h !== "Performance Incentive")),
+    ...(withExtras ? ["Other earnings", "Other deductions"] : []),
+  ];
 
   headers.forEach((h, i) => {
     ws.getCell(4, i + 1).value = h;
@@ -246,6 +258,9 @@ export async function exportSalaryProcessingWorkbook({ run, lines }, opts = {}) 
       lineStatusLabel(line),
       fmtDay(line.lockedOn),
       ...annexureCells(line, withPerfIncentive),
+      ...(withExtras
+        ? [lineExtraTotal(line, "extra_earnings"), lineExtraTotal(line, "extra_deductions")]
+        : []),
     ];
     values.forEach((v, i) => {
       ws.getCell(r, i + 1).value = v;
@@ -253,6 +268,7 @@ export async function exportSalaryProcessingWorkbook({ run, lines }, opts = {}) 
     moneyCols(ws, r, [
       10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 32, 33, 34,
       ...(withPerfIncentive ? [35] : []),
+      ...(withExtras ? [headers.length - 1, headers.length] : []),
     ]);
     if (line.salaryLocked || line.processStatus === "locked") {
       ws.getRow(r).fill = {

@@ -1,21 +1,56 @@
 import React, { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { Download } from "lucide-react";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 import { Modal } from "../../adminOperations/components/AdminUi";
-import { downloadBlob, exportNodeToPdfBlob } from "../../../lib/exportNodeToPdf";
+import { downloadBlob } from "../../../lib/exportNodeToPdf";
 import PayslipTemplate from "./PayslipTemplate";
 import { toast } from "../../../lib/toast";
 
+const A4_W_MM = 210;
+const A4_H_MM = 297;
+const PDF_MARGIN_MM = 6;
+
+/**
+ * One A4 page with the slip image scaled to fit, so the PDF keeps the preview's exact layout
+ * (no page slicing). The node is an off-screen copy at full A4 width, outside the modal's
+ * scroll area, so the capture is not clipped or shifted by scrolling.
+ */
+async function payslipNodeToPdfBlob(node) {
+  const canvas = await html2canvas(node, {
+    scale: 3,
+    useCORS: true,
+    backgroundColor: "#ffffff",
+    logging: false,
+    scrollX: 0,
+    scrollY: 0,
+  });
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+  const maxW = A4_W_MM - PDF_MARGIN_MM * 2;
+  const maxH = A4_H_MM - PDF_MARGIN_MM * 2;
+  const ratio = canvas.height / canvas.width;
+  let w = maxW;
+  let h = w * ratio;
+  if (h > maxH) {
+    h = maxH;
+    w = h / ratio;
+  }
+  pdf.addImage(canvas.toDataURL("image/png"), "PNG", (A4_W_MM - w) / 2, PDF_MARGIN_MM, w, h);
+  return pdf.output("blob");
+}
+
 export default function PayslipPreviewModal({ payslip, onClose, profileHref }) {
-  const ref = useRef(null);
+  const exportRef = useRef(null);
   const [busy, setBusy] = useState(false);
 
   async function downloadPdf() {
-    if (!ref.current || !payslip) return;
+    if (!exportRef.current || !payslip) return;
     setBusy(true);
     try {
       const name = `Payslip_${payslip.employee_code || "EMP"}_${payslip.month_key || "month"}.pdf`;
-      const blob = await exportNodeToPdfBlob(ref.current, { marginMm: 6 });
+      const blob = await payslipNodeToPdfBlob(exportRef.current);
       downloadBlob(blob, name);
       toast.success("Payslip PDF downloaded.");
     } catch (err) {
@@ -64,7 +99,6 @@ export default function PayslipPreviewModal({ payslip, onClose, profileHref }) {
     >
       <div className="max-h-[72vh] overflow-auto bg-[#e8e8e8] -mx-1 px-3 py-5 rounded-lg">
         <div
-          ref={ref}
           className="bg-white mx-auto"
           style={{
             maxWidth: "210mm",
@@ -74,6 +108,19 @@ export default function PayslipPreviewModal({ payslip, onClose, profileHref }) {
           <PayslipTemplate payslip={payslip} />
         </div>
       </div>
+      {typeof document !== "undefined"
+        ? createPortal(
+            <div
+              aria-hidden
+              style={{ position: "fixed", left: -10000, top: 0, width: "210mm", pointerEvents: "none" }}
+            >
+              <div ref={exportRef} style={{ width: "210mm", background: "#ffffff" }}>
+                <PayslipTemplate payslip={payslip} />
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </Modal>
   );
 }
