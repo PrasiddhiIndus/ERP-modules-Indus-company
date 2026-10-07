@@ -23,6 +23,7 @@ import {
 } from "./ctcEngine";
 import { createRuleVersion, fetchRuleVersions, updateRuleVersion } from "./payrollRulesDb";
 import CtcMigrationPanel from "./CtcMigrationPanel";
+import CtcRuleUpdatePanel from "./CtcRuleUpdatePanel";
 
 export const RULE_LABELS = Object.freeze({
   BENCH_SKILLED: { label: "Basic benchmark – Skilled", unit: "₹" },
@@ -261,7 +262,10 @@ export default function PayrollRuleMaster() {
       {loadError ? <InlineAlert tone="error">{loadError}</InlineAlert> : null}
 
       {view === VIEW_MIGRATION ? (
-        <CtcMigrationPanel ruleVersions={versions} />
+        <div className="space-y-4">
+          <CtcRuleUpdatePanel ruleVersions={versions} />
+          <CtcMigrationPanel ruleVersions={versions} />
+        </div>
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr] gap-4">
           <SectionCard

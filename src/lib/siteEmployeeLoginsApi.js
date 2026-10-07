@@ -8,7 +8,7 @@ import { invokeAuthenticatedFunction, parseEdgeFunctionError } from "./supabase"
 import { getAdminApiAccessToken } from "./userManagementAuthToken";
 
 const BLOCKED_MODULES = new Set(["admin", "itIs", "finance"]);
-const BLOCKED_SCREENS = new Set(["hr.salary-management", "hr.payroll-module", "hr.people-management"]);
+const BLOCKED_SCREENS = new Set(["hr.salary-management", "hr.people-management"]);
 
 /** Screens HR may grant to a site employee, grouped by module (mirrors the database rule). */
 export const SITE_LOGIN_SCREEN_GROUPS = NAV_MODULE_TREE.filter((m) => !BLOCKED_MODULES.has(m.value))

@@ -780,13 +780,17 @@ const ManpowerManagement = () => {
                 .manpower-inquiry-table-scroll::-webkit-scrollbar-track { background: var(--surface-raised); border-radius: 4px; }
                 .manpower-inquiry-table-scroll::-webkit-scrollbar-thumb { background: rgba(124, 58, 237, 0.35); border-radius: 4px; }
                 .manpower-inquiry-table-scroll::-webkit-scrollbar-thumb:hover { background: rgba(124, 58, 237, 0.55); }
-                .manpower-inquiry-table { border-collapse: separate; border-spacing: 0; }
+                .manpower-inquiry-table-scroll table.manpower-inquiry-table:not(.erp-table-exempt) {
+                  border-collapse: separate !important;
+                  border-spacing: 0;
+                  table-layout: fixed;
+                }
                 .manpower-inquiry-table tbody td {
                   overflow: hidden;
                   vertical-align: middle;
                   box-sizing: border-box;
                 }
-                .manpower-inquiry-table thead th {
+                .manpower-inquiry-table-scroll table.manpower-inquiry-table:not(.erp-table-exempt) thead th {
                   position: sticky;
                   top: 0;
                   z-index: 10;
@@ -797,7 +801,7 @@ const ManpowerManagement = () => {
                   background-image: none !important;
                   box-shadow: 0 1px 0 0 var(--accent-border);
                 }
-                .manpower-inquiry-table thead th.manpower-inquiry-action-head {
+                .manpower-inquiry-table-scroll table.manpower-inquiry-table:not(.erp-table-exempt) thead th.manpower-inquiry-action-head {
                   z-index: 30;
                   overflow: hidden;
                   background-color: var(--accent-soft) !important;
@@ -865,7 +869,9 @@ const ManpowerManagement = () => {
                       return (
                         <tr key={e.id} className="group transition-colors hover:bg-purple-50/40">
                           {INQUIRY_LIST_DISPLAY_COLUMNS.map((col) => {
-                            if (col.id === "resultRemark" && enquiryResult !== "Awarded to Other Party" && enquiryResult !== "Not Alloted") {
+                            const otherPartyResult =
+                              enquiryResult === "Awarded to Other Party" || enquiryResult === "Not Alloted";
+                            if (col.id === "resultRemark" && !(otherPartyResult && fields.resultRemark) && !String(fields.remarks || "").trim()) {
                               return (
                                 <td key={col.id} className="max-w-0 px-3 py-3 align-middle text-xs text-slate-400">
                                   —
@@ -873,7 +879,12 @@ const ManpowerManagement = () => {
                               );
                             }
 
-                            const raw = col.id === "srNo" ? displaySrNo : fields[col.id];
+                            const raw =
+                              col.id === "srNo"
+                                ? displaySrNo
+                                : col.id === "resultRemark"
+                                  ? (otherPartyResult && fields.resultRemark) || fields.remarks
+                                  : fields[col.id];
                             const display = formatInquiryCellValue(raw, col.valueType === "chip" || col.valueType === "trackingStatus" ? "text" : col.valueType, formatDateDdMmYyyy);
                             const alignClass =
                               col.align === "center"
