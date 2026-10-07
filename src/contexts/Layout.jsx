@@ -9,7 +9,6 @@ import { syncSalaryFiguresHidden } from "../pages/adminOperations/salaryAdmin/sa
 import { canAccessCompliance } from "../pages/compliance/payroll/complianceAccess";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import { resolveModule } from "../lib/activityDescriptors";
-import { fetchPendingRequisitionCount } from "../lib/candidateRequisitionsApi";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import { SALARY_SUB_NAV, HR_SALARY_BASE, HR_SALARY_DASHBOARD, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
 import { OPERATIONS_NAV, operationsNavHref, operationsNavIsActive } from "../pages/operations/navConfig";
@@ -249,7 +248,8 @@ const Layout = () => {
       return undefined;
     }
     let cancelled = false;
-    fetchPendingRequisitionCount()
+    import("../pages/adminOperations/recruitment/recruitmentService")
+      .then((m) => m.countPendingApprovals())
       .then((n) => {
         if (!cancelled) setPendingRequisitionCount(n);
       })
