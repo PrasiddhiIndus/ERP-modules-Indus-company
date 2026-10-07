@@ -1587,6 +1587,17 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         </div>
       </FormSection>
       ) : null}
+
+      <FormSection title="Remarks" hint="Optional — any notes about this enquiry.">
+        <textarea
+          name="remarks"
+          value={formData.remarks || ""}
+          onChange={handleChange}
+          rows={3}
+          className={textareaClass}
+          placeholder="Enter remarks..."
+        />
+      </FormSection>
       </div>
 
       <div className="shrink-0 flex items-center justify-end gap-3 border-t border-slate-200 bg-white px-4 py-3.5 sm:px-6">
