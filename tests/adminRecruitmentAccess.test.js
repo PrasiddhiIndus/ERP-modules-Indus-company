@@ -32,15 +32,14 @@ const adminCandidatesOnly = {
 };
 
 describe('Admin Recruitment replica access', () => {
-  it('full Admin module sees the Calling Database workflow tabs (not referral unless full-module opt-in path)', () => {
+  it('full Admin module sees every In-house Recruitment section', () => {
     const mods = getAccessibleModules(adminProfile);
     const tabs = getVisibleRecruitmentTabs(adminProfile, mods, null, 'admin');
     const labels = tabs.map((t) => t.label);
-    expect(labels).toContain('Dashboard');
-    expect(labels).toContain('Candidates');
-    expect(labels).toContain('Offer Generation');
-    expect(labels).toContain('Conversion');
-    expect(labels).toContain('Add Referral');
+    expect(labels).toEqual(
+      expect.arrayContaining(['Dashboard', 'Requisitions', 'Candidates', 'Interviews', 'Offers', 'Documents', 'Joining', 'Employee Conversion', 'Communication', 'Reports', 'Settings'])
+    );
+    expect(labels).not.toContain('Offer Generation');
     expect(labels).not.toContain('Dropdown Master');
     expect(getRecruitmentLandingPath(adminProfile, mods, null, 'admin')).toBe('/app/admin/recruitment');
   });
@@ -50,17 +49,33 @@ describe('Admin Recruitment replica access', () => {
     expect(hasAnyRecruitmentTabAccess(adminRecruitmentOnly, mods, null, 'admin')).toBe(true);
     const tabs = getVisibleRecruitmentTabs(adminRecruitmentOnly, mods, null, 'admin');
     expect(tabs.map((t) => t.tabTo)).toEqual(
-      expect.arrayContaining(['.', 'candidates', 'offer-generation', 'conversion'])
+      expect.arrayContaining(['.', 'candidates', 'interviews', 'offers', 'documents', 'conversion'])
     );
     expect(tabs.some((t) => t.tabTo === 'referral')).toBe(false);
   });
 
-  it('candidates-only grant cannot open offer generation', () => {
+  it('candidates-only grant cannot open offers', () => {
     const mods = getAccessibleModules(adminCandidatesOnly);
     const paths = getAccessibleSubModulePaths(adminCandidatesOnly);
     expect(isPathAllowed('/app/admin/recruitment/candidates', mods, paths)).toBe(true);
-    expect(isPathAllowed('/app/admin/recruitment/offer-generation', mods, paths)).toBe(false);
+    expect(isPathAllowed('/app/admin/recruitment/candidates/abc', mods, paths)).toBe(true);
+    expect(isPathAllowed('/app/admin/recruitment/offers', mods, paths)).toBe(false);
     expect(isPathAllowed('/app/admin/employee/master', mods, paths)).toBe(false);
+  });
+
+  it('access granted under retired Admin tab keys opens the equivalent new section', () => {
+    const profile = {
+      role: ROLES.EXECUTIVE,
+      team: null,
+      allowed_modules: [],
+      allowed_sub_modules: ['admin.recruitment.offer-generation', 'admin.recruitment.iom'],
+    };
+    const mods = getAccessibleModules(profile);
+    const paths = getAccessibleSubModulePaths(profile);
+    expect(isPathAllowed('/app/admin/recruitment/offers', mods, paths)).toBe(true);
+    expect(isPathAllowed('/app/admin/recruitment/joining', mods, paths)).toBe(true);
+    expect(isPathAllowed('/app/admin/recruitment/candidates', mods, paths)).toBe(false);
+    expect(getVisibleRecruitmentTabs(profile, mods, null, 'admin').map((t) => t.tabTo)).toEqual(['offers', 'joining']);
   });
 
   it('toggleRecruitmentAccessKey expands admin.recruitment like HR calling-master', () => {

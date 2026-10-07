@@ -1568,6 +1568,9 @@ const POEntry = ({
                     billToInputId="rm-po-pincode-bill"
                     shipToInputId="rm-po-pincode-ship"
                     sameCheckboxId="rm-po-pincode-same"
+                    {...(fixedVertical
+                      ? { pinSpanClass: '', checkboxSpanClass: 'md:self-end md:min-h-[42px]' }
+                      : {})}
                   />
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Consignee / Ship-to address</label>
@@ -1826,7 +1829,9 @@ const POEntry = ({
                       New PO Number{' '}
                       <span className="text-gray-500 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
                     </label>
-                    <p className="text-xs text-gray-500 mb-1.5">New PO/WO number (renewal)</p>
+                    {!fixedVertical ? (
+                      <p className="text-xs text-gray-500 mb-1.5">New PO/WO number (renewal)</p>
+                    ) : null}
                     <div className="grid grid-cols-1 gap-2">
                       <input
                         type="text"
@@ -1836,6 +1841,9 @@ const POEntry = ({
                         placeholder="Enter PO/WO number"
                       />
                     </div>
+                    {fixedVertical ? (
+                      <p className="text-[11px] text-gray-500 mt-1">New PO/WO number (renewal)</p>
+                    ) : null}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">

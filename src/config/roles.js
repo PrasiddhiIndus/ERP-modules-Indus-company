@@ -364,8 +364,26 @@ const RECRUITMENT_TAB_DEFS = [
   { suffix: "dropdown-master",   label: "Dropdown Master",  tabTo: "dropdown-master",  adminOnly: true },
 ];
 
-function buildRecruitmentFamily({ moduleKey, parentKey, tabPrefix, indexPath }) {
-  const tabs = RECRUITMENT_TAB_DEFS.map((t) => ({
+/**
+ * Admin in-house recruitment sections. `legacy` lists tab suffixes from the retired Admin
+ * workflow so access already granted under those keys keeps opening the equivalent section.
+ */
+const ADMIN_RECRUITMENT_TAB_DEFS = [
+  { suffix: "dashboard",     label: "Dashboard",           tabTo: ".",             end: true },
+  { suffix: "requisitions",  label: "Requisitions",        tabTo: "requisitions"             },
+  { suffix: "candidates",    label: "Candidates",          tabTo: "candidates",    legacy: ["referral"] },
+  { suffix: "interviews",    label: "Interviews",          tabTo: "interviews"               },
+  { suffix: "offers",        label: "Offers",              tabTo: "offers",        legacy: ["offer-generation", "offer-response"] },
+  { suffix: "documents",     label: "Documents",           tabTo: "documents"                },
+  { suffix: "joining",       label: "Joining",             tabTo: "joining",       legacy: ["iom"] },
+  { suffix: "conversion",    label: "Employee Conversion", tabTo: "conversion"               },
+  { suffix: "communication", label: "Communication",       tabTo: "communication"            },
+  { suffix: "reports",       label: "Reports",             tabTo: "reports"                  },
+  { suffix: "settings",      label: "Settings",            tabTo: "settings",      legacy: ["dropdown-master"] },
+];
+
+function buildRecruitmentFamily({ moduleKey, parentKey, tabPrefix, indexPath, defs = RECRUITMENT_TAB_DEFS }) {
+  const tabs = defs.map((t) => ({
     value: `${tabPrefix}.${t.suffix}`,
     label: t.label,
     tabTo: t.tabTo,
@@ -373,12 +391,11 @@ function buildRecruitmentFamily({ moduleKey, parentKey, tabPrefix, indexPath }) 
     ...(t.optIn ? { optIn: true } : {}),
     ...(t.adminOnly ? { adminOnly: true } : {}),
     ...(t.adminScopeOnly ? { adminScopeOnly: true } : {}),
+    ...(t.legacy?.length ? { legacyKeys: t.legacy.map((s) => `${tabPrefix}.${s}`) } : {}),
   }));
+  const tabPath = (t) => (t.tabTo === "." ? indexPath : `${indexPath}/${t.tabTo}`);
   const paths = Object.fromEntries(
-    tabs.map((t) => [
-      t.value,
-      t.tabTo === "." ? indexPath : `${indexPath}/${t.tabTo}`,
-    ])
+    tabs.flatMap((t) => [[t.value, tabPath(t)], ...(t.legacyKeys || []).map((k) => [k, tabPath(t)])])
   );
   return {
     moduleKey,
@@ -394,7 +411,7 @@ function buildRecruitmentFamily({ moduleKey, parentKey, tabPrefix, indexPath }) 
         return true;
       })
       .map((t) => t.value),
-    allTabKeys: tabs.map((t) => t.value),
+    allTabKeys: tabs.flatMap((t) => [t.value, ...(t.legacyKeys || [])]),
   };
 }
 
@@ -410,6 +427,7 @@ export const ADMIN_RECRUITMENT_FAMILY = buildRecruitmentFamily({
   parentKey: "admin.recruitment",
   tabPrefix: "admin.recruitment",
   indexPath: "/app/admin/recruitment",
+  defs: ADMIN_RECRUITMENT_TAB_DEFS,
 });
 
 /** Canonical HR Calling Database tab keys (User Management + HR layout). */
@@ -572,7 +590,7 @@ export function canSeeRecruitmentTab(tabDef, profile, accessibleModules, userMet
 
   if (subMods.includes(family.parentKey)) return true;
   if (scope === "admin" && subMods.includes("admin.employee") && !restricted) return true;
-  return subMods.includes(tabDef?.value);
+  return subMods.includes(tabDef?.value) || (tabDef?.legacyKeys || []).some((k) => subMods.includes(k));
 }
 
 export function getVisibleRecruitmentTabs(profile, accessibleModules, userMetadata = null, scope = "hr") {

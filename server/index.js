@@ -38,6 +38,7 @@ import {
   processInHouseCampaignBatch,
   startInHouseCampaign,
 } from './crmInHouseMailApi.js';
+import { registerAdminRecruitmentRoutes, startAdminRecruitmentAutomation } from './adminRecruitmentApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -491,6 +492,16 @@ const r2InvoiceUpload = multer({
 const r2CommercialPoUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: R2_COMMERCIAL_PO_MAX_BYTES },
+});
+
+const adminRecruitment = registerAdminRecruitmentRoutes(app, {
+  requireAuth,
+  getSupabaseUrl: getSupabaseUrlForServer,
+  getServiceKey: getSupabaseServiceRoleKeyForServer,
+  getAnonKey: getSupabaseAnonKeyForServer,
+  getR2Client: getR2S3Client,
+  getR2Bucket: getR2BucketName,
+  upload: r2InvoiceUpload,
 });
 
 /** In-memory short share codes for commercial PO docs (24h). */
@@ -2672,6 +2683,10 @@ const httpServer = app.listen(PORT, '0.0.0.0', () => {
   startAttendanceSyncCron({
     getRequiredEnv,
     getSupabaseUrl: getSupabaseUrlForServer,
+    getServiceKey: getSupabaseServiceRoleKeyForServer,
+  });
+  startAdminRecruitmentAutomation({
+    runAutomation: adminRecruitment.runAutomation,
     getServiceKey: getSupabaseServiceRoleKeyForServer,
   });
 });
