@@ -2,7 +2,6 @@ import React from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
-  Calculator,
   Clock,
   LayoutDashboard,
   UserCheck,
@@ -34,13 +33,6 @@ const HR_MODULES = [
     hint: "Payroll sites, packages, compliance, and payslips",
     icon: Wallet,
     accent: "text-emerald-700 bg-emerald-50",
-  },
-  {
-    to: "/app/hr/payroll-ops/dashboard",
-    label: "HR Payroll",
-    hint: "Site salary runs, history, reports, and compliance",
-    icon: Calculator,
-    accent: "text-teal-700 bg-teal-50",
   },
   {
     to: "/app/hr/site-attendance",
