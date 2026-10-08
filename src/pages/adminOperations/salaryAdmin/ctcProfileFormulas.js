@@ -5,6 +5,7 @@
  */
 
 import { evaluateFormula, validateFormula } from "../../../modules/payroll/formula/evaluator";
+import { ESIC_BASIC_LIMIT } from "./salaryData";
 
 export const FORMULA_OVERRIDE_EVENT = "ctc-formula-overrides-changed";
 const STORAGE_KEY = "admin_ctc_profile_formula_overrides_v1";
@@ -134,10 +135,10 @@ export function standardFormulas({
     SPA: "MAX(GROSS - BAS - HRA, 0)",
     EPF: "MIN(BAS * 12%, 1800)",
     PT: "IF(GROSS >= 12000, 200, 0)",
-    EESI: `IF(GROSS <= ${ceiling}, BAS * ${empPct}%, 0)`,
+    EESI: `IF(BAS <= ${ESIC_BASIC_LIMIT}, IF(GROSS <= ${ceiling}, BAS * ${empPct}%, 0), 0)`,
     TH: "GROSS - EPF - PT - EESI",
     ERPF: "MIN(BAS * 13%, 1950)",
-    ERES: `IF(GROSS <= ${ceiling}, BAS * ${erPct}%, 0)`,
+    ERES: `IF(BAS <= ${ESIC_BASIC_LIMIT}, IF(GROSS <= ${ceiling}, BAS * ${erPct}%, 0), 0)`,
     GRA: "BAS * 4.81%",
     LEN: "BAS * 7 / 312",
     MED: "Manual",
@@ -278,6 +279,13 @@ export function applyProfileFormulaOverrides(structure, overrides, modes = {}) {
         changed.add(code);
       }
     }
+  }
+
+  if (values.BAS <= ESIC_BASIC_LIMIT) {
+    values.MED = 0;
+  } else {
+    values.EESI = 0;
+    values.ERES = 0;
   }
 
   if (systemDiff.TH) {

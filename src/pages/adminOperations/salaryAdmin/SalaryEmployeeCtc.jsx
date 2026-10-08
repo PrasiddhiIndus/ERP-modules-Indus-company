@@ -16,6 +16,7 @@ import {
   DEFAULT_EMP_ESIC_RATE_PCT,
   DEFAULT_ER_ESIC_RATE_PCT,
   DEFAULT_ESIC_CEILING,
+  ESIC_BASIC_LIMIT,
   defaultBasicModeForLevel,
   defaultPtForGross,
   emptyCtcStructure,
@@ -845,6 +846,7 @@ export default function SalaryEmployeeCtc({
     () => withFormulas(baseStructure),
     [baseStructure, withFormulas]
   );
+  const mediclaimBlocked = Boolean(parsed?.declared) && Number(parsed.basic_monthly) <= ESIC_BASIC_LIMIT;
 
   const formulaSyncRef = useRef(0);
 
@@ -2526,9 +2528,11 @@ export default function SalaryEmployeeCtc({
                   ? "Manual amount — used even when Gross is above the ESIC ceiling"
                   : parsed.esic_eligible
                     ? `On Basic × ${parsed.esic_emp_rate_pct}% · Gross within ₹${Number(parsed.esic_ceiling).toLocaleString("en-IN")} ceiling`
-                    : esicEnabled
-                      ? `Gross above ₹${Number(parsed.esic_ceiling || DEFAULT_ESIC_CEILING).toLocaleString("en-IN")} ceiling — no ESIC`
-                      : "ESIC turned off for this structure"
+                    : !esicEnabled
+                      ? "ESIC turned off for this structure"
+                      : parsed.esic_basic_over_limit
+                        ? `Basic above ₹${ESIC_BASIC_LIMIT.toLocaleString("en-IN")} — no ESIC (Mediclaim applies instead)`
+                        : `Gross above ₹${Number(parsed.esic_ceiling || DEFAULT_ESIC_CEILING).toLocaleString("en-IN")} ceiling — no ESIC`
               )}
               formulaActive={Boolean(formulaOverrides.EESI)}
               monthly={
@@ -2600,10 +2604,12 @@ export default function SalaryEmployeeCtc({
                 erEsicIsCustom
                   ? "Manual amount — used even when Gross is above the ESIC ceiling"
                   : parsed.esic_eligible
-                    ? `On Basic × ${parsed.esic_er_rate_pct}% · same Gross ceiling as employee ESIC`
-                    : esicEnabled
-                      ? `Gross above ceiling — Auto shows ₹0; switch to Custom to enter an amount`
-                      : "ESIC turned off for this structure"
+                    ? `On Basic × ${parsed.esic_er_rate_pct}% · same conditions as employee ESIC`
+                    : !esicEnabled
+                      ? "ESIC turned off for this structure"
+                      : parsed.esic_basic_over_limit
+                        ? `Basic above ₹${ESIC_BASIC_LIMIT.toLocaleString("en-IN")} — no ESIC (Mediclaim applies instead)`
+                        : `Gross above ceiling — Auto shows ₹0; switch to Custom to enter an amount`
               )}
               formulaActive={Boolean(formulaOverrides.ERES)}
               monthly={
@@ -2704,10 +2710,15 @@ export default function SalaryEmployeeCtc({
                   disabled={!canEdit || Boolean(formulaOverrides.MED)}
                 />
               }
-              hint={shownFormula("MED", "Optional amount. Tick to include it in CTC.")}
+              hint={shownFormula(
+                "MED",
+                mediclaimBlocked
+                  ? `Basic up to ₹${ESIC_BASIC_LIMIT.toLocaleString("en-IN")} is covered by ESIC — Mediclaim is ₹0`
+                  : "Optional amount. Tick to include it in CTC."
+              )}
               formulaActive={Boolean(formulaOverrides.MED)}
               monthly={
-                formulaOverrides.MED ? (
+                formulaOverrides.MED || (mediclaimEnabled && mediclaimBlocked) ? (
                   <MoneyCell value={parsed.mediclaim_monthly} />
                 ) : mediclaimEnabled ? (
                   <AmountInput

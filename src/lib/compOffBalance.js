@@ -3,15 +3,16 @@
  */
 
 import { normalizeAttendanceEmpCode } from "./attendanceDaily";
+import { ensureAttendanceRulesLoaded, getCompOffStartDate } from "./attendanceRules";
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** Must match indus_one.comp_off_cutoff_date() (2026-09-01). */
+/** Default C/O start month; the live value is "C/O counted from" in the Rules Console. */
 export const COMP_OFF_START_MONTH_KEY = "2026-09";
 
-/** First month included in C/O ledger (fixed start; earlier months are not counted). */
+/** First month included in C/O ledger (earlier months are not counted). */
 export function compOffCutoffMonthKey() {
-  return COMP_OFF_START_MONTH_KEY;
+  return getCompOffStartDate().slice(0, 7) || COMP_OFF_START_MONTH_KEY;
 }
 
 /** Current calendar month (local) as YYYY-MM. */
@@ -63,9 +64,12 @@ export async function fetchCompOffAvailableBalance(supabase, employeeCode, asOfD
 }
 
 export async function fetchCompOffMonthlySummary(supabase, year) {
-  const { data, error } = await supabase.schema("indus_one").rpc("fetch_comp_off_monthly_summary", {
-    p_year: Number(year),
-  });
+  const [{ data, error }] = await Promise.all([
+    supabase.schema("indus_one").rpc("fetch_comp_off_monthly_summary", {
+      p_year: Number(year),
+    }),
+    ensureAttendanceRulesLoaded(supabase),
+  ]);
   if (error) throw error;
   return data || [];
 }
