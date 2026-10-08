@@ -20,7 +20,7 @@ function friendlyError(error, fallback) {
   if (error?.code === "42P01" || error?.code === "PGRST205" || /could not find the (table|function)/i.test(msg)) {
     return "Rules are not set up on this server yet. Ask IT to apply the latest database update.";
   }
-  if (error?.code === "42501") return "Only admins can change rules.";
+  if (error?.code === "42501") return "Your account cannot change rules. Ask an administrator for Rules Console access.";
   if (error?.code === "22023" && msg) return msg;
   return fallback;
 }

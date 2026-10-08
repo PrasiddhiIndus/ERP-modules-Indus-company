@@ -1,6 +1,9 @@
 # Rules Console
 
-Admin → Rules Console (`/app/admin/rules-console`). Visible to Admin, Super Admin and Super Admin Pro.
+Admin → Rules Console (`/app/admin/rules-console`). Visible to Admin, Super Admin and Super Admin Pro, and to anyone
+given the **Rules Console** page in User Management (`admin.rules-console`, opt-in: a full Admin module does not
+imply it). Page holders can do everything admins can on the console (`admin_rules_can_edit`, migration
+`20261008150000_admin_rules_console_page_access.sql`); the approval on/off switch stays Super Admin only.
 
 One page that lists every attendance, leave and C/O rule grouped by module, with the value in force today and the
 departments that differ. Rules marked **Changeable** open a side panel to change the company default or one
