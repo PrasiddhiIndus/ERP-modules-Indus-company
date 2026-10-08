@@ -117,6 +117,7 @@ export function buildPayslipFromLine(run, line, opts = {}) {
     uan_no: line.uan_no || "",
     esic_no: line.esic_no || "",
     date_of_joining: line.date_of_joining || null,
+    confirmation_date: line.confirmation_date || null,
     present_days: num(line.present_days),
     salary_rate: num(line.salary_rate),
     basic_full: num(line.basic_full),

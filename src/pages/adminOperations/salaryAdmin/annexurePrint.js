@@ -77,7 +77,6 @@ export function buildAnnexureHtml({ employee, record, previous, ruleVersion, seg
     ["Segment", segment],
     ["DOB", fmtDate(employee?.date_of_birth)],
     ["DOJ", fmtDate(employee?.date_of_joining)],
-    ["Confirmation Date", fmtDate(employee?.confirmation_date)],
     ["W.E.F.", fmtDate(record?.wef_date)],
   ]
     .map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${esc(v || "—")}</td></tr>`)
