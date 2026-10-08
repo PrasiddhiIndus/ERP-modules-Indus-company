@@ -5,8 +5,10 @@
 
 import { annexureRowsFor, roundRupee, schemeLabel } from "./ctcEngine";
 import { recordToComponents, statusLabel } from "./annexureCtcRecord";
+import signatureImage from "../../../assets/annexure-signature.png?inline";
 
 export const DEFAULT_COMPANY_NAME = "INDUS FIRE SAFETY PRIVATE LIMITED";
+const SIGNATORY_TITLE = "Authorized Signatory";
 
 function esc(v) {
   return String(v ?? "")
@@ -27,6 +29,29 @@ function fmtDate(d) {
   return `${day}-${m}-${y}`;
 }
 
+/** Text shared by the printed Annexure-I and the emailed PDF. */
+export function annexureParts({ employee, record, ruleVersion, segment }) {
+  return {
+    companyName: DEFAULT_COMPANY_NAME,
+    title: ruleVersion?.annexure_title || "COMPENSATION SCHEME – YEAR 2026-27",
+    note: ruleVersion?.annexure_note || "",
+    sigCompany: ruleVersion?.signatory_company || "For Indus Fire Safety Private Limited",
+    sigTitle: SIGNATORY_TITLE,
+    signatureImage,
+    info: [
+      ["Location", employee?.location],
+      ["Employee Code", employee?.employee_code || employee?.employee_id],
+      ["Employee Name", employee?.full_name],
+      ["Department", employee?.department],
+      ["Designation", employee?.designation],
+      ["Segment", segment],
+      ["DOB", fmtDate(employee?.date_of_birth)],
+      ["DOJ", fmtDate(employee?.date_of_joining)],
+      ["W.E.F.", fmtDate(record?.wef_date)],
+    ].map(([k, v]) => [k, v || "—"]),
+  };
+}
+
 /**
  * @param {object} p
  * @param {object} p.employee   employee master row
@@ -39,10 +64,8 @@ function fmtDate(d) {
 export function buildAnnexureHtml({ employee, record, previous, ruleVersion, segment, internal = false }) {
   const cur = recordToComponents(record);
   const prev = previous ? recordToComponents(previous) : null;
-  const title = ruleVersion?.annexure_title || "COMPENSATION SCHEME – YEAR 2026-27";
-  const note = ruleVersion?.annexure_note || "";
-  const sigCompany = ruleVersion?.signatory_company || "For Indus Fire Safety Private Limited";
-  const sigTitle = ruleVersion?.signatory_title || "C.E.O.";
+  const parts = annexureParts({ employee, record, ruleVersion, segment });
+  const { title, note, sigCompany, sigTitle } = parts;
   const overrides = internal && record?.is_custom ? record.custom_overrides_json || {} : {};
   const systemValues = internal && record?.is_custom ? record.system_values_json || {} : {};
 
@@ -68,19 +91,7 @@ export function buildAnnexureHtml({ employee, record, previous, ruleVersion, seg
     return `<tr${cls}><td class="l">${esc(row.label)}${mark}</td><td>${money(v)}</td><td>${money(v * 12)}</td></tr>`;
   }).join("");
 
-  const info = [
-    ["Location", employee?.location],
-    ["Employee Code", employee?.employee_code || employee?.employee_id],
-    ["Employee Name", employee?.full_name],
-    ["Department", employee?.department],
-    ["Designation", employee?.designation],
-    ["Segment", segment],
-    ["DOB", fmtDate(employee?.date_of_birth)],
-    ["DOJ", fmtDate(employee?.date_of_joining)],
-    ["W.E.F.", fmtDate(record?.wef_date)],
-  ]
-    .map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${esc(v || "—")}</td></tr>`)
-    .join("");
+  const info = parts.info.map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
 
   const internalLine = internal
     ? `<p class="meta">Internal copy · ${esc(schemeLabel(record?.salary_scheme))} · ${esc(statusLabel(record?.employee_status))}${
@@ -106,6 +117,7 @@ export function buildAnnexureHtml({ employee, record, previous, ruleVersion, seg
   .brk tr.heading td { font-weight: bold; background: #e5e7eb; }
   .note { margin-top: 10px; font-size: 10px; font-style: italic; }
   .sig { margin-top: 36px; text-align: right; font-weight: bold; }
+  .sig .sign { display: block; height: 70px; margin: 6px 0 4px auto; }
   .meta { font-size: 10px; color: #444; margin: 4px 0 0; }
   .custom { color: #b45309; font-weight: bold; font-size: 9px; }
 </style></head><body>
@@ -116,7 +128,7 @@ export function buildAnnexureHtml({ employee, record, previous, ruleVersion, seg
   ${internalLine}
   <table class="brk"><thead>${head}</thead><tbody>${body}</tbody></table>
   ${note ? `<p class="note">${esc(note)}</p>` : ""}
-  <div class="sig"><div>${esc(sigCompany)}</div><div style="margin-top:40px">${esc(sigTitle)}</div></div>
+  <div class="sig"><div>${esc(sigCompany)}</div><img class="sign" src="${signatureImage}" alt="" /><div>${esc(sigTitle)}</div></div>
 </body></html>`;
 }
 
