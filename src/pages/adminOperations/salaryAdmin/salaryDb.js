@@ -771,6 +771,42 @@ export async function dbReviseSalaryStructure(employeeMasterId, payload, meta = 
   return structureRowToUi(data, revisions);
 }
 
+/**
+ * Change only the W.E.F. date of the current CTC record. Amounts are not recalculated.
+ * The previous record's closing date moves with it when it was closed by this record.
+ */
+export async function dbUpdateCurrentWefDate(employeeMasterId, wefDate) {
+  const id = toMasterId(employeeMasterId);
+  if (id == null) throw new Error("Invalid employee.");
+  const wef = String(wefDate || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(wef)) throw new Error("Pick a valid W.E.F. date.");
+
+  const userId = await currentAuthUserId();
+  const { data: updated, error } = await salaryTable("structures")
+    .update({ wef_date: wef, updated_by: userId })
+    .eq("employee_master_id", id)
+    .eq("declared", true)
+    .select("id")
+    .maybeSingle();
+  if (error) throw error;
+  if (!updated) throw new Error("No current CTC record to update.");
+
+  const { data: latest, error: revErr } = await salaryTable("structure_revisions")
+    .select("id, wef_date, effective_to")
+    .eq("employee_master_id", id)
+    .order("revision_no", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (revErr) throw revErr;
+  if (latest?.id && latest.effective_to) {
+    const { error: closeErr } = await salaryTable("structure_revisions")
+      .update({ effective_to: closingDate(latest.wef_date, wef) })
+      .eq("id", latest.id);
+    if (closeErr) throw closeErr;
+  }
+  return dbGetSalaryStructure(id);
+}
+
 // ─── Processing runs / lines ─────────────────────────────────────────────────
 
 function monthKeyToPayMonth(monthKey) {

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Columns3, Download, Eye, GitCompare, PencilLine, Plus, Printer, Trash2, X } from "lucide-react";
+import { Columns3, Download, Eye, GitCompare, Mail, PencilLine, Plus, Printer, Trash2, X } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import toast from "../../../lib/toast";
 import { employmentTypeLabel } from "../../../utils/employeeMasterReminders";
@@ -51,7 +51,7 @@ import {
   visibleAnnexureRows,
 } from "./ctcEngine";
 import { fetchRuleVersions, findRuleVersionById, resolveRuleVersion } from "./payrollRulesDb";
-import { dbReviseSalaryStructure, dbSaveSalaryStructure } from "./salaryDb";
+import { dbReviseSalaryStructure, dbSaveSalaryStructure, dbUpdateCurrentWefDate } from "./salaryDb";
 import { MASKED_SECRET, salaryFiguresHidden } from "./salaryPrivacy";
 import { getSalaryStructure } from "./salaryData";
 import { listMonthRuns } from "./salaryMonthProcessing";
@@ -68,6 +68,7 @@ import {
 } from "./annexureCtcRecord";
 import { printAnnexure } from "./annexurePrint";
 import { exportCtcDetailsExcel } from "./annexureCtcExcel";
+import { annexurePdfBase64, fetchCtcEmailRecipient, sendCtcEmail } from "./ctcEmail";
 
 const COMPONENT_LABELS = {
   basic: "Basic",
@@ -516,6 +517,9 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
   const [matrixOpen, setMatrixOpen] = useState(false);
   const [viewRow, setViewRow] = useState(null);
   const [compareRow, setCompareRow] = useState(null);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [wefEdit, setWefEdit] = useState(null);
+  const [wefSaving, setWefSaving] = useState(false);
 
   const segment = employmentTypeLabel(employee?.employment_type) || "—";
 
@@ -831,6 +835,67 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     }
   };
 
+  const openWefEdit = () => {
+    if (salaryFiguresHidden() || !current) return;
+    setWefEdit(toDay(current.wef_date) || "");
+  };
+
+  const saveWefEdit = async () => {
+    if (salaryFiguresHidden() || !current) return;
+    const next = toDay(wefEdit);
+    const prevWef = toDay(current.wef_date);
+    if (!next) return toast.error("W.E.F. required", "Pick the Effective From date.");
+    if (next === prevWef) {
+      setWefEdit(null);
+      return;
+    }
+    const latestOlderFrom = history
+      .filter((h) => !h.current && h.effective_from)
+      .reduce((max, h) => (h.effective_from > max ? h.effective_from : max), "");
+    if (latestOlderFrom && next <= latestOlderFrom) {
+      return toast.error(
+        "Check dates",
+        `W.E.F. must be after ${fmtDate(latestOlderFrom)}, when the previous CTC record starts.`
+      );
+    }
+    const processed = [prevWef, next]
+      .filter(Boolean)
+      .map((d) => d.slice(0, 7))
+      .find((k) => processedMonths.has(k));
+    if (processed) {
+      const ok = window.confirm(
+        `Salary for ${processed} is already processed. Changing the W.E.F. date does not change processed salary; any difference must be adjusted in Salary Processing. Continue?`
+      );
+      if (!ok) return;
+    }
+    setWefSaving(true);
+    try {
+      await dbUpdateCurrentWefDate(employee.id, next);
+      toast.success("W.E.F. updated", `The current CTC now applies from ${fmtDate(next)}.`);
+      setWefEdit(null);
+      await load();
+    } catch (err) {
+      console.error("CTC details: W.E.F. update failed", err);
+      const msg = /permission|row-level|42501/i.test(`${err?.message || ""} ${err?.code || ""}`)
+        ? "You do not have access to change salary records."
+        : err?.message || "Please try again.";
+      toast.error("Could not update W.E.F.", msg);
+    } finally {
+      setWefSaving(false);
+    }
+  };
+
+  const wefEditButton = salaryFiguresHidden() ? null : (
+    <button
+      type="button"
+      onClick={openWefEdit}
+      title="Edit W.E.F. date"
+      className="ml-1 inline-flex items-center gap-0.5 text-accent hover:underline"
+    >
+      <PencilLine className="h-3 w-3" /> Edit
+    </button>
+  );
+
   const ruleVersionFor = (row) =>
     findRuleVersionById(ruleVersions, row?.rule_version_id) ||
     resolveRuleVersion(ruleVersions, row?.salary_scheme || SCHEME_OLD, row?.wef_date);
@@ -959,6 +1024,23 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   <Download className="h-3.5 w-3.5" /> Export CTC Details
                 </button>
               ) : null}
+              {history.some((h) => h.annexure) ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (salaryFiguresHidden()) return;
+                    setEmailOpen(true);
+                  }}
+                  disabled={salaryFiguresHidden()}
+                  className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-xs ${
+                    salaryFiguresHidden()
+                      ? "border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
+                      : "border-border bg-white"
+                  }`}
+                >
+                  <Mail className="h-3.5 w-3.5" /> Send Email
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
@@ -1012,7 +1094,8 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
             {currentIsAnnexure ? (
               <div className="space-y-2">
                 <p className="text-xs text-ink-secondary">
-                  W.E.F. {fmtDate(current.wef_date)} · {skillLabel(current.skill_category)}
+                  W.E.F. {fmtDate(current.wef_date)}
+                  {wefEditButton} · {skillLabel(current.skill_category)}
                   {current.revision_reason ? ` · ${current.revision_reason}` : ""}
                 </p>
                 <AnnexureTable
@@ -1023,7 +1106,8 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
             ) : (
               <div className="space-y-2 text-xs">
                 <p className="text-ink-secondary">
-                  This employee&apos;s CTC (W.E.F. {fmtDate(current.wef_date)}) uses the earlier salary structure.
+                  This employee&apos;s CTC (W.E.F. {fmtDate(current.wef_date)}
+                  {wefEditButton}) uses the earlier salary structure.
                   Create a new revision to move them to the Compensation Scheme.
                 </p>
                 <div className="grid grid-cols-3 gap-3 max-w-md">
@@ -1508,6 +1592,53 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
           : null}
       </Drawer>
 
+      <Modal
+        open={wefEdit != null}
+        title="Edit W.E.F. date"
+        onClose={() => (wefSaving ? null : setWefEdit(null))}
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setWefEdit(null)}
+              disabled={wefSaving}
+              className="h-8 px-3 rounded-lg border border-border bg-white text-xs"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={saveWefEdit}
+              disabled={wefSaving || !toDay(wefEdit)}
+              className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-deep disabled:bg-slate-200 disabled:text-slate-400"
+            >
+              {wefSaving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-2 text-xs">
+          <label className="block">
+            <span className="text-ink-secondary">W.E.F. / Effective From</span>
+            <div className="mt-1">
+              <TinyInput type="date" value={wefEdit || ""} onChange={(e) => setWefEdit(e?.target?.value || "")} />
+            </div>
+          </label>
+          <p className="text-[11px] text-ink-muted">
+            Only the date changes. Salary amounts stay the same; the previous record now ends the day before.
+          </p>
+        </div>
+      </Modal>
+
+      <SendCtcEmailModal
+        open={emailOpen}
+        onClose={() => setEmailOpen(false)}
+        employee={employee}
+        segment={segment}
+        records={history.filter((h) => h.annexure)}
+        ruleVersionFor={ruleVersionFor}
+      />
+
       <ScenarioMatrix
         open={matrixOpen}
         onClose={() => setMatrixOpen(false)}
@@ -1519,6 +1650,156 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
         retain={form.retain}
       />
     </div>
+  );
+}
+
+/** Pick CTC records and email them (one Annexure-I PDF each) to the employee's login email. */
+function SendCtcEmailModal({ open, onClose, employee, segment, records, ruleVersionFor }) {
+  const [selected, setSelected] = useState(() => new Set());
+  const [recipient, setRecipient] = useState("");
+  const [recipientState, setRecipientState] = useState("idle");
+  const [recipientError, setRecipientError] = useState("");
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const first = records.find((r) => r.current) || records[0];
+    setSelected(new Set(first ? [first.key] : []));
+    setRecipient("");
+    setRecipientError("");
+    setRecipientState("loading");
+    let cancelled = false;
+    fetchCtcEmailRecipient(employee.id)
+      .then((email) => {
+        if (cancelled) return;
+        setRecipient(email);
+        setRecipientState(email ? "found" : "missing");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setRecipientError(err?.message || "Could not find the employee email.");
+        setRecipientState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, employee.id]);
+
+  const toggle = (key) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const send = async () => {
+    const picked = records.filter((r) => selected.has(r.key));
+    if (!picked.length || !recipient) return;
+    setSending(true);
+    try {
+      const code = String(employee.employee_code || employee.employee_id || "employee").trim();
+      const attachments = [];
+      for (const r of picked) {
+        const wef = fmtDate(r.effective_from);
+        attachments.push({
+          fileName: `Annexure-I_${code}_WEF_${wef}`,
+          label: `Annexure-I – W.E.F. ${wef}${r.current ? " (current)" : ""}`,
+          pdfBase64: await annexurePdfBase64({
+            employee,
+            record: r.row,
+            ruleVersion: ruleVersionFor(r.row),
+            segment,
+          }),
+        });
+      }
+      const result = await sendCtcEmail({ employeeId: employee.id, attachments });
+      toast.success("Email sent", `CTC details sent to ${result?.email || recipient}.`);
+      onClose();
+    } catch (err) {
+      console.error("CTC details: email failed", err);
+      toast.error("Could not send email", err?.message || "Please try again.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const canSend = !sending && recipientState === "found" && selected.size > 0;
+
+  return (
+    <Modal
+      open={open}
+      title="Email CTC details"
+      onClose={sending ? () => {} : onClose}
+      widthClass="max-w-lg"
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={sending}
+            className="h-8 px-3 rounded-lg border border-border bg-white text-xs"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={send}
+            disabled={!canSend}
+            className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium ${
+              canSend ? "bg-accent text-white hover:bg-accent-deep" : "bg-slate-200 text-slate-400 cursor-not-allowed"
+            }`}
+          >
+            <Mail className="h-3.5 w-3.5" />
+            {sending ? "Sending…" : `Send${selected.size > 1 ? ` (${selected.size})` : ""}`}
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-3 text-xs">
+        <div>
+          <span className="text-ink-secondary">To</span>
+          <div className="mt-1 font-medium text-ink">
+            {recipientState === "loading" ? "Finding the employee's email…" : null}
+            {recipientState === "found" ? recipient : null}
+          </div>
+          {recipientState === "missing" ? (
+            <InlineAlert tone="warning">
+              No email is linked to this employee&apos;s login. Add it in User Management first.
+            </InlineAlert>
+          ) : null}
+          {recipientState === "error" ? <InlineAlert tone="error">{recipientError}</InlineAlert> : null}
+        </div>
+
+        <div>
+          <span className="text-ink-secondary">Select the CTC details to send</span>
+          <ul className="mt-1 divide-y divide-border rounded-lg border border-border">
+            {records.map((r) => (
+              <li key={r.key}>
+                <label className="flex items-center gap-2 px-3 py-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(r.key)}
+                    onChange={() => toggle(r.key)}
+                    disabled={sending}
+                  />
+                  <span className="flex-1">
+                    <span className="font-medium text-ink">W.E.F. {fmtDate(r.effective_from)}</span>
+                    <span className="text-ink-secondary">
+                      {" "}
+                      · {r.revision_type} · Gross ₹{money(r.gross)} · CTC ₹{money(r.ctc)}
+                    </span>
+                  </span>
+                  {r.current ? <StatusChip label="Current" severity="info" /> : null}
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="text-[11px] text-ink-muted">Each selected record is attached as its own Annexure-I PDF.</p>
+      </div>
+    </Modal>
   );
 }
 
