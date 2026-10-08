@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../../../contexts/AuthContext";
 import { canAccessRulesConsole } from "./rulesConsoleAccess";
 
-/** Route wrapper: only admin roles may open the Rules Console. */
+/** Route wrapper: admin roles, or users given the Rules Console page. */
 export default function RulesConsoleGuard({ children }) {
   const { userProfile, accessibleModules, permissionsReady, profileLoading } = useAuth();
 
@@ -20,7 +20,8 @@ export default function RulesConsoleGuard({ children }) {
       <div className="max-w-lg mx-auto mt-16 rounded-xl border border-amber-200 bg-amber-50 px-5 py-6 text-center space-y-3">
         <h1 className="text-lg font-semibold text-amber-950">Access restricted</h1>
         <p className="text-sm text-amber-900 leading-relaxed">
-          The Rules Console is limited to Admin users. Your account does not have access to it.
+          Your account does not have access to the Rules Console. Ask an administrator to give you this page in
+          User Management.
         </p>
         <Link
           to="/app/admin/dashboard"

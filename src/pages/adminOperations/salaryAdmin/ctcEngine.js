@@ -36,6 +36,7 @@ export const INPUT_CTC = "ctc";
 export const VALIDATION_ERROR_GROSS_BELOW_MIN = "error_gross_below_min";
 export const VALIDATION_CHECK_CTC_MISMATCH = "check_ctc_mismatch";
 export const VALIDATION_OK_MEDICAL_RESTRICTED = "ok_medical_restricted";
+export const VALIDATION_OK_HRA_ADJUSTED = "ok_hra_adjusted";
 export const VALIDATION_OK = "ok";
 
 /** Components are whole rupees, so an entered CTC can only be matched to the nearest rupee step. */
@@ -309,10 +310,13 @@ export function benchmarkLimit(rules, skill) {
   return benchmarkFor(rules, skill) / pct(rules, "BASIC_PCT");
 }
 
-/** Lowest Gross that can fund Basic + HRA + Bonus at the benchmark (Bands 2/3). */
+/**
+ * Lowest Gross that can pay Basic at the minimum wage (benchmark). HRA absorbs the shortfall,
+ * so only Basic (plus Bonus when that Gross already falls in Band 2/3) must be covered.
+ */
 export function minimumValidGross(rules, skill) {
   const bench = roundRupee(benchmarkFor(rules, skill));
-  return bench + roundRupee(bench * pct(rules, "HRA_PCT")) + roundRupee(bench * pct(rules, "BONUS_PCT"));
+  return bench <= Number(rules.BAND1_MAX) ? bench : bench + roundRupee(bench * pct(rules, "BONUS_PCT"));
 }
 
 export function salaryBand(rules, gross) {
@@ -379,8 +383,12 @@ export function componentsFromGross(rules, { skill, status, gross }) {
   const midBand = band === 2 || band === 3;
 
   const basic = roundRupee(basicFromGross(rules, skill, g));
-  const hra = roundRupee(basic * pct(rules, "HRA_PCT"));
   const bonus = midBand ? roundRupee(basic * pct(rules, "BONUS_PCT")) : 0;
+  const hraStandard = roundRupee(basic * pct(rules, "HRA_PCT"));
+  // Basic at the minimum wage: HRA takes the balance so Part A still equals the entered Gross.
+  const hra = g <= benchmarkLimit(rules, skill)
+    ? Math.min(hraStandard, Math.max(0, g - basic - bonus))
+    : hraStandard;
   const bandMedical = roundRupee(
     band === 2 ? Number(rules.MED_B2) : band === 3 ? Number(rules.MED_B3) : 0
   );
@@ -390,14 +398,17 @@ export function componentsFromGross(rules, { skill, status, gross }) {
   const special = band === 4 ? g - basic - hra : 0;
   const conveyance = midBand ? Math.max(0, g - basic - hra - bonus - medical) : 0;
 
-  return assembleBreakup(rules, {
-    skill,
-    status,
-    band,
-    gross_input: g,
-    band_medical: bandMedical,
-    parts: { basic, hra, conveyance, bonus, medical, special },
-  });
+  return {
+    ...assembleBreakup(rules, {
+      skill,
+      status,
+      band,
+      gross_input: g,
+      band_medical: bandMedical,
+      parts: { basic, hra, conveyance, bonus, medical, special },
+    }),
+    hra_standard: hraStandard,
+  };
 }
 
 function assembleBreakup(
@@ -483,7 +494,7 @@ export function validateBreakup(rules, breakup, { inputBasis, inputAmount } = {}
       level: "error",
       blocksSave: true,
       label: "ERROR – Gross below minimum",
-      message: `Gross is too low to cover Basic, HRA and Bonus. Minimum Gross is ₹${formatMoney(minGross)}.`,
+      message: `Gross is below the minimum wage for this skill. Minimum Gross is ₹${formatMoney(minGross)}.`,
       minimum_gross: minGross,
     };
   }
@@ -499,6 +510,15 @@ export function validateBreakup(rules, breakup, { inputBasis, inputAmount } = {}
         ctc_difference: diff,
       };
     }
+  }
+  if (breakup.hra_standard != null && breakup.hra < breakup.hra_standard - SUM_EPSILON) {
+    return {
+      code: VALIDATION_OK_HRA_ADJUSTED,
+      level: "ok",
+      blocksSave: false,
+      label: "OK – HRA adjusted",
+      message: `Basic is at the minimum wage, so HRA is ₹${formatMoney(breakup.hra)} (normally ₹${formatMoney(breakup.hra_standard)}) to keep Gross at ₹${formatMoney(breakup.gross)}.`,
+    };
   }
   if ((breakup.band === 2 || breakup.band === 3) && breakup.medical < breakup.band_medical - SUM_EPSILON) {
     return {

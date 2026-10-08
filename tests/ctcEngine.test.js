@@ -17,6 +17,7 @@ import {
   VALIDATION_ERROR_GROSS_BELOW_MIN,
   VALIDATION_OK,
   VALIDATION_OK_MEDICAL_RESTRICTED,
+  VALIDATION_OK_HRA_ADJUSTED,
   applyComponentOverrides,
   benchmarkLimit,
   calculateConfirmation,
@@ -103,7 +104,8 @@ describe.each([SCHEME_OLD, SCHEME_NEW])("Compensation Scheme 2026-27 (%s scheme)
   it("derived values: benchmark limits and minimum Gross", () => {
     expectClose(benchmarkLimit(rules, "skilled"), 27170);
     expectClose(benchmarkLimit(rules, "semi_skilled"), 26650);
-    expectClose(minimumValidGross(rules, "skilled"), 20151);
+    expectClose(minimumValidGross(rules, "skilled"), 13585);
+    expectClose(minimumValidGross(rules, "semi_skilled"), 13325);
   });
 
   it("#1 Gross 34,000 Probation", () => {
@@ -250,21 +252,44 @@ describe.each([SCHEME_OLD, SCHEME_NEW])("Compensation Scheme 2026-27 (%s scheme)
     expectClose(b.basic, 13586);
   });
 
-  it.each([STATUS_PROBATION, STATUS_CONFIRMED])("#11 Gross 19,500 (%s) — below minimum, Save blocked", (status) => {
+  it.each([STATUS_PROBATION, STATUS_CONFIRMED])("#11 Gross 19,500 (%s) — Basic at minimum wage, HRA adjusted, Gross kept", (status) => {
     const r = calculateCtc(rules, { skill, status, monthlyGross: 19500 });
-    expect(r.validation.code).toBe(VALIDATION_ERROR_GROSS_BELOW_MIN);
-    expect(r.validation.blocksSave).toBe(true);
-    expectClose(r.validation.minimum_gross, 20151);
-  });
-
-  it("minimum Gross itself is valid", () => {
-    const r = calculateCtc(rules, { skill, status: STATUS_PROBATION, monthlyGross: 20151 });
+    expectBreakup(r, { band: 2, basic: 13585, bonus: 1132, hra: 4783, medical: 0, conveyance: 0, gross: 19500 });
+    expect(r.validation.code).toBe(VALIDATION_OK_HRA_ADJUSTED);
     expect(r.validation.blocksSave).toBe(false);
+    expectSums(r);
   });
 
-  it("any Gross ≤ Band 1 limit is below minimum", () => {
+  it("Band 1: HRA is Gross − Basic", () => {
     const r = calculateCtc(rules, { skill, status: STATUS_PROBATION, monthlyGross: 18136 });
-    expect(r.validation.blocksSave).toBe(true);
+    expectBreakup(r, { band: 1, basic: 13585, hra: 4551, bonus: 0, medical: 0, conveyance: 0, special: 0, gross: 18136 });
+    expect(r.validation.code).toBe(VALIDATION_OK_HRA_ADJUSTED);
+    const semi = calculateCtc(rules, { skill: "semi_skilled", status: STATUS_PROBATION, monthlyGross: 15000 });
+    expectBreakup(semi, { basic: 13325, hra: 1675, gross: 15000 });
+  });
+
+  it("HRA is never above 40% of Basic; once the full HRA fits, nothing changes", () => {
+    const r = calculateCtc(rules, { skill, status: STATUS_PROBATION, monthlyGross: 20151 });
+    expectBreakup(r, { basic: 13585, hra: 5434, bonus: 1132, medical: 0, conveyance: 0, gross: 20151 });
+    expect(r.validation.code).toBe(VALIDATION_OK_MEDICAL_RESTRICTED);
+  });
+
+  it("Gross equal to the minimum wage is valid (HRA 0); below it Save is blocked", () => {
+    const ok = calculateCtc(rules, { skill, status: STATUS_PROBATION, monthlyGross: 13585 });
+    expectBreakup(ok, { basic: 13585, hra: 0, gross: 13585 });
+    expect(ok.validation.blocksSave).toBe(false);
+    const low = calculateCtc(rules, { skill, status: STATUS_PROBATION, monthlyGross: 13000 });
+    expect(low.validation.code).toBe(VALIDATION_ERROR_GROSS_BELOW_MIN);
+    expect(low.validation.blocksSave).toBe(true);
+    expectClose(low.validation.minimum_gross, 13585);
+  });
+
+  it("CTC input in the minimum-wage range lands on a Gross that is kept", () => {
+    const r = calculateCtc(rules, { skill, status: STATUS_PROBATION, monthlyCtc: 22000 });
+    expect(r.validation.blocksSave).toBe(false);
+    expectClose(r.ctc, 22000, 1);
+    expectClose(r.basic, 13585);
+    expectSums(r);
   });
 });
 
@@ -274,8 +299,8 @@ describe("minimum wage revision from 1 Oct 2026 (Skilled 13,897 / Semi-skilled 1
   it("derived values move with the benchmark; bands unchanged", () => {
     expectClose(benchmarkLimit(rules, "skilled"), 27794);
     expectClose(benchmarkLimit(rules, "semi_skilled"), 27274);
-    expectClose(minimumValidGross(rules, "skilled"), 20614);
-    expectClose(minimumValidGross(rules, "semi_skilled"), 20228);
+    expectClose(minimumValidGross(rules, "skilled"), 13897);
+    expectClose(minimumValidGross(rules, "semi_skilled"), 13637);
   });
 
   it("same Gross: Basic/HRA/Bonus rise to the new benchmark, Conveyance absorbs it", () => {
@@ -297,10 +322,10 @@ describe("minimum wage revision from 1 Oct 2026 (Skilled 13,897 / Semi-skilled 1
     expect(r.validation.code).toBe(VALIDATION_OK_MEDICAL_RESTRICTED);
   });
 
-  it("Gross that was valid before can fall below the new minimum", () => {
+  it("same Gross after the revision: Basic rises to the new minimum wage, HRA absorbs it", () => {
     const r = calculateCtc(rules, { skill, status: STATUS_PROBATION, monthlyGross: 20500 });
-    expect(r.validation.code).toBe(VALIDATION_ERROR_GROSS_BELOW_MIN);
-    expectClose(r.validation.minimum_gross, 20614);
+    expectBreakup(r, { basic: 13897, bonus: 1158, hra: 5445, medical: 0, conveyance: 0, gross: 20500 });
+    expect(r.validation.code).toBe(VALIDATION_OK_HRA_ADJUSTED);
   });
 
   it("Gross above the benchmark limit is unchanged", () => {

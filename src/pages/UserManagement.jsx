@@ -109,6 +109,11 @@ const selectableModuleTree = (team) => {
   });
 };
 
+/** Sub-modules a full module never implies; they stay grantable and are kept when the module is ticked. */
+const OPT_IN_SUB_MODULE_KEYS = new Set(
+  NAV_MODULE_TREE.flatMap((m) => (m.subModules || []).filter((s) => s.optIn).map((s) => s.value))
+);
+
 const parseAllowedSubModules = (raw) => {
   if (Array.isArray(raw)) return [...raw];
   if (typeof raw === "string" && raw.trim()) {
@@ -239,6 +244,28 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
               ) : null}
             </div>
 
+            {fullChecked && hasSubs && mod.subModules.some((s) => s.optIn) && (
+              <div className="bg-slate-50 border-t border-gray-100 ml-6 mr-0 divide-y divide-gray-100/60">
+                {mod.subModules
+                  .filter((sub) => sub.optIn)
+                  .map((sub) => (
+                    <label
+                      key={sub.value}
+                      className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-slate-100"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={safeSubModules.includes(sub.value)}
+                        onChange={() => onToggleSubModule(sub.value)}
+                        className="rounded border-gray-300 text-indigo-500 focus:ring-indigo-400 shrink-0"
+                      />
+                      <span className="flex-1 text-xs text-gray-700">{sub.label}</span>
+                      <span className="text-[10px] text-indigo-500">opt-in</span>
+                    </label>
+                  ))}
+              </div>
+            )}
+
             {/* Level 2: Sub-module rows */}
             {showSubModules && (
               <div className="bg-slate-50 border-t border-gray-100 ml-6 mr-0 divide-y divide-gray-100/60">
@@ -266,6 +293,7 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
                           className="flex-1 text-xs text-gray-700 cursor-pointer select-none"
                         >
                           {sub.label}
+                          {sub.optIn ? <span className="ml-1.5 text-[10px] text-indigo-500">opt-in</span> : null}
                           {hasTabChildren && !subChecked && activeTabCount > 0 && (
                             <span className="ml-1.5 text-[10px] font-normal text-indigo-500 bg-indigo-50 rounded px-1 py-0.5">
                               {activeTabCount} tab{activeTabCount > 1 ? "s" : ""}
@@ -995,7 +1023,9 @@ const UserManagement = () => {
       // (including 3-segment hr.recruitment.* tab keys).
       const newSubModules = willAdd
         ? prev.allowed_sub_modules.filter(
-            (s) => !s.startsWith(`${value}.`) && !ALL_RECRUITMENT_TAB_KEYS.includes(s)
+            (s) =>
+              OPT_IN_SUB_MODULE_KEYS.has(s) ||
+              (!s.startsWith(`${value}.`) && !ALL_RECRUITMENT_TAB_KEYS.includes(s))
           )
         : prev.allowed_sub_modules;
       const next = {
@@ -2104,8 +2134,9 @@ const UserManagement = () => {
                             allowed_sub_modules: willAdd
                               ? prev.allowed_sub_modules.filter(
                                   (s) =>
-                                    !s.startsWith(`${value}.`) &&
-                                    !ALL_RECRUITMENT_TAB_KEYS.includes(s)
+                                    OPT_IN_SUB_MODULE_KEYS.has(s) ||
+                                    (!s.startsWith(`${value}.`) &&
+                                      !ALL_RECRUITMENT_TAB_KEYS.includes(s))
                                 )
                               : prev.allowed_sub_modules,
                           };

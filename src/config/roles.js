@@ -254,7 +254,7 @@ export function canSeeSubModule(profile, accessibleModules, subModuleKey, userMe
     });
   }
 
-  if (hasFullModuleAccess(accessibleModules, moduleKey)) return true;
+  if (subModuleKey !== RULES_CONSOLE_SUBMODULE_KEY && hasFullModuleAccess(accessibleModules, moduleKey)) return true;
   return getEffectiveAllowedSubModules(profile, userMetadata).includes(subModuleKey);
 }
 
@@ -279,6 +279,9 @@ export function getNavVisibleModuleKeys(profile, accessibleModules, userMetadata
   if (visible.has("marketing")) visible.add("crmOutreach");
   return visible;
 }
+
+/** Rules Console: granted only by its own key — a full Admin module does not imply it. */
+export const RULES_CONSOLE_SUBMODULE_KEY = "admin.rules-console";
 
 export const CRM_OUTREACH_CLIENT_SUBMODULE_KEY = "crmOutreach.client";
 export const CRM_OUTREACH_INHOUSE_SUBMODULE_KEY = "crmOutreach.inhouse";
@@ -675,6 +678,7 @@ export const NAV_MODULE_TREE = [
       },
       { value: "admin.employee",         label: "Employee Administration",     pathPrefix: "/app/admin/employee" },
       { value: "admin.salary-admin",     label: "Salary Admin",               pathPrefix: "/app/admin/salary-admin" },
+      { value: RULES_CONSOLE_SUBMODULE_KEY, label: "Rules Console",          pathPrefix: "/app/admin/rules-console", optIn: true },
       { value: "admin.store",            label: "Store & Issue Control",       pathPrefix: "/app/admin/store" },
       { value: "admin.gate",             label: "Gate Pass & Movement",        pathPrefix: "/app/admin/gate" },
       { value: "admin.misc",             label: "Miscellaneous Admin",         pathPrefix: "/app/admin/misc" },
