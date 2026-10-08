@@ -546,7 +546,7 @@ export function EmployeeAttendanceDailyPage() {
             registerEmpCodes,
             holidayDates,
             masterCodeMap,
-            { existingRegisterRows: monthRegisterRowsRef.current }
+            { existingRegisterRows: monthRegisterRowsRef.current, departmentByCode }
           );
           const rowsAfterAutoMarks = mergeManualRowsIntoRegisterCache(
             await fetchRegisterMarkRowsInRange(supabase, {

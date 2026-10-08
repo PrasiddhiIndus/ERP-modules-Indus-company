@@ -8,14 +8,15 @@
  * - HRA — Auto: 40% of Basic · Custom: fixed manual amount
  * - Special Allowance — system: Gross − Basic − HRA (floored at ₹0, never editable)
  * - Employee PF / P.Tax / Bonus / Mediclaim / LIC — editable placeholders (pending separate sign-off)
- * - Employee ESIC = Basic × emp% if Gross ≤ configurable ceiling (else 0)
+ * - Employee ESIC = Basic × emp% if Gross ≤ configurable ceiling and Basic ≤ ₹21,000 (else 0)
  * - TAKE HOME = Gross − Emp PF − P.Tax − Emp ESIC
  *
  * PART B:
  * - Employer PF — manual placeholder
- * - Employer ESIC = Basic × er% if Gross ≤ same ceiling (else 0)
+ * - Employer ESIC = Basic × er% under the same conditions as Employee ESIC (else 0)
  * - Gratuity — Auto: Basic × 4.81% (Govt.) · Custom: manual
- * - Leave Encashment / Bonus / Mediclaim / LIC — placeholders
+ * - Mediclaim — manual amount, only when Basic > ₹21,000 (ESIC-covered employees get 0)
+ * - Leave Encashment / Bonus / LIC — placeholders
  * - Special Performance bonus (variable-annually) — optional checkbox + amount
  *
  * CTC (Monthly) = Gross + Total (B) · CTC (Annual) = CTC Monthly × 12
@@ -57,6 +58,13 @@ export const EMP_ESIC_GROSS_THRESHOLD = DEFAULT_ESIC_CEILING;
 export const ER_ESIC_GROSS_THRESHOLD = DEFAULT_ESIC_CEILING;
 /** @deprecated Use DEFAULT_ESIC_CEILING. */
 export const ESIC_GROSS_THRESHOLD = DEFAULT_ESIC_CEILING;
+
+/** Basic at or below this gets ESIC and no Mediclaim; above it, Mediclaim and no ESIC. */
+export const ESIC_BASIC_LIMIT = 21000;
+
+export function mediclaimApplicable(basicMonthly) {
+  return round0(basicMonthly) > ESIC_BASIC_LIMIT;
+}
 
 export const DEFAULT_EMP_ESIC_RATE_PCT = 0.75;
 export const DEFAULT_ER_ESIC_RATE_PCT = 3.25;
@@ -742,13 +750,14 @@ export function resolveEsicSettings({
 }
 
 /**
- * ESIC on Basic when Gross is within the ceiling (BRD + prototype).
- * Eligibility uses full monthly Gross — never attendance-prorated Gross.
- * Auto mode uses the formula; Custom mode uses the manual amount (may be set even when not eligible).
+ * ESIC on Basic when Gross is within the ceiling and Basic ≤ ESIC_BASIC_LIMIT (BRD + prototype).
+ * Eligibility uses full monthly Gross and Basic — never attendance-prorated amounts.
+ * Auto mode uses the formula; Custom mode uses the manual amount, except Basic above the limit is always 0.
  */
 export function computeEsicOnBasic({
   grossMonthly = 0,
   basicMonthly = 0,
+  eligibilityBasicMonthly = null,
   esicEnabled = true,
   esicCeiling = DEFAULT_ESIC_CEILING,
   esicEmpRatePct = DEFAULT_EMP_ESIC_RATE_PCT,
@@ -766,8 +775,9 @@ export function computeEsicOnBasic({
   });
   const gross = round0(grossMonthly);
   const basic = round0(basicMonthly);
+  const basicOverLimit = mediclaimApplicable(eligibilityBasicMonthly ?? basicMonthly);
   const eligible =
-    settings.esic_enabled && gross > 0 && gross <= settings.esic_ceiling;
+    settings.esic_enabled && gross > 0 && gross <= settings.esic_ceiling && !basicOverLimit;
   const autoEmp = eligible
     ? round0((basic * settings.esic_emp_rate_pct) / 100)
     : 0;
@@ -778,21 +788,26 @@ export function computeEsicOnBasic({
   const empMode = normalizeComponentMode(empEsicMode);
   const erMode = normalizeComponentMode(erEsicMode);
   const empEsic =
-    empMode === MODE_CUSTOM
-      ? empEsicMonthly != null && empEsicMonthly !== ""
-        ? round0(empEsicMonthly)
-        : 0
-      : autoEmp;
+    basicOverLimit
+      ? 0
+      : empMode === MODE_CUSTOM
+        ? empEsicMonthly != null && empEsicMonthly !== ""
+          ? round0(empEsicMonthly)
+          : 0
+        : autoEmp;
   const erEsic =
-    erMode === MODE_CUSTOM
-      ? erEsicMonthly != null && erEsicMonthly !== ""
-        ? round0(erEsicMonthly)
-        : 0
-      : autoEr;
+    basicOverLimit
+      ? 0
+      : erMode === MODE_CUSTOM
+        ? erEsicMonthly != null && erEsicMonthly !== ""
+          ? round0(erEsicMonthly)
+          : 0
+        : autoEr;
 
   return {
     ...settings,
     esic_eligible: eligible,
+    esic_basic_over_limit: basicOverLimit,
     emp_esic_mode: empMode,
     er_esic_mode: erMode,
     emp_esic_monthly: empEsic,
@@ -800,8 +815,8 @@ export function computeEsicOnBasic({
     emp_esic_auto_monthly: autoEmp,
     er_esic_auto_monthly: autoEr,
     // Applicable for display: auto uses eligibility; custom is applicable when amount > 0 or eligibility
-    emp_esic_applicable: empMode === MODE_CUSTOM ? empEsic > 0 || eligible : eligible,
-    er_esic_applicable: erMode === MODE_CUSTOM ? erEsic > 0 || eligible : eligible,
+    emp_esic_applicable: !basicOverLimit && (empMode === MODE_CUSTOM ? empEsic > 0 || eligible : eligible),
+    er_esic_applicable: !basicOverLimit && (erMode === MODE_CUSTOM ? erEsic > 0 || eligible : eligible),
   };
 }
 
@@ -929,8 +944,9 @@ export function computeCtcStructure({
   });
   const bonus =
     bonusMonthly != null && bonusMonthly !== "" ? round0(bonusMonthly) : 0;
+  const mediclaimAllowed = mediclaimApplicable(basic);
   const mediclaim =
-    mediclaimEnabled && mediclaimMonthly != null && mediclaimMonthly !== ""
+    mediclaimAllowed && mediclaimEnabled && mediclaimMonthly != null && mediclaimMonthly !== ""
       ? round0(mediclaimMonthly)
       : 0;
   const lic =
@@ -976,6 +992,7 @@ export function computeCtcStructure({
     esic_emp_rate_pct: esic.esic_emp_rate_pct,
     esic_er_rate_pct: esic.esic_er_rate_pct,
     esic_eligible: esic.esic_eligible,
+    esic_basic_over_limit: esic.esic_basic_over_limit,
     take_home_monthly: takeHome,
     er_pf_monthly: erPf,
     er_esic_monthly: esic.er_esic_monthly,
@@ -986,6 +1003,7 @@ export function computeCtcStructure({
     leave_encash_mode: leaveMode,
     leave_encash_monthly: leaveEncash,
     mediclaim_enabled: Boolean(mediclaimEnabled),
+    mediclaim_applicable: mediclaimAllowed,
     mediclaim_monthly: mediclaimEnabled ? mediclaim : 0,
     lic_enabled: Boolean(licEnabled),
     lic_monthly: licEnabled ? lic : 0,
@@ -1020,6 +1038,7 @@ export function emptyCtcStructure() {
     esic_emp_rate_pct: DEFAULT_EMP_ESIC_RATE_PCT,
     esic_er_rate_pct: DEFAULT_ER_ESIC_RATE_PCT,
     esic_eligible: false,
+    esic_basic_over_limit: false,
     take_home_monthly: null,
     er_pf_monthly: null,
     er_esic_mode: MODE_AUTO,
@@ -1030,6 +1049,7 @@ export function emptyCtcStructure() {
     leave_encash_mode: MODE_AUTO,
     leave_encash_monthly: null,
     mediclaim_enabled: false,
+    mediclaim_applicable: false,
     mediclaim_monthly: null,
     lic_enabled: false,
     lic_monthly: null,
@@ -1048,7 +1068,8 @@ export function statutoryHelpText() {
     `Basic (Auto) = MAX(${BASIC_GROSS_PERCENT}% of Gross, ₹${BASIC_SLAB_MIN.toLocaleString("en-IN")})` +
     ` · HRA (Auto) = ${HRA_PERCENT}% of Basic` +
     ` · Special = Gross − Basic − HRA` +
-    ` · ESIC on Basic when Gross ≤ ceiling`
+    ` · ESIC on Basic when Gross ≤ ceiling and Basic ≤ ₹${ESIC_BASIC_LIMIT.toLocaleString("en-IN")}` +
+    ` · Mediclaim only when Basic > ₹${ESIC_BASIC_LIMIT.toLocaleString("en-IN")}`
   );
 }
 
@@ -1151,6 +1172,7 @@ export function computeProcessingRow({
   const esic = computeEsicOnBasic({
     grossMonthly: fullGross,
     basicMonthly: basicEarnedO,
+    eligibilityBasicMonthly: basicN,
     esicEnabled: structure.esic_enabled !== false,
     esicCeiling: structure.esic_ceiling ?? DEFAULT_ESIC_CEILING,
     esicEmpRatePct: structure.esic_emp_rate_pct ?? DEFAULT_EMP_ESIC_RATE_PCT,

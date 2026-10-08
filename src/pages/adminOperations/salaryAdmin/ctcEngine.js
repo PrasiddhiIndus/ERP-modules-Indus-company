@@ -346,7 +346,8 @@ export function statutoryFromBasic(rules, basic, status) {
 
   const er_pf = R(overPf ? Number(rules.ER_PF_FIXED) : b * pct(rules, "ER_PF_PCT"));
   const er_esic = R(noEsic ? 0 : b * pct(rules, "ER_ESIC_PCT"));
-  const mediclaim = R((conf * Number(rules.MEDICLAIM_YEAR)) / 12);
+  // ESIC-covered employees (Basic ≤ threshold) get ESIC instead of Mediclaim.
+  const mediclaim = R(noEsic ? (conf * Number(rules.MEDICLAIM_YEAR)) / 12 : 0);
   const leave_encashment = R(
     (((conf * b) / Number(rules.LE_DIVISOR)) * Number(rules.LE_DAYS)) / 12
   );
@@ -392,6 +393,12 @@ function assembleBreakup(
 ) {
   const sumPartA = PART_A_KEYS.reduce((s, k) => s + (Number(parts[k]) || 0), 0);
   const stat = { ...statutoryFromBasic(rules, parts.basic, status), ...(statOverrides || {}) };
+  if (Number(parts.basic) > Number(rules.ESIC_THRESHOLD)) {
+    stat.ee_esic = 0;
+    stat.er_esic = 0;
+  } else {
+    stat.mediclaim = 0;
+  }
   stat.total_b = PART_B_KEYS.reduce((s, k) => s + (Number(stat[k]) || 0), 0);
   const take_home = sumPartA - stat.ee_pf - stat.pt - stat.ee_esic;
   const ctc = sumPartA + stat.total_b;
@@ -428,7 +435,7 @@ export function grossFromCtc(rules, { skill, status, ctc }) {
         const constant =
           pf * Number(rules.ER_PF_FIXED) +
           (cap * Number(rules.EXGRATIA_CAP)) / 12 +
-          (conf * Number(rules.MEDICLAIM_YEAR)) / 12;
+          (es * conf * Number(rules.MEDICLAIM_YEAR)) / 12;
         const slope =
           (1 - pf) * pct(rules, "ER_PF_PCT") +
           (1 - es) * pct(rules, "ER_ESIC_PCT") +
@@ -593,8 +600,11 @@ export function applyComponentOverrides(rules, systemResult, overrides = {}) {
   }
 
   const statSystem = statutoryFromBasic(rules, parts.basic, systemResult.status);
+  const excluded =
+    Number(parts.basic) > Number(rules.ESIC_THRESHOLD) ? ["ee_esic", "er_esic"] : ["mediclaim"];
   const statOverrides = {};
   for (const key of [...DEDUCTION_KEYS, ...PART_B_KEYS]) {
+    if (excluded.includes(key)) continue;
     const v = entered(key);
     if (v != null && Math.abs(v - statSystem[key]) > SUM_EPSILON) {
       applied[key] = v;

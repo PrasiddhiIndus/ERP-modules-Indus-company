@@ -47,7 +47,7 @@ export const RULE_LABELS = Object.freeze({
   PT_MONTHLY: { label: "Professional Tax per month", unit: "₹" },
   GRATUITY_PCT: { label: "Gratuity % of Basic", unit: "%" },
   EXGRATIA_CAP: { label: "Ex Gratia cap (MIN(Basic, cap) ÷ 12)", unit: "₹" },
-  MEDICLAIM_YEAR: { label: "Mediclaim per year (Confirmed only)", unit: "₹" },
+  MEDICLAIM_YEAR: { label: "Mediclaim per year (Confirmed, Basic above ESIC limit)", unit: "₹" },
   LE_DAYS: { label: "Leave Encashment days (Confirmed only)", unit: "days" },
   LE_DIVISOR: { label: "Leave Encashment divisor", unit: "" },
 });

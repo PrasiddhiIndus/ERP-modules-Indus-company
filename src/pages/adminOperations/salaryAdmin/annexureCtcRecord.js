@@ -100,7 +100,6 @@ export function recordToComponents(row) {
  */
 export function resultToStructurePayload(result, meta) {
   const r = (v) => round2(v);
-  const conf = result.status === STATUS_CONFIRMED;
   const rules = meta.rules || {};
   return {
     structure_version: ANNEXURE_STRUCTURE_VERSION,
@@ -137,7 +136,7 @@ export function resultToStructurePayload(result, meta) {
     er_esic_applicable: result.er_esic > 0,
     gratuity_monthly: r(result.gratuity),
     leave_encash_monthly: r(result.leave_encashment),
-    mediclaim_enabled: conf,
+    mediclaim_enabled: n(result.mediclaim) > 0,
     mediclaim_monthly: r(result.mediclaim),
     ex_gratia_monthly: r(result.ex_gratia),
     lic_enabled: false,
