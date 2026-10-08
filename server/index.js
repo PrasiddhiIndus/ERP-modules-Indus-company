@@ -39,6 +39,7 @@ import {
   startInHouseCampaign,
 } from './crmInHouseMailApi.js';
 import { registerAdminRecruitmentRoutes, startAdminRecruitmentAutomation } from './adminRecruitmentApi.js';
+import { canEmailCtcDetails, resolveCtcEmailRecipient, sendCtcDetailsEmail } from './salaryCtcEmailApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -1651,6 +1652,41 @@ app.post('/api/crm-outreach/inhouse/campaigns/:id/send-batch', requireCrmInHouse
     return res.json(result);
   } catch (err) {
     return sendCrmInHouseError(res, err, 'Failed to send mail.');
+  }
+});
+
+function sendSalaryCtcEmailError(res, err, fallback) {
+  const status = Number(err?.status) || 500;
+  if (status >= 500) console.error('[salary/ctc-email]', err?.message || err);
+  const message = status >= 500 && !err?.status ? fallback : err?.message || fallback;
+  return res.status(status).json({ error: message, message });
+}
+
+function requireCtcEmailAccess(req, res, next) {
+  if (canEmailCtcDetails(req.auth)) return next();
+  return res.status(403).json({ error: 'Forbidden.', message: 'You do not have access to email salary details.' });
+}
+
+app.get('/api/admin/salary/ctc-email/recipient', requireAuth, requireCtcEmailAccess, async (req, res) => {
+  try {
+    const { email } = await resolveCtcEmailRecipient(crmInHouseServiceClient(), req.query?.employeeId);
+    return res.json({ email: email || null });
+  } catch (err) {
+    return sendSalaryCtcEmailError(res, err, 'Could not find the employee email.');
+  }
+});
+
+app.post('/api/admin/salary/ctc-email', einvoiceRateLimit, requireAuth, requireCtcEmailAccess, async (req, res) => {
+  try {
+    const result = await sendCtcDetailsEmail({
+      db: crmInHouseServiceClient(),
+      employeeMasterId: req.body?.employeeId,
+      attachments: req.body?.attachments,
+      senderEmail: req.profile?.email || req.user?.email || null,
+    });
+    return res.json(result);
+  } catch (err) {
+    return sendSalaryCtcEmailError(res, err, 'Could not send the email.');
   }
 });
 
