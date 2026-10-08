@@ -9,6 +9,7 @@ import {
   CATEGORY_NEW_JOINER_NEW_SCHEME,
   CATEGORY_NEW_PROBATION,
   CATEGORY_PROBATION_TO_CONFIRMED,
+  EXTRA_PART_A,
   STATUS_CONFIRMED,
   extraComponentKey,
   normalizeExtraComponents,
@@ -17,6 +18,7 @@ import {
   normalizeStatus,
   round2,
   schemeLabel,
+  sumExtraComponents,
 } from "./ctcEngine";
 
 export const ANNEXURE_STRUCTURE_VERSION = "annexure_2026";
@@ -262,6 +264,16 @@ export function annexureLineInputs(structure) {
   const pfWage = n(structure.pf_wage_monthly);
   const perfIncentive = structure.perf_incentive_enabled ? n(structure.perf_incentive_monthly) : 0;
   const extras = normalizeExtraComponents(structure.extra_components_json);
+  const partASum =
+    n(structure.basic_monthly) +
+    n(structure.hra_monthly) +
+    n(structure.special_allowance_monthly) +
+    conveyance +
+    bonus +
+    medical +
+    sumExtraComponents(extras, EXTRA_PART_A);
+  // Records saved before Performance Incentive moved to Part B carry it inside Gross.
+  const perfIncentiveInGross = perfIncentive > 0 && n(structure.gross_monthly) >= partASum + perfIncentive - 0.5;
   const hasBreakup = conveyance > 0 || bonus > 0 || medical > 0 || exGratia > 0 || pfWage > 0;
   if (!versioned && !hasBreakup) return null;
   return {
@@ -269,7 +281,9 @@ export function annexureLineInputs(structure) {
     conveyance_full: n(structure.conveyance_monthly),
     stat_bonus_full: n(structure.stat_bonus_monthly),
     medical_full: n(structure.medical_allowance_monthly),
-    ...(perfIncentive > 0 ? { perf_incentive_full: perfIncentive } : {}),
+    ...(perfIncentive > 0
+      ? { perf_incentive_full: perfIncentive, perf_incentive_part_b: !perfIncentiveInGross }
+      : {}),
     ...(extras.length ? { extra_components: extras } : {}),
     ee_pf_full: n(structure.emp_pf_monthly),
     pf_wage_full: n(structure.pf_wage_monthly) || n(structure.basic_monthly),
