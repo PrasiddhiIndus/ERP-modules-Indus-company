@@ -17,7 +17,14 @@ import {
   registerDateRangeFromRows,
 } from "../../shared/attendanceRegisterSync.mjs";
 import { timeToMinutes } from "../../shared/attendancePunchSync.mjs";
-import { departmentMatches } from "./employeeMasterDepartments";
+import {
+  ensureAttendanceRulesLoaded,
+  isAutoHolidayFor,
+  isAutoWeeklyOffDay,
+  isThirdSaturdayWorkingDepartment,
+  isWeeklyOffCandidateDate,
+  isWeeklyOffDay,
+} from "./attendanceRules";
 
 export { timeToMinutes, isPurplePresentPunch };
 
@@ -28,35 +35,11 @@ export const REGISTER_MARK_SOURCE_TOUR = "tour";
 /**
  * Departments that work on 3rd Saturday — no auto WO for that day
  * (blank if no punch, like a normal working day).
+ * Set in Admin → Rules Console (weekly off pattern); `isoDate` picks the
+ * rule in force on that day (defaults to today).
  */
-export const THIRD_SATURDAY_WEEKOFF_EXCLUDED_DEPARTMENTS = [
-  "Production",
-  "Production-FTC",
-  "Production - Neotech",
-  "R&M",
-  "M&M",
-  "Maintenance-FTC",
-];
-
-export function isThirdSaturdayWeekoffExcludedDepartment(department) {
-  if (!department) return false;
-  if (THIRD_SATURDAY_WEEKOFF_EXCLUDED_DEPARTMENTS.some((d) => departmentMatches(department, d))) {
-    return true;
-  }
-  // Tolerate "Production - Neotech" vs "Production-Neotech" spacing variants.
-  const loose = String(department || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .replace(/\s*-\s*/g, "-");
-  return THIRD_SATURDAY_WEEKOFF_EXCLUDED_DEPARTMENTS.some(
-    (d) =>
-      String(d)
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, " ")
-        .replace(/\s*-\s*/g, "-") === loose
-  );
+export function isThirdSaturdayWeekoffExcludedDepartment(department, isoDate = null) {
+  return isThirdSaturdayWorkingDepartment(department, isoDate);
 }
 
 export const INDUS_ONE_TOUR_TABLES = {
@@ -355,35 +338,37 @@ export function registerPresentDayCredit(mark) {
 /** PL / CL / SL on an auto weekoff (Sunday) — count as 0 for present and leave tallies. */
 const WEEKOFF_ZERO_CREDIT_LEAVE_MARKS = new Set(["PL", "CL", "SL"]);
 
-export function isPlClSlOnWeekoffDate(mark, { year, month, day, department } = {}) {
+export function isPlClSlOnWeekoffDate(mark, { year, month, day, department, employeeCode = null } = {}) {
   const m = String(mark ?? "").trim().toUpperCase();
   if (!WEEKOFF_ZERO_CREDIT_LEAVE_MARKS.has(m)) return false;
   if (!year || !month || !day) return false;
   const iso = registerDateFromDay(monthKeyFromParts(year, month), day);
-  return isAutoWeekoffDate(iso, department);
+  return isWeeklyOffDate(iso, department, employeeCode);
 }
 
 /** Present credit for a day cell (PL/CL/SL on weekoff → 0). */
-export function registerPresentDayCreditForCell(mark, { year, month, day, department } = {}) {
-  if (isPlClSlOnWeekoffDate(mark, { year, month, day, department })) return 0;
+export function registerPresentDayCreditForCell(mark, ctx = {}) {
+  if (isPlClSlOnWeekoffDate(mark, ctx)) return 0;
   return registerPresentDayCredit(mark);
 }
 
 /** Leave credit for a day cell (PL/CL/SL on weekoff → 0; P/* half-day composites → 0.5). */
-export function registerSummaryLeaveCreditForCell(mark, { year, month, day, department } = {}) {
-  if (isPlClSlOnWeekoffDate(mark, { year, month, day, department })) return 0;
+export function registerSummaryLeaveCreditForCell(mark, ctx = {}) {
+  if (isPlClSlOnWeekoffDate(mark, ctx)) return 0;
   return registerSummaryLeaveCredit(mark);
 }
 
 /**
- * 3rd-Saturday WO is a paid day (salary slab counts Mon–Sat) for departments that get it off.
- * WO-excluded depts (Production / R&M / M&M / Maintenance-FTC) work that day — never credited here.
+ * 3rd-Saturday WO is a paid day (salary slab counts Mon–Sat) when the 3rd Saturday is a
+ * weekly off for the employee (Rules Console weekly off pattern). Employees who work it
+ * (by default Production / R&M / M&M / Maintenance-FTC) are never credited here.
  */
-export function isPaidThirdSaturdayWeekoffCell(mark, { year, month, day, department } = {}) {
+export function isPaidThirdSaturdayWeekoffCell(mark, { year, month, day, department, employeeCode = null } = {}) {
   if (String(mark ?? "").trim() !== "WO") return false;
   if (!year || !month || !day) return false;
   if (!isThirdSaturdayOfMonth(year, month, day)) return false;
-  return !(department != null && isThirdSaturdayWeekoffExcludedDepartment(department));
+  const iso = registerDateFromDay(monthKeyFromParts(year, month), day);
+  return isWeeklyOffDate(iso, department, employeeCode);
 }
 
 /**
@@ -391,11 +376,11 @@ export function isPaidThirdSaturdayWeekoffCell(mark, { year, month, day, departm
  * P/PL, P/CL, P/SL count as 1 (display); 3rd-Saturday WO counts as 1 (see above).
  * Does not change day-level present/absent logic.
  */
-export function registerPresentDaySummaryCreditForCell(mark, { year, month, day, department } = {}) {
-  if (isPaidThirdSaturdayWeekoffCell(mark, { year, month, day, department })) return 1;
+export function registerPresentDaySummaryCreditForCell(mark, ctx = {}) {
+  if (isPaidThirdSaturdayWeekoffCell(mark, ctx)) return 1;
   const compositeCredit = registerCompositePaidLeaveSummaryCredit(mark);
   if (compositeCredit > 0) return compositeCredit;
-  return registerPresentDayCreditForCell(mark, { year, month, day, department });
+  return registerPresentDayCreditForCell(mark, ctx);
 }
 
 /** Whether a mark counts as a present day (incl. CO, T). */
@@ -817,15 +802,16 @@ export function buildMonthlyRegisterGrid(
         mark = manual;
       } else if (hasPunch) {
         mark = "P";
-      } else if (isAutoWeekoffDate(iso, emp.department)) {
+      } else if (isAutoWeekoffDate(iso, emp.department, code)) {
         mark = "WO";
       }
-      // Excluded depts work 3rd Saturday — blank (or P if punched), not auto WO.
+      // A day that is no longer an auto weekly off for this employee (e.g. a department
+      // that works the 3rd Saturday) — blank (or P if punched), not WO.
       // Manual / leave / tour marks stay so Admin can edit the cell like a normal day.
       if (
         mark === "WO" &&
-        isThirdSaturdayOfMonth(year, month, day) &&
-        isThirdSaturdayWeekoffExcludedDepartment(emp.department)
+        isWeeklyOffCandidateDate(iso) &&
+        !isAutoWeekoffDate(iso, emp.department, code)
       ) {
         const src = String(sources[day] ?? "").trim().toLowerCase();
         const keepEditable =
@@ -2474,20 +2460,31 @@ export function isThirdSaturdayOfMonth(year, month, day) {
   return saturdays === 3;
 }
 
-/** Sunday always; 3rd Saturday except listed Production / R&M / M&M / Maintenance-FTC depts. */
-export function isAutoWeekoffDate(isoDate, department) {
+/** Weekly off for the employee on that day (Rules Console weekly off pattern). */
+export function isWeeklyOffDate(isoDate, department, employeeCode = null) {
+  const d = normalizeDbDate(isoDate);
+  if (!d) return false;
+  return isWeeklyOffDay(d, { employeeCode, department: department ?? null });
+}
+
+/** Weekly off that the register marks automatically (weekly off pattern + "Mark weekly offs automatically"). */
+export function isAutoWeekoffDate(isoDate, department, employeeCode = null) {
+  const d = normalizeDbDate(isoDate);
+  if (!d) return false;
+  return isAutoWeeklyOffDay(d, { employeeCode, department: department ?? null });
+}
+
+/** Sunday or 3rd Saturday, regardless of rules — used by leave logic until leave rules are wired. */
+function isDefaultWeekoffDate(isoDate) {
   const d = normalizeDbDate(isoDate);
   if (!d) return false;
   const year = Number(d.slice(0, 4));
   const month = Number(d.slice(5, 7));
   const day = Number(d.slice(8, 10));
-  if (new Date(year, month - 1, day).getDay() === 0) return true;
-  if (!isThirdSaturdayOfMonth(year, month, day)) return false;
-  if (department != null && isThirdSaturdayWeekoffExcludedDepartment(department)) return false;
-  return true;
+  return new Date(year, month - 1, day).getDay() === 0 || isThirdSaturdayOfMonth(year, month, day);
 }
 
-/** All auto-WO dates for the viewed month and the following month. */
+/** Days the register sync visits (any possible weekly off) for the viewed month and the following month. */
 export function listAutoWeekoffDatesForMonthAndNext(monthMeta) {
   if (!monthMeta?.year || !monthMeta?.month) return [];
   const { year, month } = monthMeta;
@@ -2502,7 +2499,7 @@ export function listAutoWeekoffDatesForMonthAndNext(monthMeta) {
     const dim = daysInCalendarMonth(y, m);
     for (let day = 1; day <= dim; day += 1) {
       const iso = registerDateFromDay(monthKey, day);
-      if (isAutoWeekoffDate(iso)) dates.push(iso);
+      if (isWeeklyOffCandidateDate(iso)) dates.push(iso);
     }
   }
   return dates;
@@ -2586,9 +2583,9 @@ async function resolveExistingRegisterRowsForDateSpan(supabase, { fromDate, toDa
 }
 
 /**
- * Apply WO on all auto weekoff dates (Sundays + 3rd Saturday) for every register employee on `weekoffDates`.
+ * Apply WO on each employee's auto weekly offs among `weekoffDates` (Rules Console weekly off pattern).
  * Skips leave, manual marks, and punch Present; punch sync runs afterward and may overwrite WO.
- * WO-excluded depts skip 3rd Saturday (and any prior auto WO on that day is cleared).
+ * Days that are not an auto weekly off for the employee have any prior auto WO cleared.
  */
 export async function syncRegisterAutoWeekoffMarks(
   supabase,
@@ -2600,6 +2597,7 @@ export async function syncRegisterAutoWeekoffMarks(
   const codes = [...new Set((employeeCodes || []).map(normalizeAttendanceEmpCode).filter(Boolean))];
   const dates = [...new Set((weekoffDates || []).map(normalizeDbDate).filter(Boolean))].sort();
   if (!codes.length || !dates.length) return { upserted: 0, failed: 0, cleared: 0 };
+  await ensureAttendanceRulesLoaded(supabase);
 
   const departmentByCode = options.departmentByCode || {};
   const resolveDepartment = (normCode, dbCode) =>
@@ -2629,7 +2627,7 @@ export async function syncRegisterAutoWeekoffMarks(
     const department = resolveDepartment(normCode, dbCode);
     for (const register_date of dates) {
       const existing = lookupRegisterRow(existingByKey, normCode, dbCode, register_date);
-      if (!isAutoWeekoffDate(register_date, department)) {
+      if (!isAutoWeekoffDate(register_date, department, normCode)) {
         if (canClearStaleAutoWeekoff(existing)) {
           deletes.push({ employee_code: dbCode, register_date });
         }
@@ -2721,7 +2719,8 @@ export async function syncRegisterAutoHolidayMarks(
 ) {
   const codes = [...new Set((employeeCodes || []).map(normalizeAttendanceEmpCode).filter(Boolean))];
   const dates = [...new Set((holidayDates || []).map(normalizeDbDate).filter(Boolean))].sort();
-  if (!codes.length || !dates.length) return { upserted: 0, failed: 0 };
+  if (!codes.length || !dates.length) return { upserted: 0, failed: 0, cleared: 0 };
+  await ensureAttendanceRulesLoaded(supabase);
 
   const fromDate = dates[0];
   const toDate = dates[dates.length - 1];
@@ -2734,7 +2733,9 @@ export async function syncRegisterAutoHolidayMarks(
   const existingByKey = new Map();
   for (const row of existingRows || []) indexRegisterRowByEmpDate(existingByKey, row);
 
+  const departmentByCode = options.departmentByCode || {};
   const upserts = [];
+  const deletes = [];
   let failed = 0;
   for (const normCode of codes) {
     if (masterCodeMap?.size && !masterCodeMap.has(normCode)) {
@@ -2743,8 +2744,13 @@ export async function syncRegisterAutoHolidayMarks(
     }
     const dbCode = toRegisterDbEmployeeCode(normCode, masterCodeMap);
     if (!dbCode) continue;
+    const department = departmentByCode[normCode] ?? departmentByCode[dbCode] ?? "";
     for (const register_date of dates) {
       const existing = lookupRegisterRow(existingByKey, normCode, dbCode, register_date);
+      if (!isAutoHolidayFor(register_date, { employeeCode: normCode, department })) {
+        if (canClearStaleAutoHoliday(existing)) deletes.push({ employee_code: dbCode, register_date });
+        continue;
+      }
       if (!canAutoHolidayApplyToExisting(existing)) continue;
       upserts.push({
         employee_code: dbCode,
@@ -2758,7 +2764,17 @@ export async function syncRegisterAutoHolidayMarks(
     }
   }
 
-  if (!upserts.length) return { upserted: 0, failed };
+  let cleared = 0;
+  for (const row of deletes) {
+    try {
+      await deleteRegisterMarksBatch(supabase, [row], masterCodeMap);
+      cleared += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+
+  if (!upserts.length) return { upserted: 0, failed, cleared };
 
   let upserted = 0;
   for (let i = 0; i < upserts.length; i += REGISTER_MARK_UPSERT_CHUNK) {
@@ -2777,7 +2793,19 @@ export async function syncRegisterAutoHolidayMarks(
       }
     }
   }
-  return { upserted, failed };
+  return { upserted, failed, cleared };
+}
+
+/** Auto NH/PH that may be removed when holidays no longer apply to the employee. */
+function canClearStaleAutoHoliday(existing) {
+  if (!existing?.mark) return false;
+  if (!isRegisterNhphMark(String(existing.mark).trim())) return false;
+  if (String(existing.mark_remark ?? "").trim()) return false;
+  if (isLeaveMarkSource(existing.mark_source, existing.leave_request_id)) return false;
+  if (isTourMarkSource(existing.mark_source, existing.tour_request_id)) return false;
+  const src = String(existing.mark_source ?? "").trim().toLowerCase();
+  if (isManualMarkSource(src)) return false;
+  return src === REGISTER_MARK_SOURCE_AUTO_HOLIDAY || !src;
 }
 
 /**
@@ -3249,12 +3277,12 @@ function isOffDayWorkExcludedFromPresentMonth(year, month) {
   return monthKeyFromParts(year, month) >= OFF_DAY_WORK_EXCLUDED_FROM_PRESENT_START_MONTH;
 }
 
-function totalPresentCreditMark(mark, { year, month, day, department, holidayDates }) {
+function totalPresentCreditMark(mark, { year, month, day, department, employeeCode = null, holidayDates }) {
   if (!OFF_DAY_WORK_MARKS.has(String(mark ?? "").trim())) return mark;
   const iso = registerDateFromDay(monthKeyFromParts(year, month), day);
   if (!iso) return mark;
-  if (holidayDates?.has(iso)) return REGISTER_MARK_NHPH;
-  if (isAutoWeekoffDate(iso, department)) return "WO";
+  if (holidayDates?.has(iso) && isAutoHolidayFor(iso, { employeeCode, department })) return REGISTER_MARK_NHPH;
+  if (isWeeklyOffDate(iso, department, employeeCode)) return "WO";
   return mark;
 }
 
@@ -3268,7 +3296,7 @@ export function computeEmployeeRegisterSummary(
   const excludeOffDayWork = isOffDayWorkExcludedFromPresentMonth(year, month);
   for (let day = 1; day <= daysInMonth; day += 1) {
     const mark = row.dayMarks[day] || "";
-    const cellCtx = { year, month, day, department: row.department };
+    const cellCtx = { year, month, day, department: row.department, employeeCode: row.empCode || null };
     const presentMark = excludeOffDayWork
       ? totalPresentCreditMark(mark, { ...cellCtx, holidayDates })
       : mark;
@@ -3852,12 +3880,12 @@ export function enumerateDates(fromDate, toDate) {
 export function enumerateLeaveDatesWithSandwich(fromDate, toDate) {
   const all = enumerateDates(fromDate, toDate);
   if (!all.length) return [];
-  const anchors = all.filter((iso) => !isAutoWeekoffDate(iso));
+  const anchors = all.filter((iso) => !isDefaultWeekoffDate(iso));
   if (!anchors.length) return [];
   const amin = anchors[0];
   const amax = anchors[anchors.length - 1];
   return all.filter((iso) => {
-    if (!isAutoWeekoffDate(iso)) return true;
+    if (!isDefaultWeekoffDate(iso)) return true;
     return iso > amin && iso < amax;
   });
 }
@@ -4273,21 +4301,27 @@ export async function fetchAttendancePunchesInRange(supabase, { fromDate, toDate
 }
 
 export async function fetchActiveEmployees(supabase) {
-  const { data, error } = await supabase
-    .from(EMPLOYEE_MASTER_TABLE)
-    .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving,employee_type")
-    .eq("status", "Active");
+  const [{ data, error }] = await Promise.all([
+    supabase
+      .from(EMPLOYEE_MASTER_TABLE)
+      .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving,employee_type")
+      .eq("status", "Active"),
+    ensureAttendanceRulesLoaded(supabase),
+  ]);
   if (error) throw error;
   return (data || []).map(mapMasterEmployee).filter((e) => e.employeeId || e.empCode);
 }
 
 /** Inactive employees with date of leaving — for register when DOL falls in or after the viewed month. */
 export async function fetchInactiveEmployeesWithDateOfLeaving(supabase) {
-  const { data, error } = await supabase
-    .from(EMPLOYEE_MASTER_TABLE)
-    .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving,employee_type")
-    .eq("status", "Inactive")
-    .not("date_of_leaving", "is", null);
+  const [{ data, error }] = await Promise.all([
+    supabase
+      .from(EMPLOYEE_MASTER_TABLE)
+      .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving,employee_type")
+      .eq("status", "Inactive")
+      .not("date_of_leaving", "is", null),
+    ensureAttendanceRulesLoaded(supabase),
+  ]);
   if (error) throw error;
   return (data || []).map(mapMasterEmployee).filter((e) => e.empCode && e.dateOfLeaving);
 }
@@ -4356,10 +4390,13 @@ export function isInactiveEmployeeVisibleOnLeaveLedger(dateOfLeaving, ledgerYear
 
 /** Inactive (removed/deactivated) employees still on master — shown when they have month activity. */
 export async function fetchInactiveEmployeesFromMaster(supabase) {
-  const { data, error } = await supabase
-    .from(EMPLOYEE_MASTER_TABLE)
-    .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving,employee_type")
-    .eq("status", "Inactive");
+  const [{ data, error }] = await Promise.all([
+    supabase
+      .from(EMPLOYEE_MASTER_TABLE)
+      .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving,employee_type")
+      .eq("status", "Inactive"),
+    ensureAttendanceRulesLoaded(supabase),
+  ]);
   if (error) throw error;
   return (data || []).map(mapMasterEmployee).filter((e) => e.empCode);
 }

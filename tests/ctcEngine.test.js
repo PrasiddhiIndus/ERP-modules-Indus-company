@@ -133,12 +133,21 @@ describe.each([SCHEME_OLD, SCHEME_NEW])("Compensation Scheme 2026-27 (%s scheme)
     const r = calculateCtc(rules, { skill, status: STATUS_CONFIRMED, monthlyGross: 34000 });
     expectBreakup(r, {
       ...CASE1,
-      mediclaim: 417,
+      mediclaim: 0,
       leave_encashment: 381,
-      total_b: 5881,
-      ctc: 39881,
+      total_b: 5464,
+      ctc: 39464,
     });
     expectSums(r);
+  });
+
+  it("ESIC up to Basic 21,000; Mediclaim (Confirmed) only above it — Gross unchanged", () => {
+    const atLimit = calculateCtc(rules, { skill, status: STATUS_CONFIRMED, monthlyGross: 42000 });
+    expectBreakup(atLimit, { basic: 21000, gross: 42000, ee_esic: 158, er_esic: 788, mediclaim: 0 });
+    const above = calculateCtc(rules, { skill, status: STATUS_CONFIRMED, monthlyGross: 42002 });
+    expectBreakup(above, { basic: 21001, gross: 42002, ee_esic: 0, er_esic: 0, mediclaim: 417 });
+    const probation = calculateCtc(rules, { skill, status: STATUS_PROBATION, monthlyGross: 42002 });
+    expectBreakup(probation, { ee_esic: 0, er_esic: 0, mediclaim: 0 });
   });
 
   it("#4 Probation → Confirmed, Retain Gross", () => {
@@ -150,8 +159,8 @@ describe.each([SCHEME_OLD, SCHEME_NEW])("Compensation Scheme 2026-27 (%s scheme)
       retain: RETAIN_GROSS,
     });
     expectBreakup(before, CASE1);
-    expectBreakup(after, { ...CASE1, mediclaim: 417, leave_encashment: 381, total_b: 5881, ctc: 39881 });
-    expectClose(change.ctc, 798);
+    expectBreakup(after, { ...CASE1, mediclaim: 0, leave_encashment: 381, total_b: 5464, ctc: 39464 });
+    expectClose(change.ctc, 381);
     expectClose(change.take_home, 0);
   });
 
@@ -164,7 +173,7 @@ describe.each([SCHEME_OLD, SCHEME_NEW])("Compensation Scheme 2026-27 (%s scheme)
       retain: RETAIN_CTC,
     });
     expectClose(after.ctc, 39083, 1);
-    expectClose(after.gross, 33313, 1);
+    expectClose(after.gross, 33672, 1);
     expectWholeRupees(after);
     expectSums(after);
   });
@@ -190,11 +199,11 @@ describe.each([SCHEME_OLD, SCHEME_NEW])("Compensation Scheme 2026-27 (%s scheme)
   it("#7 CTC 26,173 Confirmed", () => {
     const r = calculateCtc(rules, { skill, status: STATUS_CONFIRMED, monthlyCtc: 26173 });
     expectBreakup(r, {
-      gross: 21391,
-      medical: 1240,
-      mediclaim: 417,
+      gross: 21808,
+      medical: 1657,
+      mediclaim: 0,
       leave_encashment: 305,
-      total_b: 4782,
+      total_b: 4365,
       ctc: 26173,
     });
     expect(r.validation.code).toBe(VALIDATION_OK_MEDICAL_RESTRICTED);

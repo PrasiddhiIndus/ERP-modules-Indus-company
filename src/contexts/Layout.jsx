@@ -5,6 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
 import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, isAdminRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath } from "../config/roles";
 import { canAccessSalaryAdmin } from "../pages/adminOperations/salaryAdmin/salaryAccess";
+import { canAccessRulesConsole } from "../pages/adminOperations/rulesConsole/rulesConsoleAccess";
 import { syncSalaryFiguresHidden } from "../pages/adminOperations/salaryAdmin/salaryPrivacy";
 import { canAccessCompliance } from "../pages/compliance/payroll/complianceAccess";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
@@ -63,6 +64,7 @@ import {
   Layers,
   FileSpreadsheet,
   Mail,
+  SlidersHorizontal,
 } from "lucide-react";
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
@@ -718,6 +720,13 @@ const Layout = () => {
                   >
                     <Wallet className="h-4 w-4 shrink-0 text-ink-muted" />
                     <span className="type-meta type-truncate">Salary Admin</span>
+                  </NavLink>
+                  )}
+
+                  {canAccessRulesConsole(userProfile, accessibleModules) && (
+                  <NavLink to="admin/rules-console" className={subNavClass}>
+                    <SlidersHorizontal className="h-4 w-4 shrink-0 text-accent" />
+                    <span className="type-meta type-truncate">Rules Console</span>
                   </NavLink>
                   )}
 

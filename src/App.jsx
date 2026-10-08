@@ -8,6 +8,7 @@ import AppToaster from "./components/AppToaster";
 import { AuditConsoleProvider } from "./contexts/AuditConsoleContext";
 import { AppAccessConfigProvider } from "./contexts/AppAccessConfigContext";
 import SalaryAdminGuard from "./pages/adminOperations/salaryAdmin/SalaryAdminGuard";
+import RulesConsoleGuard from "./pages/adminOperations/rulesConsole/RulesConsoleGuard";
 import ComplianceGuard from "./pages/compliance/payroll/ComplianceGuard";
 import { checkSupabaseConnection } from "./lib/supabase";
 import { runBackendDiagnostics } from "./lib/backendDiagnostics";
@@ -161,6 +162,7 @@ import {
   // GateSecurityConsolePage,
   SalaryDashboardPage,
   SalaryAdminLayoutPage,
+  RulesConsolePage,
   // SalaryMasterPage, // NAV_HIDDEN — CTC lives on Employee Master
   // SalaryEmployeeCtcPage,
   SalaryProcessingPage,
@@ -599,6 +601,10 @@ function App() {
             <Route
               path="admin/salary-admin/salary-master/:employeeId"
               element={<SalaryAdminGuard><SalaryMasterCtcRedirect /></SalaryAdminGuard>}
+            />
+            <Route
+              path="admin/rules-console"
+              element={<RulesConsoleGuard><RulesConsolePage /></RulesConsoleGuard>}
             />
             <Route path="admin/misc/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/alerts-notifications" element={<AdminOpsAlerts />} />

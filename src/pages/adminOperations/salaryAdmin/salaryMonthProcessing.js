@@ -37,6 +37,7 @@ import {
   defaultPtForGross,
   fetchSalaryStructureMapForMonth,
   formatINRPlain,
+  mediclaimApplicable,
   resolveHraMonthly,
 } from "./salaryData";
 
@@ -769,7 +770,7 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
     empEsic = prorate(annexure.ee_esic_full);
   } else {
     empPf = round0(pfEarned * 0.12);
-    const esicEligible = salaryRate > 0 && salaryRate <= 21000;
+    const esicEligible = basicFull > 0 && !mediclaimApplicable(basicFull);
     empEsic = esicEligible ? round0((gross * 0.75) / 100) : 0;
   }
   const pt =
