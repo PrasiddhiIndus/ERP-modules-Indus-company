@@ -104,11 +104,10 @@ export const PART_A_KEYS = Object.freeze([
   "bonus",
   "medical",
   "special",
-  "perf_incentive",
 ]);
 
-/** Opt-in Part A lines: never calculated (always 0 unless entered) and hidden wherever they are 0. */
-export const OPTIONAL_PART_A_KEYS = Object.freeze(["perf_incentive"]);
+/** Opt-in Part B lines: never calculated (always 0 unless entered) and hidden wherever they are 0. */
+export const OPTIONAL_PART_B_KEYS = Object.freeze(["perf_incentive"]);
 
 export const PART_B_KEYS = Object.freeze([
   "er_pf",
@@ -117,6 +116,7 @@ export const PART_B_KEYS = Object.freeze([
   "leave_encashment",
   "gratuity",
   "ex_gratia",
+  "perf_incentive",
 ]);
 
 export const DEDUCTION_KEYS = Object.freeze(["ee_pf", "pt", "ee_esic"]);
@@ -132,7 +132,6 @@ export const ANNEXURE_ROWS = Object.freeze([
   { key: "bonus", label: "Advance Against Statutory Bonus" },
   { key: "medical", label: "Medical Allowance" },
   { key: "special", label: "Special Allowance" },
-  { key: "perf_incentive", label: "Performance Incentive", optional: true },
   { key: "gross", label: "GROSS (PART A)", total: true },
   { key: "ee_pf", label: "Less: Employee PF" },
   { key: "pt", label: "Less: P.Tax" },
@@ -145,6 +144,7 @@ export const ANNEXURE_ROWS = Object.freeze([
   { key: "leave_encashment", label: "ADD: Leave Encashment" },
   { key: "gratuity", label: "ADD: Gratuity (As per Govt. Rules)" },
   { key: "ex_gratia", label: "ADD: Ex Gratia" },
+  { key: "perf_incentive", label: "ADD: Performance Incentive", optional: true },
   { key: "total_b", label: "Total (B)", total: true },
   { key: "ctc", label: "CTC (PART A + B)", total: true },
 ]);
@@ -355,7 +355,20 @@ export function statutoryFromBasic(rules, basic, status) {
   const ex_gratia = R(Math.min(b, Number(rules.EXGRATIA_CAP)) / 12);
   const total_b = er_pf + er_esic + mediclaim + leave_encashment + gratuity + ex_gratia;
 
-  return { ee_pf, pf_wage, pt, ee_esic, er_pf, er_esic, mediclaim, leave_encashment, gratuity, ex_gratia, total_b };
+  return {
+    ee_pf,
+    pf_wage,
+    pt,
+    ee_esic,
+    er_pf,
+    er_esic,
+    mediclaim,
+    leave_encashment,
+    gratuity,
+    ex_gratia,
+    perf_incentive: 0,
+    total_b,
+  };
 }
 
 /** Section 3.2 — full breakup from Monthly Gross. */
@@ -383,7 +396,7 @@ export function componentsFromGross(rules, { skill, status, gross }) {
     band,
     gross_input: g,
     band_medical: bandMedical,
-    parts: { basic, hra, conveyance, bonus, medical, special, perf_incentive: 0 },
+    parts: { basic, hra, conveyance, bonus, medical, special },
   });
 }
 

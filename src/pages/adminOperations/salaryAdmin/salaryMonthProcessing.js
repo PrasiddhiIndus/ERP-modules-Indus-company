@@ -728,7 +728,7 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
       parts.conveyance +
       parts.bonus +
       parts.medical +
-      perfIncentiveEarned +
+      (annexure?.perf_incentive_part_b ? 0 : perfIncentiveEarned) +
       extraEarnTotal;
     const diff = round0(target - sum);
     if (diff !== 0) {
