@@ -24,7 +24,7 @@ import {
   EXTRA_PART_B,
   EXTRA_PART_OPTIONS,
   INPUT_CTC,
-  OPTIONAL_PART_A_KEYS,
+  OPTIONAL_PART_B_KEYS,
   PART_A_KEYS,
   PART_B_KEYS,
   RETAIN_CTC,
@@ -89,12 +89,12 @@ const COMPONENT_LABELS = {
 };
 
 const PERF_INCENTIVE = "perf_incentive";
-const STANDARD_PART_A_KEYS = PART_A_KEYS.filter((k) => !OPTIONAL_PART_A_KEYS.includes(k));
+const STANDARD_PART_B_KEYS = PART_B_KEYS.filter((k) => !OPTIONAL_PART_B_KEYS.includes(k));
 
 const CUSTOM_GROUPS = [
-  { title: "Part A (Gross)", keys: STANDARD_PART_A_KEYS },
+  { title: "Part A (Gross)", keys: PART_A_KEYS },
   { title: "Deductions", keys: DEDUCTION_KEYS },
-  { title: "Part B (employer cost)", keys: PART_B_KEYS },
+  { title: "Part B (employer cost)", keys: STANDARD_PART_B_KEYS },
 ];
 
 function money(v) {
@@ -352,7 +352,8 @@ function ManualComponentEntry({
         blank to calculate it from Basic as usual.
       </p>
       {CUSTOM_GROUPS.map((group) => {
-        const isPartA = group.keys === STANDARD_PART_A_KEYS;
+        const isPartA = group.keys === PART_A_KEYS;
+        const isPartB = group.keys === STANDARD_PART_B_KEYS;
         return (
           <div key={group.title} className="space-y-1.5">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">{group.title}</p>
@@ -378,7 +379,7 @@ function ManualComponentEntry({
                 </label>
               );
             })}
-            {isPartA ? (
+            {isPartB ? (
               <div className="flex items-center justify-between gap-2 min-h-[1.75rem]">
                 <label className="inline-flex items-center gap-1.5 text-ink-secondary cursor-pointer">
                   <input
