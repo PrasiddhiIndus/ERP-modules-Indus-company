@@ -54,6 +54,7 @@ function withEmployeeDetails(slip, emp) {
     designation: text(slip.designation) || text(emp?.designation),
     department: text(slip.department) || text(emp?.department),
     date_of_joining: slip.date_of_joining || emp?.date_of_joining || null,
+    confirmation_date: slip.confirmation_date || emp?.confirmation_date || null,
     work_location: text(slip.work_location) || text(emp?.location) || undefined,
     uan_number: text(slip.uan_number) || text(slip.uan_no) || text(emp?.uan_no),
     esic_number: text(slip.esic_number) || text(slip.esic_no) || text(emp?.esic_no),

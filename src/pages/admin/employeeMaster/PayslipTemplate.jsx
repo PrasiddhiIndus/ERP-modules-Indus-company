@@ -245,6 +245,7 @@ export default function PayslipTemplate({
           <MetaPanel title="Employee details" borderRight>
             <MetaRow label="Department" value={payslip.department || "—"} />
             <MetaRow label="Date of joining" value={formatLongDate(payslip.date_of_joining)} />
+            <MetaRow label="Confirmation date" value={formatLongDate(payslip.confirmation_date)} />
             <MetaRow label="Work location" value={workLocation} />
           </MetaPanel>
           <MetaPanel title="Statutory & bank" borderRight>

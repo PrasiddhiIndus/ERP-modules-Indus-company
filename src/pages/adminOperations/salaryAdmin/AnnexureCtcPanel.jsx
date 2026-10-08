@@ -989,7 +989,6 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
           <Fact label="Segment">{segment}</Fact>
           <Fact label="DOB">{fmtDate(employee.date_of_birth)}</Fact>
           <Fact label="DOJ">{fmtDate(employee.date_of_joining)}</Fact>
-          <Fact label="Confirmation Date">{fmtDate(employee.confirmation_date)}</Fact>
         </div>
       </SectionCard>
 
