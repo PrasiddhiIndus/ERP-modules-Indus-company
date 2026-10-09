@@ -325,8 +325,10 @@ if (!clean) {
 }
 await db.exec(readMigration(WEEKLY_OFF_WIRE_MIGRATION));
 const catalogue = (await db.query(`SELECT * FROM public.admin_attendance_rules WHERE rule_key LIKE 'wo.%' ORDER BY rule_key`)).rows.map(normalizeRule);
-check("wired and visible: the four weekly-off rules",
-  catalogue.filter((r) => r.is_wired && isRuleVisible(r)).map((r) => r.rule_key), ["wo.auto", "wo.auto_holiday", "wo.custom_days", "wo.pattern"]);
+check("wired: the four weekly-off rules",
+  catalogue.filter((r) => r.is_wired).map((r) => r.rule_key), ["wo.auto", "wo.auto_holiday", "wo.custom_days", "wo.pattern"]);
+check("on the console page: only the auto-WO switch (the rest is in Employee Master)",
+  catalogue.filter((r) => r.is_wired && isRuleVisible(r)).map((r) => r.rule_key), ["wo.auto"]);
 check("old 3rd-Saturday rule retired and hidden",
   catalogue.filter((r) => r.rule_key === "wo.third_saturday_off").map((r) => [r.is_wired, r.retired, isRuleVisible(r)]), [[false, true, false]]);
 

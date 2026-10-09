@@ -21,6 +21,7 @@ import {
   filterOvertimeRows,
   LATE_PUNCH_IN_THRESHOLD,
 } from "../../lib/attendanceReports";
+import { ensureAttendanceRulesLoaded } from "../../lib/attendanceRules";
 import { toast } from "../../lib/toast";
 
 const REPORT_TABS = [
@@ -32,7 +33,7 @@ const REPORT_TABS = [
 
 const ATTENDANCE_REPORT_TYPES = [
   { id: "daily", label: "Daily attendance summary" },
-  { id: "late-9", label: "Late punch in (after 9:00)" },
+  { id: "late-9", label: "Late punch in (after shift start)" },
   { id: "overtime", label: "Overtime (>9h worked)" },
   { id: "custom", label: "Custom report builder" },
 ];
@@ -211,6 +212,7 @@ export default function AdminOpsReports() {
           empCode: code || "ALL",
         }),
         fetchActiveEmployees(supabase),
+        ensureAttendanceRulesLoaded(supabase),
       ]);
       const paired = pairPunchesToDailyRows(punches);
       const enriched = attachMasterFields(paired, employees);
@@ -309,7 +311,7 @@ export default function AdminOpsReports() {
       },
     ];
     if (attendanceReportType === "late-9") {
-      return [...base, { key: "lateInAfter9", label: "Late (after 9:00)" }];
+      return [...base, { key: "lateInAfter9", label: "Late (after shift start)" }];
     }
     if (attendanceReportType === "overtime") {
       return [...base, { key: "overtime", label: "Overtime" }];
@@ -456,7 +458,7 @@ export default function AdminOpsReports() {
             <div className="flex flex-wrap gap-3 text-[11px]">
               <label className="inline-flex items-center gap-1.5">
                 <input type="checkbox" checked={customLateOnly} onChange={(e) => setCustomLateOnly(e.target.checked)} />
-                Late in only (after {LATE_PUNCH_IN_THRESHOLD})
+                Late in only (after shift start)
               </label>
               <label className="inline-flex items-center gap-1.5">
                 <input
@@ -519,8 +521,8 @@ export default function AdminOpsReports() {
 
         {activeTab === "employee" && attendanceReportType === "late-9" ? (
           <p className="mt-2 text-[11px] text-gray-600">
-            Flags employees whose <strong>first punch (Punch in)</strong> is after {LATE_PUNCH_IN_THRESHOLD} on that day.
-            Data from <code className="text-[10px]">erp_attendance_punches</code>.
+            Flags employees whose <strong>first punch (Punch in)</strong> is after their shift start plus grace period
+            (Rules Console → Attendance; {LATE_PUNCH_IN_THRESHOLD} unless changed).
           </p>
         ) : null}
         {activeTab === "employee" && attendanceReportType === "overtime" ? (

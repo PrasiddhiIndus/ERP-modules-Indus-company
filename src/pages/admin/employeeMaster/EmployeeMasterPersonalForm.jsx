@@ -33,6 +33,35 @@ import {
 } from './employeeMasterFormShared';
 import { syncScopeDraftBankFromMaster } from '../../adminOperations/salaryAdmin/salaryMonthProcessing';
 import { toast } from '../../../lib/toast';
+import {
+  DEFAULT_ATTENDANCE_FLAGS,
+  attendanceFlagsChanged,
+  fetchEmployeeAttendanceFlags,
+  saveEmployeeAttendanceFlags,
+} from '../../../lib/employeeAttendanceFlags';
+
+const ATTENDANCE_FLAG_FIELDS = [
+  {
+    key: 'has_weekly_off',
+    label: 'Has weekly off',
+    help: 'Untick for staff who work every day: no WO is filled in and Sundays / 3rd Saturdays are working days.',
+  },
+  {
+    key: 'earns_co',
+    label: 'Earns C/O',
+    help: 'Untick to stop C/O on every day, including holidays and days marked WO.',
+  },
+  {
+    key: 'co_expires',
+    label: 'C/O expires',
+    help: 'Ticked: C/O expires 2 months after the day it was earned. Untick so C/O never expires, including unused C/O already earned.',
+  },
+  {
+    key: 'has_holidays',
+    label: 'Has NH/PH',
+    help: 'Untick so national / public holidays do not apply; a punch that day counts as a normal working day.',
+  },
+];
 
 const BANK_FIELD_KEYS = ['uan_no', 'esic_no', 'bank_name', 'bank_account_no', 'ifsc_code'];
 
@@ -97,6 +126,52 @@ export default function EmployeeMasterPersonalForm({
   const [formData, setFormData] = useState(() => initFormData(employee, employees));
   const [saving, setSaving] = useState(false);
   const bankDirtyRef = useRef({});
+  const [attendanceFlags, setAttendanceFlags] = useState(DEFAULT_ATTENDANCE_FLAGS);
+  const [savedAttendanceFlags, setSavedAttendanceFlags] = useState(DEFAULT_ATTENDANCE_FLAGS);
+  const [attendanceFlagsStatus, setAttendanceFlagsStatus] = useState(employee ? 'loading' : 'ready');
+
+  useEffect(() => {
+    let cancelled = false;
+    const code = String(employee?.employee_code || '').trim();
+    if (!code) {
+      setAttendanceFlags(DEFAULT_ATTENDANCE_FLAGS);
+      setSavedAttendanceFlags(DEFAULT_ATTENDANCE_FLAGS);
+      setAttendanceFlagsStatus('ready');
+      return undefined;
+    }
+    setAttendanceFlagsStatus('loading');
+    void fetchEmployeeAttendanceFlags(supabase, code).then((flags) => {
+      if (cancelled) return;
+      if (!flags) {
+        setAttendanceFlagsStatus('unavailable');
+        return;
+      }
+      setAttendanceFlags(flags);
+      setSavedAttendanceFlags(flags);
+      setAttendanceFlagsStatus('ready');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [employee?.id, employee?.employee_code]);
+
+  /** After the employee row is saved; a failure here keeps the employee saved and says so. */
+  const saveAttendanceFlagsFor = async (employeeCode) => {
+    if (attendanceFlagsStatus !== 'ready') return;
+    if (!attendanceFlagsChanged(savedAttendanceFlags, attendanceFlags)) return;
+    try {
+      const next = await saveEmployeeAttendanceFlags(
+        supabase,
+        employeeCode,
+        savedAttendanceFlags,
+        attendanceFlags,
+      );
+      setAttendanceFlags(next);
+      setSavedAttendanceFlags(next);
+    } catch (err) {
+      toast.warning(`Employee saved, but attendance settings were not: ${err.message}`);
+    }
+  };
 
   useEffect(() => {
     setFormData(initFormData(employee, employees));
@@ -299,6 +374,7 @@ export default function EmployeeMasterPersonalForm({
           console.warn('[hierarchy-sync] Indus One sync after employee update:', syncErr?.message || syncErr);
         }
         const saved = updatedRow || { ...employee, ...payload };
+        await saveAttendanceFlagsFor(saved.employee_code || formData.employee_code);
         syncScopeDraftBankFromMaster(saved.id || employee.id, {
           account_no: saved.bank_account_no,
           ifsc: saved.ifsc_code,
@@ -357,6 +433,7 @@ export default function EmployeeMasterPersonalForm({
         } catch (syncErr) {
           console.warn('[hierarchy-sync] Indus One sync after employee create:', syncErr?.message || syncErr);
         }
+        await saveAttendanceFlagsFor(insertedRow?.employee_code || formData.employee_code);
         toast.success('Employee added.');
         if (insertedRow?.id) {
           syncScopeDraftBankFromMaster(insertedRow.id, {
@@ -663,6 +740,41 @@ export default function EmployeeMasterPersonalForm({
             />
           </div>
         </div>
+      </section>
+
+      {/* Attendance & C/O */}
+      <section className={section}>
+        <h3 className={sectionTitle}>Attendance &amp; C/O</h3>
+        {attendanceFlagsStatus === 'unavailable' ? (
+          <p className="text-xs text-gray-500">
+            Attendance settings are not available on this server yet. Ask IT to apply the latest database update.
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-2">
+              {ATTENDANCE_FLAG_FIELDS.map((field) => (
+                <label key={field.key} className="flex items-start gap-2 text-xs text-gray-700">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={Boolean(attendanceFlags[field.key])}
+                    disabled={attendanceFlagsStatus !== 'ready'}
+                    onChange={(e) =>
+                      setAttendanceFlags((prev) => ({ ...prev, [field.key]: e.target.checked }))
+                    }
+                  />
+                  <span>
+                    <span className="font-medium text-gray-800">{field.label}</span>
+                    <span className="block text-[11px] text-gray-500">{field.help}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="text-[11px] text-gray-500">
+              Changes apply from today. Ticking again returns the employee to the department&apos;s usual setting.
+            </p>
+          </>
+        )}
       </section>
 
       {/* Personal */}

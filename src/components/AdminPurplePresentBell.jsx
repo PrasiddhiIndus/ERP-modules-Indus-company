@@ -1,5 +1,6 @@
 import { ROLES, normalizeAppRole } from "../config/roles";
 import {
+  attendanceTimesFor,
   buildPunchLookupByEmpDate,
   isPurplePresentPunch,
 } from "../lib/attendanceDaily";
@@ -78,14 +79,14 @@ export function isAdminModuleUser(accessibleModules, profile = null) {
   return false;
 }
 
-function purpleReason({ punchIn, punchOut }) {
+function purpleReason({ punchIn, punchOut }, times) {
   const inMin = punchIn || "";
   const outMin = punchOut || "";
   const parts = [];
-  if (inMin >= "12:00" && inMin <= "15:00") {
+  if (inMin && inMin >= times.purpleFirstFrom && inMin <= times.purpleFirstTo) {
     parts.push(`first punch ${inMin}`);
   }
-  if (outMin && outMin < "12:00") {
+  if (outMin && outMin < times.purpleLastBefore) {
     parts.push(`last punch ${outMin}`);
   }
   return parts.join(" · ") || "unusual punch window";
@@ -105,10 +106,11 @@ export function buildPurplePresentNotifications({
   for (const [key, info] of lookup.entries()) {
     const [empCode, date] = String(key).split("|");
     if (!empCode || !date || date < from || date > to) continue;
-    if (!isPurplePresentPunch({ punchIn: info?.punchIn, punchOut: info?.punchOut })) continue;
+    const punch = { punchIn: info?.punchIn, punchOut: info?.punchOut };
+    if (!isPurplePresentPunch(punch, { employeeCode: empCode, onDate: date })) continue;
 
     const name = employeeNameByCode?.[empCode] || empCode;
-    const reason = purpleReason({ punchIn: info.punchIn, punchOut: info.punchOut });
+    const reason = purpleReason(punch, attendanceTimesFor({ employeeCode: empCode, onDate: date }));
     notifications.push({
       key: `purple-p:${empCode}:${date}:${info.punchIn || ""}:${info.punchOut || ""}`,
       at: `${date}T${info.punchOut || info.punchIn || "12:00"}:00`,

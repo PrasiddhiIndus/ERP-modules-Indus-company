@@ -11,13 +11,14 @@ import {
   isManualMarkSource,
   isPunchMarkSource,
   isTourMarkSource,
-  isPurplePresentPunch,
+  isPurplePresentPunch as isPurplePresentPunchWithin,
   marksByEmpDayFromRegisterDbRows,
   punchesToPresentRegisterRows,
   registerDateRangeFromRows,
 } from "../../shared/attendanceRegisterSync.mjs";
 import { timeToMinutes } from "../../shared/attendancePunchSync.mjs";
 import {
+  attendanceTimesFor,
   ensureAttendanceRulesLoaded,
   isAutoHolidayFor,
   isAutoWeeklyOffDay,
@@ -26,7 +27,21 @@ import {
   isWeeklyOffDay,
 } from "./attendanceRules";
 
-export { timeToMinutes, isPurplePresentPunch };
+export { timeToMinutes, attendanceTimesFor };
+
+/**
+ * Purple P from the day's first / last punch. With `employeeCode` (and optionally `department`,
+ * `onDate`) the employee's Rules Console timings apply; otherwise the built-in times.
+ */
+export function isPurplePresentPunch(punch = {}, { employeeCode = null, department = null, onDate = null } = {}) {
+  if (!employeeCode) return isPurplePresentPunchWithin(punch);
+  const t = attendanceTimesFor({ employeeCode, department, onDate });
+  return isPurplePresentPunchWithin(punch, {
+    firstFrom: t.purpleFirstFrom,
+    firstTo: t.purpleFirstTo,
+    lastBefore: t.purpleLastBefore,
+  });
+}
 
 export const REGISTER_MARK_SOURCE_AUTO_WO = "auto_wo";
 export const REGISTER_MARK_SOURCE_AUTO_HOLIDAY = "auto_holiday";
@@ -1685,7 +1700,9 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
       const iso = monthKey ? registerDateFromDay(monthKey, day) : null;
       const existing = next[code][day];
       const punchKey = iso ? `${normalizeAttendanceEmpCode(code)}|${iso}` : null;
-      const hasPunch = Boolean(punchKey && presentKeys.has(punchKey));
+      const hasPunch =
+        Boolean(punchKey && presentKeys.has(punchKey)) &&
+        attendanceTimesFor({ employeeCode: code, onDate: iso }).punchOverridesLeave;
       const existingIsHd = existing === "HD";
       const composite = compositeHalfDayLeaveMark(canonical);
 
@@ -2816,7 +2833,12 @@ export async function syncRegisterMarksFromPunches(supabase, punches, options = 
   // Default true: punch sync overwrites leave marks but never manual HR entries.
   const { respectManualMarks = true, fromDate: fromOverride, toDate: toOverride } = options;
   const masterCodeMap = options.masterCodeMap ?? null;
-  const candidateRows = punchesToPresentRegisterRows(punches).map((row) => ({
+  await ensureAttendanceRulesLoaded(supabase);
+  const departmentByCode = options.departmentByCode ?? null;
+  const candidateRows = punchesToPresentRegisterRows(punches, {
+    timesFor: (employeeCode, onDate) =>
+      attendanceTimesFor({ employeeCode, department: departmentByCode?.[employeeCode] ?? null, onDate }),
+  }).map((row) => ({
     ...row,
     employee_code: toRegisterDbEmployeeCode(row.employee_code, masterCodeMap),
   }));
@@ -3890,11 +3912,11 @@ export function enumerateLeaveDatesWithSandwich(fromDate, toDate) {
   });
 }
 
-export function comparePunchInStatus(punchIn, expectedIn) {
+export function comparePunchInStatus(punchIn, expectedIn, graceMinutes = 0) {
   const inMin = timeToMinutes(punchIn);
   const expMin = timeToMinutes(expectedIn);
   if (inMin == null || expMin == null) return "—";
-  return inMin > expMin ? "Late" : "On time";
+  return inMin > expMin + (Number(graceMinutes) || 0) ? "Late" : "On time";
 }
 
 export function comparePunchOutStatus(punchOut, expectedOut) {
@@ -3960,7 +3982,8 @@ function pickInOutTimes(sortedPunches) {
   return { punchIn, punchOut, workedMinutes, incomplete, remarks };
 }
 
-export function pairPunchesToDailyRows(punches, { expectedIn = "09:00", expectedOut = "18:00" } = {}) {
+/** Without `expectedIn` / `expectedOut`, each employee's shift times and grace from the Rules Console apply. */
+export function pairPunchesToDailyRows(punches, { expectedIn = null, expectedOut = null, graceMinutes = null } = {}) {
   const groups = new Map();
 
   for (const punch of punches) {
@@ -3986,6 +4009,10 @@ export function pairPunchesToDailyRows(punches, { expectedIn = "09:00", expected
     const sorted = sortPunchesByTime(g.punches);
     const { punchIn, punchOut, workedMinutes, incomplete, remarks } = pickInOutTimes(sorted);
     const punchCount = sorted.length;
+    const shift =
+      expectedIn && expectedOut && graceMinutes != null
+        ? null
+        : attendanceTimesFor({ employeeCode: g.empCode, onDate: g.punchDate });
 
     rows.push({
       id: `${g.empCode}|${g.punchDate}`,
@@ -3998,8 +4025,12 @@ export function pairPunchesToDailyRows(punches, { expectedIn = "09:00", expected
       workedMinutes,
       workedHours: formatWorkedMinutes(workedMinutes),
       present: "Yes",
-      punchInStatus: comparePunchInStatus(punchIn, expectedIn),
-      punchOutStatus: comparePunchOutStatus(punchOut, expectedOut),
+      punchInStatus: comparePunchInStatus(
+        punchIn,
+        expectedIn || shift.shiftStart,
+        graceMinutes ?? shift?.graceMinutes ?? 0
+      ),
+      punchOutStatus: comparePunchOutStatus(punchOut, expectedOut || shift.shiftEnd),
       punchCount,
       remarks: remarks.join("; ") || (incomplete ? "Incomplete" : ""),
       department: "",

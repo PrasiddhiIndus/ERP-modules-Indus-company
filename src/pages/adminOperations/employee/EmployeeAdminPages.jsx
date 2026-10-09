@@ -28,6 +28,7 @@ import {
   fetchRawPunchesDailySummaryPage,
 } from "../../../lib/attendanceReports";
 import { pairPunchesToDailyRows } from "../../../lib/attendanceDaily";
+import { ensureAttendanceRulesLoaded } from "../../../lib/attendanceRules";
 import {
   ATTENDANCE_PUNCH_TABLE,
   ATTENDANCE_UPSERT_CHUNK,
@@ -475,6 +476,7 @@ export function EmployeeAttendanceInputsPage() {
             toDate: selectedDate,
             empCode: codeFilter,
           }),
+          ensureAttendanceRulesLoaded(supabase),
         ]);
         setRows(enrichRawPunchesWithDayInOut(result.rows, pairPunchesToDailyRows(allForDay)));
         setTotalCount(result.total);
