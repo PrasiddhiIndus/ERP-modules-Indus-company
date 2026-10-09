@@ -412,6 +412,18 @@ function ValueInput({ rule, value, onChange, allowInherit, inheritLabel, error, 
     <Field id={id} label="Value" required error={error} hint={hint}>
       {rule.value_type === "date" ? (
         <FormDateInput id={id} value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} aria-label="Value" />
+      ) : rule.value_type === "time" ? (
+        <input
+          id={id}
+          type="time"
+          step={60}
+          className={`${inputClass} w-32`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          aria-describedby={aria}
+          aria-invalid={Boolean(error)}
+          disabled={disabled}
+        />
       ) : (
         <div className="flex items-center gap-2">
           <input

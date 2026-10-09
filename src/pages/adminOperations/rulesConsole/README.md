@@ -150,7 +150,7 @@ until it is. "Hidden" rules replace an older key and stay hidden until wired.
 | `co.expiry_mode` (hidden) | select: months / never | months | C D G E | Phase 2C |
 | `co.sunday_pod_only` | boolean | No (Yes for Production, Production-FTC, Production-Neotech, R&M) | C D | `indus_one.comp_off_sunday_pod_only_employee()` ← `comp_off_try_earn_credit` |
 | `co.third_saturday_earns` | boolean | Yes (No for the same four departments) | C D | `indus_one.comp_off_third_saturday_excluded_employee()` ← `comp_off_is_earning_day` |
-| `co.earn` | boolean | Yes | C D G E | Phase 2B |
+| `co.earn` | boolean | Yes | C D G E | Wired (160000) |
 | `co.earn_basis` | select: any present / punch only / P(OD) only | any present | C D G E | Phase 2B |
 | `co.sunday_basis` (hidden, replaces `co.sunday_pod_only`) | select: general / any / punch / P(OD) / none | general | C D G E | Phase 2B |
 | `co.third_saturday_basis` (hidden, replaces `co.third_saturday_earns`) | select, as above | general | C D G E | Phase 2B |
@@ -175,6 +175,45 @@ existed. It accepts either schema version, so the page keeps working whether or 
 - `npm run rules:check:2a` — Phase 2A: identical C/O engine, `regression.sql`, and register results (weekly off per
   employee × day, grid, totals, sync writes) before and after 140000; SQL ↔ browser parity; wiring; a Dahej HR month
   with no weekly off (punch, leave, tour and a holiday on Sundays); everyone else unchanged; rollback.
+- `npm run rules:check:flags` — Employee Master checkboxes (160000): identical C/O results until a box is unticked,
+  access, each checkbox's effect on weekly off / holidays / C/O, ticking again returns to the department value,
+  others unchanged, rollback.
+
+## Employee Master checkboxes
+
+`20261008160000_employee_attendance_flags.sql` (rollback in `supabase/rollbacks/`). The Employee Master personal form
+has **Has weekly off**, **Earns C/O** and **Has NH/PH**. They are not separate columns: each one reads and writes an
+employee-level value of `wo.pattern` (`none`), `co.earn` (`false`) and `wo.auto_holiday` (`false`), so the console and
+the form always agree. Ticking again saves an "inherit" row (back to the department / company value). Changes apply
+from today; past days and existing C/O credits are untouched. This migration also wires `co.earn`
+(`admin_rule_earns_co`, checked in `indus_one.comp_off_try_earn_credit` for every credit path).
+
+`20261008170000_employee_co_expiry_flag.sql` adds **C/O expires** (employee-level `co.expiry_mode` = `never` when
+unticked) and wires `co.expiry_mode`: an insert trigger on the C/O ledger stores expiry 9999-12-31 for new C/O, and
+saving from Employee Master also moves the employee's unused, not-yet-expired C/O to "never" (or back to earned date +
+`co.expiry_months` when ticked again). A department / group value set in the console applies to newly earned C/O only.
+
+## Attendance rules (wired in 180000)
+
+`20261008180000_admin_rules_attendance_wire.sql` (rollback in `supabase/rollbacks/`) makes the eight `att.*` rules
+editable at company, department, group and employee level. Starting values are the times used before, so nothing
+changes until a value is edited. Browser: `attendanceTimesFor()` in `src/lib/attendanceRules.js` (department looked
+up from Employee Master when the caller has none):
+
+- `att.half_day_cutoff`, `att.purple_last_before` → marks written from punches (`punchesToPresentRegisterRows`).
+- `att.purple_first_from` / `_to` / `att.purple_last_before` → purple P in the register grid and the purple P alerts.
+- `att.shift_start`, `att.shift_end`, `att.grace_minutes` → punch in Late / punch out Early (`pairPunchesToDailyRows`):
+  raw punches screen, late report, register Excel export.
+- `att.punch_overrides_leave` → SQL `indus_one.admin_leave_date_punch_priority` (leave → register, balance deduction,
+  cancel / reject) and the register leave overlay. Off = approved leave stays even when the employee punched.
+
+Values are read for the day itself, and changes start today or later, so earlier days keep their old result. Punch
+P / HD marks for days from the start date are re-derived the next time the register syncs punches; manual, leave and
+tour marks are not touched. Check: `npm run rules:check:attendance`.
+
+These rules are not shown on the console page (`EMPLOYEE_MASTER_RULE_KEYS` in `rulesApi.js`): `wo.pattern`,
+`wo.custom_days`, `wo.auto_holiday`, `co.earn`, `co.expiry_mode`. Their saved values — including the department
+weekly-off patterns — are unchanged and still read by the register and the C/O engine.
 - `scripts/rulesConsole/regression.sql` — read-only snapshot for production. Run before and after applying a
   migration; every row must match.
 - `scripts/rulesConsole/regression-weekly-off.sql` — read-only; after 140000, compares the new weekly-off rule with the

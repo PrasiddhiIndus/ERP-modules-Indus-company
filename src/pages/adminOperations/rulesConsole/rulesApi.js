@@ -59,8 +59,21 @@ export function normalizeRule(row) {
   };
 }
 
-/** Rules that belong on the page: hide retired rules and unwired replacements. */
+/**
+ * Managed per employee from Employee Master ("Has weekly off", "Has NH/PH", "Earns C/O", "C/O expires").
+ * Saved values, including department weekly-off patterns, keep applying.
+ */
+export const EMPLOYEE_MASTER_RULE_KEYS = Object.freeze([
+  "wo.pattern",
+  "wo.custom_days",
+  "wo.auto_holiday",
+  "co.earn",
+  "co.expiry_mode",
+]);
+
+/** Rules that belong on the page: hide retired rules, unwired replacements and Employee Master rules. */
 export function isRuleVisible(rule) {
+  if (EMPLOYEE_MASTER_RULE_KEYS.includes(rule.rule_key)) return false;
   if (rule.retired) return false;
   if (rule.hidden_until_wired && !rule.is_wired) return false;
   return true;

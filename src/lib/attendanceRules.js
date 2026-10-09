@@ -31,7 +31,27 @@ export const RULE_KEYS = {
   coExpiryMonths: "co.expiry_months",
   coSundayPodOnly: "co.sunday_pod_only",
   coThirdSaturdayEarns: "co.third_saturday_earns",
+  attHalfDayCutoff: "att.half_day_cutoff",
+  attPurpleFirstFrom: "att.purple_first_from",
+  attPurpleFirstTo: "att.purple_first_to",
+  attPurpleLastBefore: "att.purple_last_before",
+  attShiftStart: "att.shift_start",
+  attShiftEnd: "att.shift_end",
+  attGraceMinutes: "att.grace_minutes",
+  attPunchOverridesLeave: "att.punch_overrides_leave",
 };
+
+/** Built-in attendance timings (same as before the Rules Console). */
+export const DEFAULT_ATTENDANCE_TIMES = Object.freeze({
+  halfDayCutoff: "13:00",
+  purpleFirstFrom: "12:00",
+  purpleFirstTo: "15:00",
+  purpleLastBefore: "12:00",
+  shiftStart: "09:00",
+  shiftEnd: "18:00",
+  graceMinutes: 0,
+  punchOverridesLeave: true,
+});
 
 const SETUP_DATE = "2000-01-01";
 
@@ -237,6 +257,7 @@ export function setRulesSnapshot(next) {
   snapshot = values.length
     ? { values, groups: next.groups || [], members: next.members || [] }
     : DEFAULT_SNAPSHOT;
+  if (next?.departments) setEmployeeDepartments(next.departments);
   loadedAt = Date.now();
 }
 
@@ -244,16 +265,38 @@ export function setCachedRuleRows(rows) {
   setRulesSnapshot({ values: rows, groups: snapshot.groups, members: snapshot.members });
 }
 
+let departmentByEmployee = new Map();
+
+/** Employee code → department (Employee Master), used when a caller has no department at hand. */
+export function setEmployeeDepartments(rows) {
+  const next = new Map();
+  for (const row of rows || []) {
+    const key = ruleEmployeeKey(row?.employee_code);
+    if (key && row?.department) next.set(key, row.department);
+  }
+  departmentByEmployee = next;
+}
+
+function employeeDepartment(employeeCode) {
+  const key = ruleEmployeeKey(employeeCode);
+  return key ? departmentByEmployee.get(key) ?? null : null;
+}
+
 export function resetAttendanceRulesCache() {
   snapshot = DEFAULT_SNAPSHOT;
+  departmentByEmployee = new Map();
   loadedAt = 0;
   inflight = null;
 }
 
 async function optionalRows(query) {
-  const { data, error } = await query;
-  if (error) return [];
-  return data || [];
+  try {
+    const { data, error } = await query;
+    if (error) return [];
+    return data || [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -268,10 +311,12 @@ export async function ensureAttendanceRulesLoaded(supabase, { force = false } = 
     try {
       const { data, error } = await supabase.from(RULE_VALUES_TABLE).select("*");
       if (error) throw error;
-      const [groups, members] = await Promise.all([
+      const [groups, members, departments] = await Promise.all([
         optionalRows(supabase.from(RULE_GROUPS_TABLE).select("*")),
         optionalRows(supabase.from(RULE_GROUP_MEMBERS_TABLE).select("group_id,employee_code")),
+        optionalRows(supabase.from("admin_ifsp_employee_master").select("employee_code,department")),
       ]);
+      if (departments.length) setEmployeeDepartments(departments);
       if (data?.length) setRulesSnapshot({ values: data, groups, members });
       else loadedAt = Date.now();
     } catch (err) {
@@ -288,6 +333,36 @@ export async function ensureAttendanceRulesLoaded(supabase, { force = false } = 
 /** Resolved value for an employee from the cached snapshot. */
 export function getRuleForEmployee(ruleKey, { employeeCode = null, department = null, onDate = null, fallback = null } = {}) {
   return resolveRuleDetail(snapshot, ruleKey, { employeeCode, department, onDate, fallback }).value;
+}
+
+function timeRule(ruleKey, ctx, fallback) {
+  const value = String(getRuleForEmployee(ruleKey, { ...ctx, fallback }) ?? "").slice(0, 5);
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : fallback;
+}
+
+/**
+ * Attendance timings for one employee on a date (Rules Console "Attendance" rules).
+ * The department is looked up from Employee Master when not given.
+ */
+export function attendanceTimesFor({ employeeCode = null, department = null, onDate = null } = {}) {
+  const d = DEFAULT_ATTENDANCE_TIMES;
+  const ctx = {
+    employeeCode,
+    department: department || employeeDepartment(employeeCode),
+    onDate: onDate ? String(onDate).slice(0, 10) : null,
+  };
+  const grace = Number(getRuleForEmployee(RULE_KEYS.attGraceMinutes, { ...ctx, fallback: d.graceMinutes }));
+  return {
+    halfDayCutoff: timeRule(RULE_KEYS.attHalfDayCutoff, ctx, d.halfDayCutoff),
+    purpleFirstFrom: timeRule(RULE_KEYS.attPurpleFirstFrom, ctx, d.purpleFirstFrom),
+    purpleFirstTo: timeRule(RULE_KEYS.attPurpleFirstTo, ctx, d.purpleFirstTo),
+    purpleLastBefore: timeRule(RULE_KEYS.attPurpleLastBefore, ctx, d.purpleLastBefore),
+    shiftStart: timeRule(RULE_KEYS.attShiftStart, ctx, d.shiftStart),
+    shiftEnd: timeRule(RULE_KEYS.attShiftEnd, ctx, d.shiftEnd),
+    graceMinutes: Number.isFinite(grace) && grace >= 0 ? grace : d.graceMinutes,
+    punchOverridesLeave:
+      getRuleForEmployee(RULE_KEYS.attPunchOverridesLeave, { ...ctx, fallback: true }) !== false,
+  };
 }
 
 export const WEEKLY_OFF_PATTERNS = ["sun_3rd_sat", "sun_only", "none", "custom"];

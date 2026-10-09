@@ -13,6 +13,7 @@ import {
   fetchAttendancePunchesInRange,
   normalizeAttendanceEmpCode,
 } from '../lib/attendanceDaily';
+import { ensureAttendanceRulesLoaded } from '../lib/attendanceRules';
 
 import {
   COMMERCIAL_MODULE_PROJECTS,
@@ -253,6 +254,7 @@ const PoApprovalBell = () => {
       const [punches, employees] = await Promise.all([
         fetchAttendancePunchesInRange(supabase, { fromDate, toDate }),
         fetchActiveEmployees(supabase),
+        ensureAttendanceRulesLoaded(supabase),
       ]);
       const names = {};
       for (const e of employees || []) {

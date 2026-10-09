@@ -244,6 +244,10 @@ describe("console catalogue", () => {
     expect(isRuleVisible(normalizeRule({ hidden_until_wired: true, is_wired: true }))).toBe(true);
     expect(isRuleVisible(normalizeRule({ retired: true, is_wired: true }))).toBe(false);
     expect(isRuleVisible(normalizeRule({ is_wired: false }))).toBe(true);
+    for (const key of ["wo.pattern", "wo.custom_days", "wo.auto_holiday", "co.earn", "co.expiry_mode"]) {
+      expect(isRuleVisible(normalizeRule({ rule_key: key, is_wired: true }))).toBe(false);
+    }
+    expect(isRuleVisible(normalizeRule({ rule_key: "co.expiry_months", is_wired: true }))).toBe(true);
   });
 
   it("formats the new value types", () => {

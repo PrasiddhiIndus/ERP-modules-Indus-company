@@ -18,6 +18,8 @@
     "test:smoke": "vitest run tests/smoke.test.js",
     "rules:check": "node scripts/rulesConsole/phase1-check.mjs",
     "rules:check:2a": "vite-node scripts/rulesConsole/phase2a-check.mjs",
+    "rules:check:flags": "node scripts/rulesConsole/employee-flags-check.mjs",
+    "rules:check:attendance": "node scripts/rulesConsole/attendance-wire-check.mjs",
     "preview": "vite preview",
     "supabase:consolidate-migrations": "node scripts/consolidate-migrations.mjs"
   },

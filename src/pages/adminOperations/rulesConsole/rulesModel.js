@@ -127,6 +127,7 @@ export function parseFormValue(rule, raw) {
   if (rule.value_type === "multi_number") {
     return String(raw ?? "").split(",").filter((s) => s !== "").map(Number).sort((a, b) => a - b);
   }
+  if (rule.value_type === "time") return String(raw ?? "").trim().slice(0, 5);
   return String(raw ?? "").trim();
 }
 
@@ -152,6 +153,8 @@ export function validateRuleEdit(rule, { department, value, effectiveFrom, reaso
     }
   } else if (rule.value_type === "date" && !isIsoDate(value)) {
     errors.value = "Enter a valid date.";
+  } else if (rule.value_type === "time" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(value))) {
+    errors.value = "Enter a time as HH:MM.";
   } else if (rule.value_type === "select" && !(rule.options || []).some((o) => o.value === value)) {
     errors.value = "Choose one of the options.";
   } else if (
