@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { Download } from "lucide-react";
@@ -8,6 +8,8 @@ import { Modal } from "../../adminOperations/components/AdminUi";
 import { downloadBlob } from "../../../lib/exportNodeToPdf";
 import PayslipTemplate from "./PayslipTemplate";
 import { toast } from "../../../lib/toast";
+import { supabase } from "../../../lib/supabase";
+import { fetchLwpDaysForSlip } from "../../../lib/payslipLwp";
 
 const A4_W_MM = 210;
 const A4_H_MM = 297;
@@ -41,9 +43,27 @@ async function payslipNodeToPdfBlob(node) {
   return pdf.output("blob");
 }
 
-export default function PayslipPreviewModal({ payslip, onClose, profileHref }) {
+export default function PayslipPreviewModal({ payslip: slip, onClose, profileHref }) {
   const exportRef = useRef(null);
   const [busy, setBusy] = useState(false);
+  const [lwpDays, setLwpDays] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLwpDays(null);
+    if (!slip || slip.lwp_days != null) return undefined;
+    fetchLwpDaysForSlip(supabase, slip).then((days) => {
+      if (!cancelled) setLwpDays(days);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [slip?.id, slip?.employee_code, slip?.month_key, slip?.lwp_days]);
+
+  const payslip = useMemo(
+    () => (slip ? { ...slip, lwp_days: slip.lwp_days ?? lwpDays ?? 0 } : slip),
+    [slip, lwpDays]
+  );
 
   async function downloadPdf() {
     if (!exportRef.current || !payslip) return;
@@ -87,7 +107,7 @@ export default function PayslipPreviewModal({ payslip, onClose, profileHref }) {
           </button>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || (slip?.lwp_days == null && lwpDays == null)}
             className="h-9 px-4 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50 inline-flex items-center gap-1.5"
             onClick={downloadPdf}
           >

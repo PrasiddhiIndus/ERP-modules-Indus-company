@@ -76,8 +76,7 @@ export default function PayslipTemplate({
             monthDays - presentDays - Number(payslip.leave_days || 0) - Number(payslip.lop_days || 0)
           )
         : 0;
-  const leaveDays = Number(payslip.leave_days || 0);
-  const lopDays = Number(payslip.lop_days || 0);
+  const lwpDays = Number(payslip.lwp_days || 0);
 
   const workLocation = payslip.work_location || "Head Office";
   const hidePay = salaryFiguresHidden();
@@ -96,13 +95,7 @@ export default function PayslipTemplate({
   const net = Number(payslip.net_salary) || 0;
   const words = hidePay ? MASKED_SECRET : rupeesInWords(net);
 
-  const metaLine = [
-    payslip.employee_code ? `Employee code ${payslip.employee_code}` : null,
-    payslip.designation || null,
-    workLocation,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const metaLine = payslip.employee_code ? `Employee code ${payslip.employee_code}` : "";
 
   const tableRows = Math.max(earnRows.length, dedRows.length, 3);
   const whiteHeader = {
@@ -243,6 +236,7 @@ export default function PayslipTemplate({
           }}
         >
           <MetaPanel title="Employee details" borderRight>
+            <MetaRow label="Designation" value={payslip.designation || "—"} />
             <MetaRow label="Department" value={payslip.department || "—"} />
             <MetaRow label="Date of joining" value={formatLongDate(payslip.date_of_joining)} />
             <MetaRow label="Confirmation date" value={formatLongDate(payslip.confirmation_date)} />
@@ -258,7 +252,7 @@ export default function PayslipTemplate({
             <MetaRow label="Working days" value={monthDays || "—"} />
             <MetaRow label="Present days" value={presentDays || "—"} />
             <MetaRow label="Weekly off" value={weeklyOff} />
-            <MetaRow label="Leave / LOP" value={`${leaveDays} / ${lopDays}`} />
+            <MetaRow label="LWP" value={lwpDays} />
           </MetaPanel>
         </div>
       </div>
@@ -384,25 +378,7 @@ export default function PayslipTemplate({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span
-            style={{
-              width: 16,
-              height: 16,
-              borderRadius: "50%",
-              background: "rgba(255,255,255,0.18)",
-              color: "#fff",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 10,
-              fontWeight: 700,
-              flexShrink: 0,
-              lineHeight: 1,
-            }}
-            aria-hidden
-          >
-            ✓
-          </span>
+          <VerifiedTick />
           <span>
             System-generated slip · No signature required · Verified by Indus ERP
           </span>
@@ -429,6 +405,23 @@ export default function PayslipTemplate({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Drawn as SVG (not a ✓ glyph) so it stays centred in the PDF capture. */
+function VerifiedTick() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" style={{ display: "block", flexShrink: 0 }} aria-hidden>
+      <circle cx="8" cy="8" r="8" fill="rgba(255,255,255,0.18)" />
+      <path
+        d="M4.6 8.2 L7 10.5 L11.4 5.8"
+        fill="none"
+        stroke="#ffffff"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
