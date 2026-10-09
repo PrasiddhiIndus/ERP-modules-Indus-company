@@ -55,7 +55,12 @@ function derivePunchInOut(sortedPunches) {
  * - Otherwise → Present
  * Single punch with no out yet stays Present.
  */
-export function registerMarkFromPunchWindow({ punchIn, punchOut, cutoff = HALF_DAY_CUTOFF }) {
+export function registerMarkFromPunchWindow({
+  punchIn,
+  punchOut,
+  cutoff = HALF_DAY_CUTOFF,
+  lastBefore = PURPLE_PRESENT_LAST_PUNCH_BEFORE,
+}) {
   if (!punchIn) return null;
   const cutoffMin = timeToMinutes(cutoff);
   const inMin = timeToMinutes(punchIn);
@@ -63,7 +68,7 @@ export function registerMarkFromPunchWindow({ punchIn, punchOut, cutoff = HALF_D
 
   if (punchOut) {
     const outMin = timeToMinutes(punchOut);
-    const earlyOutBefore = timeToMinutes(PURPLE_PRESENT_LAST_PUNCH_BEFORE);
+    const earlyOutBefore = timeToMinutes(lastBefore);
     if (outMin != null && earlyOutBefore != null && outMin < earlyOutBefore) {
       return 'P';
     }
@@ -79,12 +84,19 @@ export function registerMarkFromPunchWindow({ punchIn, punchOut, cutoff = HALF_D
  * - last punch before 12:00.
  * Does not change the stored mark — display/notification only.
  */
-export function isPurplePresentPunch({ punchIn, punchOut } = {}) {
+export function isPurplePresentPunch(
+  { punchIn, punchOut } = {},
+  {
+    firstFrom = PURPLE_PRESENT_FIRST_PUNCH_START,
+    firstTo = PURPLE_PRESENT_FIRST_PUNCH_END,
+    lastBefore: lastBeforeTime = PURPLE_PRESENT_LAST_PUNCH_BEFORE,
+  } = {}
+) {
   const inMin = timeToMinutes(punchIn);
   const outMin = timeToMinutes(punchOut);
-  const firstStart = timeToMinutes(PURPLE_PRESENT_FIRST_PUNCH_START);
-  const firstEnd = timeToMinutes(PURPLE_PRESENT_FIRST_PUNCH_END);
-  const lastBefore = timeToMinutes(PURPLE_PRESENT_LAST_PUNCH_BEFORE);
+  const firstStart = timeToMinutes(firstFrom);
+  const firstEnd = timeToMinutes(firstTo);
+  const lastBefore = timeToMinutes(lastBeforeTime);
 
   if (
     inMin != null &&
@@ -107,8 +119,11 @@ export function dayOfMonthFromIsoDate(isoDate) {
   return Number(d.slice(8, 10));
 }
 
-/** One register row per employee per calendar day that has at least one punch. */
-export function punchesToPresentRegisterRows(punches) {
+/**
+ * One register row per employee per calendar day that has at least one punch.
+ * `timesFor(employeeCode, isoDate)` may return { halfDayCutoff, purpleLastBefore } for that employee.
+ */
+export function punchesToPresentRegisterRows(punches, { timesFor = null } = {}) {
   const groups = new Map();
 
   for (const punch of punches || []) {
@@ -126,7 +141,14 @@ export function punchesToPresentRegisterRows(punches) {
   for (const g of groups.values()) {
     const sorted = sortPunchesByTime(g.punches);
     const { punchIn, punchOut } = derivePunchInOut(sorted);
-    const mark = registerMarkFromPunchWindow({ punchIn, punchOut }) ?? 'P';
+    const times = timesFor?.(g.employee_code, g.register_date) || {};
+    const mark =
+      registerMarkFromPunchWindow({
+        punchIn,
+        punchOut,
+        cutoff: times.halfDayCutoff || HALF_DAY_CUTOFF,
+        lastBefore: times.purpleLastBefore || PURPLE_PRESENT_LAST_PUNCH_BEFORE,
+      }) ?? 'P';
     rows.push({
       employee_code: g.employee_code,
       register_date: g.register_date,

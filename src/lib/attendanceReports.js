@@ -15,6 +15,7 @@ import {
   timeToMinutes,
   WORKING_HOURS_LONG_THRESHOLD_MIN,
 } from "./attendanceDaily";
+import { ensureAttendanceRulesLoaded } from "./attendanceRules";
 
 /** Flag punch-in after this time (09:00). */
 export const LATE_PUNCH_IN_THRESHOLD = "09:00";
@@ -31,7 +32,7 @@ export const CUSTOM_REPORT_FIELDS = [
   { id: "punchOut", label: "Punch out" },
   { id: "workedHours", label: "Worked hours" },
   { id: "punchCount", label: "Punch count" },
-  { id: "lateInAfter9", label: "Late in (after 9:00)" },
+  { id: "lateInAfter9", label: "Late in (after shift start)" },
   { id: "overtime", label: "Overtime (>9h)" },
   { id: "remarks", label: "Remarks" },
 ];
@@ -48,6 +49,12 @@ export function isPunchInAfter9(punchIn) {
   return inMin > LATE_PUNCH_IN_THRESHOLD_MIN;
 }
 
+/** Late against the employee's shift start + grace (rows from pairPunchesToDailyRows). */
+export function isLatePunchInRow(row) {
+  if (row?.punchInStatus) return row.punchInStatus === "Late";
+  return isPunchInAfter9(row?.punchIn);
+}
+
 export function isOvertimeRow(row) {
   const m = row.workedMinutes;
   return m != null && m > WORKING_HOURS_LONG_THRESHOLD_MIN;
@@ -57,19 +64,20 @@ export async function buildDailyAttendanceReportRows(supabase, { fromDate, toDat
   const [punches, employees] = await Promise.all([
     fetchAttendancePunchesInRange(supabase, { fromDate, toDate, empCode }),
     fetchActiveEmployees(supabase),
+    ensureAttendanceRulesLoaded(supabase),
   ]);
   let rows = pairPunchesToDailyRows(punches);
   rows = attachMasterFields(rows, employees);
   rows = attachDepartments(rows, employees);
   return rows.map((r) => ({
     ...r,
-    lateInAfter9: isPunchInAfter9(r.punchIn) ? "Yes" : "No",
+    lateInAfter9: isLatePunchInRow(r) ? "Yes" : "No",
     overtime: isOvertimeRow(r) ? "Yes" : "No",
   }));
 }
 
 export function filterLatePunchAfter9Rows(rows) {
-  return (rows || []).filter((r) => isPunchInAfter9(r.punchIn));
+  return (rows || []).filter((r) => isLatePunchInRow(r));
 }
 
 export function filterOvertimeRows(rows) {

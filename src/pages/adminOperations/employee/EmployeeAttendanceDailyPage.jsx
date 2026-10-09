@@ -1666,10 +1666,10 @@ export function EmployeeAttendanceDailyPage() {
             : null;
           const purplePresent =
             String(value || "").trim() === "P" &&
-            isPurplePresentPunch({
-              punchIn: punchInfo?.punchIn,
-              punchOut: punchInfo?.punchOut,
-            });
+            isPurplePresentPunch(
+              { punchIn: punchInfo?.punchIn, punchOut: punchInfo?.punchOut },
+              { employeeCode: row.empCode, department: row.department, onDate: cellDate }
+            );
           const markStyleOpts = purplePresent ? { purplePresent: true } : undefined;
           const skyBluePunchTitle = purplePresent
             ? [
