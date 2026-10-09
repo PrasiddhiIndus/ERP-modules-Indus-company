@@ -11,7 +11,7 @@ import { canAccessCompliance } from "../pages/compliance/payroll/complianceAcces
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import { resolveModule } from "../lib/activityDescriptors";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
-import { SALARY_SUB_NAV, HR_SALARY_BASE, HR_SALARY_DASHBOARD, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
+import { SALARY_SUB_NAV, HR_SALARY_BASE, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
 import { OPERATIONS_NAV, operationsNavHref, operationsNavIsActive } from "../pages/operations/navConfig";
 import { MARKETING_NAV_ITEMS } from "../pages/marketing/marketingNav";
 import PoApprovalBell from "../components/PoApprovalBell";
@@ -465,33 +465,25 @@ const Layout = () => {
                   )}
                   {canSub("hr.salary-management") && (
                   <>
-                  <div className="flex items-stretch w-full rounded-md hover:bg-surface transition-colors">
-                    <NavLink
-                      to={salaryNavPath(HR_SALARY_DASHBOARD)}
-                      className={() => {
-                        const path = pathname.replace(/\/$/, "");
-                        const active =
-                          path === `/app/${HR_SALARY_BASE}/${HR_SALARY_DASHBOARD}` ||
-                          path === `/app/${HR_SALARY_BASE}`;
-                        return `${subLinkBase} flex-1 min-w-0 rounded-md ${active ? activeClass : "text-ink-strong"}`;
-                      }}
-                      onClick={() => setHrSalaryOpen(true)}
-                    >
+                  <button
+                    type="button"
+                    onClick={() => setHrSalaryOpen(!hrSalaryOpen)}
+                    className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${
+                      pathname.startsWith(`/app/${HR_SALARY_BASE}`)
+                        ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border"
+                        : "text-ink-strong"
+                    }`}
+                    aria-expanded={hrSalaryOpen}
+                    aria-label="Toggle salary management menu"
+                  >
+                    <span className="flex items-center space-x-2.5 min-w-0">
                       <Wallet className="w-4 h-4 shrink-0 text-emerald-600" />
                       <span className="text-xs font-medium text-left leading-tight">Salary Management</span>
-                    </NavLink>
-                    <button
-                      type="button"
-                      onClick={() => setHrSalaryOpen(!hrSalaryOpen)}
-                      className="flex items-center px-1.5 rounded-md hover:bg-surface-sunken shrink-0 self-stretch"
-                      aria-expanded={hrSalaryOpen}
-                      aria-label="Toggle salary management menu"
-                    >
-                      <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${hrSalaryOpen ? "rotate-180" : ""}`} />
-                    </button>
-                  </div>
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${hrSalaryOpen ? "rotate-180" : ""}`} />
+                  </button>
                   {hrSalaryOpen && (
-                    <div className="space-y-0.5 ml-2 border-l border-border pl-2">
+                    <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
                       {SALARY_SUB_NAV.map((item) => (
                         <NavLink
                           key={item.to}
