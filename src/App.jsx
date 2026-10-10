@@ -152,6 +152,7 @@ import {
   // SalaryEmployeeCtcPage,
   SalaryProcessingPage,
   SalaryProcessReportPage,
+  PayrollMisRoutePage,
   SalaryComponentsMasterPage,
   PayrollRuleMasterPage,
   CompliancePayrollLayoutPage,
@@ -586,7 +587,9 @@ function App() {
               <Route path="payroll-rules" element={<PayrollRuleMasterPage />} />
               <Route path="salary-processing" element={<SalaryProcessingPage />} />
               <Route path="reports" element={<SalaryProcessReportPage />} />
+              <Route path="mis" element={<PayrollMisRoutePage />} />
             </Route>
+            <Route path="admin/payroll-mis" element={<PayrollMisRoutePage standalone />} />
             <Route path="admin/salary-admin/salary-master" element={<Navigate to="/app/admin/salary-admin/dashboard" replace />} />
             <Route
               path="admin/salary-admin/salary-master/:employeeId"

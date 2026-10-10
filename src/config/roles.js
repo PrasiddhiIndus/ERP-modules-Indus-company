@@ -1368,6 +1368,9 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
     return canAccessSalaryAdmin(accessIdentity, accessIdentity);
   }
 
+  // Payroll MIS for vertical heads: the page and database check report access themselves.
+  if (normalizeAppPath(pathname) === "/app/admin/payroll-mis") return true;
+
   // Hard gate: Compliance (Payroll, IFSPL, General) — allowlisted emails only
   if (isCompliancePath(pathname)) {
     return canAccessCompliance(accessIdentity, accessIdentity);

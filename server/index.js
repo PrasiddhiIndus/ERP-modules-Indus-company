@@ -39,6 +39,7 @@ import {
   startInHouseCampaign,
 } from './crmInHouseMailApi.js';
 import { registerAdminRecruitmentRoutes, startAdminRecruitmentAutomation } from './adminRecruitmentApi.js';
+import { startPayrollMisAlerts } from './payrollMisAlerts.js';
 import { canEmailCtcDetails, resolveCtcEmailRecipient, sendCtcDetailsEmail } from './salaryCtcEmailApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -2723,6 +2724,10 @@ const httpServer = app.listen(PORT, '0.0.0.0', () => {
   });
   startAdminRecruitmentAutomation({
     runAutomation: adminRecruitment.runAutomation,
+    getServiceKey: getSupabaseServiceRoleKeyForServer,
+  });
+  startPayrollMisAlerts({
+    getSupabaseUrl: getSupabaseUrlForServer,
     getServiceKey: getSupabaseServiceRoleKeyForServer,
   });
 });
