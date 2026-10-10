@@ -409,7 +409,6 @@ export default function EmployeeMasterPersonalForm({
           .from('admin_ifsp_employee_master')
           .insert({
             ...payload,
-            user_id: user.id,
             created_by: userEmail,
           })
           .select()
