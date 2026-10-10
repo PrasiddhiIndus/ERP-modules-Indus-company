@@ -8,6 +8,7 @@ import { canAccessSalaryAdmin } from "../pages/adminOperations/salaryAdmin/salar
 import { canAccessRulesConsole } from "../pages/adminOperations/rulesConsole/rulesConsoleAccess";
 import { syncSalaryFiguresHidden } from "../pages/adminOperations/salaryAdmin/salaryPrivacy";
 import { canAccessCompliance } from "../pages/compliance/payroll/complianceAccess";
+import { fetchMyMisAccess } from "../pages/adminOperations/salaryAdmin/mis/misDb";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import { resolveModule } from "../lib/activityDescriptors";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
@@ -267,6 +268,21 @@ const Layout = () => {
   const [hrAdminOpen, setHrAdminOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [misScopedOnly, setMisScopedOnly] = useState(false);
+  useEffect(() => {
+    if (!user?.id || canAccessSalaryAdmin(userProfile, user)) {
+      setMisScopedOnly(false);
+      return undefined;
+    }
+    let cancelled = false;
+    fetchMyMisAccess().then((a) => {
+      if (!cancelled) setMisScopedOnly(!a.full && a.scopes.length > 0);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, userProfile?.email]);
   const [commercialMtOpen, setCommercialMtOpen] = useState(false);
   const [commercialRmOpen, setCommercialRmOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
@@ -584,6 +600,16 @@ const Layout = () => {
                 </div>
               )}
             </div>
+            )}
+
+            {misScopedOnly && (
+              <NavLink
+                to="admin/payroll-mis"
+                className={`flex items-center space-x-2.5 w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/admin/payroll-mis") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"}`}
+              >
+                <BarChart3 className="w-4 h-4 shrink-0" />
+                <span className="type-body-medium type-truncate">Payroll reports</span>
+              </NavLink>
             )}
 
             {/* Admin */}

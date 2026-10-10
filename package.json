@@ -21,6 +21,7 @@
     "rules:check:flags": "node scripts/rulesConsole/employee-flags-check.mjs",
     "rules:check:attendance": "node scripts/rulesConsole/attendance-wire-check.mjs",
     "accounts:check:inactive": "node scripts/accountStatus/inactive-sync-check.mjs",
+    "payroll:check:mis": "node scripts/payrollMis/snapshot-check.mjs",
     "preview": "vite preview",
     "supabase:consolidate-migrations": "node scripts/consolidate-migrations.mjs"
   },

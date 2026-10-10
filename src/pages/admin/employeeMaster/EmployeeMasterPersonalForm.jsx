@@ -18,6 +18,7 @@ import {
 } from '../../../lib/employeeHierarchy';
 import { EMPLOYEE_MASTER_BASE_DEPARTMENTS } from '../../../lib/employeeMasterDepartments';
 import { MASKED_SECRET, salaryFiguresHidden } from '../../adminOperations/salaryAdmin/salaryPrivacy';
+import EmployeePayrollTagsSection from '../../adminOperations/salaryAdmin/mis/EmployeePayrollTagsSection';
 import { ManagerSearchSelect } from '../../../components/employee/ManagerSearchSelect';
 import FormDateInput from '../../../components/FormDateInput';
 import {
@@ -775,6 +776,10 @@ export default function EmployeeMasterPersonalForm({
           </>
         )}
       </section>
+
+      {employee?.id ? (
+        <EmployeePayrollTagsSection employeeMasterId={employee.id} sectionClass={section} titleClass={sectionTitle} />
+      ) : null}
 
       {/* Personal */}
       <section className={section}>
