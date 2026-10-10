@@ -682,13 +682,16 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     return keys.find((k) => processedMonths.has(k)) || null;
   }, [form.wef, confirmationWef, processedMonths]);
 
+  // The current record is superseded by the revision being saved, so only earlier records can clash.
   const existingRecords = useMemo(
     () =>
-      history.map((h) => ({
-        id: h.key,
-        effective_from: h.effective_from,
-        effective_to: h.current ? null : h.effective_to,
-      })),
+      history
+        .filter((h) => !h.current)
+        .map((h) => ({
+          id: h.key,
+          effective_from: h.effective_from,
+          effective_to: h.effective_to,
+        })),
     [history]
   );
 

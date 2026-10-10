@@ -20,6 +20,7 @@
     "rules:check:2a": "vite-node scripts/rulesConsole/phase2a-check.mjs",
     "rules:check:flags": "node scripts/rulesConsole/employee-flags-check.mjs",
     "rules:check:attendance": "node scripts/rulesConsole/attendance-wire-check.mjs",
+    "accounts:check:inactive": "node scripts/accountStatus/inactive-sync-check.mjs",
     "preview": "vite preview",
     "supabase:consolidate-migrations": "node scripts/consolidate-migrations.mjs"
   },
