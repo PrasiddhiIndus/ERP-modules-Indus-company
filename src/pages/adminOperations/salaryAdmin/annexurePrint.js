@@ -3,7 +3,7 @@
  * Used by the Employee Master CTC tab (current / history / revision) and letters.
  */
 
-import { annexureRowsFor, roundRupee, schemeLabel } from "./ctcEngine";
+import { annexureMonthlyValue, annexurePaValue, annexureRowsFor, roundRupee, schemeLabel } from "./ctcEngine";
 import { recordToComponents, statusLabel } from "./annexureCtcRecord";
 import signatureImage from "../../../assets/annexure-signature.png?inline";
 
@@ -79,6 +79,10 @@ export function buildAnnexureHtml({ employee, record, previous, ruleVersion, seg
       return `<tr class="heading"><td colspan="${prev ? 7 : 3}" class="l">${esc(row.label)}</td></tr>`;
     }
     const v = Number(cur[row.key]) || 0;
+    const vPa = annexurePaValue(cur, row.key);
+    const monthlyCell = (vals, x) =>
+      vals?.[row.key] != null && annexureMonthlyValue(vals, row.key) == null ? "" : money(x);
+    const paCell = (x) => (x == null ? "" : money(x));
     const mark =
       overrides[row.key] != null
         ? ` <span class="custom">(Custom; system ₹${money(systemValues[row.key])})</span>`
@@ -86,9 +90,10 @@ export function buildAnnexureHtml({ employee, record, previous, ruleVersion, seg
     const cls = row.total ? ' class="total"' : "";
     if (prev) {
       const p = Number(prev[row.key]) || 0;
-      return `<tr${cls}><td class="l">${esc(row.label)}${mark}</td><td>${money(p)}</td><td>${money(p * 12)}</td><td>${money(v)}</td><td>${money(v * 12)}</td><td>${money(v - p)}</td><td>${money((v - p) * 12)}</td></tr>`;
+      const pPa = annexurePaValue(prev, row.key);
+      return `<tr${cls}><td class="l">${esc(row.label)}${mark}</td><td>${monthlyCell(prev, p)}</td><td>${paCell(pPa)}</td><td>${monthlyCell(cur, v)}</td><td>${paCell(vPa)}</td><td>${money(v - p)}</td><td>${money((vPa ?? 0) - (pPa ?? 0))}</td></tr>`;
     }
-    return `<tr${cls}><td class="l">${esc(row.label)}${mark}</td><td>${money(v)}</td><td>${money(v * 12)}</td></tr>`;
+    return `<tr${cls}><td class="l">${esc(row.label)}${mark}</td><td>${monthlyCell(cur, v)}</td><td>${paCell(vPa)}</td></tr>`;
   }).join("");
 
   const info = parts.info.map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
