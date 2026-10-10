@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Columns3, Download, Eye, GitCompare, Mail, PencilLine, Plus, Printer, Trash2, X } from "lucide-react";
+import { Columns3, Download, Eye, GitCompare, Link2, Link2Off, Mail, PencilLine, Plus, Printer, Trash2, X } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import toast from "../../../lib/toast";
 import { employmentTypeLabel } from "../../../utils/employeeMasterReminders";
@@ -35,6 +35,8 @@ import {
   SKILL_SKILLED,
   STATUS_CONFIRMED,
   STATUS_PROBATION,
+  annexureMonthlyValue,
+  annexurePaValue,
   annexureRowsFor,
   applyComponentOverrides,
   applyExtraComponents,
@@ -191,23 +193,57 @@ function emptyForm(employee) {
 let extraSeq = 0;
 function newExtraRow(part = EXTRA_PART_A) {
   extraSeq += 1;
-  return { id: `x${Date.now().toString(36)}${extraSeq}`, part, label: "", monthly: "" };
+  return { id: `x${Date.now().toString(36)}${extraSeq}`, part, label: "", monthly: "", annual: "", sync: null };
 }
+
+/**
+ * Part B Monthly ↔ Yearly link. `sync` is the field that drives the other ("monthly" | "annual");
+ * null until either is typed; "off" once the driven field is edited by hand.
+ */
+const SYNC_MONTHLY = "monthly";
+const SYNC_ANNUAL = "annual";
+const SYNC_OFF = "off";
 
 /** Saved components → editable rows (amounts as text). */
 function extraRowsFromRecord(record) {
-  return normalizeExtraComponents(record?.extra_components_json).map((c) => ({
-    ...c,
-    monthly: String(c.monthly),
-  }));
+  return normalizeExtraComponents(record?.extra_components_json).map((c) => {
+    const entered = Object.prototype.hasOwnProperty.call(c, "annual");
+    const annual = entered ? c.annual : c.monthly * 12;
+    const linked = c.monthly > 0 && annual === c.monthly * 12;
+    return {
+      ...c,
+      monthly: c.part === EXTRA_PART_B && !(c.monthly > 0) ? "" : String(c.monthly),
+      annual: c.part === EXTRA_PART_B && annual != null ? String(annual) : "",
+      sync: c.part !== EXTRA_PART_B ? null : linked ? SYNC_MONTHLY : SYNC_OFF,
+    };
+  });
+}
+
+/** Typed amount with the other Part B field kept in step while they are linked. */
+function extraAmountPatch(row, field, value) {
+  if (row.part !== EXTRA_PART_B) return { [field]: value };
+  const other = field === "monthly" ? "annual" : "monthly";
+  const driver = field === "monthly" ? SYNC_MONTHLY : SYNC_ANNUAL;
+  if (row.sync === SYNC_OFF || (row.sync != null && row.sync !== driver)) {
+    return { [field]: value, sync: SYNC_OFF };
+  }
+  const n = parseEntered(value);
+  if (n == null) return { [field]: value, [other]: "", sync: null };
+  const derived = field === "monthly" ? n * 12 : roundRupee(n / 12);
+  return { [field]: value, [other]: String(derived), sync: driver };
+}
+
+function extraRowAmount(r) {
+  return parseEntered(r.monthly) > 0 || (r.part === EXTRA_PART_B && parseEntered(r.annual) > 0);
 }
 
 /** Rows with only a name or only an amount — not saved silently. */
 function incompleteExtraRow(rows) {
   return (rows || []).find((r) => {
     const hasLabel = Boolean(String(r.label || "").trim());
-    const hasAmount = parseEntered(r.monthly) > 0;
-    return hasLabel !== hasAmount && (hasLabel || String(r.monthly || "").trim() !== "");
+    const hasAmount = extraRowAmount(r);
+    const typed = String(r.monthly || "").trim() !== "" || (r.part === EXTRA_PART_B && String(r.annual || "").trim() !== "");
+    return hasLabel !== hasAmount && (hasLabel || typed);
   });
 }
 
@@ -296,11 +332,15 @@ function AnnexureTable({ groups, change, highlightCustom }) {
                 </td>
                 {groups.map((g) => {
                   const v = g.values?.[row.key];
+                  const m = annexureMonthlyValue(g.values, row.key);
+                  const pa = v == null ? null : annexurePaValue(g.values, row.key);
                   return (
                     <React.Fragment key={g.title}>
-                      <td className="px-2 py-1 text-right tabular-nums border-l border-gray-100">{money(v)}</td>
+                      <td className="px-2 py-1 text-right tabular-nums border-l border-gray-100">
+                        {v != null && m == null ? "" : money(v)}
+                      </td>
                       <td className="px-2 py-1 text-right tabular-nums text-gray-600">
-                        {v == null ? "—" : money(v * 12)}
+                        {v == null ? "—" : pa == null ? "" : money(pa)}
                       </td>
                     </React.Fragment>
                   );
@@ -436,15 +476,26 @@ function ExtraComponentsEditor({ rows, onAdd, onRemove, onUpdate }) {
       <div className="mt-2 space-y-2">
         <p className="text-[11px] text-ink-muted">
           For this employee only. Part A adds to Gross, Take Home and CTC; a deduction reduces Take Home; Part B
-          adds to Total (B) and CTC. Shown on the Annexure, payslips and salary processing.
+          adds to Total (B) and CTC. Shown on the Annexure, payslips and salary processing. Part B also takes a
+          yearly amount: typing one fills the other until you change the filled value yourself.
         </p>
-        {rows.map((row) => (
+        {rows.map((row) => {
+          const isPartB = row.part === EXTRA_PART_B;
+          const linked = row.sync !== SYNC_OFF;
+          return (
           <div key={row.id} className="space-y-1 rounded-md bg-gray-50 p-2">
             <div className="flex items-center gap-1.5">
               <TinySelect
                 className="flex-1"
                 value={row.part}
-                onChange={(e) => onUpdate(row.id, { part: e.target.value })}
+                onChange={(e) => {
+                  const part = e.target.value;
+                  onUpdate(row.id, (r) =>
+                    part === EXTRA_PART_B && r.part !== EXTRA_PART_B
+                      ? { part, ...extraAmountPatch({ ...r, part, sync: null }, "monthly", r.monthly) }
+                      : { part }
+                  );
+                }}
                 aria-label="Part"
               >
                 {EXTRA_PART_OPTIONS.map((o) => (
@@ -475,12 +526,51 @@ function ExtraComponentsEditor({ rows, onAdd, onRemove, onUpdate }) {
                 min="0"
                 className="w-28 text-right tabular-nums"
                 placeholder="Monthly ₹"
+                aria-label="Monthly amount"
                 value={row.monthly}
-                onChange={(e) => onUpdate(row.id, { monthly: e.target.value })}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  onUpdate(row.id, (r) => extraAmountPatch(r, "monthly", value));
+                }}
               />
             </div>
+            {isPartB ? (
+              <div className="flex items-center justify-end gap-1.5">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-[10px] text-ink-muted hover:text-ink"
+                  title={linked ? "Monthly and yearly fill each other — click to keep them separate" : "Click to set yearly = monthly × 12"}
+                  onClick={() =>
+                    onUpdate(row.id, (r) =>
+                      r.sync !== SYNC_OFF
+                        ? { sync: SYNC_OFF }
+                        : parseEntered(r.monthly) == null
+                          ? extraAmountPatch({ ...r, sync: null }, "annual", r.annual)
+                          : extraAmountPatch({ ...r, sync: null }, "monthly", r.monthly)
+                    )
+                  }
+                >
+                  {linked ? <Link2 className="h-3.5 w-3.5" /> : <Link2Off className="h-3.5 w-3.5" />}
+                  {linked ? "Linked" : "Separate"}
+                </button>
+                <TinyInput
+                  type="number"
+                  step="1"
+                  min="0"
+                  className="w-28 text-right tabular-nums"
+                  placeholder="Yearly ₹"
+                  aria-label="Yearly amount"
+                  value={row.annual ?? ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    onUpdate(row.id, (r) => extraAmountPatch(r, "annual", value));
+                  }}
+                />
+              </div>
+            ) : null}
           </div>
-        ))}
+          );
+        })}
         <button
           type="button"
           onClick={onAdd}
@@ -644,7 +734,9 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
   const addExtraRow = () => setExtras((rows) => [...rows, newExtraRow()]);
   const removeExtraRow = (id) => setExtras((rows) => rows.filter((r) => r.id !== id));
   const updateExtraRow = (id, patch) =>
-    setExtras((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setExtras((rows) =>
+      rows.map((r) => (r.id === id ? { ...r, ...(typeof patch === "function" ? patch(r) : patch) } : r))
+    );
 
   const setEntryMode = (mode) => {
     setForm((f) => {
@@ -719,7 +811,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     if (incompleteExtraRow(form.extras)) {
       return toast.error(
         "Additional component incomplete",
-        "Each additional component needs a name and a monthly amount, or remove the row."
+        "Each additional component needs a name and a monthly amount (Part B: monthly or yearly), or remove the row."
       );
     }
 

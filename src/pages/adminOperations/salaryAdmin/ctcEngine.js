@@ -175,16 +175,63 @@ export function extraComponentKey(id) {
   return `x_${id}`;
 }
 
-/** Saved / entered list → clean list (label and a positive whole-rupee amount required). */
+/**
+ * Saved / entered list → clean list (label and a positive whole-rupee amount required).
+ * Part B lines may also carry an `annual` (P.A.) amount, kept as entered; `annual: null` means
+ * the yearly amount was left empty. Lines saved before yearly entry have no `annual` key and
+ * keep P.A. = monthly × 12. A Part B line needs a monthly or an annual amount. Other parts
+ * ignore `annual`.
+ */
 export function normalizeExtraComponents(list) {
   return (Array.isArray(list) ? list : [])
-    .map((c, i) => ({
-      id: String(c?.id || `x${i + 1}`),
-      part: c?.part === EXTRA_PART_DEDUCTION || c?.part === EXTRA_PART_B ? c.part : EXTRA_PART_A,
-      label: String(c?.label || "").trim(),
-      monthly: roundRupee(num(c?.monthly) ?? 0),
-    }))
-    .filter((c) => c.label && c.monthly > 0);
+    .map((c, i) => {
+      const part = c?.part === EXTRA_PART_DEDUCTION || c?.part === EXTRA_PART_B ? c.part : EXTRA_PART_A;
+      const hasAnnual = part === EXTRA_PART_B && c != null && Object.prototype.hasOwnProperty.call(c, "annual");
+      const annualNum = hasAnnual ? num(c.annual) : null;
+      return {
+        id: String(c?.id || `x${i + 1}`),
+        part,
+        label: String(c?.label || "").trim(),
+        monthly: roundRupee(num(c?.monthly) ?? 0),
+        ...(hasAnnual ? { annual: annualNum != null && annualNum >= 0 ? roundRupee(annualNum) : null } : {}),
+      };
+    })
+    .filter((c) => c.label && (c.monthly > 0 || c.annual > 0));
+}
+
+function hasEnteredAnnual(c) {
+  return c?.part === EXTRA_PART_B && Object.prototype.hasOwnProperty.call(c, "annual");
+}
+
+/** P.A. of one additional component: the entered annual amount (null when left empty), else monthly × 12. */
+export function extraComponentAnnual(c) {
+  if (hasEnteredAnnual(c)) return c.annual == null ? null : Number(c.annual);
+  return (Number(c?.monthly) || 0) * 12;
+}
+
+/**
+ * P.A. for an Annexure row of a value set. Additional components use their own P.A. (null when
+ * a Part B yearly amount was left empty); Total (B) and CTC add the Part B yearly amounts as
+ * entered (empty counts as 0); every other row is monthly × 12.
+ */
+export function annexurePaValue(values, key) {
+  const extras = values?.extra_components || [];
+  const own = extras.find((c) => extraComponentKey(c.id) === key);
+  if (own) return extraComponentAnnual(own);
+  const pa = (Number(values?.[key]) || 0) * 12;
+  if (key !== "total_b" && key !== "ctc") return pa;
+  return extras
+    .filter(hasEnteredAnnual)
+    .reduce((s, c) => s + (extraComponentAnnual(c) ?? 0) - (Number(c.monthly) || 0) * 12, pa);
+}
+
+/** Monthly for an Annexure row; null for a Part B additional component whose monthly was left empty. */
+export function annexureMonthlyValue(values, key) {
+  const v = values?.[key];
+  if (v == null) return v;
+  const own = (values?.extra_components || []).find((c) => extraComponentKey(c.id) === key);
+  if (own?.part === EXTRA_PART_B && !(Number(own.monthly) > 0)) return null;
+  return v;
 }
 
 export function sumExtraComponents(list, part) {
@@ -766,7 +813,7 @@ export function calculateConfirmation({
 export function annualize(result) {
   const out = {};
   for (const row of ANNEXURE_ROWS) {
-    if (row.key) out[row.key] = (Number(result?.[row.key]) || 0) * 12;
+    if (row.key) out[row.key] = annexurePaValue(result, row.key);
   }
   return out;
 }

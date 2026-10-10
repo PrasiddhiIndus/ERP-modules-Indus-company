@@ -5,7 +5,7 @@
 import jsPDF from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import { fetchApiWithAuth } from "../../../lib/apiBase";
-import { annexureRowsFor, roundRupee } from "./ctcEngine";
+import { annexureMonthlyValue, annexurePaValue, annexureRowsFor, roundRupee } from "./ctcEngine";
 import { recordToComponents } from "./annexureCtcRecord";
 import { annexureParts } from "./annexurePrint";
 
@@ -103,11 +103,13 @@ export async function annexurePdfBase64({ employee, record, ruleVersion, segment
       return [{ content: row.label, colSpan: 3, styles: { fontStyle: "bold", fillColor: FILL_HEAD, halign: "left" } }];
     }
     const v = Number(cur[row.key]) || 0;
+    const pa = annexurePaValue(cur, row.key);
+    const monthlyEmpty = cur[row.key] != null && annexureMonthlyValue(cur, row.key) == null;
     const style = row.total ? { fontStyle: "bold", fillColor: FILL_KEY } : {};
     return [
       { content: row.label, styles: { ...style, halign: "left" } },
-      { content: money(v), styles: { ...style, halign: "right" } },
-      { content: money(v * 12), styles: { ...style, halign: "right" } },
+      { content: monthlyEmpty ? "" : money(v), styles: { ...style, halign: "right" } },
+      { content: pa == null ? "" : money(pa), styles: { ...style, halign: "right" } },
     ];
   });
 

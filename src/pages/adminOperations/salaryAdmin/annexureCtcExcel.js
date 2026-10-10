@@ -5,7 +5,7 @@
  */
 
 import ExcelJS from "exceljs";
-import { annexureRowsFor, roundRupee } from "./ctcEngine";
+import { annexureMonthlyValue, annexurePaValue, annexureRowsFor, roundRupee } from "./ctcEngine";
 import { isAnnexureRecord, recordToComponents, statusLabel } from "./annexureCtcRecord";
 
 const COMPANY_NAME = "Indus Fire Safety Private Limited";
@@ -141,9 +141,10 @@ export function buildCtcDetailsWorkbook({ employee, record, segment, ruleVersion
       continue;
     }
     const monthly = amount(values[row.key]);
+    const pa = monthly == null ? null : annexurePaValue(values, row.key);
     ws.getCell(`A${r}`).value = row.label;
-    ws.getCell(`B${r}`).value = monthly;
-    ws.getCell(`C${r}`).value = monthly == null ? null : amount(values[row.key] * 12);
+    ws.getCell(`B${r}`).value = annexureMonthlyValue(values, row.key) == null ? null : monthly;
+    ws.getCell(`C${r}`).value = pa == null ? null : amount(pa);
     const isCtc = row.key === "ctc";
     styleRange(ws, r, {
       font: { ...FONT, bold: Boolean(row.total) },
