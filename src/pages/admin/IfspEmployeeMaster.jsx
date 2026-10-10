@@ -705,7 +705,6 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             esic_no: incoming.esic_no || null,
             bank_account_no: incoming.bank_account_no || null,
             ifsc_code: incoming.ifsc_code || null,
-            user_id: user.id,
             created_by: user.email || '',
             updated_by: user.email || '',
             updated_at: new Date().toISOString(),
@@ -1099,8 +1098,6 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           years_of_experience: totalExp,
           ifspl_experience: ifsplExp,
           status: normalizedStatus,
-          // Tenant + audit
-          user_id: user.id,
           created_by: user.email || '',
           updated_by: user.email || '',
           updated_at: new Date().toISOString(),
@@ -1377,7 +1374,6 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           .from('admin_ifsp_employee_master')
           .insert({
             ...payload,
-            user_id: user.id,
             created_by: userEmail,
           })
           .select()
