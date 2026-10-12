@@ -209,6 +209,7 @@ const Layout = () => {
       return;
     }
     const allowed = isPathAllowed(pathname, accessibleModules, subModulePaths, {
+      ...(userProfile || {}),
       email: userProfile?.email || user?.email || "",
     });
     if (!allowed && pathname === "/app/dashboard") {
@@ -604,14 +605,18 @@ const Layout = () => {
                   </NavLink>
                   </>
                   )}
+                  {canSub("compliance.ifspl") && (
                   <NavLink to="ifsp-employee-compliance" className={subNavClass}>
                     <CheckCircle className="w-4 h-4 shrink-0 text-green-600" />
                     <span className="type-meta type-truncate">IFSPL Employee Compliance</span>
                   </NavLink>
+                  )}
+                  {canSub("compliance.general") && (
                   <NavLink to="general-compliance" className={subNavClass}>
                     <ClipboardCheck className="w-4 h-4 shrink-0 text-accent" />
                     <span className="type-meta type-truncate">General Compliance</span>
                   </NavLink>
+                  )}
                 </div>
               )}
             </div>

@@ -17,7 +17,8 @@ import {
   SALARY_ADMIN_SUBMODULE_KEY,
 } from '../pages/adminOperations/salaryAdmin/salaryAccess';
 import {
-  canAccessCompliance,
+  canAccessComplianceSection,
+  canOpenCompliancePath,
   isCompliancePath,
 } from '../pages/compliance/payroll/complianceAccess';
 
@@ -264,11 +265,11 @@ export function canSeeSubModule(profile, accessibleModules, subModuleKey, userMe
     });
   }
 
-  // Compliance: email allowlist is the only gate (Payroll, IFSPL, General).
+  // Compliance: email allowlist, or Compliance team / module / this section from User Management.
   if (String(subModuleKey || "").startsWith("compliance.")) {
-    return canAccessCompliance(profile, {
+    return canAccessComplianceSection(profile, {
       email: userMetadata?.email || profile?.email,
-    });
+    }, subModuleKey);
   }
 
   if (subModuleKey !== RULES_CONSOLE_SUBMODULE_KEY && hasFullModuleAccess(accessibleModules, moduleKey)) return true;
@@ -1438,9 +1439,9 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
   // Payroll MIS for vertical heads: the page and database check report access themselves.
   if (normalizeAppPath(pathname) === "/app/admin/payroll-mis") return true;
 
-  // Hard gate: Compliance (Payroll, IFSPL, General) — allowlisted emails only
+  // Hard gate: Compliance (Payroll, IFSPL, General) — allowlisted emails, or the section granted in User Management
   if (isCompliancePath(pathname)) {
-    return canAccessCompliance(accessIdentity, accessIdentity);
+    return canOpenCompliancePath(accessIdentity, accessIdentity, pathname);
   }
 
   if (accessibleModules.has("overview") && pathname === "/app/dashboard") return true;
