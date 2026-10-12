@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React from "react";
+import { useSearchParams } from "react-router-dom";
 import { PageTaskHeader } from "../../adminOperations/components/AdminUi";
 import StatutoryCodePanel from "./StatutoryCodePanel";
 import { exportWagePackExcel, exportWagePackPdf } from "./wageFormExport";
@@ -6,14 +7,17 @@ import { WAGE_FORM_LIST, createWagePack, deleteWagePack, listWagePacks, saveWage
 import { OSH_FORM_LIST, createOshPack, deleteOshPack, listOshPacks, saveOshPack } from "./oshFormCatalog";
 import { SS_FORM_LIST, createSsPack, deleteSsPack, listSsPacks, saveSsPack } from "./ssFormCatalog";
 
-const TABS = [
+export const COMPLIANCE_FORM_TABS = [
   { id: "wages", label: "Code on Wage" },
   { id: "social", label: "Code on Social security" },
   { id: "osh", label: "Code on OSH-WC" },
 ];
 
 export default function ComplianceForms() {
-  const [tab, setTab] = useState(TABS[0].id);
+  const [params, setParams] = useSearchParams();
+  const requested = params.get("tab");
+  const tab = COMPLIANCE_FORM_TABS.some((item) => item.id === requested) ? requested : COMPLIANCE_FORM_TABS[0].id;
+  const setTab = (id) => setParams({ tab: id }, { replace: true });
 
   return (
     <div className="space-y-4">
@@ -23,7 +27,7 @@ export default function ComplianceForms() {
       />
 
       <div className="flex flex-wrap gap-1 border-b border-divider" role="tablist" aria-label="Compliance codes">
-        {TABS.map((item) => (
+        {COMPLIANCE_FORM_TABS.map((item) => (
           <button
             key={item.id}
             type="button"
@@ -42,7 +46,7 @@ export default function ComplianceForms() {
       {tab === "wages" ? (
         <StatutoryCodePanel
           title="Code on Wage"
-          subtitle="Enter Form 1, Form 2, and Form 3 on one record. Saved records stay in the table below."
+          subtitle="Enter Form 1, Form IV, and Form V on one record. Saved records stay in the table below."
           searchPlaceholder="Search establishment, employer, LIN…"
           modalTitle="Wage forms"
           forms={WAGE_FORM_LIST}
@@ -74,7 +78,7 @@ export default function ComplianceForms() {
       {tab === "osh" ? (
         <StatutoryCodePanel
           title="Code on OSH-WC"
-          subtitle="Form 13 wages register, muster roll, adult workers, identity cards, leave with wages, leave card, and the contract-labour experience certificate."
+          subtitle="Form 13 wages register, Form 14 muster roll, Form 17 adult workers, Form 18 identity card, Form 19 leave with wages, Form 20 leave card, and Form 27 experience certificate."
           searchPlaceholder="Search establishment, employer, worker, LIN…"
           modalTitle="OSH-WC forms"
           forms={OSH_FORM_LIST}
