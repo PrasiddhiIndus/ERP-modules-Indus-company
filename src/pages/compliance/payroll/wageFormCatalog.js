@@ -13,7 +13,7 @@ export const WAGE_FORMS = {
   "form-i": {
     id: "form-i",
     button: "Form 1",
-    title: "FORM-I",
+    title: "FORM-1",
     rule: "(see rule-17 and 42(1), (2) and (3))",
     name: "Register of Wages, Overtime, Fine, Deduction for damage and Loss",
     note: "Signature is not required if the register is maintained electronically.",
@@ -42,8 +42,8 @@ export const WAGE_FORMS = {
   },
   "form-iv": {
     id: "form-iv",
-    button: "Form 2",
-    title: "FORM II",
+    button: "Form IV",
+    title: "FORM IV",
     rule: "(see rule 42(3))",
     name: "EMPLOYEE REGISTER",
     note: "Category is Highly Skilled / Skilled / Semi skilled / Unskilled. Specimen signature is not required if the employee register is maintained electronically.",
@@ -83,8 +83,8 @@ export const WAGE_FORMS = {
   },
   "form-v": {
     id: "form-v",
-    button: "Form 3",
-    title: "FORM III",
+    button: "Form V",
+    title: "FORM V",
     rule: "(see rule 43)",
     name: "WAGE SLIP",
     note: "Each row is one wage slip. Employer / Pay-in-charge signature is the last column.",

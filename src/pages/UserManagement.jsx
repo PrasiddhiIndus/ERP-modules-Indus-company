@@ -2011,8 +2011,7 @@ const UserManagement = () => {
 
               {editForm.role === ROLES.SUPER_ADMIN ? (
                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
-                  Super Admin can open every module, sub-module and page except Compliance, which only its approved
-                  people can open.
+                  Super Admin can open every module, sub-module and page.
                 </div>
               ) : null}
               {editForm.role !== ROLES.SUPER_ADMIN && (
@@ -2225,8 +2224,7 @@ const UserManagement = () => {
 
               {createForm.role === ROLES.SUPER_ADMIN ? (
                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
-                  Super Admin can open every module, sub-module and page except Compliance, which only its approved
-                  people can open.
+                  Super Admin can open every module, sub-module and page.
                 </div>
               ) : null}
               {createForm.role !== ROLES.SUPER_ADMIN ? (
