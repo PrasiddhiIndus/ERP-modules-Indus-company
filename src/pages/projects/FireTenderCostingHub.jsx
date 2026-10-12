@@ -4,9 +4,10 @@ import FireTender from "./FireTender";
 import CostingList from "./CostingList";
 import QuotationList from "./QuotationList";
 import FireTenderNavbar from "./FireTenderNavbar";
+import OcCreationTab from "./oc/OcCreationTab";
 import { FIRE_TENDER_COSTING_HUB_BASE } from "./fireTenderRoutes";
 
-const TAB_IDS = ["tender", "costing", "quotation"];
+const TAB_IDS = ["tender", "costing", "quotation", "oc"];
 
 function resolveHubTab(pathname) {
   if (!pathname.startsWith(FIRE_TENDER_COSTING_HUB_BASE)) return "tender";
@@ -37,6 +38,7 @@ export default function FireTenderCostingHub() {
           {activeTab === "tender" && <FireTender embeddedInHub />}
           {activeTab === "costing" && <CostingList embeddedInHub />}
           {activeTab === "quotation" && <QuotationList embeddedInHub />}
+          {activeTab === "oc" && <OcCreationTab />}
         </div>
       </div>
     </div>

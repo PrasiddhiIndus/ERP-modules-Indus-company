@@ -5,6 +5,7 @@ export const FIRE_TENDER_DASHBOARD_PATH = "/app/fire-tender";
 export const FIRE_TENDER_HUB_TENDER = `${FIRE_TENDER_COSTING_HUB_BASE}/tender`;
 export const FIRE_TENDER_HUB_COSTING = `${FIRE_TENDER_COSTING_HUB_BASE}/costing`;
 export const FIRE_TENDER_HUB_QUOTATION = `${FIRE_TENDER_COSTING_HUB_BASE}/quotation`;
+export const FIRE_TENDER_HUB_OC = `${FIRE_TENDER_COSTING_HUB_BASE}/oc`;
 
 function normPath(pathname) {
   return String(pathname || "").replace(/\/$/, "");
@@ -25,7 +26,7 @@ export function isFireTenderCostingNavActive(pathname) {
 }
 
 /**
- * Top workflow tab: tender | costing | quotation | null (dashboard, config, manufacturing).
+ * Top workflow tab: tender | costing | quotation | oc | null (dashboard, config, manufacturing).
  */
 export function resolveFireTenderWorkflowTab(pathname) {
   const p = normPath(pathname);
@@ -33,6 +34,8 @@ export function resolveFireTenderWorkflowTab(pathname) {
   if (p === FIRE_TENDER_DASHBOARD_PATH) return null;
   if (p.startsWith("/app/fire-tender/configuration")) return null;
   if (p.startsWith("/app/fire-tender-manufacturing")) return null;
+
+  if (p === FIRE_TENDER_HUB_OC) return "oc";
 
   if (p.includes("/costing-hub/quotation") || /\/fire-tender\/quotation(\/|$)/.test(p)) {
     return "quotation";

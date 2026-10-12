@@ -325,7 +325,7 @@ export const TEAMS = [
   { value: "procurement", label: "Procurement" },
   { value: "amc", label: "AMC" },
   { value: "finance", label: "Finance/Accounts" },
-  { value: "fireTender", label: "Fire Tender" },
+  { value: "fireTender", label: "IEV" },
   { value: "indusLms", label: "Indus LMS / Trainings" },
   { value: "itIs", label: "IT/IS" },
 ];
@@ -824,11 +824,11 @@ export const NAV_MODULE_TREE = [
   },
   {
     value: "fireTender",
-    label: "Fire Tender",
+    label: "IEV",
     subModules: [
-      { value: "fireTender.dashboard",       label: "Fire Tender Dashboard",    pathPrefix: "/app/fire-tender" },
-      { value: "fireTender.costing",         label: "Fire Tender Costing",      pathPrefix: "/app/fire-tender/costing-hub" },
-      { value: "fireTender.manufacturing",   label: "Fire Tender Manufacturing",pathPrefix: "/app/fire-tender-manufacturing" },
+      { value: "fireTender.dashboard",       label: "IEV Dashboard",            pathPrefix: "/app/fire-tender" },
+      { value: "fireTender.costing",         label: "IEV Costing",              pathPrefix: "/app/fire-tender/costing-hub" },
+      { value: "fireTender.manufacturing",   label: "IEV Manufacturing",        pathPrefix: "/app/fire-tender-manufacturing" },
     ],
   },
   {

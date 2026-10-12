@@ -1059,7 +1059,7 @@ const Dashboard = () => {
             onClick={() => go("/app/maintenance")}
           />
           <SparkKpi
-            label="Fire tender"
+            label="IEV"
             value={loading ? "—" : modules.fireTenderTotal}
             sub={`${modules.fireTenderPending} pending`}
             series={sparkFromValue(modules.fireTenderTotal || 1)}

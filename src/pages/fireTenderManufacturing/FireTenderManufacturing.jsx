@@ -4,7 +4,7 @@ const FireTenderManufacturing = () => {
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <div className="bg-white shadow p-6 rounded-lg mb-6">
-        <h2 className="text-2xl font-semibold mb-4">Fire Tender Manufacturing</h2>
+        <h2 className="text-2xl font-semibold mb-4">IEV Manufacturing</h2>
         <div className="text-center py-12">
           <div className="text-gray-400 mb-4">
             <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
