@@ -3,7 +3,7 @@ import PageLoader from "../components/PageLoader";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
-import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, isAdminRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath } from "../config/roles";
+import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, isAdminRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath, getOpenableIevCostingTabs } from "../config/roles";
 import { canAccessSalaryAdmin } from "../pages/adminOperations/salaryAdmin/salaryAccess";
 import { canAccessRulesConsole } from "../pages/adminOperations/rulesConsole/rulesConsoleAccess";
 import { syncSalaryFiguresHidden } from "../pages/adminOperations/salaryAdmin/salaryPrivacy";
@@ -176,6 +176,8 @@ const Layout = () => {
       ...(user?.user_metadata || {}),
       email: userProfile?.email || user?.email,
     });
+  const canOpenPath = (path) => isPathAllowed(path, accessibleModules || new Set(), subModulePaths);
+  const ievCostingTabs = getOpenableIevCostingTabs(userProfile, accessibleModules, subModulePaths);
   const hasFullAdmin = Boolean(accessibleModules?.has("admin"));
   const { isConsoleVisible } = useAuditConsole();
   const navigate = useNavigate();
@@ -1457,12 +1459,15 @@ const Layout = () => {
 
               {fireTenderOpen && (
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                  {canOpenPath("/app/fire-tender") && (
                   <NavLink to="fire-tender" end className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-accent" />
                     <span className="type-meta type-truncate">IEV Dashboard</span>
                   </NavLink>
+                  )}
+                  {ievCostingTabs.length > 0 && (
                   <NavLink
-                    to="fire-tender/costing-hub/tender"
+                    to={`fire-tender/costing-hub/${ievCostingTabs[0]}`}
                     className={() => {
                       const p = pathname.replace(/\/$/, "");
                       const active =
@@ -1476,10 +1481,13 @@ const Layout = () => {
                     <Calculator className="w-4 h-4 shrink-0 text-accent" />
                     <span className="type-meta type-truncate">IEV Costing</span>
                   </NavLink>
+                  )}
+                  {canOpenPath("/app/fire-tender-manufacturing") && (
                   <NavLink to="fire-tender-manufacturing" className={subNavClass}>
                     <Factory className="w-4 h-4 shrink-0 text-orange-600" />
                     <span className="type-meta type-truncate">IEV Manufacturing</span>
                   </NavLink>
+                  )}
                 </div>
               )}
             </div>
