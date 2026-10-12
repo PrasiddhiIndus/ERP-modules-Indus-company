@@ -577,6 +577,19 @@ const Layout = () => {
                     <span className="type-meta type-truncate">Dashboard</span>
                   </NavLink>
                   <NavLink
+                    to="compliance/forms"
+                    className={() =>
+                      `${subLinkBase} ${
+                        pathname.startsWith("/app/compliance/forms")
+                          ? activeClass
+                          : "text-ink-strong"
+                      }`
+                    }
+                  >
+                    <FileText className="w-4 h-4 shrink-0 text-ink-muted" />
+                    <span className="type-meta type-truncate">Compliance Forms</span>
+                  </NavLink>
+                  <NavLink
                     to="compliance/payroll-process"
                     className={() =>
                       `${subLinkBase} ${
