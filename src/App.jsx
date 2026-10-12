@@ -157,6 +157,8 @@ import {
   PayrollRuleMasterPage,
   CompliancePayrollLayoutPage,
   ComplianceDashboardPage,
+  ComplianceFormsPage,
+  WageStatutoryFormPage,
   CompliancePayrollProcessPage,
   // NAV_HIDDEN misc admin pages
   // MiscEventsPage,
@@ -517,6 +519,8 @@ function App() {
             >
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<ComplianceDashboardPage />} />
+              <Route path="forms" element={<ComplianceFormsPage />} />
+              <Route path="forms/:formKey" element={<WageStatutoryFormPage />} />
               <Route path="payroll-process" element={<CompliancePayrollProcessPage />} />
             </Route>
             <Route path="admin/compliance/*" element={<Navigate to="/app/compliance/dashboard" replace />} />

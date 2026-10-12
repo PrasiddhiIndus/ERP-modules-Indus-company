@@ -346,6 +346,12 @@ export const CompliancePayrollLayoutPage = lazy(
 export const ComplianceDashboardPage = lazy(
   () => import("../pages/compliance/payroll/ComplianceDashboard")
 );
+export const ComplianceFormsPage = lazy(
+  () => import("../pages/compliance/payroll/ComplianceForms")
+);
+export const WageStatutoryFormPage = lazy(
+  () => import("../pages/compliance/payroll/WageStatutoryForm")
+);
 export const CompliancePayrollProcessPage = lazy(
   () => import("../pages/compliance/payroll/CompliancePayrollProcess")
 );
