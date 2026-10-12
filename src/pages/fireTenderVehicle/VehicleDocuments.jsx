@@ -68,7 +68,8 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
     'RC (Registration Certificate)': {
       documentNumberLabel: 'RC number',
       issueDateLabel: 'Date of issue',
-      expiryDateLabel: 'Registration valid until',
+      expiryDateLabel: 'Registration valid until (optional)',
+      expiryHint: 'Leave blank for commercial vehicles — their validity follows the Fitness Certificate renewed at the RTO.',
       providerLabel: 'Issuing RTO / authority',
       secondarySectionTitle: 'RTO & file',
       showPremium: false,
@@ -567,6 +568,9 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       required={Boolean(docFieldCfg.expiryRequired)}
                     />
+                    {docFieldCfg.expiryHint && (
+                      <p className="mt-1 text-xs text-gray-500">{docFieldCfg.expiryHint}</p>
+                    )}
                   </div>
                   )}
                 </div>
