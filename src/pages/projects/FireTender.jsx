@@ -811,7 +811,7 @@ const FireTender = ({ embeddedInHub = false }) => {
                 </div>
                 <div>
                   <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">New Tender</h1>
-                  <p className="text-sm text-gray-600 mt-1">Add entries and manage all fire tender records in one place</p>
+                  <p className="text-sm text-gray-600 mt-1">Add entries and manage all IEV records in one place</p>
                 </div>
               </div>
               <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full xl:w-auto">

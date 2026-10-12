@@ -1424,7 +1424,7 @@ const Layout = () => {
             </NavLink>
             )}
 
-            {/* Fire Tender */}
+            {/* IEV */}
             {can("fireTender") && (
             <div>
               <button
@@ -1433,7 +1433,7 @@ const Layout = () => {
               >
                 <span className="flex items-center space-x-2.5">
                   <Truck className="w-4 h-4 shrink-0" />
-                  <span className="type-body-medium type-truncate">Fire Tender</span>
+                  <span className="type-body-medium type-truncate">IEV</span>
                 </span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
@@ -1446,7 +1446,7 @@ const Layout = () => {
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
                   <NavLink to="fire-tender" end className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-accent" />
-                    <span className="type-meta type-truncate">Fire Tender Dashboard</span>
+                    <span className="type-meta type-truncate">IEV Dashboard</span>
                   </NavLink>
                   <NavLink
                     to="fire-tender/costing-hub/tender"
@@ -1461,11 +1461,11 @@ const Layout = () => {
                     }}
                   >
                     <Calculator className="w-4 h-4 shrink-0 text-accent" />
-                    <span className="type-meta type-truncate">Fire Tender Costing</span>
+                    <span className="type-meta type-truncate">IEV Costing</span>
                   </NavLink>
                   <NavLink to="fire-tender-manufacturing" className={subNavClass}>
                     <Factory className="w-4 h-4 shrink-0 text-orange-600" />
-                    <span className="type-meta type-truncate">Fire Tender Manufacturing</span>
+                    <span className="type-meta type-truncate">IEV Manufacturing</span>
                   </NavLink>
                 </div>
               )}

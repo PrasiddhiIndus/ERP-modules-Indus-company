@@ -26,7 +26,7 @@ export function fleetQueryErrorMessage(error) {
     return 'Your session expired. Sign out and sign in again.';
   }
   if (code === '42501' || /permission|policy|row-level security/i.test(msg)) {
-    return 'You do not have permission to view fleet data. Your profile needs Operations or Fire Tender access.';
+    return 'You do not have permission to view fleet data. Your profile needs Operations or IEV access.';
   }
   if (code === '42P01' || /does not exist|relation/i.test(msg)) {
     return 'Fleet database tables are missing. Run the latest Supabase migrations for this project.';

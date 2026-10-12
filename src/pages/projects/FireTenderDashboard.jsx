@@ -204,7 +204,7 @@ const FireTenderDashboard = () => {
               <Truck className="w-6 h-6 text-red-600" />
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Fire Tender Dashboard</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">IEV Dashboard</h1>
               <p className="text-sm text-gray-500 mt-0.5 max-w-3xl">
               Overview of tenders, approvals, costing, and quotations
               </p>

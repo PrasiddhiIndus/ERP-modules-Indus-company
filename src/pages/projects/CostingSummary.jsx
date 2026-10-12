@@ -648,7 +648,7 @@ const CostingSummary = ({
 
   const approveForQuotation = async () => {
     if (!canApproveQuotation) {
-      toast.success("Only managers and admins with Fire Tender access can approve into quotation.");
+      toast.success("Only managers and admins with IEV access can approve into quotation.");
       return;
     }
     if (!tenderId) {

@@ -40,6 +40,7 @@ export const PriceMasterPage = lazy(() => import("../pages/projects/configuratio
 export const AccessoriesPage = lazy(() => import("../pages/projects/configurationTender/AccessoriesPage"));
 export const FinalComponentsPage = lazy(() => import("../pages/projects/configurationTender/FinalComponentsPage"));
 export const VehicleTypePage = lazy(() => import("../pages/projects/configurationTender/VehicleTypePage"));
+export const OcSignoffAssignmentPage = lazy(() => import("../pages/projects/configurationTender/OcSignoffAssignmentPage"));
 
 // Manpower
 export const ManpowerManagement = lazy(() => import("../pages/manpowerProject/ManpowerManagement"));
