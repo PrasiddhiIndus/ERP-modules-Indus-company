@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, FileSpreadsheet, ShieldCheck } from "lucide-react";
+import { ArrowRight, ClipboardList, FileSpreadsheet, ShieldCheck } from "lucide-react";
 import {
   CollapsibleHelp,
   KpiTile,
@@ -12,6 +12,72 @@ import {
   USE_MOCK_SALARY_PROCESSING,
   mockListRunsWithLines,
 } from "../../adminOperations/salaryAdmin/salaryProcessingMock";
+import { WAGE_FORM_LIST, listWagePacks } from "./wageFormCatalog";
+import { SS_FORM_LIST, listSsPacks } from "./ssFormCatalog";
+import { OSH_FORM_LIST, listOshPacks } from "./oshFormCatalog";
+
+const FORM_GROUPS = [
+  {
+    id: "wages",
+    label: "Code on Wage",
+    forms: WAGE_FORM_LIST,
+    listPacks: listWagePacks,
+  },
+  {
+    id: "social",
+    label: "Code on Social security",
+    forms: SS_FORM_LIST,
+    listPacks: listSsPacks,
+  },
+  {
+    id: "osh",
+    label: "Code on OSH-WC",
+    forms: OSH_FORM_LIST,
+    listPacks: listOshPacks,
+  },
+];
+
+function packTitle(pack, forms) {
+  const header = pack?.forms?.[forms[0]?.id]?.header || {};
+  return (
+    header.establishment ||
+    header.contractor ||
+    header.employeeName ||
+    header.establishmentTo ||
+    "Untitled record"
+  );
+}
+
+function formSummary(group) {
+  const labels = (group.forms || []).map((form) => String(form.button || "").replace(/^Form\s+/i, ""));
+  if (!labels.length) return "No forms";
+  if (labels.length === 1) return `Form ${labels[0]}`;
+  return `Form ${labels.join(", ")}`;
+}
+
+function savedLabel(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function loadFormOverview() {
+  return FORM_GROUPS.map((group) => {
+    const packs = group.listPacks() || [];
+    return {
+      ...group,
+      count: packs.length,
+      records: packs.map((pack) => ({
+        id: pack.id,
+        title: packTitle(pack, group.forms),
+        savedAt: pack.savedAt || "",
+        tab: group.id,
+        code: group.label,
+      })),
+    };
+  });
+}
 
 function currentYm() {
   const d = new Date();
@@ -24,6 +90,7 @@ function currentYm() {
 export default function ComplianceDashboard() {
   const navigate = useNavigate();
   const [runs, setRuns] = useState([]);
+  const [formGroups, setFormGroups] = useState(() => loadFormOverview());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -55,6 +122,17 @@ export default function ComplianceDashboard() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    const refreshForms = () => setFormGroups(loadFormOverview());
+    refreshForms();
+    window.addEventListener("focus", refreshForms);
+    document.addEventListener("visibilitychange", refreshForms);
+    return () => {
+      window.removeEventListener("focus", refreshForms);
+      document.removeEventListener("visibilitychange", refreshForms);
+    };
+  }, []);
+
   const processed = useMemo(
     () => (runs || []).filter((r) => String(r.status || "").toLowerCase() === "processed"),
     [runs]
@@ -62,13 +140,29 @@ export default function ComplianceDashboard() {
 
   const latest = processed[0] || null;
   const ym = currentYm();
+  const savedFormTotal = formGroups.reduce((sum, group) => sum + group.count, 0);
+  const recentForms = useMemo(
+    () =>
+      formGroups
+        .flatMap((group) => group.records)
+        .sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)))
+        .slice(0, 8),
+    [formGroups]
+  );
 
   return (
     <div className="space-y-4">
       <PageTaskHeader
         title="Dashboard"
-        subtitle="Track processed salary months ready for PF / EPF and ESIC returns."
+        subtitle="Track processed salary months for PF / EPF and ESIC, and open statutory compliance forms."
       >
+        <Link
+          to="/app/compliance/forms"
+          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border bg-surface text-xs font-medium text-ink hover:border-accent-border"
+        >
+          <ClipboardList className="h-3.5 w-3.5 text-accent" />
+          Compliance forms
+        </Link>
         <Link
           to="/app/compliance/payroll-process"
           className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-accent text-white text-xs font-medium hover:opacity-90"
@@ -90,7 +184,7 @@ export default function ComplianceDashboard() {
         </p>
       ) : null}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <KpiTile
           label="Processed months"
           value={loading ? "…" : String(processed.length)}
@@ -107,6 +201,27 @@ export default function ComplianceDashboard() {
           }
           sub={latest ? `${latest.employee_count || 0} employees on sheet` : "Process salary first"}
         />
+        <KpiTile
+          label="Saved form records"
+          value={String(savedFormTotal)}
+          sub="Wage · social security · safety"
+          onClick={() => navigate("/app/compliance/forms")}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {formGroups.map((group) => (
+          <KpiTile
+            key={group.id}
+            label={group.label}
+            value={String(group.count)}
+            sub={formSummary(group)}
+            onClick={() => navigate(`/app/compliance/forms?tab=${group.id}`)}
+          />
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <KpiTile
           label="PF / EPF"
           value="Challan"
@@ -158,6 +273,44 @@ export default function ComplianceDashboard() {
           </Link>
         </SectionCard>
       </div>
+
+      <SectionCard title="Saved compliance forms">
+        {recentForms.length === 0 ? (
+          <p className="text-xs text-ink-muted py-4">
+            No saved compliance forms yet. Open a code above and save a record.
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-xs">
+              <thead className="bg-surface-raised text-ink-secondary">
+                <tr>
+                  <th className="text-left font-semibold px-3 py-2">Code</th>
+                  <th className="text-left font-semibold px-3 py-2">Record</th>
+                  <th className="text-left font-semibold px-3 py-2">Saved</th>
+                  <th className="text-right font-semibold px-3 py-2">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-divider bg-surface">
+                {recentForms.map((record) => (
+                  <tr key={`${record.tab}-${record.id}`}>
+                    <td className="px-3 py-2 text-ink">{record.code}</td>
+                    <td className="px-3 py-2 text-ink">{record.title}</td>
+                    <td className="px-3 py-2 text-ink-secondary">{savedLabel(record.savedAt)}</td>
+                    <td className="px-3 py-2 text-right">
+                      <Link
+                        to={`/app/compliance/forms?tab=${record.tab}`}
+                        className="text-accent font-medium hover:underline"
+                      >
+                        Open
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionCard>
 
       <SectionCard title="Recent processed months">
         {loading ? (
