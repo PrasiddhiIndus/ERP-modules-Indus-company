@@ -3,8 +3,8 @@ import {
   userCanEditInModules,
 } from "../../../config/roles";
 
-/** IEV sub-items (User Management) that include PO At Glance without the whole IEV module. */
-const OC_SUB_MODULE_KEYS = ["fireTender.costing", "fireTender.dashboard"];
+/** IEV sub-items / pages (User Management) that include PO At Glance without the whole IEV module. */
+const OC_SUB_MODULE_KEYS = ["fireTender.costing", "fireTender.dashboard", "fireTender.costing.po-at-glance"];
 
 export function hasOcSubModuleAccess(userProfile) {
   return parseAllowedSubModules(userProfile?.allowed_sub_modules).some((k) => OC_SUB_MODULE_KEYS.includes(k));
