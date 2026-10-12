@@ -55,6 +55,7 @@ export const ROUTE_MODULE_MAP = [
   ['/app/admin/reports-analytics', 'Admin · Reports & analytics'],
   ['/app/admin/dashboard', 'Admin · Dashboard'],
   ['/app/compliance/payroll-process', 'Compliance · Payroll'],
+  ['/app/compliance/forms', 'Compliance · Forms'],
   ['/app/compliance', 'Compliance · Dashboard'],
   ['/app/admin/salary-admin', 'Admin · Salary admin'],
   ['/app/admin/store', 'Admin · Store'],
