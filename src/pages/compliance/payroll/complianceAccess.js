@@ -1,7 +1,7 @@
 /**
  * Compliance module (Payroll PF/ESIC, IFSPL, General).
- * Open to the email allowlist below (every section), and to users given Compliance in
- * User Management: Compliance team / module → every section, or single sections
+ * Open to the email allowlist below and Super Admin (every section), and to users given Compliance
+ * in User Management: Compliance team / module → every section, or single sections
  * (compliance.payroll / compliance.ifspl / compliance.general).
  */
 export const COMPLIANCE_ALLOWED_EMAILS = Object.freeze([
@@ -69,9 +69,13 @@ function keyList(raw) {
   return [];
 }
 
-/** Whole Compliance module from User Management (team or Allowed modules). */
+const SUPER_ADMIN_ROLES = new Set(["super_admin", "superadmin", "super_admin_pro", "superadmin_pro"]);
+
+/** Whole Compliance module: Super Admin, or User Management (team or Allowed modules). */
 function hasFullComplianceGrant(profile) {
   if (profile?.is_active === false) return false;
+  const role = String(profile?.role || "").trim().toLowerCase().replace(/\s+/g, "_");
+  if (SUPER_ADMIN_ROLES.has(role)) return true;
   if (String(profile?.team || "").trim().toLowerCase() === "compliance") return true;
   return keyList(profile?.allowed_modules).some((m) => m.toLowerCase() === "compliance");
 }
