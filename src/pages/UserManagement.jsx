@@ -76,6 +76,9 @@ import {
 import { normalizeBillingVerticalKey } from "../utils/billingPoListFilters";
 import { CALLING_SITE_TYPE_KEYS } from "./hr/callingMaster/callingSiteTypeAccess";
 import { SITE_ATTENDANCE_PAGES } from "../lib/siteAttendance/siteAttendancePageAccess";
+import {
+  IEV_CONFIG_PAGES, ievConfigMode, setIevConfigMode, toggleIevConfigPage,
+} from "../lib/ievConfigAccess";
 
 const SEARCH_DEBOUNCE_MS = 350;
 
@@ -395,6 +398,66 @@ function hasSiteAttendanceAccess(form) {
 function toggleCallingSiteTypeKey(subModules, key) {
   const list = subModules || [];
   return list.includes(key) ? list.filter((s) => s !== key) : [...list, key];
+}
+
+function hasIevAccess(form) {
+  return (
+    (form?.allowed_modules || []).includes("fireTender") ||
+    resolveTeamModuleKey(form?.team) === "fireTender" ||
+    (form?.allowed_sub_modules || []).some((key) => String(key).startsWith("fireTender."))
+  );
+}
+
+/** IEV Configuration pages: all pages, or only the selected ones. */
+function IevConfigAccessEditor({ allowedSubModules = [], onChange }) {
+  const mode = ievConfigMode(allowedSubModules);
+  const picked = IEV_CONFIG_PAGES.filter((page) => allowedSubModules.includes(page.value));
+  const summary =
+    mode === "all"
+      ? "Can open every IEV Configuration page"
+      : picked.length
+        ? `Can open ${picked.map((page) => page.label).join(", ")}`
+        : "Cannot open any IEV Configuration page";
+  return (
+    <div className="mt-3 rounded-lg border border-red-100 bg-red-50/40 p-3">
+      <p className="text-sm font-medium text-gray-800">IEV: Configuration pages</p>
+      <p className="text-[11px] text-gray-500 mt-0.5">
+        Choose which pages under IEV → Configuration this user can open.
+      </p>
+      <div className="mt-2 flex flex-wrap gap-4">
+        {[
+          ["all", "All items"],
+          ["selected", "Selected items"],
+        ].map(([value, label]) => (
+          <label key={value} className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="radio"
+              checked={mode === value}
+              onChange={() => onChange(setIevConfigMode(allowedSubModules, value))}
+              className="h-4 w-4 border-gray-300"
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+      {mode === "selected" && (
+        <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
+          {IEV_CONFIG_PAGES.map((page) => (
+            <label key={page.value} className="inline-flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={allowedSubModules.includes(page.value)}
+                onChange={() => onChange(toggleIevConfigPage(allowedSubModules, page.value))}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              {page.label}
+            </label>
+          ))}
+        </div>
+      )}
+      <p className="mt-2 text-[11px] font-medium text-red-800">{summary}</p>
+    </div>
+  );
 }
 
 /** Site Attendance page-wise access. No selection = every page. */
@@ -1949,6 +2012,12 @@ const UserManagement = () => {
                       }
                     />
                   ) : null}
+                  {hasIevAccess(editForm) ? (
+                    <IevConfigAccessEditor
+                      allowedSubModules={editForm.allowed_sub_modules}
+                      onChange={(next) => setEditForm((prev) => ({ ...prev, allowed_sub_modules: next }))}
+                    />
+                  ) : null}
                   {editHasBillingAccess ? (
                     <BillingVerticalGrantsEditor
                       selectedCodes={editBillingVerticals.selectedCodes}
@@ -2204,6 +2273,12 @@ const UserManagement = () => {
                           allowed_sub_modules: toggleCallingSiteTypeKey(prev.allowed_sub_modules, key),
                         }))
                       }
+                    />
+                  ) : null}
+                  {hasIevAccess(createForm) ? (
+                    <IevConfigAccessEditor
+                      allowedSubModules={createForm.allowed_sub_modules}
+                      onChange={(next) => setCreateForm((prev) => ({ ...prev, allowed_sub_modules: next }))}
                     />
                   ) : null}
                   {createHasBillingAccess ? (

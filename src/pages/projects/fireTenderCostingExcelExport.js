@@ -62,7 +62,7 @@ export async function exportFireTenderCostingWorkbook({
   mocRows,
 }) {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "INDUS Fire Tender";
+  wb.creator = "INDUS IEV";
   wb.created = new Date();
 
   const allRows = [...fixedRows, ...extraRows];
@@ -238,7 +238,7 @@ export async function exportFireTenderCostingWorkbook({
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `FireTender_Costing_${(tenderNumber || "export").replace(/[^\w.-]+/g, "_")}.xlsx`;
+  a.download = `IEV_Costing_${(tenderNumber || "export").replace(/[^\w.-]+/g, "_")}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }

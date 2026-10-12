@@ -68,7 +68,7 @@ export const ROUTE_MODULE_MAP = [
   ['/app/admin', 'Admin · Operations'],
   ['/app/accounts-finance', 'Finance / P&L'],
   ['/app/fire-tender-vehicle-management', 'Operations · Fire tender vehicle'],
-  ['/app/fire-tender', 'Fire tender'],
+  ['/app/fire-tender', 'IEV'],
   ['/app/operations', 'Operations'],
   ['/app/projects', 'Projects'],
   ['/app/amc', 'AMC management'],
@@ -877,22 +877,22 @@ export const ACTIVITY_DESCRIPTORS = {
       const row = mergeActivityRows(req, res)
       const num = pick(row, 'tender_number')
       const ref = num ? `Tender #${str(num, 32)}` : null
-      return result(`created fire tender${ref ? ` ${ref}` : ''}`, 'CREATED', ref)
+      return result(`created IEV tender${ref ? ` ${ref}` : ''}`, 'CREATED', ref)
     },
     UPDATE: (req, res) => {
       const row = mergeActivityRows(req, res)
       const num = pick(row, 'tender_number')
       const ref = num ? `Tender #${str(num, 32)}` : null
       const st = String(pick(req || {}, 'status') || '').toLowerCase()
-      if (st === 'approved') return result(`approved fire tender${ref ? ` ${ref}` : ''}`, 'APPROVED', ref)
-      if (st === 'rejected') return result(`rejected fire tender${ref ? ` ${ref}` : ''}`, 'REJECTED', ref)
-      return result(`updated fire tender${ref ? ` ${ref}` : ''}`, 'UPDATED', ref)
+      if (st === 'approved') return result(`approved IEV tender${ref ? ` ${ref}` : ''}`, 'APPROVED', ref)
+      if (st === 'rejected') return result(`rejected IEV tender${ref ? ` ${ref}` : ''}`, 'REJECTED', ref)
+      return result(`updated IEV tender${ref ? ` ${ref}` : ''}`, 'UPDATED', ref)
     },
     DELETE: (req, res) => {
       const row = mergeActivityRows(req, res)
       const num = pick(row, 'tender_number')
       const ref = num ? `Tender #${str(num, 32)}` : null
-      return result(`deleted fire tender${ref ? ` ${ref}` : ''}`, 'DELETED', ref)
+      return result(`deleted IEV tender${ref ? ` ${ref}` : ''}`, 'DELETED', ref)
     },
   },
 

@@ -35,6 +35,7 @@ import {
   AccessoriesPage,
   FinalComponentsPage,
   VehicleTypePage,
+  OcSignoffAssignmentPage,
   ManpowerManagement,
   InternalQuotationList,
   InternalQuotationForm,
@@ -204,6 +205,7 @@ import {
   MaintenanceGSTUpload,
   MaintenanceReports,
 } from "./routes/lazyPages";
+import IevConfigGuard from "./pages/projects/configurationTender/IevConfigGuard";
 
 import {
   enforceDateInputAttributes,
@@ -377,13 +379,14 @@ function App() {
             <Route path="fire-tender/quotation" element={<Navigate to="/app/fire-tender/costing-hub/quotation" replace />} />
             <Route path="fire-tender/:id" element={<FireTender />} />
             <Route path="fire-tender/quotation/:id" element={<QuotationDetail quotations={demoQuotations} />} />
-            <Route path="fire-tender/configuration/main-component" element={<MainComponentPage />} />
-            <Route path="fire-tender/configuration/manual-sub-category" element={<ManualSubCategoryPage />} />
-            <Route path="fire-tender/configuration/fire-tender-mail-template" element={<FireTenderMailTemplatePage />} />
-            <Route path="fire-tender/configuration/price-master" element={<PriceMasterPage />} />
-            <Route path="fire-tender/configuration/accessories" element={<AccessoriesPage />} />
-            <Route path="fire-tender/configuration/final-components" element={<FinalComponentsPage />} />
-            <Route path="fire-tender/configuration/vehicle-type" element={<VehicleTypePage />} />
+            <Route path="fire-tender/configuration/main-component" element={<IevConfigGuard slug="main-component"><MainComponentPage /></IevConfigGuard>} />
+            <Route path="fire-tender/configuration/manual-sub-category" element={<IevConfigGuard slug="manual-sub-category"><ManualSubCategoryPage /></IevConfigGuard>} />
+            <Route path="fire-tender/configuration/fire-tender-mail-template" element={<IevConfigGuard slug="fire-tender-mail-template"><FireTenderMailTemplatePage /></IevConfigGuard>} />
+            <Route path="fire-tender/configuration/price-master" element={<IevConfigGuard slug="price-master"><PriceMasterPage /></IevConfigGuard>} />
+            <Route path="fire-tender/configuration/accessories" element={<IevConfigGuard slug="accessories"><AccessoriesPage /></IevConfigGuard>} />
+            <Route path="fire-tender/configuration/final-components" element={<IevConfigGuard slug="final-components"><FinalComponentsPage /></IevConfigGuard>} />
+            <Route path="fire-tender/configuration/vehicle-type" element={<IevConfigGuard slug="vehicle-type"><VehicleTypePage /></IevConfigGuard>} />
+            <Route path="fire-tender/configuration/oc-sign-off" element={<IevConfigGuard slug="oc-sign-off"><OcSignoffAssignmentPage /></IevConfigGuard>} />
 
             <Route path="manpower" element={<ManpowerManagement />} />
             <Route path="manpower/list" element={<Navigate to="/app/manpower" replace />} />

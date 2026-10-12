@@ -101,7 +101,7 @@ const QuotationList = ({ embeddedInHub = false }) => {
               </div>
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Quotation sheet</h1>
-                <p className="mt-1 text-sm text-slate-600">Open tender quotations with consistent Fire Tender workflow.</p>
+                <p className="mt-1 text-sm text-slate-600">Open tender quotations with consistent IEV workflow.</p>
               </div>
             </div>
             <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center xl:w-auto">
