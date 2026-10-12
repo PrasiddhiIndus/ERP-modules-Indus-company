@@ -40,9 +40,14 @@ describe('Compliance access', () => {
     expect(routeOk(p, '/app/general-compliance')).toBe(false);
   });
 
-  it('Super Admin without a grant is still not given Compliance', () => {
-    const p = user({ role: ROLES.SUPER_ADMIN });
-    expect(routeOk(p, '/app/compliance/dashboard')).toBe(false);
+  it('Super Admin and Super Admin Pro open every section', () => {
+    for (const role of [ROLES.SUPER_ADMIN, ROLES.SUPER_ADMIN_PRO]) {
+      const p = user({ role });
+      expect(routeOk(p, '/app/compliance/dashboard')).toBe(true);
+      expect(routeOk(p, '/app/ifsp-employee-compliance')).toBe(true);
+      expect(routeOk(p, '/app/general-compliance')).toBe(true);
+    }
+    expect(routeOk(user({ role: ROLES.ADMIN }), '/app/compliance/dashboard')).toBe(false);
   });
 
   it('the Compliance module in User Management opens every section', () => {
