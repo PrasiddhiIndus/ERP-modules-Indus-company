@@ -85,6 +85,7 @@ export function normalizeAccessProfile(profile) {
  *      Opt-in tabs (e.g. hr.recruitment.referral) are never implied by the parent.
  *   3. 3-segment tab key (e.g. "hr.recruitment.candidates") without full hr module AND
  *      without the parent hr.calling-master key → adds only that tab's exact path.
+ *   4. IEV Costing page key (e.g. "fireTender.costing.quotation") → that page's routes.
  *
  * REGRESSION GUARD (#2 from review):
  *   A user with team=hr OR "hr" in allowed_modules has the FULL hr module and does NOT
@@ -189,6 +190,22 @@ export function getAccessibleSubModulePaths(profile, userMetadata = null) {
     // Finance P&L site-type keys (finance.pl.fire / finance.pl.safety) → same Finance routes
     if (parts.length === 3 && parts[0] === "finance" && parts[1] === "pl") {
       paths.add("/app/accounts-finance");
+      continue;
+    }
+
+    // IEV Costing page keys (fireTender.costing.<page>) → that page's routes only
+    if (parts.length === 3 && parts[0] === "fireTender" && parts[1] === "costing") {
+      const page = IEV_COSTING_PAGES.find((p) => p.value === subKey);
+      page?.paths.forEach((p) => paths.add(p));
+      continue;
+    }
+
+    // IEV Configuration pages picked under "Selected items" (iev-config.<slug>) for IEV sub-item / page users
+    if (moduleKey === "iev-config") {
+      const hasIevGrant = subMods.some((s) => String(s).startsWith("fireTender."));
+      if (subKey !== "iev-config.selected" && subMods.includes("iev-config.selected") && hasIevGrant && parts[1]) {
+        paths.add(`/app/fire-tender/configuration/${parts[1]}`);
+      }
       continue;
     }
 
@@ -623,6 +640,50 @@ export function hasAnyRecruitmentTabAccess(profile, accessibleModules, userMetad
   return getVisibleRecruitmentTabs(profile, accessibleModules, userMetadata, scope).length > 0;
 }
 
+/**
+ * IEV Costing pages (User Management level 3 under "IEV Costing").
+ * `paths` are the routes each page needs, including its detail pages.
+ */
+export const IEV_COSTING_PAGES = [
+  { value: "fireTender.costing.tender", tab: "tender", label: "New Tender", paths: ["/app/fire-tender/costing-hub/tender"] },
+  {
+    value: "fireTender.costing.costing-sheet",
+    tab: "costing",
+    label: "Costing Sheet",
+    paths: ["/app/fire-tender/costing-hub/costing", "/app/fire-tender/costing"],
+  },
+  {
+    value: "fireTender.costing.quotation",
+    tab: "quotation",
+    label: "Quotation",
+    paths: ["/app/fire-tender/costing-hub/quotation", "/app/fire-tender/quotation"],
+  },
+  { value: "fireTender.costing.po-at-glance", tab: "oc", label: "PO At Glance", paths: ["/app/fire-tender/costing-hub/oc"] },
+];
+
+/**
+ * IEV Costing tab ids ("tender" | "costing" | "quotation" | "oc") the user may open.
+ * Full IEV module, IEV Costing or IEV Dashboard sub-item, or no page keys at all → every tab (unchanged behaviour).
+ * Otherwise only the ticked pages.
+ */
+export function getAllowedIevCostingTabs(profile, accessibleModules) {
+  const all = IEV_COSTING_PAGES.map((page) => page.tab);
+  const role = normalizeAppRole(profile?.role);
+  if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) return all;
+  if (accessibleModules?.has?.("fireTender")) return all;
+  const subs = parseAllowedSubModules(profile?.allowed_sub_modules);
+  if (subs.includes("fireTender.costing") || subs.includes("fireTender.dashboard")) return all;
+  const picked = IEV_COSTING_PAGES.filter((page) => subs.includes(page.value)).map((page) => page.tab);
+  return picked.length ? picked : all;
+}
+
+/** IEV Costing tabs the user may open and whose route the route guard also allows. */
+export function getOpenableIevCostingTabs(profile, accessibleModules, subModulePaths) {
+  return getAllowedIevCostingTabs(profile, accessibleModules).filter((tab) =>
+    isPathAllowed(`/app/fire-tender/costing-hub/${tab}`, accessibleModules || new Set(), subModulePaths)
+  );
+}
+
 export const NAV_MODULE_TREE = [
   {
     value: "hr",
@@ -827,7 +888,13 @@ export const NAV_MODULE_TREE = [
     label: "IEV",
     subModules: [
       { value: "fireTender.dashboard",       label: "IEV Dashboard",            pathPrefix: "/app/fire-tender" },
-      { value: "fireTender.costing",         label: "IEV Costing",              pathPrefix: "/app/fire-tender/costing-hub" },
+      {
+        value: "fireTender.costing",
+        label: "IEV Costing",
+        pathPrefix: "/app/fire-tender/costing-hub",
+        // Page-wise access: ticking IEV Costing grants every page; otherwise only the ticked pages.
+        tabModules: IEV_COSTING_PAGES.map(({ value, label }) => ({ value, label })),
+      },
       { value: "fireTender.manufacturing",   label: "IEV Manufacturing",        pathPrefix: "/app/fire-tender-manufacturing" },
     ],
   },

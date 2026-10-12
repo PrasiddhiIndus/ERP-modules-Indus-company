@@ -12,6 +12,8 @@ import {
   setSiteEmployeeLoginAccess,
 } from "../../lib/siteEmployeeLoginsApi";
 import CreateSiteLoginModal from "./CreateSiteLoginModal";
+import { useAuth } from "../../contexts/AuthContext";
+import { canSeeSubModule } from "../../config/roles";
 
 function asList(raw) {
   return Array.isArray(raw) ? raw.map(String).filter(Boolean) : [];
@@ -44,6 +46,8 @@ export default function LoginAccessSection({ person }) {
   const [enabled, setEnabled] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const { userProfile, accessibleModules } = useAuth();
+  const hasPageAccess = canSeeSubModule(userProfile, accessibleModules, "hr.people-management");
 
   const load = useCallback(async () => {
     setError("");
@@ -53,7 +57,7 @@ export default function LoginAccessSection({ person }) {
         fetchCanManageSiteLogins(supabase).catch(() => false),
       ]);
       setLogin(row);
-      setCanManage(manage);
+      setCanManage(manage || hasPageAccess);
       if (row) {
         setEnabled(row.is_active !== false);
         fetchSiteLoginHistory(supabase, person.id)
@@ -68,7 +72,7 @@ export default function LoginAccessSection({ person }) {
       setLogin(null);
       setError(formatSiteLoginError(err));
     }
-  }, [person.id]);
+  }, [person.id, hasPageAccess]);
 
   useEffect(() => {
     load();
