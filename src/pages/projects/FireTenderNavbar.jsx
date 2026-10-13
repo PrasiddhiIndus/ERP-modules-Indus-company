@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { Settings, ChevronDown, LayoutDashboard } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { IEV_CONFIG_PAGES, getAllowedIevConfigSlugs } from "../../lib/ievConfigAccess";
+import { getOpenableIevCostingTabs, isPathAllowed } from "../../config/roles";
 import {
   FIRE_TENDER_DASHBOARD_PATH,
   FIRE_TENDER_HUB_COSTING,
@@ -32,9 +33,15 @@ const FireTenderNavbar = ({ activeWorkflowTab, onWorkflowTabChange, showWorkflow
   const showTabs = showWorkflowTabs && workflowTab != null;
   const onDashboard = isFireTenderDashboardNavActive(pathname);
   const inConfiguration = pathname.includes("/fire-tender/configuration");
-  const { userProfile } = useAuth();
+  const { userProfile, accessibleModules, subModulePaths } = useAuth();
+  const canOpen = (path) => isPathAllowed(path, accessibleModules || new Set(), subModulePaths);
+  const allowedTabs = getOpenableIevCostingTabs(userProfile, accessibleModules, subModulePaths);
+  const workflowTabs = WORKFLOW_TABS.filter((tab) => allowedTabs.includes(tab.id));
+  const showDashboard = canOpen(FIRE_TENDER_DASHBOARD_PATH);
   const allowedSlugs = getAllowedIevConfigSlugs(userProfile);
-  const configPages = IEV_CONFIG_PAGES.filter((page) => allowedSlugs.includes(page.slug));
+  const configPages = IEV_CONFIG_PAGES.filter(
+    (page) => allowedSlugs.includes(page.slug) && canOpen(`/app/fire-tender/configuration/${page.slug}`)
+  );
 
   const dashboardClass = onDashboard
     ? "bg-red-100 text-red-800 ring-1 ring-red-200 border-red-200"
@@ -53,7 +60,7 @@ const FireTenderNavbar = ({ activeWorkflowTab, onWorkflowTabChange, showWorkflow
 
         <div className="flex flex-wrap items-center gap-2">
           {showTabs &&
-            WORKFLOW_TABS.map((tab) =>
+            workflowTabs.map((tab) =>
               onWorkflowTabChange ? (
                 <button
                   key={tab.id}
@@ -78,13 +85,15 @@ const FireTenderNavbar = ({ activeWorkflowTab, onWorkflowTabChange, showWorkflow
               )
             )}
 
-          <Link
-            to={FIRE_TENDER_DASHBOARD_PATH}
-            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors sm:text-sm ${dashboardClass}`}
-          >
-            <LayoutDashboard className="h-4 w-4 shrink-0" />
-            Dashboard
-          </Link>
+          {showDashboard && (
+            <Link
+              to={FIRE_TENDER_DASHBOARD_PATH}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors sm:text-sm ${dashboardClass}`}
+            >
+              <LayoutDashboard className="h-4 w-4 shrink-0" />
+              Dashboard
+            </Link>
+          )}
 
           <div className="relative">
             <button

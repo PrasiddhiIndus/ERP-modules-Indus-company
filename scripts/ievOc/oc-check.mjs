@@ -21,6 +21,8 @@ const upRepair = read("supabase/migrations/20261012180000_iev_oc_schema_repair.s
 const legacyV1 = read("scripts/ievOc/fixtures/oc_creation_v1_legacy.sql");
 const upFinance = read("supabase/migrations/20261012190000_iev_oc_finance_oc_no.sql");
 const downFinance = read("supabase/rollbacks/20261012190000_iev_oc_finance_oc_no_down.sql");
+const upPageAccess = read("supabase/migrations/20261012200000_iev_po_at_glance_page_access.sql");
+const downPageAccess = read("supabase/rollbacks/20261012200000_iev_po_at_glance_page_access_down.sql");
 
 let passed = 0;
 let failed = 0;
@@ -50,6 +52,8 @@ const FTC_DEPT = "00000000-0000-0000-0000-0000000000c3";
 const MODULE_CASE = "00000000-0000-0000-0000-0000000000c4";
 const MFG_ONLY = "00000000-0000-0000-0000-0000000000c5";
 const FIN_TEAM = "00000000-0000-0000-0000-0000000000c6";
+const PAGE_OC = "00000000-0000-0000-0000-0000000000c7";
+const PAGE_QUOTE = "00000000-0000-0000-0000-0000000000c8";
 
 const SETUP = `
   DO $$ BEGIN
@@ -79,7 +83,8 @@ const SETUP = `
              OR p.role IN ('super_admin', 'super_admin_pro')));
   $$;
   INSERT INTO auth.users VALUES ('${IEV_USER}'), ('${OTHER_IEV_USER}'), ('${SALES_USER}'), ('${CONFIG_PICKED}'), ('${CONFIG_OTHER}'),
-    ('${COSTING_ONLY}'), ('${MASTER_LINKED}'), ('${FTC_DEPT}'), ('${MODULE_CASE}'), ('${MFG_ONLY}'), ('${FIN_TEAM}');
+    ('${COSTING_ONLY}'), ('${MASTER_LINKED}'), ('${FTC_DEPT}'), ('${MODULE_CASE}'), ('${MFG_ONLY}'), ('${FIN_TEAM}'),
+    ('${PAGE_OC}'), ('${PAGE_QUOTE}');
   INSERT INTO public.profiles VALUES ('${IEV_USER}', 'fireTender', 'executive', '[]', '8982', '[]'),
     ('${OTHER_IEV_USER}', 'fireTender', 'executive', '[]', '7001', '[]'), ('${SALES_USER}', 'sales', 'executive', '[]', NULL, '[]'),
     ('${CONFIG_PICKED}', 'fireTender', 'executive', '[]', '9000', '["iev-config.selected", "iev-config.oc-sign-off"]'),
@@ -89,7 +94,9 @@ const SETUP = `
     ('${FTC_DEPT}', 'Projects-FTC', 'manager', '[]', '8200', '[]'),
     ('${MODULE_CASE}', 'sales', 'executive', '["FireTender"]', '8300', '[]'),
     ('${MFG_ONLY}', 'sales', 'executive', '[]', '8400', '["fireTender.manufacturing"]'),
-    ('${FIN_TEAM}', 'Finance/Accounts', 'executive', '["fireTender"]', '8500', '[]');
+    ('${FIN_TEAM}', 'Finance/Accounts', 'executive', '["fireTender"]', '8500', '[]'),
+    ('${PAGE_OC}', 'sales', 'executive', '[]', '8600', '["fireTender.costing.po-at-glance"]'),
+    ('${PAGE_QUOTE}', 'sales', 'executive', '[]', '8700', '["fireTender.costing.quotation"]');
   GRANT USAGE ON SCHEMA public, auth TO authenticated;
 `;
 let db = new PGlite();
@@ -370,6 +377,24 @@ await asUser(IEV_USER, async () => {
   const clear = await throws(() => save({ ...noSign, id: pending.id, oc_no: "" }));
   check("non-Finance users cannot clear an OC No. Finance filled", FIN_RULE.test(clear || ""), clear);
 });
+// Page-wise IEV Costing access from User Management.
+const hasAccess = async (uid) => asUser(uid, async () => (await one("SELECT public.oc_current_user_has_access() AS a")).a);
+check("before the page migration the PO At Glance page alone gives no access", (await hasAccess(PAGE_OC)) === false);
+check("page access migration applies", (await throws(() => db.exec(upPageAccess))) === null);
+check("page access migration is re-runnable", (await throws(() => db.exec(upPageAccess))) === null);
+await asUser(PAGE_OC, async () => {
+  const r = await throws(() => save({ ...noSign, oc_no: "" }));
+  check("users given only the PO At Glance page can save an entry", r === null, r);
+});
+await asUser(PAGE_QUOTE, async () => {
+  const r = await throws(() => save({ ...noSign, oc_no: "" }));
+  check("users given only the Quotation page cannot save PO At Glance", /do not have access/i.test(r || ""), r);
+});
+check("IEV Costing sub-item users keep access after the page migration", (await hasAccess(COSTING_ONLY)) === true);
+check("IEV Manufacturing-only users still have no access", (await hasAccess(MFG_ONLY)) === false);
+check("page access rollback applies", (await throws(() => db.exec(downPageAccess))) === null);
+check("after the page rollback the PO At Glance page alone gives no access", (await hasAccess(PAGE_OC)) === false);
+
 await db.exec("DELETE FROM public.oc_master WHERE oc_no IS NULL");
 check("finance OC No. rollback applies", (await throws(() => db.exec(downFinance))) === null);
 await asUser(IEV_USER, async () => {

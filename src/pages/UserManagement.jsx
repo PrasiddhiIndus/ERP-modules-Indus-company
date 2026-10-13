@@ -247,6 +247,12 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
               ) : null}
             </div>
 
+            {fullChecked && hasSubs && (
+              <p className="ml-9 mr-3 -mt-1 pb-2 text-[11px] text-gray-500">
+                Full access: includes every sub-module and page. Untick {mod.label} to choose sub-modules or pages.
+              </p>
+            )}
+
             {fullChecked && hasSubs && mod.subModules.some((s) => s.optIn) && (
               <div className="bg-slate-50 border-t border-gray-100 ml-6 mr-0 divide-y divide-gray-100/60">
                 {mod.subModules
@@ -275,7 +281,7 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
                 {mod.subModules.map((sub) => {
                   const subChecked = safeSubModules.includes(sub.value);
                   const hasTabChildren = sub.tabModules && sub.tabModules.length > 0;
-                  const isSubExpanded = expanded[sub.value] ?? false;
+                  const isSubExpanded = expanded[sub.value] ?? true;
                   const activeTabCount = hasTabChildren
                     ? sub.tabModules.filter((t) => safeSubModules.includes(t.value)).length
                     : 0;
@@ -293,7 +299,7 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
                         />
                         <label
                           htmlFor={`sub-${sub.value}`}
-                          className="flex-1 text-xs text-gray-700 cursor-pointer select-none"
+                          className="flex-1 text-sm text-gray-700 cursor-pointer select-none"
                         >
                           {sub.label}
                           {sub.optIn ? <span className="ml-1.5 text-[10px] text-indigo-500">opt-in</span> : null}
@@ -331,12 +337,36 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
                                 onChange={() => onToggleSubModule(tab.value)}
                                 className="rounded border-gray-200 text-indigo-400 focus:ring-indigo-300 shrink-0"
                               />
-                              <span className="text-[11px] text-gray-600">{tab.label}</span>
+                              <span className="text-xs text-gray-700">{tab.label}</span>
                               {tab.optIn ? (
                                 <span className="text-[10px] text-indigo-500">{tab.badge || "opt-in"}</span>
                               ) : null}
                             </label>
                           ))}
+                        </div>
+                      )}
+
+                      {hasTabChildren && subChecked && sub.tabModules.some((t) => !t.optIn) && (
+                        <div className="bg-white border-t border-gray-100 ml-5 mr-0 divide-y divide-gray-50">
+                          {sub.tabModules
+                            .filter((tab) => !tab.optIn)
+                            .map((tab) => (
+                              <label
+                                key={tab.value}
+                                className="flex items-center gap-2 px-3 py-1.5 text-gray-400"
+                                title={`Included with ${sub.label}. Untick ${sub.label} to choose pages one by one.`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked
+                                  disabled
+                                  readOnly
+                                  className="rounded border-gray-200 text-indigo-300 shrink-0"
+                                />
+                                <span className="text-xs">{tab.label}</span>
+                                <span className="text-[10px]">included</span>
+                              </label>
+                            ))}
                         </div>
                       )}
 
@@ -1368,7 +1398,7 @@ const UserManagement = () => {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 w-full">
       <div className="flex items-center gap-3 mb-6">
         <div className="p-2 rounded-lg bg-indigo-100">
           <Users className="w-6 h-6 text-indigo-600" />
@@ -1805,10 +1835,16 @@ const UserManagement = () => {
 
       {/* Edit modal */}
       {editId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-4 border-b">
-              <h2 className="text-lg font-semibold text-gray-900">Edit user access</h2>
+        <div className="fixed inset-0 z-50 flex bg-black/50 p-2 sm:p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full h-full flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 sm:px-6 border-b shrink-0">
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold text-gray-900">Edit user access</h2>
+                <p className="text-xs text-gray-500 truncate">
+                  {editForm.username || editForm.email || "User"}
+                  {editForm.employee_code ? ` · ${editForm.employee_code}` : ""}
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={closeEdit}
@@ -1817,7 +1853,8 @@ const UserManagement = () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid gap-6 lg:grid-cols-[minmax(320px,440px)_1fr] items-start">
+            <div className="space-y-4 lg:sticky lg:top-0">
               <p className="text-sm text-gray-500 flex items-center gap-2">
                 <Lock className="w-4 h-4" />
                 Passwords cannot be changed here.
@@ -1970,18 +2007,24 @@ const UserManagement = () => {
                   />
                 </div>
               )}
+            </div>
 
+              {editForm.role === ROLES.SUPER_ADMIN ? (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+                  Super Admin can open every module, sub-module and page.
+                </div>
+              ) : null}
               {editForm.role !== ROLES.SUPER_ADMIN && (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <label className="block text-base font-semibold text-gray-800">
                       Module access
                     </label>
-                    <span className="text-xs text-gray-400">
-                      Check a module for full access, or expand to pick sub-modules
+                    <span className="text-xs text-gray-500">
+                      Tick a module for full access, or untick it and expand to pick sub-modules and pages
                     </span>
                   </div>
-                  <div className="max-h-64 overflow-y-auto rounded-lg">
+                  <div className="rounded-lg">
                     <ModuleAccessTree
                       tree={selectableModuleTree(editForm.team)}
                       allowedModules={editForm.allowed_modules}
@@ -2036,7 +2079,10 @@ const UserManagement = () => {
                 </div>
               )}
             </div>
-            <div className="flex justify-end gap-2 p-4 border-t">
+            <div className="flex items-center justify-end gap-2 px-4 py-3 sm:px-6 border-t shrink-0 bg-white">
+              {error ? (
+                <p className="mr-auto min-w-0 text-sm text-red-700 whitespace-pre-wrap">{error}</p>
+              ) : null}
               <button
                 type="button"
                 onClick={closeEdit}
@@ -2059,9 +2105,9 @@ const UserManagement = () => {
 
       {/* Create user modal (Super Admin only) */}
       {createOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto relative">
-            <div className="flex items-center justify-between p-4 border-b">
+        <div className="fixed inset-0 z-50 flex bg-black/50 p-2 sm:p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full h-full flex flex-col overflow-hidden relative">
+            <div className="flex items-center justify-between px-4 py-3 sm:px-6 border-b shrink-0">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Create user</h2>
                 <p className="text-xs text-gray-500">Creates an Auth user + profile (Edge Function).</p>
@@ -2075,7 +2121,7 @@ const UserManagement = () => {
               </button>
             </div>
 
-            <div className="p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid gap-6 lg:grid-cols-[minmax(320px,440px)_1fr] items-start">
               {/* Absorb browser login autofill so it does not fill Create user / Search. */}
               <div className="absolute w-0 h-0 overflow-hidden opacity-0 pointer-events-none" aria-hidden="true">
                 <input type="text" name="prevent-autofill-username" autoComplete="username" tabIndex={-1} />
@@ -2084,7 +2130,7 @@ const UserManagement = () => {
               <form
                 autoComplete="off"
                 onSubmit={(e) => e.preventDefault()}
-                className="grid grid-cols-1 md:grid-cols-2 gap-3"
+                className="grid grid-cols-1 gap-3 lg:sticky lg:top-0"
               >
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
@@ -2176,17 +2222,22 @@ const UserManagement = () => {
                 </div>
               </form>
 
+              {createForm.role === ROLES.SUPER_ADMIN ? (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+                  Super Admin can open every module, sub-module and page.
+                </div>
+              ) : null}
               {createForm.role !== ROLES.SUPER_ADMIN ? (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <label className="block text-base font-semibold text-gray-800">
                       Module access
                     </label>
-                    <span className="text-xs text-gray-400">
-                      Check a module for full access, or expand to pick sub-modules
+                    <span className="text-xs text-gray-500">
+                      Tick a module for full access, or untick it and expand to pick sub-modules and pages
                     </span>
                   </div>
-                  <div className="max-h-64 overflow-y-auto rounded-lg">
+                  <div className="rounded-lg">
                     <ModuleAccessTree
                       tree={selectableModuleTree(createForm.team)}
                       allowedModules={createForm.allowed_modules}
@@ -2299,7 +2350,10 @@ const UserManagement = () => {
               ) : null}
             </div>
 
-            <div className="flex justify-end gap-2 p-4 border-t">
+            <div className="flex items-center justify-end gap-2 px-4 py-3 sm:px-6 border-t shrink-0 bg-white">
+              {error ? (
+                <p className="mr-auto min-w-0 text-sm text-red-700 whitespace-pre-wrap">{error}</p>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setCreateOpen(false)}
