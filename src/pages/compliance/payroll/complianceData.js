@@ -3,12 +3,19 @@
  */
 
 import { supabase } from "../../../lib/supabase";
+import {
+  attendanceEmpCodeLookupVariants,
+  fetchMonthlyRegisterPayrollTotals,
+} from "../../../lib/attendanceDaily";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import {
+  capPresentDaysToWorkingDays,
   getMonthRunByKey,
   getMonthRunWithLines,
   monthKey,
   monthLabel,
+  salaryPresentDaysFromDayMarks,
+  workingDaysMonToSat,
 } from "../../adminOperations/salaryAdmin/salaryMonthProcessing";
 import { ageFromDob, applyEpfDerived } from "./complianceEpf";
 import { overlayFilingOnRows, loadComplianceFiling } from "./complianceDb";
@@ -17,6 +24,88 @@ import { sanitizeIpName } from "./complianceEsic";
 function num(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+function personNameKey(name) {
+  return String(name || "")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Attendance P.Days for the pay month, keyed by employee code and by name.
+ * Same Mon–Sat present and paid-leave total used when salary is processed.
+ */
+async function fetchAttendancePresentIndex(year, month) {
+  const y = Number(year);
+  const m = Number(month);
+  const byCode = {};
+  const byName = {};
+  if (!Number.isFinite(y) || m < 1 || m > 12) return { byCode, byName };
+  const cap = workingDaysMonToSat(y, m);
+  try {
+    const result = await fetchMonthlyRegisterPayrollTotals(
+      supabase,
+      `${y}-${String(m).padStart(2, "0")}`
+    );
+    for (const row of result.rows || []) {
+      const fromMarks = row.dayMarks
+        ? salaryPresentDaysFromDayMarks(row.dayMarks, y, m, row.department)
+        : capPresentDaysToWorkingDays(row.summary?.totalPresent, cap);
+      const days = Number.isFinite(Number(fromMarks)) ? Number(fromMarks) : 0;
+      for (const raw of [row.empCode, row.employeeId]) {
+        for (const variant of attendanceEmpCodeLookupVariants(raw)) {
+          byCode[variant] = days;
+        }
+      }
+      const name = personNameKey(row.employeeName);
+      if (name) byName[name] = days;
+    }
+  } catch (err) {
+    console.warn("Compliance: attendance present days unavailable", err);
+    return null;
+  }
+  return { byCode, byName };
+}
+
+function attendanceDaysForRow(index, row) {
+  if (!index) return null;
+  const codes = [row.employeeCode, row.employeeId];
+  for (const raw of codes) {
+    for (const variant of attendanceEmpCodeLookupVariants(raw)) {
+      if (Object.prototype.hasOwnProperty.call(index.byCode, variant)) {
+        return index.byCode[variant];
+      }
+    }
+  }
+  const name = personNameKey(row.name || row.ipName);
+  if (name && Object.prototype.hasOwnProperty.call(index.byName, name)) {
+    return index.byName[name];
+  }
+  return null;
+}
+
+function withAttendancePresent(epfRows, esicRows, index) {
+  const epfNext = (epfRows || []).map((row) => {
+    const hit = attendanceDaysForRow(index, row);
+    return { ...row, presentDays: hit != null ? hit : Number(row.presentDays) || 0 };
+  });
+
+  const esicNext = (esicRows || []).map((row) => {
+    const hit = attendanceDaysForRow(index, { ...row, name: row.ipName || row.name });
+    const days = hit != null ? hit : Number(row.presentDays ?? row.daysPaid) || 0;
+    const reason =
+      Number(days) === 0 && !String(row.reasonCode ?? "").trim() ? "0" : row.reasonCode;
+    return {
+      ...row,
+      presentDays: days,
+      daysPaid: days,
+      reasonCode: reason ?? "",
+    };
+  });
+
+  return { epfRows: epfNext, esicRows: esicNext };
 }
 
 /**
@@ -228,6 +317,7 @@ export async function loadComplianceMonthEmployees({ year, month } = {}) {
   const key = monthKey(y, m);
   const label = monthLabel(y, m);
   const asOf = new Date(y, m, 0); // last day of month
+  const presentPromise = fetchAttendancePresentIndex(y, m);
 
   let runMeta = null;
   try {
@@ -235,41 +325,27 @@ export async function loadComplianceMonthEmployees({ year, month } = {}) {
   } catch (runErr) {
     console.warn("Compliance: salary month lookup skipped", runErr);
   }
-  const isProcessed =
-    runMeta?.id && String(runMeta.status || "").toLowerCase() === "processed";
-
-  const demoPack = loadDemoComplianceEmployees({ year: y, month: m });
-
-  const packDemo = async (run) => {
+  const emptyMonth = async (run) => {
     const filing = await loadComplianceFiling(key);
-    const overlaid = overlayFilingOnRows({
-      epfRows: demoPack.epfRows,
-      esicRows: demoPack.esicRows,
-      filing,
-    });
-    const epfRows = overlaid.epfRows.map((row) => applyEpfDerived(row));
     return {
       year: y,
       month: m,
       monthKey: key,
       monthLabel: label,
-      hasSheet: epfRows.length > 0,
-      isDemo: true,
+      hasSheet: false,
+      isDemo: false,
       run: run || null,
       filing,
-      epfRows,
-      esicRows: overlaid.esicRows,
-      demo: {
-        epfRows,
-        esicRows: overlaid.esicRows,
-      },
+      epfRows: [],
+      esicRows: [],
+      demo: null,
     };
   };
 
-  if (!isProcessed) return packDemo(runMeta);
+  if (!runMeta?.id) return emptyMonth(null);
 
   const { run, lines } = await getMonthRunWithLines(runMeta.id);
-  if (!(lines || []).length) return packDemo(run);
+  if (!(lines || []).length) return emptyMonth(run);
   const masterMap = await fetchMasterByIds((lines || []).map((l) => l.employee_master_id));
 
   const epfRows = [];
@@ -335,13 +411,9 @@ export async function loadComplianceMonthEmployees({ year, month } = {}) {
     String(a.employeeCode).localeCompare(String(b.employeeCode), undefined, { numeric: true })
   );
 
-  const filing = await loadComplianceFiling(key);
+  const [filing, presentIndex] = await Promise.all([loadComplianceFiling(key), presentPromise]);
   const overlaid = overlayFilingOnRows({ epfRows, esicRows, filing });
-  const demoOverlaid = overlayFilingOnRows({
-    epfRows: demoPack?.epfRows || [],
-    esicRows: demoPack?.esicRows || [],
-    filing,
-  });
+  const stamped = withAttendancePresent(overlaid.epfRows, overlaid.esicRows, presentIndex);
 
   return {
     year: y,
@@ -352,13 +424,8 @@ export async function loadComplianceMonthEmployees({ year, month } = {}) {
     isDemo: false,
     run,
     filing,
-    epfRows: overlaid.epfRows.map((row) => applyEpfDerived(row)),
-    esicRows: overlaid.esicRows,
-    demo: demoPack
-      ? {
-          epfRows: demoOverlaid.epfRows.map((row) => applyEpfDerived(row)),
-          esicRows: demoOverlaid.esicRows,
-        }
-      : null,
+    epfRows: stamped.epfRows.map((row) => applyEpfDerived(row)),
+    esicRows: stamped.esicRows,
+    demo: null,
   };
 }
