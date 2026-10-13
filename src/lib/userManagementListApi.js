@@ -108,8 +108,11 @@ function applySort(query, sort, includeEmpCode) {
   return q.order("email", { ascending: true, nullsFirst: false });
 }
 
-function applyFilters(query, filters, includeEmpCode) {
+function applyFilters(query, filters, includeEmpCode, excludeProfileIds = []) {
   let q = query;
+  if (excludeProfileIds.length) {
+    q = q.not("id", "in", `(${excludeProfileIds.join(",")})`);
+  }
   const term = String(filters.search ?? "").trim();
   if (term) {
     const pattern = escapeIlikePattern(term);
@@ -124,7 +127,7 @@ function applyFilters(query, filters, includeEmpCode) {
     q = q.eq("role", filters.role);
   }
   if (filters.team) {
-    q = q.eq("team", filters.team);
+    q = q.ilike("team", escapeIlikePattern(String(filters.team).trim()));
   }
 
   if (includeEmpCode && filters.linkStatus === "linked") {
@@ -143,7 +146,13 @@ export async function fetchUserManagementProfiles(
   supabase,
   // A cached "unsupported" verdict must not stick: always probe, and only a genuine
   // missing-column error downgrades to the no-employee-code select.
-  { page = 1, pageSize = 10, filters = DEFAULT_USER_MGMT_FILTERS, preferEmpCode = true } = {}
+  {
+    page = 1,
+    pageSize = 10,
+    filters = DEFAULT_USER_MGMT_FILTERS,
+    preferEmpCode = true,
+    excludeProfileIds = [],
+  } = {}
 ) {
   const safePage = Math.max(1, Number(page) || 1);
   const safeSize = Math.max(1, Number(pageSize) || 10);
@@ -152,7 +161,7 @@ export async function fetchUserManagementProfiles(
 
   const buildQuery = (selectCols, includeEmpCode) => {
     let query = supabase.from("profiles").select(selectCols, { count: "exact" });
-    query = applyFilters(query, filters, includeEmpCode);
+    query = applyFilters(query, filters, includeEmpCode, excludeProfileIds);
     return query.range(from, to);
   };
 
@@ -187,7 +196,7 @@ export async function fetchUserManagementProfiles(
  */
 export async function fetchAllUserManagementProfiles(
   supabase,
-  { filters = DEFAULT_USER_MGMT_FILTERS, preferEmpCode = true } = {}
+  { filters = DEFAULT_USER_MGMT_FILTERS, preferEmpCode = true, excludeProfileIds = [] } = {}
 ) {
   const batchSize = USER_MGMT_EXPORT_BATCH_SIZE;
   const allRows = [];
@@ -197,7 +206,7 @@ export async function fetchAllUserManagementProfiles(
   while (true) {
     const buildQuery = (selectCols, includeEmpCode) => {
       let query = supabase.from("profiles").select(selectCols);
-      query = applyFilters(query, filters, includeEmpCode);
+      query = applyFilters(query, filters, includeEmpCode, excludeProfileIds);
       return query.range(from, from + batchSize - 1);
     };
 

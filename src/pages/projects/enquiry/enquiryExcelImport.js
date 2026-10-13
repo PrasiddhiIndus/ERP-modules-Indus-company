@@ -20,6 +20,7 @@ const FIELD_HEADER_ALIASES = {
   phone_number: ['Phone Number', 'Phone', 'Mobile', 'Contact Number', 'Mobile Number'],
   email_address: ['Email Address', 'Email', 'E-mail', 'Email ID'],
   target_date: ['Target Date', 'Due Date', 'Follow-up Date', 'Action Date', 'Follow up Date'],
+  completed_on: ['Completed Date', 'Completion Date', 'Date Completed', 'Completed On'],
   assigned_to_person: ['Assigned To Person', 'Assigned To', 'Assigned to Person', 'Handler'],
   assigned_on_date: ['Assigned on Date', 'Assigned On Date', 'Assigned Date', 'Date Assigned'],
   priority: ['Priority', 'Priority/Probability', 'Probability'],

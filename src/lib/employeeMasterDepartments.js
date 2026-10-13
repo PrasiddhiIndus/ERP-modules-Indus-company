@@ -91,24 +91,27 @@ export function mergeEmployeeMasterDepartments(dbDepartments = []) {
   );
 }
 
-export async function fetchEmployeeMasterDepartments(supabase) {
+/** Departments actually used in Employee Master (canonical labels, sorted, no curated defaults). */
+export async function fetchEmployeeMasterDepartmentsInUse(supabase) {
   const { data, error } = await supabase.from(EMPLOYEE_MASTER_TABLE).select('department');
 
   if (error) throw error;
 
-  const fromDb = [];
   const seen = new Map();
   for (const row of data || []) {
     const label = canonicalDepartmentLabel(row?.department);
     if (!label) continue;
     const key = normalizeDeptKey(label);
-    if (!seen.has(key)) {
-      seen.set(key, label);
-      fromDb.push(label);
-    }
+    if (!seen.has(key)) seen.set(key, label);
   }
 
-  return mergeEmployeeMasterDepartments(fromDb);
+  return Array.from(seen.values()).sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' })
+  );
+}
+
+export async function fetchEmployeeMasterDepartments(supabase) {
+  return mergeEmployeeMasterDepartments(await fetchEmployeeMasterDepartmentsInUse(supabase));
 }
 
 /** Resolve import/UI input to canonical department label from the allowed list. */

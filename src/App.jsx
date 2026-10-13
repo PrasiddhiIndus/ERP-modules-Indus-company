@@ -686,6 +686,7 @@ function App() {
             <Route path="projects/enquiry/enquiry-dashboard" element={<ProjectsEnquiryHub />} />
             <Route path="projects/enquiry/enquiry-entry" element={<ProjectsEnquiryHub />} />
             <Route path="projects/enquiry/enquiry-database" element={<ProjectsEnquiryHub />} />
+            <Route path="projects/enquiry/enquiry-kpi" element={<ProjectsEnquiryHub />} />
             <Route path="projects/enquiry/enquiry-dropdown" element={<ProjectsEnquiryHub />} />
             <Route path="projects/quotation" element={<ProjectsQuotationHub />} />
             <Route path="projects/quotation/quotation-dashboard" element={<ProjectsQuotationHub />} />
