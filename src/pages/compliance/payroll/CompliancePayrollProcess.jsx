@@ -177,11 +177,9 @@ export default function CompliancePayrollProcess() {
   const [downloading, setDownloading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [banner, setBanner] = useState("");
-  const [usingDemo, setUsingDemo] = useState(false);
   const fileInputRef = useRef(null);
   const parsedRef = useRef(null);
   const saveTimerRef = useRef(null);
-  const sheetRowsRef = useRef({ epf: [], esic: [] });
 
   const setTab = (next) => {
     const p = new URLSearchParams(searchParams);
@@ -211,12 +209,10 @@ export default function CompliancePayrollProcess() {
       setMeta(data);
       setEpfRows(data.epfRows || []);
       setEsicRows(data.esicRows || []);
-      setUsingDemo(Boolean(data.isDemo));
-      if (!data.isDemo) {
-        sheetRowsRef.current = { epf: data.epfRows || [], esic: data.esicRows || [] };
-      }
-      if (!data.epfRows?.length && !data.esicRows?.length) {
-        setLoadError("Sample employees could not be opened for this month. Refresh and try again.");
+      if (!data.hasSheet) {
+        setLoadError(
+          "No salary has been processed for this month. Process salary first, then review those employees here."
+        );
       }
     } catch (err) {
       console.error(err);
@@ -307,28 +303,6 @@ export default function CompliancePayrollProcess() {
         console.warn("Compliance: could not save edits", err);
       });
     }, 800);
-  };
-
-  const openDemoReview = () => {
-    const demo = meta?.demo;
-    if (!demo?.epfRows?.length) {
-      setLoadError("Sample employees could not be opened for this month.");
-      return;
-    }
-    setEpfRows(demo.epfRows);
-    setEsicRows(demo.esicRows || []);
-    setUsingDemo(true);
-    setValidation(null);
-    setBanner("");
-    goStep("review");
-  };
-
-  const backToSalarySheet = () => {
-    setEpfRows(sheetRowsRef.current.epf || []);
-    setEsicRows(sheetRowsRef.current.esic || []);
-    setUsingDemo(false);
-    setValidation(null);
-    setBanner("");
   };
 
   const runValidate = () => {
@@ -475,7 +449,7 @@ export default function CompliancePayrollProcess() {
     <div className="space-y-4">
       <PageTaskHeader
         title="Payroll Compliance"
-        subtitle="Prepare PF / EPF and ESIC files for any month. When salary is not processed yet, four sample employees open so you can edit wages and review the challan."
+        subtitle="Prepare PF / EPF and ESIC files from the employees processed in salary for the month you select. Present days come from that month’s attendance."
       >
         <input
           ref={fileInputRef}
@@ -524,8 +498,8 @@ export default function CompliancePayrollProcess() {
         <CollapsibleHelp label="process steps">
           <ol className="list-decimal pl-4 space-y-1">
             <li>
-              Pick any month and continue to review. Four sample employees open with starter wages
-              you can edit. A processed salary month opens that full list instead.
+              Pick the month that was processed in salary. Continue to review opens only those
+              employees. Present days are the attendance total for that same month and employee.
             </li>
             <li>
               Upload Excel at the top — select both files together if needed (PF challan with UAN
@@ -534,13 +508,14 @@ export default function CompliancePayrollProcess() {
             </li>
             {tab === "epf" ? (
               <li>
-                Review UAN, name, gross and EPF wages. EPS, EDLI and contributions calculate from
-                the challan formulas. Age 58 or more sets EPS wages to 0.
+                Present days come from that month’s attendance register for each employee. Review
+                UAN, name, gross and EPF wages. EPS, EDLI and contributions calculate from the
+                challan formulas. Age 58 or more sets EPS wages to 0.
               </li>
             ) : (
               <li>
-                Review IP number, name (letters and spaces), days paid, monthly wages, reason code
-                and last working day.
+                Present days come from that month’s attendance register and fill the days paid on
+                the return. Review IP number, name, monthly wages, reason code and last working day.
               </li>
             )}
             <li>Check errors, then download the filing file. IDs stay saved for later months.</li>
@@ -614,33 +589,14 @@ export default function CompliancePayrollProcess() {
               ) : meta?.hasSheet ? (
                 <>
                   <p>
-                    {usingDemo || meta.isDemo
-                      ? `${activeRows.length} sample employee${activeRows.length === 1 ? "" : "s"} ready to edit`
-                      : `${activeRows.length} employee${activeRows.length === 1 ? "" : "s"} on the processed sheet`}
-                    {tab === "esic" && !usingDemo && !meta.isDemo ? " (ESIC-eligible)" : ""}.
+                    {activeRows.length} employee{activeRows.length === 1 ? "" : "s"} processed in
+                    salary for this month
+                    {tab === "esic" ? " (ESIC return)" : ""}.
                   </p>
-                  {usingDemo || meta.isDemo ? (
-                    <p>
-                      Sample records for this month — not linked to Employee Master. Change UAN,
-                      name, gross wages, EPF wages, age, NCP days and the ESIC columns on review.
-                      EPS, EDLI and contributions calculate from the challan formulas. Ravendra
-                      Dwivedi is age 59, so EPS wages start at 0.
-                    </p>
-                  ) : (
-                    <p>
-                      Upload Excel at the top if UAN or ESIC IP numbers are in a workbook. Or open
-                      the four sample employees to try the challan for this month.
-                    </p>
-                  )}
-                  {meta?.demo?.epfRows?.length ? (
-                    <p className="text-ink">
-                      Sample list:{" "}
-                      {meta.demo.epfRows
-                        .map((row) => row.name)
-                        .filter(Boolean)
-                        .join(", ")}
-                    </p>
-                  ) : null}
+                  <p>
+                    Present days are the attendance total for each of these employees in the
+                    selected month.
+                  </p>
                   {meta?.filing?.source_file_name ? (
                     <p className="text-ink">Last uploaded: {meta.filing.source_file_name}</p>
                   ) : null}
@@ -651,16 +607,6 @@ export default function CompliancePayrollProcess() {
             </div>
 
             <div className="flex flex-wrap justify-end gap-2">
-              {!meta?.isDemo && meta?.demo?.epfRows?.length ? (
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={openDemoReview}
-                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border bg-surface text-xs font-medium text-ink hover:bg-surface-sunken disabled:opacity-40"
-                >
-                  Review {meta.demo.epfRows.length} sample employees
-                </button>
-              ) : null}
               <button
                 type="button"
                 disabled={!canAdvanceFromMonth}
@@ -688,9 +634,6 @@ export default function CompliancePayrollProcess() {
                 />
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                {usingDemo || meta?.isDemo ? (
-                  <StatusChip label="Sample employees" severity="info" />
-                ) : null}
                 {missingIds > 0 ? (
                   <StatusChip
                     label={`${missingIds} missing ${tab === "epf" ? "UAN" : "IP"}`}
@@ -730,15 +673,6 @@ export default function CompliancePayrollProcess() {
                   <ChevronLeft className="h-3.5 w-3.5" />
                   Back
                 </button>
-                {usingDemo && !meta?.isDemo ? (
-                  <button
-                    type="button"
-                    onClick={backToSalarySheet}
-                    className="h-9 px-3 rounded-md border border-border text-xs font-medium text-ink hover:bg-surface-sunken"
-                  >
-                    Full salary list
-                  </button>
-                ) : null}
               </div>
               <button
                 type="button"
@@ -853,7 +787,7 @@ function EpfFormulaKey() {
       <p className="font-medium">Challan formulas</p>
       <p className="text-ink-secondary">
         White cells are typed: UAN, name, gross wages, EPF wages, age, NCP days, refund of advance.
-        Yellow cells calculate.
+        Present days are read from attendance for this month. Yellow cells calculate.
       </p>
       <ul className="grid gap-0.5 text-ink-secondary sm:grid-cols-2">
         <li>EPS wages = IF(age ≥ 58, 0, MIN(EPF wages, 15000))</li>
@@ -872,7 +806,31 @@ function EpfFormulaKey() {
 }
 
 function formulaCellClass() {
-  return "px-2 py-1.5 bg-[#FFF9E6] text-ink tabular-nums whitespace-nowrap";
+  return "px-2 py-1.5 text-right align-middle bg-[#FFF9E6] text-ink tabular-nums whitespace-nowrap";
+}
+
+function formatDays(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(1).replace(/\.0$/, "");
+}
+
+function PresentDaysCell({ days }) {
+  return (
+    <td className="px-3 py-1.5 text-right align-middle tabular-nums font-semibold text-ink whitespace-nowrap bg-sky-50/70">
+      {formatDays(days)}
+    </td>
+  );
+}
+
+const thLeft =
+  "px-3 py-2.5 text-left align-middle font-semibold text-[12px] text-ink normal-case tracking-normal whitespace-nowrap";
+const thRight =
+  "px-3 py-2.5 text-right align-middle font-semibold text-[12px] text-ink normal-case tracking-normal whitespace-nowrap";
+
+function numInputClass(hasError) {
+  return `${cellInputClass(hasError)} text-right tabular-nums`;
 }
 
 function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
@@ -881,41 +839,28 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
 
   return (
     <div className="w-full overflow-x-auto rounded-lg border border-border">
-      <table className="w-max min-w-full text-[11px]">
+      <table className="erp-table-exempt w-max min-w-full text-[12px] border-collapse">
         <thead className="bg-[#FFF2CC] text-ink border-b border-border">
           <tr>
-            <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">UAN</th>
-            <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Name of workman</th>
-            <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Gross wages</th>
-            <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">EPF wages</th>
-            <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Age</th>
-            <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">EPS wages</th>
-            <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">EDLI wages</th>
-            <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">EPF cont&apos;n</th>
-            <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">EPS cont&apos;n</th>
-            <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Balance</th>
-            <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">NCP days</th>
-            <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Refund of adv.</th>
-          </tr>
-          <tr className="bg-[#FFF9E6] text-ink-muted font-normal">
-            <th className="px-2 py-1 font-normal">typed</th>
-            <th className="px-2 py-1 font-normal">typed</th>
-            <th className="px-2 py-1 font-normal">typed</th>
-            <th className="px-2 py-1 font-normal">typed</th>
-            <th className="px-2 py-1 font-normal">typed</th>
-            <th className="px-2 py-1 text-left font-normal">age ≥ 58 → 0, else min 15,000</th>
-            <th className="px-2 py-1 text-left font-normal">EPS, or EPF capped</th>
-            <th className="px-2 py-1 text-left font-normal">12% of EPF wages</th>
-            <th className="px-2 py-1 text-left font-normal">8.33% of EPS</th>
-            <th className="px-2 py-1 text-left font-normal">EPF − EPS</th>
-            <th className="px-2 py-1 font-normal">typed</th>
-            <th className="px-2 py-1 font-normal">typed</th>
+            <th className={thLeft}>UAN</th>
+            <th className={thLeft}>Name</th>
+            <th className={thRight}>Present days</th>
+            <th className={thRight}>Gross wages</th>
+            <th className={thRight}>EPF wages</th>
+            <th className={thRight}>Age</th>
+            <th className={thRight}>EPS wages</th>
+            <th className={thRight}>EDLI wages</th>
+            <th className={thRight}>EPF contribution</th>
+            <th className={thRight}>EPS contribution</th>
+            <th className={thRight}>Balance</th>
+            <th className={thRight}>NCP days</th>
+            <th className={thRight}>Refund of advance</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-divider bg-surface">
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={12} className="px-3 py-8 text-center text-ink-muted">
+              <td colSpan={13} className="px-3 py-8 text-center text-ink-muted">
                 No employees to review
               </td>
             </tr>
@@ -925,48 +870,49 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
               const bad = errorIndexes.has(idx);
               return (
                 <tr key={row.id} className={bad ? "bg-critical-soft/20" : ""}>
-                  <td className="px-1.5 py-1">
+                  <td className="px-1.5 py-1.5 align-middle">
                     <input
-                      className={cellInputClass(bad)}
+                      className={`${cellInputClass(bad)} tabular-nums`}
                       value={row.uan || ""}
                       onChange={(e) =>
                         onChange(row.id, { uan: e.target.value.replace(/\D/g, "").slice(0, 12) })
                       }
                     />
                   </td>
-                  <td className="px-1.5 py-1 min-w-[10rem]">
+                  <td className="px-1.5 py-1.5 align-middle min-w-[11rem]">
                     <input
                       className={cellInputClass(bad)}
                       value={row.name || ""}
                       onChange={(e) => onChange(row.id, { name: e.target.value })}
                     />
                     {row.employeeCode ? (
-                      <span className="block text-[9px] text-ink-muted mt-0.5">
+                      <span className="block text-[9px] text-ink-muted mt-0.5 truncate">
                         {row.employeeCode}
                         {row.designation ? ` · ${row.designation}` : ""}
                       </span>
                     ) : null}
                   </td>
-                  <td className="px-1.5 py-1">
+                  <PresentDaysCell days={row.presentDays} />
+                  <td className="px-1.5 py-1.5 align-middle">
                     <input
                       type="number"
-                      className={cellInputClass(false)}
+                      className={numInputClass(false)}
                       value={row.grossWages ?? ""}
                       onChange={(e) => onChange(row.id, { grossWages: Number(e.target.value) })}
                     />
                   </td>
-                  <td className="px-1.5 py-1">
+                  <td className="px-1.5 py-1.5 align-middle">
                     <input
                       type="number"
-                      className={cellInputClass(false)}
+                      className={numInputClass(false)}
                       value={row.epfWages ?? ""}
                       onChange={(e) => onChange(row.id, { epfWages: Number(e.target.value) })}
                     />
                   </td>
-                  <td className="px-1.5 py-1 w-16">
+                  <td className="px-1.5 py-1.5 align-middle w-16">
                     <input
                       type="number"
-                      className={cellInputClass(false)}
+                      className={numInputClass(false)}
                       value={row.age ?? ""}
                       onChange={(e) =>
                         onChange(row.id, {
@@ -980,16 +926,16 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
                     {row.epsWagesManual ? (
                       <input
                         type="number"
-                        className={cellInputClass(false)}
+                        className={numInputClass(false)}
                         value={row.epsWages ?? 0}
                         onChange={(e) => onChange(row.id, { epsWages: Number(e.target.value) })}
                       />
                     ) : (
-                      <span>{row.epsWages ?? 0}</span>
+                      <span className="block text-right">{row.epsWages ?? 0}</span>
                     )}
                     <button
                       type="button"
-                      className="block text-[9px] text-ink-muted hover:text-ink mt-0.5"
+                      className="block w-full text-right text-[9px] text-ink-muted hover:text-ink mt-0.5"
                       onClick={() =>
                         onChange(row.id, {
                           epsWagesManual: !row.epsWagesManual,
@@ -1000,25 +946,25 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
                       {row.epsWagesManual ? "Use formula" : "Type amount"}
                     </button>
                     {!row.epsWagesManual && row.age58Plus ? (
-                      <span className="block text-[9px] text-amber-700">Age 58+ · EPS 0</span>
+                      <span className="block text-right text-[9px] text-amber-700">Age 58+ · EPS 0</span>
                     ) : null}
                   </td>
                   <td className={formulaCellClass()}>{row.edliWages ?? 0}</td>
                   <td className={formulaCellClass()}>{row.epfContn ?? 0}</td>
                   <td className={formulaCellClass()}>{row.epsContnAmt ?? 0}</td>
                   <td className={formulaCellClass()}>{row.epfBalance ?? 0}</td>
-                  <td className="px-1.5 py-1">
+                  <td className="px-1.5 py-1.5 align-middle">
                     <input
                       type="number"
-                      className={cellInputClass(false)}
+                      className={numInputClass(false)}
                       value={row.ncpDays ?? 0}
                       onChange={(e) => onChange(row.id, { ncpDays: Number(e.target.value) })}
                     />
                   </td>
-                  <td className="px-1.5 py-1">
+                  <td className="px-1.5 py-1.5 align-middle">
                     <input
                       type="number"
-                      className={cellInputClass(false)}
+                      className={numInputClass(false)}
                       value={row.refundOfAdvance ?? 0}
                       onChange={(e) =>
                         onChange(row.id, { refundOfAdvance: Number(e.target.value) })
@@ -1034,17 +980,18 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
           <tfoot className="bg-[#FFF2CC] font-semibold text-ink">
             <tr>
               <td className="px-2 py-2" />
-              <td className="px-2 py-2">Total</td>
-              <td className="px-2 py-2 tabular-nums">{totals.grossWages}</td>
-              <td className="px-2 py-2 tabular-nums">{totals.epfWages}</td>
+              <td className="px-2 py-2 text-left">Total</td>
+              <td className="px-2 py-2 text-right tabular-nums">{formatDays(totals.presentDays)}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{totals.grossWages}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{totals.epfWages}</td>
               <td className="px-2 py-2" />
-              <td className="px-2 py-2 tabular-nums">{totals.epsWages}</td>
-              <td className="px-2 py-2 tabular-nums">{totals.edliWages}</td>
-              <td className="px-2 py-2 tabular-nums">{totals.epfContn}</td>
-              <td className="px-2 py-2 tabular-nums">{totals.epsContnAmt}</td>
-              <td className="px-2 py-2 tabular-nums">{totals.epfBalance}</td>
-              <td className="px-2 py-2 tabular-nums">{totals.ncpDays}</td>
-              <td className="px-2 py-2 tabular-nums">{totals.refundOfAdvance}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{totals.epsWages}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{totals.edliWages}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{totals.epfContn}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{totals.epsContnAmt}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{totals.epfBalance}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{totals.ncpDays}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{totals.refundOfAdvance}</td>
             </tr>
           </tfoot>
         ) : null}
@@ -1055,40 +1002,24 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
 
 function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
   const indexOf = (id) => allRows.findIndex((r) => r.id === id);
-  const totalDays = allRows.reduce((sum, row) => sum + (Number(row.daysPaid) || 0), 0);
+  const totalDays = allRows.reduce(
+    (sum, row) => sum + (Number(row.presentDays ?? row.daysPaid) || 0),
+    0
+  );
   const totalWages = allRows.reduce((sum, row) => sum + (Number(row.monthlyWages) || 0), 0);
 
   return (
     <div className="w-full overflow-x-auto rounded-lg border border-border">
-      <table className="w-max min-w-full text-[11px]">
+      <table className="erp-table-exempt w-max min-w-full text-[12px] border-collapse">
         <thead className="bg-[#DDEBF7] text-ink border-b border-border">
           <tr>
-            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap text-red-700">
-              IP number
-              <span className="block font-normal text-[9px]">10 digits</span>
-            </th>
-            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap text-red-700">
-              Category
-            </th>
-            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap text-red-700">
-              IP name
-              <span className="block font-normal text-[9px]">letters and spaces</span>
-            </th>
-            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap">
-              Days paid
-              <span className="block font-normal text-[9px] text-ink-muted">in the month</span>
-            </th>
-            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap">
-              Total monthly wages
-            </th>
-            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap text-red-700">
-              Reason code
-              <span className="block font-normal text-[9px]">0 unless days are zero</span>
-            </th>
-            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap text-red-700">
-              Last working day
-              <span className="block font-normal text-[9px]">DD/MM/YYYY</span>
-            </th>
+            <th className={thLeft}>IP number</th>
+            <th className={thLeft}>IP name</th>
+            <th className={thLeft}>Category</th>
+            <th className={thRight}>Present days</th>
+            <th className={thRight}>Monthly wages</th>
+            <th className={thLeft}>Reason code</th>
+            <th className={thLeft}>Last working day</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100 bg-white">
@@ -1102,11 +1033,12 @@ function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
             rows.map((row) => {
               const idx = indexOf(row.id);
               const bad = errorIndexes.has(idx);
+              const present = row.presentDays ?? row.daysPaid;
               return (
                 <tr key={row.id} className={bad ? "bg-critical-soft/20" : ""}>
-                  <td className="px-1.5 py-1.5">
+                  <td className="px-1.5 py-1.5 align-middle">
                     <input
-                      className={cellInputClass(bad)}
+                      className={`${cellInputClass(bad)} tabular-nums`}
                       value={row.ipNumber || ""}
                       onChange={(e) =>
                         onChange(row.id, {
@@ -1115,53 +1047,43 @@ function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
                       }
                     />
                   </td>
-                  <td className="px-1.5 py-1.5 min-w-[8rem]">
-                    <input
-                      className={`${cellInputClass(false)} text-rose-700`}
-                      value={row.category || ""}
-                      onChange={(e) => onChange(row.id, { category: e.target.value })}
-                    />
-                  </td>
-                  <td className="px-1.5 py-1.5 min-w-[11rem]">
+                  <td className="px-1.5 py-1.5 align-middle min-w-[12rem]">
                     <input
                       className={cellInputClass(bad)}
                       value={row.ipName || ""}
                       onChange={(e) => onChange(row.id, { ipName: e.target.value })}
                     />
                     {row.employeeCode ? (
-                      <span className="block text-[9px] text-ink-muted mt-0.5">
+                      <span className="block text-[9px] text-ink-muted mt-0.5 truncate">
                         {row.employeeCode}
                       </span>
                     ) : null}
                   </td>
-                  <td className="px-1.5 py-1.5">
+                  <td className="px-1.5 py-1.5 align-middle min-w-[8rem]">
                     <input
-                      type="number"
                       className={cellInputClass(false)}
-                      value={row.daysPaid ?? ""}
-                      onChange={(e) => onChange(row.id, { daysPaid: Number(e.target.value) })}
+                      value={row.category || ""}
+                      onChange={(e) => onChange(row.id, { category: e.target.value })}
                     />
                   </td>
-                  <td className="px-1.5 py-1.5">
+                  <PresentDaysCell days={present} />
+                  <td className="px-1.5 py-1.5 align-middle">
                     <input
                       type="number"
-                      className={cellInputClass(false)}
+                      className={numInputClass(false)}
                       value={row.monthlyWages ?? ""}
                       onChange={(e) => onChange(row.id, { monthlyWages: Number(e.target.value) })}
                     />
-                    <span className="block text-[9px] text-ink-muted mt-0.5">
-                      {formatInr(row.monthlyWages)}
-                    </span>
                   </td>
-                  <td className="px-1.5 py-1.5 min-w-[7rem]">
+                  <td className="px-1.5 py-1.5 align-middle min-w-[7rem]">
                     <input
-                      className={cellInputClass(Number(row.daysPaid) === 0)}
-                      placeholder={Number(row.daysPaid) === 0 ? "Code (0…)" : "—"}
+                      className={cellInputClass(Number(present) === 0)}
+                      placeholder={Number(present) === 0 ? "0" : "—"}
                       value={row.reasonCode ?? ""}
                       onChange={(e) => onChange(row.id, { reasonCode: e.target.value })}
                     />
                   </td>
-                  <td className="px-1.5 py-1.5 min-w-[11rem]">
+                  <td className="px-1.5 py-1.5 align-middle min-w-[11rem]">
                     <DateInput
                       compact
                       aria-label="Last working day"
@@ -1184,11 +1106,11 @@ function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
         {rows.length > 0 ? (
           <tfoot className="bg-[#DDEBF7] font-semibold text-ink">
             <tr>
-              <td className="px-2 py-2" colSpan={3}>
+              <td className="px-2 py-2 text-left" colSpan={3}>
                 Total
               </td>
-              <td className="px-2 py-2 tabular-nums">{totalDays}</td>
-              <td className="px-2 py-2 tabular-nums">{formatInr(totalWages)}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{formatDays(totalDays)}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{formatInr(totalWages)}</td>
               <td colSpan={2} />
             </tr>
           </tfoot>

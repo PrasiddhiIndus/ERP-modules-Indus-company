@@ -132,6 +132,7 @@ export function sumEpfTotals(rows = []) {
     "epfBalance",
     "ncpDays",
     "refundOfAdvance",
+    "presentDays",
   ];
   const totals = {};
   for (const key of keys) totals[key] = 0;
