@@ -120,6 +120,27 @@ export function validateEpfRows(rows = []) {
   return { ok: errors.length === 0, errors };
 }
 
+/** Column totals for the challan review grid (same idea as SUM on the sheet). */
+export function sumEpfTotals(rows = []) {
+  const keys = [
+    "grossWages",
+    "epfWages",
+    "epsWages",
+    "edliWages",
+    "epfContn",
+    "epsContnAmt",
+    "epfBalance",
+    "ncpDays",
+    "refundOfAdvance",
+  ];
+  const totals = {};
+  for (const key of keys) totals[key] = 0;
+  for (const row of rows) {
+    for (const key of keys) totals[key] += Number(row?.[key]) || 0;
+  }
+  return totals;
+}
+
 /** Apply derived EPF fields onto a row (keeps manual EPS when flagged). */
 export function applyEpfDerived(row) {
   const calc = calculateEPFChallan({

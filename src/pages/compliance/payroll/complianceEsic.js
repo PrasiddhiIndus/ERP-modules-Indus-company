@@ -25,6 +25,46 @@ export function isValidIpNumber(ip) {
   return d.length === 10;
 }
 
+function isRealCalendarDate(year, month, day) {
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return false;
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+  const date = new Date(y, m - 1, d);
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+}
+
+/**
+ * ESIC portal date: always DD/MM/YYYY.
+ * Accepts DD/MM/YYYY, DD-MM-YYYY, or YYYY-MM-DD from the calendar.
+ */
+export function formatLastWorkingDay(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    const [, year, month, day] = iso;
+    return isRealCalendarDate(year, month, day) ? `${day}/${month}/${year}` : "";
+  }
+
+  const dmy = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (!dmy) return "";
+  const day = dmy[1].padStart(2, "0");
+  const month = dmy[2].padStart(2, "0");
+  const year = dmy[3];
+  return isRealCalendarDate(year, month, day) ? `${day}/${month}/${year}` : "";
+}
+
+/** Calendar control value (YYYY-MM-DD) from a stored last working day. */
+export function lastWorkingDayToIso(value) {
+  const formatted = formatLastWorkingDay(value);
+  if (!formatted) return "";
+  const [day, month, year] = formatted.split("/");
+  return `${year}-${month}-${day}`;
+}
+
 /**
  * @returns {{ ok: boolean, errors: Array<{ rowIndex: number, employeeName: string, ipNumber: string, messages: string[] }> }}
  */
@@ -63,10 +103,8 @@ export function validateEsicRows(rows = []) {
       }
     }
 
-    if (lastDay) {
-      if (!/^\d{2}[/-]\d{2}[/-]\d{4}$/.test(lastDay)) {
-        messages.push("Last working day must be DD/MM/YYYY or DD-MM-YYYY.");
-      }
+    if (lastDay && !formatLastWorkingDay(lastDay)) {
+      messages.push("Last working day must be a real date in DD/MM/YYYY.");
     }
 
     if (ip) {

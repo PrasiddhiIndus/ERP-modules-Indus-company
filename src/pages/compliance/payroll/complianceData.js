@@ -19,6 +19,186 @@ function num(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * Built-in sample people for any month that has no processed salary sheet.
+ * Not loaded from Employee Master — wages match the challan format sheet so
+ * EPS / EDLI / 12% / 8.33% can be checked immediately, then edited.
+ */
+const DEMO_EMPLOYEES = [
+  {
+    id: "demo-vishal",
+    code: "DEMO-01",
+    name: "VISHAL KUMAR MISHRA",
+    uan: "101247934235",
+    esicNo: "1215683979",
+    age: 36,
+    designation: "Staff",
+    category: "BCA ADDITIONAL",
+    grossWages: 60000,
+    epfWages: 20000,
+    presentDays: 27,
+    ncpDays: 0,
+  },
+  {
+    id: "demo-ravendra",
+    code: "DEMO-02",
+    name: "RAVENDRA DWIVEDI",
+    uan: "100441271101",
+    esicNo: "3813299020",
+    age: 59,
+    designation: "Staff",
+    category: "BCA ADDITIONAL",
+    grossWages: 40000,
+    epfWages: 15000,
+    presentDays: 26,
+    ncpDays: 0,
+  },
+  {
+    id: "demo-rishi",
+    code: "DEMO-03",
+    name: "RISHI KUMAR",
+    uan: "101224215526",
+    esicNo: "3812046968",
+    age: 31,
+    designation: "Staff",
+    category: "BCA Regular",
+    grossWages: 20000,
+    epfWages: 10000,
+    presentDays: 27,
+    ncpDays: 0,
+  },
+  {
+    id: "demo-satheesh",
+    code: "DEMO-04",
+    name: "SATHEESH KUMAR V",
+    uan: "100234288937",
+    esicNo: "3812568876",
+    age: 42,
+    designation: "Staff",
+    category: "Staff",
+    grossWages: 18000,
+    epfWages: 12000,
+    presentDays: 24,
+    ncpDays: 2,
+  },
+];
+
+function buildEpfRow({
+  empId,
+  lineId = null,
+  name,
+  code,
+  employeeId,
+  uan,
+  dob,
+  age,
+  grossWages,
+  epfWages,
+  presentDays,
+  ncpDays = 0,
+  designation = "",
+  department = "",
+}) {
+  const age58Plus = age != null && age >= 58;
+  return applyEpfDerived({
+    id: `epf_${empId}`,
+    employeeMasterId: empId,
+    lineId,
+    employeeCode: code,
+    employeeId,
+    uan,
+    name,
+    designation,
+    department,
+    presentDays,
+    grossWages,
+    epfWages,
+    epsWages: null,
+    epsWagesManual: false,
+    edliWages: 0,
+    epfContn: 0,
+    epsContnAmt: 0,
+    epfBalance: 0,
+    ncpDays,
+    refundOfAdvance: 0,
+    age,
+    age58Plus,
+    dob,
+  });
+}
+
+function buildEsicRow({
+  empId,
+  lineId = null,
+  name,
+  code,
+  employeeId,
+  esicNo,
+  presentDays,
+  grossWages,
+  category = "",
+}) {
+  return {
+    id: `esic_${empId}`,
+    employeeMasterId: empId,
+    lineId,
+    employeeCode: code,
+    employeeId,
+    ipNumber: esicNo,
+    ipName: sanitizeIpName(name) || name,
+    category,
+    daysPaid: presentDays,
+    monthlyWages: grossWages,
+    reasonCode: presentDays === 0 ? "0" : "",
+    lastWorkingDay: "",
+    reasonNote: "",
+  };
+}
+
+/**
+ * Four sample employees for a month that has no salary sheet.
+ * UAN, name, wages, age, ESIC IP, days and NCP can all be edited on review.
+ * These records are not written to Employee Master.
+ */
+export function loadDemoComplianceEmployees({ year, month } = {}) {
+  const y = Number(year);
+  const m = Number(month);
+  const key = monthKey(y, m);
+  const label = monthLabel(y, m);
+
+  const epfRows = DEMO_EMPLOYEES.map((person) =>
+    buildEpfRow({
+      empId: person.id,
+      name: person.name,
+      code: person.code,
+      employeeId: person.code,
+      uan: person.uan,
+      dob: null,
+      age: person.age,
+      grossWages: person.grossWages,
+      epfWages: person.epfWages,
+      presentDays: person.presentDays,
+      ncpDays: person.ncpDays,
+      designation: person.designation,
+      department: "",
+    })
+  );
+  const esicRows = DEMO_EMPLOYEES.map((person) =>
+    buildEsicRow({
+      empId: person.id,
+      name: person.name,
+      code: person.code,
+      employeeId: person.code,
+      esicNo: person.esicNo,
+      presentDays: person.presentDays,
+      grossWages: person.grossWages,
+      category: person.category,
+    })
+  );
+
+  return { epfRows, esicRows, monthKey: key, monthLabel: label };
+}
+
 async function fetchMasterByIds(ids = []) {
   const unique = [...new Set(ids.map((id) => Number(id)).filter((n) => Number.isFinite(n)))];
   if (!unique.length) return new Map();
@@ -49,23 +229,47 @@ export async function loadComplianceMonthEmployees({ year, month } = {}) {
   const label = monthLabel(y, m);
   const asOf = new Date(y, m, 0); // last day of month
 
-  const runMeta = await getMonthRunByKey(key);
+  let runMeta = null;
+  try {
+    runMeta = await getMonthRunByKey(key);
+  } catch (runErr) {
+    console.warn("Compliance: salary month lookup skipped", runErr);
+  }
   const isProcessed =
     runMeta?.id && String(runMeta.status || "").toLowerCase() === "processed";
-  if (!isProcessed) {
+
+  const demoPack = loadDemoComplianceEmployees({ year: y, month: m });
+
+  const packDemo = async (run) => {
+    const filing = await loadComplianceFiling(key);
+    const overlaid = overlayFilingOnRows({
+      epfRows: demoPack.epfRows,
+      esicRows: demoPack.esicRows,
+      filing,
+    });
+    const epfRows = overlaid.epfRows.map((row) => applyEpfDerived(row));
     return {
       year: y,
       month: m,
       monthKey: key,
       monthLabel: label,
-      hasSheet: false,
-      run: runMeta || null,
-      epfRows: [],
-      esicRows: [],
+      hasSheet: epfRows.length > 0,
+      isDemo: true,
+      run: run || null,
+      filing,
+      epfRows,
+      esicRows: overlaid.esicRows,
+      demo: {
+        epfRows,
+        esicRows: overlaid.esicRows,
+      },
     };
-  }
+  };
+
+  if (!isProcessed) return packDemo(runMeta);
 
   const { run, lines } = await getMonthRunWithLines(runMeta.id);
+  if (!(lines || []).length) return packDemo(run);
   const masterMap = await fetchMasterByIds((lines || []).map((l) => l.employee_master_id));
 
   const epfRows = [];
@@ -81,56 +285,46 @@ export async function loadComplianceMonthEmployees({ year, month } = {}) {
     const esicNo = String(line.esic_no || master.esic_no || "").replace(/\D/g, "");
     const dob = master.date_of_birth || null;
     const age = ageFromDob(dob, asOf);
-    const age58Plus = age != null && age >= 58;
 
     const grossWages = num(line.gross_wages);
     const epfWages = num(line.pf_earned_basic) || num(line.pf_basic) || 0;
     const presentDays = num(line.present_days);
     const empEsic = num(line.emp_esic);
 
-    let epfRow = {
-      id: `epf_${empId}`,
-      employeeMasterId: empId,
-      lineId: line.id || null,
-      employeeCode: code,
-      employeeId,
-      uan,
-      name,
-      presentDays,
-      grossWages,
-      epfWages,
-      epsWages: age58Plus ? 0 : null,
-      epsWagesManual: age58Plus,
-      edliWages: 0,
-      epfContn: 0,
-      epsContnAmt: 0,
-      epfBalance: 0,
-      ncpDays: 0,
-      refundOfAdvance: 0,
-      age,
-      age58Plus,
-      dob,
-    };
-    epfRow = applyEpfDerived(epfRow);
-    epfRows.push(epfRow);
+    epfRows.push(
+      buildEpfRow({
+        empId,
+        lineId: line.id || null,
+        name,
+        code,
+        employeeId,
+        uan,
+        dob,
+        age,
+        grossWages,
+        epfWages,
+        presentDays,
+        designation: master.designation || line.designation || "",
+        department: master.department || "",
+      })
+    );
 
     // ESIC list: anyone with ESIC number or ESIC deduction / wages in ceiling band
     const esicCandidate = Boolean(esicNo) || empEsic > 0 || (grossWages > 0 && grossWages <= 21000);
     if (esicCandidate) {
-      esicRows.push({
-        id: `esic_${empId}`,
-        employeeMasterId: empId,
-        lineId: line.id || null,
-        employeeCode: code,
-        employeeId,
-        ipNumber: esicNo,
-        ipName: sanitizeIpName(name) || name,
-        daysPaid: presentDays,
-        monthlyWages: grossWages,
-        reasonCode: presentDays === 0 ? "0" : "",
-        lastWorkingDay: "",
-        reasonNote: presentDays === 0 ? "" : "",
-      });
+      esicRows.push(
+        buildEsicRow({
+          empId,
+          lineId: line.id || null,
+          name,
+          code,
+          employeeId,
+          esicNo,
+          presentDays,
+          grossWages,
+          category: master.designation || master.department || "",
+        })
+      );
     }
   }
 
@@ -143,6 +337,11 @@ export async function loadComplianceMonthEmployees({ year, month } = {}) {
 
   const filing = await loadComplianceFiling(key);
   const overlaid = overlayFilingOnRows({ epfRows, esicRows, filing });
+  const demoOverlaid = overlayFilingOnRows({
+    epfRows: demoPack?.epfRows || [],
+    esicRows: demoPack?.esicRows || [],
+    filing,
+  });
 
   return {
     year: y,
@@ -150,9 +349,16 @@ export async function loadComplianceMonthEmployees({ year, month } = {}) {
     monthKey: key,
     monthLabel: label,
     hasSheet: true,
+    isDemo: false,
     run,
     filing,
     epfRows: overlaid.epfRows.map((row) => applyEpfDerived(row)),
     esicRows: overlaid.esicRows,
+    demo: demoPack
+      ? {
+          epfRows: demoOverlaid.epfRows.map((row) => applyEpfDerived(row)),
+          esicRows: demoOverlaid.esicRows,
+        }
+      : null,
   };
 }
