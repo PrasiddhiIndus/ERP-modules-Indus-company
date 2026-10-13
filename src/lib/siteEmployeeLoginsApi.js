@@ -68,6 +68,12 @@ export async function listSiteEmployeeLogins(supabase, { personId = null } = {})
   return data || [];
 }
 
+/** Login ids that belong to site employees (kept out of the IFSPL Employees list). */
+export async function fetchSiteEmployeeLoginProfileIds(supabase) {
+  const rows = await listSiteEmployeeLogins(supabase);
+  return [...new Set(rows.map((r) => r.profile_id).filter(Boolean))];
+}
+
 export async function fetchSiteLoginForPerson(supabase, personId) {
   const rows = await listSiteEmployeeLogins(supabase, { personId });
   return rows[0] || null;

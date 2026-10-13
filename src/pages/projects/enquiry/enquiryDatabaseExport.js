@@ -20,8 +20,8 @@ export const DEFAULT_EXPORT_COLUMN_KEYS = [
 ];
 
 const COMPACT_COLUMN_WIDTHS = {
-  serial_number: 62,
-  enquiry_receipt_date: 86,
+  serial_number: 88,
+  enquiry_receipt_date: 108,
 };
 
 /** Shows full cell value with word-wrap (not truncated). */
@@ -30,19 +30,23 @@ const WRAP_CONTENT_COLUMN_WIDTHS = {
 };
 
 const TABLE_COLUMN_MIN_WIDTHS = {
-  assigned_on_date: 118,
-  target_date: 118,
-  enquiry_from: 132,
-  client_name: 148,
-  location: 112,
-  contact_person: 120,
-  phone_number: 112,
-  assigned_to_person: 132,
-  current_status: 112,
-  priority: 112,
-  scope_of_work: 200,
-  remarks: 160,
+  assigned_on_date: 112,
+  target_date: 104,
+  completed_on: 112,
+  enquiry_from: 140,
+  client_name: 170,
+  location: 130,
+  contact_person: 140,
+  phone_number: 120,
+  assigned_to_person: 150,
+  current_status: 136,
+  priority: 130,
+  scope_of_work: 260,
+  remarks: 220,
 };
+
+/** Computed "Days left" column shown in the register (not a stored field). */
+export const DAYS_LEFT_COLUMN_WIDTH = 112;
 
 function columnWidth(field) {
   const key = field?.field_key;
@@ -86,8 +90,8 @@ export function getTableColumnLayout(field) {
       compact: true,
       wrapContent: false,
       style: { width: px, maxWidth: px, minWidth: px },
-      headerClass: 'whitespace-normal leading-[1.15] break-words text-center px-1 py-2 align-middle',
-      cellClass: 'overflow-hidden px-1',
+      headerClass: 'whitespace-normal leading-[1.15] break-words text-center px-2 py-2.5 align-middle',
+      cellClass: 'overflow-hidden px-2',
     };
   }
   return {
@@ -95,14 +99,14 @@ export function getTableColumnLayout(field) {
     compact: false,
     wrapContent: false,
     style: { minWidth: px, width: px },
-    headerClass: 'whitespace-nowrap px-2 py-2.5',
+    headerClass: 'whitespace-normal leading-[1.15] break-words px-2 py-2.5 align-middle',
     cellClass: 'px-2',
   };
 }
 
-export function getEnquiryTableWidth(databaseFields) {
+export function getEnquiryTableWidth(databaseFields, { withDaysLeft = false } = {}) {
   const dataWidth = (databaseFields || []).reduce((sum, f) => sum + getTableColumnLayout(f).px, 0);
-  return 44 + dataWidth + 68; // S.No + fields + Actions
+  return dataWidth + (withDaysLeft ? DAYS_LEFT_COLUMN_WIDTH : 0) + 68; // fields + Days left + Actions
 }
 
 /** @deprecated use getTableColumnLayout */

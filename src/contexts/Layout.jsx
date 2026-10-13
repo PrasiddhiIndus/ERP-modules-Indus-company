@@ -1,9 +1,9 @@
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, Suspense, lazy } from "react";
 import PageLoader from "../components/PageLoader";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
-import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, isAdminRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath, getOpenableIevCostingTabs } from "../config/roles";
+import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, isAdminRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath, getOpenableIevCostingTabs, getOpenableProjectsEnquiryTabs } from "../config/roles";
 import { canAccessSalaryAdmin } from "../pages/adminOperations/salaryAdmin/salaryAccess";
 import { canAccessRulesConsole } from "../pages/adminOperations/rulesConsole/rulesConsoleAccess";
 import { syncSalaryFiguresHidden } from "../pages/adminOperations/salaryAdmin/salaryPrivacy";
@@ -16,6 +16,9 @@ import { SALARY_SUB_NAV, HR_SALARY_BASE, salaryNavIsActive, salaryNavPath } from
 import { OPERATIONS_NAV, operationsNavHref, operationsNavIsActive } from "../pages/operations/navConfig";
 import { MARKETING_NAV_ITEMS } from "../pages/marketing/marketingNav";
 import PoApprovalBell from "../components/PoApprovalBell";
+
+const EnquiryDueSoonPopup = lazy(() => import("../pages/projects/enquiry/EnquiryDueSoonPopup"));
+const EnquiryOverduePopup = lazy(() => import("../pages/projects/enquiry/EnquiryOverduePopup"));
 import {
   LogOut,
   User,
@@ -178,6 +181,7 @@ const Layout = () => {
     });
   const canOpenPath = (path) => isPathAllowed(path, accessibleModules || new Set(), subModulePaths);
   const ievCostingTabs = getOpenableIevCostingTabs(userProfile, accessibleModules, subModulePaths);
+  const enquiryTabs = getOpenableProjectsEnquiryTabs(userProfile, accessibleModules, subModulePaths);
   const hasFullAdmin = Boolean(accessibleModules?.has("admin"));
   const { isConsoleVisible } = useAuditConsole();
   const navigate = useNavigate();
@@ -240,6 +244,14 @@ const Layout = () => {
       );
       setIsAccessDenied(false);
       return;
+    }
+    if (!allowed && pathname.replace(/\/$/, "") === "/app/projects/enquiry") {
+      const enquiryTabs = getOpenableProjectsEnquiryTabs(userProfile, accessibleModules, subModulePaths);
+      if (enquiryTabs.length) {
+        navigate(`/app/projects/enquiry/${enquiryTabs[0]}`, { replace: true });
+        setIsAccessDenied(false);
+        return;
+      }
     }
     setIsAccessDenied(!allowed);
   }, [pathname, accessibleModules, subModulePaths, navigate, userProfile, user?.email]);
@@ -1321,7 +1333,10 @@ const Layout = () => {
                     <Calculator className="w-4 h-4 shrink-0 text-purple-600" />
                     <span className="type-meta type-truncate">Projects Billing</span>
                   </NavLink>
-                  <NavLink to="projects/enquiry" className={subNavClass}>
+                  <NavLink
+                    to={enquiryTabs.length ? `projects/enquiry/${enquiryTabs[0]}` : "projects/enquiry"}
+                    className={() => subNavClass({ isActive: pathname.startsWith("/app/projects/enquiry") })}
+                  >
                     <FileText className="w-4 h-4 shrink-0 text-indigo-600" />
                     <span className="type-meta type-truncate">Enquiry Master</span>
                   </NavLink>
@@ -1638,6 +1653,15 @@ const Layout = () => {
           </Suspense>
         </main>
       </div>
+
+      {pathname.startsWith("/app/projects") && enquiryTabs.includes("enquiry-database") ? (
+        <div className="fixed bottom-4 right-4 z-[900] flex w-[340px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] flex-col gap-3 overflow-y-auto">
+          <Suspense fallback={null}>
+            <EnquiryOverduePopup />
+            <EnquiryDueSoonPopup />
+          </Suspense>
+        </div>
+      ) : null}
 
       {canSeeActivityLog ? (
         <ActivityLogDrawer open={activityLogOpen} onClose={() => setActivityLogOpen(false)} />

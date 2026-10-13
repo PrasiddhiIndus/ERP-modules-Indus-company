@@ -201,8 +201,15 @@ export default function EnquiryDropdown() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-5">
               <h3 className="text-base font-semibold text-slate-900 mb-1">
-                Add value — {activeKind?.label}
+                {activeKind?.fromEmployeeMaster ? activeKind?.label : `Add value — ${activeKind?.label}`}
               </h3>
+              {activeKind?.fromEmployeeMaster ? (
+                <p className="text-sm text-slate-600">
+                  This list shows active employees of the Projects department from Employee Master. To add or
+                  remove a name, update the employee&apos;s department or status in Employee Master.
+                </p>
+              ) : (
+              <>
               <p className="text-xs text-slate-500 mb-4">Key: <code className="bg-slate-100 px-1">{activeKind?.kind_key}</code></p>
               <form onSubmit={handleAddValue} className="flex gap-2">
                 <div className="flex-1">
@@ -226,6 +233,8 @@ export default function EnquiryDropdown() {
                   </button>
                 </div>
               </form>
+              </>
+              )}
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -237,6 +246,7 @@ export default function EnquiryDropdown() {
                 {rows.map((row) => (
                   <li key={row.id} className="flex items-center justify-between gap-2 px-5 py-2.5 hover:bg-slate-50">
                     <span className="text-sm text-slate-800">{row.value}</span>
+                    {!activeKind?.fromEmployeeMaster && (
                     <button
                       type="button"
                       onClick={() => handleDeleteValue(row.id)}
@@ -249,6 +259,7 @@ export default function EnquiryDropdown() {
                         <Trash2 className="h-4 w-4" />
                       )}
                     </button>
+                    )}
                   </li>
                 ))}
               </ul>

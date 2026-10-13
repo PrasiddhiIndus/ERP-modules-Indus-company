@@ -29,3 +29,18 @@ export function getStatusBg(status) {
 export function getRowStatusValue(row) {
   return row?.data?.current_status ?? row?.current_status ?? '';
 }
+
+const STATUS_DISPLAY_RANK = {
+  'not started': 0,
+  '': 0,
+  'work in progress': 1,
+  wip: 1,
+  regret: 2,
+  completed: 3,
+};
+
+/** List position of a status: Not Started, Work in Progress, Regret, Completed (others with in-progress). */
+export function getStatusRank(status) {
+  const key = String(status || '').toLowerCase().trim().replace(/\s+/g, ' ');
+  return STATUS_DISPLAY_RANK[key] ?? 1;
+}
