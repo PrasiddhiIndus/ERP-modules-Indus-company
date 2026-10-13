@@ -22,6 +22,14 @@ function isMissingTable(err) {
   );
 }
 
+/** Sample rows use a text id. Only a real Employee Master id is written back. */
+function masterRecordId(id) {
+  const n = Number(id);
+  if (!Number.isInteger(n) || n <= 0) return null;
+  if (String(id).trim() !== String(n)) return null;
+  return n;
+}
+
 function compactRow(row = {}, kind) {
   if (kind === "epf") {
     return {
@@ -31,6 +39,7 @@ function compactRow(row = {}, kind) {
       name: row.name || "",
       grossWages: Number(row.grossWages) || 0,
       epfWages: Number(row.epfWages) || 0,
+      age: row.age == null || row.age === "" ? null : Number(row.age),
       ncpDays: Number(row.ncpDays) || 0,
       refundOfAdvance: Number(row.refundOfAdvance) || 0,
       age58Plus: Boolean(row.age58Plus),
@@ -43,6 +52,7 @@ function compactRow(row = {}, kind) {
     employeeCode: row.employeeCode || "",
     ipNumber: digitsOnly(row.ipNumber),
     ipName: row.ipName || row.name || "",
+    category: row.category || "",
     daysPaid: Number(row.daysPaid) || 0,
     monthlyWages: Number(row.monthlyWages) || 0,
     reasonCode: row.reasonCode ?? "",
@@ -81,9 +91,10 @@ function buildIdMap(epfRows = [], esicRows = [], parsed = null) {
 function collectIdPatches(epfRows = [], esicRows = []) {
   const byId = new Map();
   const touch = (row, patch) => {
-    if (row?.employeeMasterId == null) return;
-    const key = String(row.employeeMasterId);
-    const cur = byId.get(key) || { id: row.employeeMasterId, lineId: row.lineId || null };
+    const id = masterRecordId(row?.employeeMasterId);
+    if (id == null) return;
+    const key = String(id);
+    const cur = byId.get(key) || { id, lineId: row.lineId || null };
     byId.set(key, { ...cur, ...patch, lineId: cur.lineId || row.lineId || null });
   };
   for (const row of epfRows) {
@@ -324,24 +335,41 @@ export function overlayFilingOnRows({ epfRows = [], esicRows = [], filing } = {}
   const nextEpf = epfRows.map((row) => {
     const saved = epfSaved.get(String(row.employeeMasterId));
     if (!saved) return row;
-    return {
+    const next = {
       ...row,
       uan: digitsOnly(saved.uan) || row.uan,
       ncpDays: saved.ncpDays ?? row.ncpDays,
       refundOfAdvance: saved.refundOfAdvance ?? row.refundOfAdvance,
+    };
+    // Sample employees keep every typed challan cell. Processed salary rows keep sheet wages.
+    if (masterRecordId(row.employeeMasterId) != null) return next;
+    return {
+      ...next,
+      name: saved.name || row.name,
+      grossWages: saved.grossWages ?? row.grossWages,
+      epfWages: saved.epfWages ?? row.epfWages,
+      age: saved.age ?? row.age,
+      epsWagesManual: Boolean(saved.epsWagesManual),
+      epsWages: saved.epsWages ?? row.epsWages,
     };
   });
 
   const nextEsic = esicRows.map((row) => {
     const saved = esicSaved.get(String(row.employeeMasterId));
     if (!saved) return row;
-    return {
+    const next = {
       ...row,
       ipNumber: digitsOnly(saved.ipNumber) || row.ipNumber,
       daysPaid: saved.daysPaid ?? row.daysPaid,
       monthlyWages: saved.monthlyWages ?? row.monthlyWages,
       reasonCode: saved.reasonCode ?? row.reasonCode,
       lastWorkingDay: saved.lastWorkingDay || row.lastWorkingDay,
+    };
+    if (masterRecordId(row.employeeMasterId) != null) return next;
+    return {
+      ...next,
+      ipName: saved.ipName || row.ipName,
+      category: saved.category ?? row.category,
     };
   });
 

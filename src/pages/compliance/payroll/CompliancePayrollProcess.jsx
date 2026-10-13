@@ -10,6 +10,7 @@ import {
   Search,
   Upload,
 } from "lucide-react";
+import { DateInput } from "../../../components/DateInput";
 import {
   CollapsibleHelp,
   PageTaskHeader,
@@ -21,8 +22,8 @@ import {
 import { monthKey, monthLabel } from "../../adminOperations/salaryAdmin/salaryMonthProcessing";
 import { persistComplianceMonth } from "./complianceDb";
 import { loadComplianceMonthEmployees } from "./complianceData";
-import { applyEpfDerived, validateEpfRows } from "./complianceEpf";
-import { validateEsicRows } from "./complianceEsic";
+import { applyEpfDerived, sumEpfTotals, validateEpfRows } from "./complianceEpf";
+import { formatLastWorkingDay, lastWorkingDayToIso, validateEsicRows } from "./complianceEsic";
 import { downloadEpfChallanWorkbook, downloadEsicReturnWorkbook } from "./complianceExcel";
 import {
   applyComplianceWorkbookToRows,
@@ -176,8 +177,11 @@ export default function CompliancePayrollProcess() {
   const [downloading, setDownloading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [banner, setBanner] = useState("");
+  const [usingDemo, setUsingDemo] = useState(false);
   const fileInputRef = useRef(null);
   const parsedRef = useRef(null);
+  const saveTimerRef = useRef(null);
+  const sheetRowsRef = useRef({ epf: [], esic: [] });
 
   const setTab = (next) => {
     const p = new URLSearchParams(searchParams);
@@ -207,10 +211,12 @@ export default function CompliancePayrollProcess() {
       setMeta(data);
       setEpfRows(data.epfRows || []);
       setEsicRows(data.esicRows || []);
-      if (!data.hasSheet) {
-        setLoadError(
-          `No processed salary sheet found for ${data.monthLabel}. Process salary for this month first.`
-        );
+      setUsingDemo(Boolean(data.isDemo));
+      if (!data.isDemo) {
+        sheetRowsRef.current = { epf: data.epfRows || [], esic: data.esicRows || [] };
+      }
+      if (!data.epfRows?.length && !data.esicRows?.length) {
+        setLoadError("Sample employees could not be opened for this month. Refresh and try again.");
       }
     } catch (err) {
       console.error(err);
@@ -260,25 +266,67 @@ export default function CompliancePayrollProcess() {
   }, [validation]);
 
   const updateEpf = (id, patch) => {
-    setEpfRows((prev) =>
-      prev.map((row) => {
+    setEpfRows((prev) => {
+      const next = prev.map((row) => {
         if (row.id !== id) return row;
-        const next = { ...row, ...patch };
-        if ("epsWages" in patch) next.epsWagesManual = true;
-        return applyEpfDerived(next);
-      })
-    );
+        const merged = { ...row, ...patch };
+        if ("epsWages" in patch) merged.epsWagesManual = true;
+        if ("age" in patch) merged.epsWagesManual = false;
+        if ("epsWagesManual" in patch) merged.epsWagesManual = Boolean(patch.epsWagesManual);
+        return applyEpfDerived(merged);
+      });
+      scheduleSave(next, esicRows);
+      return next;
+    });
     setValidation(null);
     setBanner("");
   };
 
   const updateEsic = (id, patch) => {
-    setEsicRows((prev) =>
-      prev.map((row) => {
-        if (row.id !== id) return row;
-        return { ...row, ...patch };
-      })
-    );
+    setEsicRows((prev) => {
+      const next = prev.map((row) => (row.id === id ? { ...row, ...patch } : row));
+      scheduleSave(epfRows, next);
+      return next;
+    });
+    setValidation(null);
+    setBanner("");
+  };
+
+  const scheduleSave = (nextEpf, nextEsic) => {
+    window.clearTimeout(saveTimerRef.current);
+    const snapshot = {
+      year,
+      month,
+      monthKey: meta?.monthKey || monthKey(year, month),
+      runId: meta?.run?.id,
+      epfRows: nextEpf,
+      esicRows: nextEsic,
+    };
+    saveTimerRef.current = window.setTimeout(() => {
+      persistComplianceMonth(snapshot).catch((err) => {
+        console.warn("Compliance: could not save edits", err);
+      });
+    }, 800);
+  };
+
+  const openDemoReview = () => {
+    const demo = meta?.demo;
+    if (!demo?.epfRows?.length) {
+      setLoadError("Sample employees could not be opened for this month.");
+      return;
+    }
+    setEpfRows(demo.epfRows);
+    setEsicRows(demo.esicRows || []);
+    setUsingDemo(true);
+    setValidation(null);
+    setBanner("");
+    goStep("review");
+  };
+
+  const backToSalarySheet = () => {
+    setEpfRows(sheetRowsRef.current.epf || []);
+    setEsicRows(sheetRowsRef.current.esic || []);
+    setUsingDemo(false);
     setValidation(null);
     setBanner("");
   };
@@ -427,7 +475,7 @@ export default function CompliancePayrollProcess() {
     <div className="space-y-4">
       <PageTaskHeader
         title="Payroll Compliance"
-        subtitle="Prepare PF / EPF and ESIC filing files from processed salary months. Upload one workbook (two sheets is fine) to fill UAN and ESIC IP numbers by employee code."
+        subtitle="Prepare PF / EPF and ESIC files for any month. When salary is not processed yet, four sample employees open so you can edit wages and review the challan."
       >
         <input
           ref={fileInputRef}
@@ -475,16 +523,25 @@ export default function CompliancePayrollProcess() {
       >
         <CollapsibleHelp label="process steps">
           <ol className="list-decimal pl-4 space-y-1">
-            <li>Choose the salary month that was already processed. The list comes from that sheet.</li>
+            <li>
+              Pick any month and continue to review. Four sample employees open with starter wages
+              you can edit. A processed salary month opens that full list instead.
+            </li>
             <li>
               Upload Excel at the top — select both files together if needed (PF challan with UAN
               details, plus ESIC return). All sheets are read. Match is by employee code, or by name
               when the ESIC sheet uses site labels instead of codes.
             </li>
             {tab === "epf" ? (
-              <li>Review UAN, name, gross and EPF wages. Age 58+ keeps EPS wages at 0.</li>
+              <li>
+                Review UAN, name, gross and EPF wages. EPS, EDLI and contributions calculate from
+                the challan formulas. Age 58 or more sets EPS wages to 0.
+              </li>
             ) : (
-              <li>Review IP number, name (letters & spaces), days paid and monthly wages.</li>
+              <li>
+                Review IP number, name (letters and spaces), days paid, monthly wages, reason code
+                and last working day.
+              </li>
             )}
             <li>Check errors, then download the filing file. IDs stay saved for later months.</li>
           </ol>
@@ -552,33 +609,58 @@ export default function CompliancePayrollProcess() {
               </p>
               {loading ? (
                 <p className="inline-flex items-center gap-1.5 text-ink-muted">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading processed employees…
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading employees…
                 </p>
               ) : meta?.hasSheet ? (
                 <>
                   <p>
-                    {tab === "epf" ? epfRows.length : esicRows.length} employee
-                    {(tab === "epf" ? epfRows.length : esicRows.length) === 1 ? "" : "s"} on the
-                    processed sheet
-                    {tab === "esic" ? " (ESIC-eligible)" : ""}.
+                    {usingDemo || meta.isDemo
+                      ? `${activeRows.length} sample employee${activeRows.length === 1 ? "" : "s"} ready to edit`
+                      : `${activeRows.length} employee${activeRows.length === 1 ? "" : "s"} on the processed sheet`}
+                    {tab === "esic" && !usingDemo && !meta.isDemo ? " (ESIC-eligible)" : ""}.
                   </p>
-                  <p>
-                    Upload Excel at the top. You can select the PF file and the ESIC file together —
-                    every sheet is read. Employee code fills UAN and ESIC IP; if ESIC uses site names
-                    in the code column, name is used instead.
-                  </p>
-                  {meta?.filing?.source_file_name ? (
-                    <p className="text-ink">
-                      Last uploaded: {meta.filing.source_file_name}
+                  {usingDemo || meta.isDemo ? (
+                    <p>
+                      Sample records for this month — not linked to Employee Master. Change UAN,
+                      name, gross wages, EPF wages, age, NCP days and the ESIC columns on review.
+                      EPS, EDLI and contributions calculate from the challan formulas. Ravendra
+                      Dwivedi is age 59, so EPS wages start at 0.
                     </p>
+                  ) : (
+                    <p>
+                      Upload Excel at the top if UAN or ESIC IP numbers are in a workbook. Or open
+                      the four sample employees to try the challan for this month.
+                    </p>
+                  )}
+                  {meta?.demo?.epfRows?.length ? (
+                    <p className="text-ink">
+                      Sample list:{" "}
+                      {meta.demo.epfRows
+                        .map((row) => row.name)
+                        .filter(Boolean)
+                        .join(", ")}
+                    </p>
+                  ) : null}
+                  {meta?.filing?.source_file_name ? (
+                    <p className="text-ink">Last uploaded: {meta.filing.source_file_name}</p>
                   ) : null}
                 </>
               ) : (
-                <p>No processed sheet for this month yet.</p>
+                <p>No employees to review for this month.</p>
               )}
             </div>
 
-            <div className="flex justify-end">
+            <div className="flex flex-wrap justify-end gap-2">
+              {!meta?.isDemo && meta?.demo?.epfRows?.length ? (
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={openDemoReview}
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border bg-surface text-xs font-medium text-ink hover:bg-surface-sunken disabled:opacity-40"
+                >
+                  Review {meta.demo.epfRows.length} sample employees
+                </button>
+              ) : null}
               <button
                 type="button"
                 disabled={!canAdvanceFromMonth}
@@ -606,6 +688,9 @@ export default function CompliancePayrollProcess() {
                 />
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                {usingDemo || meta?.isDemo ? (
+                  <StatusChip label="Sample employees" severity="info" />
+                ) : null}
                 {missingIds > 0 ? (
                   <StatusChip
                     label={`${missingIds} missing ${tab === "epf" ? "UAN" : "IP"}`}
@@ -617,12 +702,15 @@ export default function CompliancePayrollProcess() {
             </div>
 
             {tab === "epf" ? (
-              <EpfReviewTable
-                rows={filteredRows}
-                errorIndexes={errorRowIndexes}
-                allRows={epfRows}
-                onChange={updateEpf}
-              />
+              <>
+                <EpfFormulaKey />
+                <EpfReviewTable
+                  rows={filteredRows}
+                  errorIndexes={errorRowIndexes}
+                  allRows={epfRows}
+                  onChange={updateEpf}
+                />
+              </>
             ) : (
               <EsicReviewTable
                 rows={filteredRows}
@@ -633,14 +721,25 @@ export default function CompliancePayrollProcess() {
             )}
 
             <div className="flex flex-wrap justify-between gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => goStep("month")}
-                className="inline-flex items-center gap-1 h-9 px-3 rounded-md border border-border text-xs font-medium text-ink hover:bg-surface-sunken"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-                Back
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => goStep("month")}
+                  className="inline-flex items-center gap-1 h-9 px-3 rounded-md border border-border text-xs font-medium text-ink hover:bg-surface-sunken"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Back
+                </button>
+                {usingDemo && !meta?.isDemo ? (
+                  <button
+                    type="button"
+                    onClick={backToSalarySheet}
+                    className="h-9 px-3 rounded-md border border-border text-xs font-medium text-ink hover:bg-surface-sunken"
+                  >
+                    Full salary list
+                  </button>
+                ) : null}
+              </div>
               <button
                 type="button"
                 onClick={runValidate}
@@ -748,8 +847,37 @@ export default function CompliancePayrollProcess() {
   );
 }
 
+function EpfFormulaKey() {
+  return (
+    <div className="rounded-lg border border-amber-200 bg-[#FFF9E6] px-3 py-2.5 text-[11px] text-ink space-y-1.5">
+      <p className="font-medium">Challan formulas</p>
+      <p className="text-ink-secondary">
+        White cells are typed: UAN, name, gross wages, EPF wages, age, NCP days, refund of advance.
+        Yellow cells calculate.
+      </p>
+      <ul className="grid gap-0.5 text-ink-secondary sm:grid-cols-2">
+        <li>EPS wages = IF(age ≥ 58, 0, MIN(EPF wages, 15000))</li>
+        <li>EDLI wages = IF(EPS ≠ 0, EPS, MIN(EPF wages, 15000))</li>
+        <li>EPF contribution = ROUND(EPF wages × 12%, 0) on full EPF wages</li>
+        <li>EPS contribution = ROUND(EPS wages × 8.33%, 0)</li>
+        <li>Balance = EPF contribution − EPS contribution</li>
+      </ul>
+      <p className="text-ink-muted">
+        Sheet check: EPF wages 20,000 → EPS 15,000, EPF 2,400, EPS 1,250, balance 1,150. Age 58 with
+        EPF wages 15,000 → EPS 0, EDLI 15,000, EPF 1,800, balance 1,800. EPF wages 10,000 → EPS
+        10,000, EPF 1,200, EPS 833, balance 367.
+      </p>
+    </div>
+  );
+}
+
+function formulaCellClass() {
+  return "px-2 py-1.5 bg-[#FFF9E6] text-ink tabular-nums whitespace-nowrap";
+}
+
 function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
   const indexOf = (id) => allRows.findIndex((r) => r.id === id);
+  const totals = sumEpfTotals(allRows);
 
   return (
     <div className="w-full overflow-x-auto rounded-lg border border-border">
@@ -760,6 +888,7 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
             <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Name of workman</th>
             <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Gross wages</th>
             <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">EPF wages</th>
+            <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Age</th>
             <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">EPS wages</th>
             <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">EDLI wages</th>
             <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">EPF cont&apos;n</th>
@@ -769,23 +898,24 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
             <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Refund of adv.</th>
           </tr>
           <tr className="bg-[#FFF9E6] text-ink-muted font-normal">
-            <th className="px-2 py-1" />
-            <th className="px-2 py-1" />
-            <th className="px-2 py-1" />
-            <th className="px-2 py-1" />
-            <th className="px-2 py-1" />
-            <th className="px-2 py-1" />
-            <th className="px-2 py-1 text-left">12% of D</th>
-            <th className="px-2 py-1 text-left">8.33% of E</th>
-            <th className="px-2 py-1 text-left">(G − H)</th>
-            <th className="px-2 py-1" />
-            <th className="px-2 py-1" />
+            <th className="px-2 py-1 font-normal">typed</th>
+            <th className="px-2 py-1 font-normal">typed</th>
+            <th className="px-2 py-1 font-normal">typed</th>
+            <th className="px-2 py-1 font-normal">typed</th>
+            <th className="px-2 py-1 font-normal">typed</th>
+            <th className="px-2 py-1 text-left font-normal">age ≥ 58 → 0, else min 15,000</th>
+            <th className="px-2 py-1 text-left font-normal">EPS, or EPF capped</th>
+            <th className="px-2 py-1 text-left font-normal">12% of EPF wages</th>
+            <th className="px-2 py-1 text-left font-normal">8.33% of EPS</th>
+            <th className="px-2 py-1 text-left font-normal">EPF − EPS</th>
+            <th className="px-2 py-1 font-normal">typed</th>
+            <th className="px-2 py-1 font-normal">typed</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-divider bg-surface">
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={11} className="px-3 py-8 text-center text-ink-muted">
+              <td colSpan={12} className="px-3 py-8 text-center text-ink-muted">
                 No employees to review
               </td>
             </tr>
@@ -813,10 +943,8 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
                     {row.employeeCode ? (
                       <span className="block text-[9px] text-ink-muted mt-0.5">
                         {row.employeeCode}
+                        {row.designation ? ` · ${row.designation}` : ""}
                       </span>
-                    ) : null}
-                    {row.age58Plus ? (
-                      <span className="block text-[9px] text-amber-700 mt-0.5">Age 58+ · EPS = 0</span>
                     ) : null}
                   </td>
                   <td className="px-1.5 py-1">
@@ -835,28 +963,50 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
                       onChange={(e) => onChange(row.id, { epfWages: Number(e.target.value) })}
                     />
                   </td>
-                  <td className="px-1.5 py-1">
-                    {row.age58Plus ? (
+                  <td className="px-1.5 py-1 w-16">
+                    <input
+                      type="number"
+                      className={cellInputClass(false)}
+                      value={row.age ?? ""}
+                      onChange={(e) =>
+                        onChange(row.id, {
+                          age: e.target.value === "" ? null : Number(e.target.value),
+                        })
+                      }
+                      title="Age 58 or more sets EPS wages to 0"
+                    />
+                  </td>
+                  <td className={formulaCellClass()} title="IF(age>=58, 0, MIN(EPF wages, 15000))">
+                    {row.epsWagesManual ? (
                       <input
                         type="number"
                         className={cellInputClass(false)}
                         value={row.epsWages ?? 0}
-                        onChange={(e) =>
-                          onChange(row.id, {
-                            epsWages: Number(e.target.value),
-                            epsWagesManual: true,
-                          })
-                        }
-                        title="Manual override for age 58+"
+                        onChange={(e) => onChange(row.id, { epsWages: Number(e.target.value) })}
                       />
                     ) : (
-                      <span className="px-1 text-ink">{row.epsWages ?? 0}</span>
+                      <span>{row.epsWages ?? 0}</span>
                     )}
+                    <button
+                      type="button"
+                      className="block text-[9px] text-ink-muted hover:text-ink mt-0.5"
+                      onClick={() =>
+                        onChange(row.id, {
+                          epsWagesManual: !row.epsWagesManual,
+                          epsWages: row.epsWages,
+                        })
+                      }
+                    >
+                      {row.epsWagesManual ? "Use formula" : "Type amount"}
+                    </button>
+                    {!row.epsWagesManual && row.age58Plus ? (
+                      <span className="block text-[9px] text-amber-700">Age 58+ · EPS 0</span>
+                    ) : null}
                   </td>
-                  <td className="px-1.5 py-1 text-ink-secondary">{row.edliWages ?? 0}</td>
-                  <td className="px-1.5 py-1 text-ink-secondary">{row.epfContn ?? 0}</td>
-                  <td className="px-1.5 py-1 text-ink-secondary">{row.epsContnAmt ?? 0}</td>
-                  <td className="px-1.5 py-1 text-ink-secondary">{row.epfBalance ?? 0}</td>
+                  <td className={formulaCellClass()}>{row.edliWages ?? 0}</td>
+                  <td className={formulaCellClass()}>{row.epfContn ?? 0}</td>
+                  <td className={formulaCellClass()}>{row.epsContnAmt ?? 0}</td>
+                  <td className={formulaCellClass()}>{row.epfBalance ?? 0}</td>
                   <td className="px-1.5 py-1">
                     <input
                       type="number"
@@ -880,6 +1030,24 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
             })
           )}
         </tbody>
+        {rows.length > 0 ? (
+          <tfoot className="bg-[#FFF2CC] font-semibold text-ink">
+            <tr>
+              <td className="px-2 py-2" />
+              <td className="px-2 py-2">Total</td>
+              <td className="px-2 py-2 tabular-nums">{totals.grossWages}</td>
+              <td className="px-2 py-2 tabular-nums">{totals.epfWages}</td>
+              <td className="px-2 py-2" />
+              <td className="px-2 py-2 tabular-nums">{totals.epsWages}</td>
+              <td className="px-2 py-2 tabular-nums">{totals.edliWages}</td>
+              <td className="px-2 py-2 tabular-nums">{totals.epfContn}</td>
+              <td className="px-2 py-2 tabular-nums">{totals.epsContnAmt}</td>
+              <td className="px-2 py-2 tabular-nums">{totals.epfBalance}</td>
+              <td className="px-2 py-2 tabular-nums">{totals.ncpDays}</td>
+              <td className="px-2 py-2 tabular-nums">{totals.refundOfAdvance}</td>
+            </tr>
+          </tfoot>
+        ) : null}
       </table>
     </div>
   );
@@ -887,29 +1055,46 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
 
 function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
   const indexOf = (id) => allRows.findIndex((r) => r.id === id);
+  const totalDays = allRows.reduce((sum, row) => sum + (Number(row.daysPaid) || 0), 0);
+  const totalWages = allRows.reduce((sum, row) => sum + (Number(row.monthlyWages) || 0), 0);
 
   return (
     <div className="w-full overflow-x-auto rounded-lg border border-border">
       <table className="w-max min-w-full text-[11px]">
-        <thead className="bg-[#F8F9FB] text-ink border-b border-border">
+        <thead className="bg-[#DDEBF7] text-ink border-b border-border">
           <tr>
-            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap">Employee</th>
-            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap">
-              ESIC IP number
-              <span className="ml-1 text-ink-muted font-normal" title="Must be exactly 10 digits">
-                (10 digits)
-              </span>
+            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap text-red-700">
+              IP number
+              <span className="block font-normal text-[9px]">10 digits</span>
             </th>
-            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap">Days paid</th>
-            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap">Monthly wages</th>
-            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap">Reason (if any)</th>
-            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap">Last working day</th>
+            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap text-red-700">
+              Category
+            </th>
+            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap text-red-700">
+              IP name
+              <span className="block font-normal text-[9px]">letters and spaces</span>
+            </th>
+            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap">
+              Days paid
+              <span className="block font-normal text-[9px] text-ink-muted">in the month</span>
+            </th>
+            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap">
+              Total monthly wages
+            </th>
+            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap text-red-700">
+              Reason code
+              <span className="block font-normal text-[9px]">0 unless days are zero</span>
+            </th>
+            <th className="text-left font-semibold px-2 py-2.5 whitespace-nowrap text-red-700">
+              Last working day
+              <span className="block font-normal text-[9px]">DD/MM/YYYY</span>
+            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100 bg-white">
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={6} className="px-3 py-8 text-center text-ink-muted">
+              <td colSpan={7} className="px-3 py-8 text-center text-ink-muted">
                 No ESIC employees for this month
               </td>
             </tr>
@@ -919,6 +1104,24 @@ function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
               const bad = errorIndexes.has(idx);
               return (
                 <tr key={row.id} className={bad ? "bg-critical-soft/20" : ""}>
+                  <td className="px-1.5 py-1.5">
+                    <input
+                      className={cellInputClass(bad)}
+                      value={row.ipNumber || ""}
+                      onChange={(e) =>
+                        onChange(row.id, {
+                          ipNumber: e.target.value.replace(/\D/g, "").slice(0, 10),
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="px-1.5 py-1.5 min-w-[8rem]">
+                    <input
+                      className={`${cellInputClass(false)} text-rose-700`}
+                      value={row.category || ""}
+                      onChange={(e) => onChange(row.id, { category: e.target.value })}
+                    />
+                  </td>
                   <td className="px-1.5 py-1.5 min-w-[11rem]">
                     <input
                       className={cellInputClass(bad)}
@@ -930,17 +1133,6 @@ function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
                         {row.employeeCode}
                       </span>
                     ) : null}
-                  </td>
-                  <td className="px-1.5 py-1.5">
-                    <input
-                      className={cellInputClass(bad)}
-                      value={row.ipNumber || ""}
-                      onChange={(e) =>
-                        onChange(row.id, {
-                          ipNumber: e.target.value.replace(/\D/g, "").slice(0, 10),
-                        })
-                      }
-                    />
                   </td>
                   <td className="px-1.5 py-1.5">
                     <input
@@ -969,12 +1161,19 @@ function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
                       onChange={(e) => onChange(row.id, { reasonCode: e.target.value })}
                     />
                   </td>
-                  <td className="px-1.5 py-1.5 min-w-[8rem]">
-                    <input
-                      className={cellInputClass(false)}
+                  <td className="px-1.5 py-1.5 min-w-[11rem]">
+                    <DateInput
+                      compact
+                      aria-label="Last working day"
                       placeholder="DD/MM/YYYY"
-                      value={row.lastWorkingDay || ""}
-                      onChange={(e) => onChange(row.id, { lastWorkingDay: e.target.value })}
+                      title="Select a day. Shown as DD/MM/YYYY"
+                      value={lastWorkingDayToIso(row.lastWorkingDay)}
+                      onChange={(iso) =>
+                        onChange(row.id, {
+                          lastWorkingDay: iso ? formatLastWorkingDay(iso) : "",
+                        })
+                      }
+                      className="h-7 min-w-[10.5rem] rounded border border-gray-300 bg-white text-[11px] [&_.erp-date-input-text]:px-1.5 [&_.erp-date-input-text]:text-[11px]"
                     />
                   </td>
                 </tr>
@@ -982,6 +1181,18 @@ function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
             })
           )}
         </tbody>
+        {rows.length > 0 ? (
+          <tfoot className="bg-[#DDEBF7] font-semibold text-ink">
+            <tr>
+              <td className="px-2 py-2" colSpan={3}>
+                Total
+              </td>
+              <td className="px-2 py-2 tabular-nums">{totalDays}</td>
+              <td className="px-2 py-2 tabular-nums">{formatInr(totalWages)}</td>
+              <td colSpan={2} />
+            </tr>
+          </tfoot>
+        ) : null}
       </table>
     </div>
   );

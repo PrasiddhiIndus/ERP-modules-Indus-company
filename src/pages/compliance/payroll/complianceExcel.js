@@ -4,7 +4,7 @@
 
 import ExcelJS from "exceljs";
 import { applyEpfDerived } from "./complianceEpf";
-import { sanitizeIpName } from "./complianceEsic";
+import { formatLastWorkingDay, sanitizeIpName } from "./complianceEsic";
 
 function downloadBlob(buffer, filename) {
   const blob = new Blob([buffer], {
@@ -27,7 +27,7 @@ export async function downloadEpfChallanWorkbook(rows = [], { year, month, month
   wb.creator = "Indus ERP Compliance";
   const ws = wb.addWorksheet("challan format");
 
-  ws.mergeCells("A1:K1");
+  ws.mergeCells("A1:L1");
   ws.getCell("A1").value = `EPF Challan Format — ${monthLabel || `${month}/${year}`}`;
   ws.getCell("A1").font = { bold: true, size: 12 };
 
@@ -43,19 +43,21 @@ export async function downloadEpfChallanWorkbook(rows = [], { year, month, month
     "EPF CONT'N (Balance)",
     "NCP DAYS",
     "REFUND OF ADVANCE",
+    "AGE",
   ];
   const sub = [
     "",
     "",
     "",
     "",
+    "IF(age>=58,0,MIN(D,15000))",
+    "IF(E<>0,E,MIN(D,15000))",
+    "ROUND(D*12%,0)",
+    "ROUND(E*8.33%,0)",
+    "G - H",
     "",
     "",
-    "12% of D",
-    "8.33% of E",
-    "(G - H)",
-    "",
-    "",
+    "typed",
   ];
 
   const headerRow = ws.addRow(headers);
@@ -93,14 +95,16 @@ export async function downloadEpfChallanWorkbook(rows = [], { year, month, month
       Number(row.refundOfAdvance) || 0,
     ]);
 
-    // E EPS wages: formula unless age 58+ (manual 0)
-    if (row.age58Plus || row.epsWagesManual) {
+    // E EPS wages: IF(age>=58, 0, MIN(EPF wages, 15000)). Age is column L.
+    // A typed EPS amount (manual) is written as a value, same as a typed 0 on the sheet.
+    if (row.epsWagesManual) {
       r.getCell(5).value = Number(row.epsWages) || 0;
     } else {
       r.getCell(5).value = {
-        formula: `IF(D${excelRow}>15000,15000,D${excelRow})`,
+        formula: `IF(N(L${excelRow})>=58,0,MIN(D${excelRow},15000))`,
       };
     }
+    r.getCell(12).value = row.age == null || row.age === "" ? null : Number(row.age);
     // F EDLI
     r.getCell(6).value = {
       formula: `IF(E${excelRow}<>0,E${excelRow},IF(D${excelRow}>15000,15000,D${excelRow}))`,
@@ -122,18 +126,34 @@ export async function downloadEpfChallanWorkbook(rows = [], { year, month, month
     });
   });
 
+  if (rows.length) {
+    const end = startExcelRow + rows.length - 1;
+    const totalExcelRow = end + 1;
+    const total = ws.getRow(totalExcelRow);
+    total.getCell(2).value = "TOTAL";
+    total.getCell(2).font = { bold: true };
+    for (let col = 3; col <= 11; col += 1) {
+      const letter = String.fromCharCode(64 + col);
+      total.getCell(col).value = {
+        formula: `SUM(${letter}${startExcelRow}:${letter}${end})`,
+      };
+      total.getCell(col).font = { bold: true };
+    }
+  }
+
   // Notes
-  const noteStart = startExcelRow + rows.length + 2;
+  const noteStart = startExcelRow + rows.length + 3;
   ws.getCell(`A${noteStart}`).value =
-    "EPS WAGES: capped at 15,000. If workman has completed age of 58, EPS wages = 0 (not eligible for pension).";
+    "EPS WAGES (column E): =IF(AGE>=58,0,MIN(EPF wages,15000)). Age is column L. Blank age uses the 15,000 cap only.";
   ws.getCell(`A${noteStart + 1}`).value =
     "EDLI WAGES: if EPS wages <> 0 then EPS wages else min(EPF wages, 15000). All workmen eligible.";
   ws.getCell(`A${noteStart + 2}`).value =
-    "EPF CONT'N = ROUND(EPF wages × 12%, 0). EPS CONT'N = ROUND(EPS wages × 8.33%, 0). Balance = G − H.";
+    "EPF CONT'N = ROUND(EPF wages × 12%, 0) on full EPF wages, not the cap. EPS CONT'N = ROUND(EPS wages × 8.33%, 0). Balance = G − H.";
+  ws.getCell(`A${noteStart + 3}`).value = "TOTAL row sums columns C to K.";
 
   ws.getColumn(1).width = 16;
   ws.getColumn(2).width = 28;
-  for (let c = 3; c <= 11; c += 1) ws.getColumn(c).width = 14;
+  for (let c = 3; c <= 12; c += 1) ws.getColumn(c).width = 16;
 
   const buf = await wb.xlsx.writeBuffer();
   const file = `EPF_Challan_${year}_${String(month).padStart(2, "0")}.xlsx`;
@@ -182,7 +202,7 @@ export async function downloadEsicReturnWorkbook(rows = [], { year, month, month
       Number(row.daysPaid) || 0,
       Number(row.monthlyWages) || 0,
       row.reasonCode === "" || row.reasonCode == null ? "" : String(row.reasonCode),
-      row.lastWorkingDay || "",
+      formatLastWorkingDay(row.lastWorkingDay),
     ]);
     r.eachCell((cell) => {
       cell.border = {
