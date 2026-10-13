@@ -14,6 +14,7 @@ import {
   userMgmtPageAfterDelete,
   userMgmtTotalPages,
 } from "../lib/userManagementListApi";
+import { fetchSiteEmployeeLoginProfileIds } from "../lib/siteEmployeeLoginsApi";
 import {
   EMP_CODE_MIGRATION_HINT,
   getEmpCodeColumnSupported,
@@ -46,7 +47,7 @@ import {
 } from "../config/roles";
 import { ChevronDown as ChevronDownIcon } from "lucide-react";
 import {
-  fetchEmployeeMasterDepartments,
+  fetchEmployeeMasterDepartmentsInUse,
   mergeEmployeeMasterDepartments,
 } from "../lib/employeeMasterDepartments";
 import {
@@ -693,6 +694,8 @@ const UserManagement = () => {
     mergeEmployeeMasterDepartments([])
   );
   const [teamDepartmentsLoading, setTeamDepartmentsLoading] = useState(true);
+  const [teamFilterDepartments, setTeamFilterDepartments] = useState([]);
+  const [siteLoginIds, setSiteLoginIds] = useState(null);
 
   const canUseUserManagement =
     userProfile?.role === ROLES.SUPER_ADMIN ||
@@ -724,11 +727,15 @@ const UserManagement = () => {
     (async () => {
       setTeamDepartmentsLoading(true);
       try {
-        const fromDb = await fetchEmployeeMasterDepartments(supabase);
-        if (!cancelled) setTeamDepartments(fromDb);
+        const inUse = await fetchEmployeeMasterDepartmentsInUse(supabase);
+        if (!cancelled) {
+          setTeamFilterDepartments(inUse);
+          setTeamDepartments(mergeEmployeeMasterDepartments(inUse));
+        }
       } catch {
         if (!cancelled) {
           setTeamDepartments(mergeEmployeeMasterDepartments([]));
+          setTeamFilterDepartments(mergeEmployeeMasterDepartments([]));
         }
       } finally {
         if (!cancelled) setTeamDepartmentsLoading(false);
@@ -771,6 +778,7 @@ const UserManagement = () => {
 
   const loadProfiles = useCallback(
     async ({ pageNum = page, silent = false } = {}) => {
+      if (siteLoginIds === null) return null;
       const seq = ++loadSeqRef.current;
       if (!silent) setLoading(true);
 
@@ -780,6 +788,7 @@ const UserManagement = () => {
           pageSize,
           filters: activeFilters,
           preferEmpCode: empCodeSupported !== false,
+          excludeProfileIds: siteLoginIds,
         });
 
         if (seq !== loadSeqRef.current) return null;
@@ -828,7 +837,7 @@ const UserManagement = () => {
         if (seq === loadSeqRef.current && !silent) setLoading(false);
       }
     },
-    [page, pageSize, activeFilters, empCodeSupported, enrichProfilesWithHierarchy]
+    [page, pageSize, activeFilters, empCodeSupported, enrichProfilesWithHierarchy, siteLoginIds]
   );
 
   const tableColSpan =
@@ -902,6 +911,23 @@ const UserManagement = () => {
 
   useEffect(() => {
     if (!canUseUserManagement) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const ids = await fetchSiteEmployeeLoginProfileIds(supabase);
+        if (!cancelled) setSiteLoginIds(ids);
+      } catch (err) {
+        console.warn("Site employee logins could not be loaded; showing all users.", err);
+        if (!cancelled) setSiteLoginIds([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canUseUserManagement]);
+
+  useEffect(() => {
+    if (!canUseUserManagement) return;
     loadProfiles();
   }, [canUseUserManagement, loadProfiles]);
 
@@ -924,6 +950,7 @@ const UserManagement = () => {
       const result = await fetchAllUserManagementProfiles(supabase, {
         filters: activeFilters,
         preferEmpCode: empCodeSupported !== false,
+        excludeProfileIds: siteLoginIds || [],
       });
 
       if (result.error) {
@@ -1544,8 +1571,8 @@ const UserManagement = () => {
                 onChange={(e) => updateFilter({ team: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               >
-                <option value="">All teams</option>
-                {teamDepartments.map((dept) => (
+                <option value="">{teamDepartmentsLoading ? "Loading departments…" : "All teams"}</option>
+                {teamFilterDepartments.map((dept) => (
                   <option key={dept} value={dept}>
                     {dept}
                   </option>

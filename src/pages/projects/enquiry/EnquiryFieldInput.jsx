@@ -21,6 +21,9 @@ export default function EnquiryFieldInput({
       : [];
 
   if (field.field_type === 'dropdown') {
+    const current = String(value || '');
+    const options =
+      current.trim() && !dropdownValues.includes(current) ? [current, ...dropdownValues] : dropdownValues;
     return (
       <select
         className={className}
@@ -29,7 +32,7 @@ export default function EnquiryFieldInput({
         disabled={disabled || field.read_only}
       >
         <option value="">Select…</option>
-        {dropdownValues.map((v) => (
+        {options.map((v) => (
           <option key={v} value={v}>
             {v}
           </option>

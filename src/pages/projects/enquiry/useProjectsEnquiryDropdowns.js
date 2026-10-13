@@ -1,5 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { projectsErrorMsg, projectsTable } from '../../../services/projectsApi';
+import { supabase } from '../../../lib/supabase';
+import { PROJECTS_SCHEMA, projectsErrorMsg, projectsTable } from '../../../services/projectsApi';
+
+export const ASSIGNEE_KIND_KEY = 'assigned_to_person';
+
+/** Active Projects-department employees from Employee Master; null when unavailable. */
+async function fetchAssigneeOptions() {
+  try {
+    const { data, error } = await supabase.schema(PROJECTS_SCHEMA).rpc('enquiry_assignee_names');
+    if (error) throw error;
+    if (!data?.length) return null;
+    return data.map((row, i) => ({
+      id: `employee:${row.employee_code || row.full_name}`,
+      value: row.full_name,
+      employee_code: row.employee_code,
+      sort_order: i + 1,
+    }));
+  } catch (err) {
+    console.warn('Assigned To Person: Employee Master list unavailable, using the dropdown list.', err);
+    return null;
+  }
+}
 
 export function useProjectsEnquiryDropdowns() {
   const [kinds, setKinds] = useState([]);
@@ -21,16 +42,19 @@ export function useProjectsEnquiryDropdowns() {
         .order('value', { ascending: true });
       if (optionsErr) throw optionsErr;
 
+      const assigneeOptions = await fetchAssigneeOptions();
+
       const optionsByKindId = {};
       for (const opt of optionsData || []) {
         if (!optionsByKindId[opt.kind_id]) optionsByKindId[opt.kind_id] = [];
         optionsByKindId[opt.kind_id].push(opt);
       }
 
-      const enriched = (kindsData || []).map((k) => ({
-        ...k,
-        options: optionsByKindId[k.id] || [],
-      }));
+      const enriched = (kindsData || []).map((k) =>
+        k.kind_key === ASSIGNEE_KIND_KEY && assigneeOptions
+          ? { ...k, options: assigneeOptions, fromEmployeeMaster: true }
+          : { ...k, options: optionsByKindId[k.id] || [] }
+      );
 
       setKinds(enriched);
     } catch (err) {

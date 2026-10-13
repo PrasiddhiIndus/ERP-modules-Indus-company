@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Area,
   Bar,
@@ -20,6 +21,7 @@ import {
 import {
   AlertTriangle,
   BarChart3,
+  CalendarClock,
   CheckCircle2,
   ClipboardList,
   Filter,
@@ -33,6 +35,9 @@ import { DateInput } from '../../../components/DateInput';
 import { flattenEnquiryRow, getEnquiryFieldValue, projectsErrorMsg, projectsTable } from '../../../services/projectsApi';
 import { formatDateDdMmYyyy, normalizeToIsoDate } from '../../../utils/dateDisplay';
 import { getRowStatusValue, STATUS_LEGEND } from './enquiryStatusStyles';
+import { DUE_SOON_DAYS, dashboardBucket, startOfToday } from './enquiryDeadlines';
+import { useAuth } from '../../../contexts/AuthContext';
+import { getOpenableProjectsEnquiryTabs } from '../../../config/roles';
 import { useProjectsEnquiryDropdowns } from './useProjectsEnquiryDropdowns';
 import { CHART_SERIES, TOKENS } from '../../../theme/tokens';
 import './enquiryDashboard.css';
@@ -63,7 +68,16 @@ const EMPTY_FILTERS = {
   enquiryFrom: '',
   dateFrom: '',
   dateTo: '',
+  month: '',
+  year: '',
 };
+
+const ENQUIRY_DATABASE_PATH = '/app/projects/enquiry/enquiry-database';
+
+const MONTH_OPTIONS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+].map((label, i) => ({ value: String(i + 1).padStart(2, '0'), label }));
 
 const selectCls =
   'w-full min-h-[38px] py-2 px-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500';
@@ -213,6 +227,13 @@ function matchesFilters(row, filters) {
     if (!receipt || !to || receipt > to) return false;
   }
 
+  if (filters.month || filters.year) {
+    const key = receiptMonthKey(getEnquiryFieldValue(row, 'enquiry_receipt_date'));
+    if (!key) return false;
+    if (filters.year && key.slice(0, 4) !== filters.year) return false;
+    if (filters.month && key.slice(5, 7) !== filters.month) return false;
+  }
+
   return true;
 }
 
@@ -266,7 +287,7 @@ function ChartCard({ title, subtitle, children, className = '' }) {
   );
 }
 
-function KpiCard({ icon: Icon, label, value, sub, tone = 'blue' }) {
+function KpiCard({ icon: Icon, label, value, sub, tone = 'blue', onClick }) {
   const tones = {
     blue: 'bg-blue-50 text-blue-700 border-blue-100',
     amber: 'bg-amber-50 text-amber-700 border-amber-100',
@@ -276,18 +297,24 @@ function KpiCard({ icon: Icon, label, value, sub, tone = 'blue' }) {
     slate: 'bg-slate-50 text-slate-700 border-slate-100',
   };
   return (
-    <div className={`enquiry-kpi-3d rounded-xl border p-4 ${tones[tone] || tones.blue}`}>
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide opacity-80">{label}</p>
-          <p className="text-2xl font-bold tabular-nums mt-1 enquiry-kpi-value-pop">{value}</p>
-          {sub && <p className="text-xs mt-1 opacity-75">{sub}</p>}
-        </div>
-        <div className="p-2 rounded-lg bg-white/70">
-          <Icon className="w-5 h-5" />
-        </div>
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!value || !onClick}
+      title={value && onClick ? `Open these ${value} enquiries in the Enquiry Database` : undefined}
+      className={`enquiry-kpi-3d w-full h-full flex flex-col text-left rounded-xl border p-3 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-default ${
+        value && onClick ? 'cursor-pointer hover:shadow-md hover:-translate-y-0.5' : ''
+      } ${tones[tone] || tones.blue}`}
+    >
+      <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-white/70 shrink-0">
+        <Icon className="w-4 h-4" />
+      </span>
+      <p className="mt-2 min-h-[2rem] text-[11px] font-semibold uppercase tracking-wide opacity-80 leading-4 line-clamp-2">
+        {label}
+      </p>
+      <p className="text-2xl font-bold tabular-nums leading-tight enquiry-kpi-value-pop">{value}</p>
+      <p className="mt-1 min-h-[2rem] text-[11px] leading-4 opacity-75 line-clamp-2">{sub || '\u00a0'}</p>
+    </button>
   );
 }
 
@@ -307,6 +334,11 @@ function ChartTooltip({ active, payload, labelKey = 'name', valueKey = 'value', 
 }
 
 export default function EnquiryDashboard() {
+  const navigate = useNavigate();
+  const { userProfile, accessibleModules, subModulePaths } = useAuth();
+  const canOpenDatabase = getOpenableProjectsEnquiryTabs(userProfile, accessibleModules, subModulePaths).includes(
+    'enquiry-database'
+  );
   const { valuesForKindKey } = useProjectsEnquiryDropdowns();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -345,51 +377,49 @@ export default function EnquiryDashboard() {
 
   const filterCount = activeFilterCount(filters);
 
-  const stats = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    let notStarted = 0;
-    let wip = 0;
-    let completed = 0;
-    let regret = 0;
-    let unassigned = 0;
-    let overdue = 0;
-    let dueSoon = 0;
+  const yearOptions = useMemo(() => {
+    const years = new Set([String(new Date().getFullYear())]);
+    for (const row of rows) {
+      const key = receiptMonthKey(getEnquiryFieldValue(row, 'enquiry_receipt_date'));
+      if (key) years.add(key.slice(0, 4));
+    }
+    return [...years].sort((a, b) => b.localeCompare(a));
+  }, [rows]);
+
+  const kpiIds = useMemo(() => {
+    const today = startOfToday();
+    const ids = {
+      total: [],
+      notStarted: [],
+      wip: [],
+      completed: [],
+      regret: [],
+      unassigned: [],
+      overdue: [],
+      dueSoon: [],
+      completedLate: [],
+    };
 
     for (const row of filteredRows) {
-      const status = String(getRowStatusValue(row) || 'Not Started').trim() || 'Not Started';
-      const statusKey = status.toLowerCase();
-      if (statusKey === 'not started') notStarted += 1;
-      else if (statusKey === 'work in progress') wip += 1;
-      else if (statusKey === 'completed') completed += 1;
-      else if (statusKey === 'regret') regret += 1;
-
-      const assignee = getEnquiryFieldValue(row, 'assigned_to_person');
-      if (assignee == null || String(assignee).trim() === '') unassigned += 1;
-
-      if (!isClosedStatus(status)) {
-        const target = toLocalDate(getEnquiryFieldValue(row, 'target_date'));
-        if (target) {
-          if (target < today) overdue += 1;
-          else {
-            const diffDays = Math.ceil((target - today) / (24 * 60 * 60 * 1000));
-            if (diffDays <= 7) dueSoon += 1;
-          }
-        }
-      }
+      ids.total.push(row.id);
+      ids[dashboardBucket(row, today)].push(row.id);
     }
 
-    return {
-      total: filteredRows.length,
-      notStarted,
-      wip,
-      completed,
-      regret,
-      unassigned,
-      overdue,
-      dueSoon,
-    };
+    return ids;
   }, [filteredRows]);
+
+  const stats = useMemo(
+    () => Object.fromEntries(Object.entries(kpiIds).map(([key, list]) => [key, list.length])),
+    [kpiIds]
+  );
+
+  const openInDatabase = (key, label) => {
+    const ids = kpiIds[key] || [];
+    if (!ids.length) return;
+    navigate(ENQUIRY_DATABASE_PATH, { state: { dashboardView: { label, ids } } });
+  };
+
+  const openHandler = (key, label) => (canOpenDatabase ? () => openInDatabase(key, label) : undefined);
 
   const statusData = useMemo(() => countByStatus(filteredRows), [filteredRows]);
   const assigneeData = useMemo(() => countBy(filteredRows, 'assigned_to_person'), [filteredRows]);
@@ -495,7 +525,7 @@ export default function EnquiryDashboard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           <label className="block xl:col-span-2">
             <span className="text-xs font-medium text-gray-600 mb-1 block">Search</span>
             <input
@@ -505,6 +535,24 @@ export default function EnquiryDashboard() {
               placeholder="Client, location, scope…"
               className={selectCls}
             />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 mb-1 block">Month</span>
+            <select value={filters.month} onChange={(e) => setFilter('month', e.target.value)} className={selectCls}>
+              <option value="">All months</option>
+              {MONTH_OPTIONS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 mb-1 block">Year</span>
+            <select value={filters.year} onChange={(e) => setFilter('year', e.target.value)} className={selectCls}>
+              <option value="">All years</option>
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
           </label>
           <label className="block">
             <span className="text-xs font-medium text-gray-600 mb-1 block">Receipt from</span>
@@ -566,15 +614,30 @@ export default function EnquiryDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3">
-        <KpiCard icon={ClipboardList} label="Total" value={stats.total} tone="blue" />
-        <KpiCard icon={Users} label="Not Started" value={stats.notStarted} tone="amber" />
-        <KpiCard icon={UserCheck} label="In Progress" value={stats.wip} tone="sky" />
-        <KpiCard icon={CheckCircle2} label="Completed" value={stats.completed} tone="green" />
-        <KpiCard icon={AlertTriangle} label="Regret" value={stats.regret} tone="red" />
-        <KpiCard icon={Users} label="Unassigned" value={stats.unassigned} sub="No assignee set" tone="slate" />
-        <KpiCard icon={AlertTriangle} label="Overdue" value={stats.overdue} sub="Past target date" tone="red" />
-        <KpiCard icon={AlertTriangle} label="Due in 7 days" value={stats.dueSoon} sub="Open enquiries" tone="amber" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 gap-3">
+        <KpiCard icon={ClipboardList} label="Total" value={stats.total} sub="Sum of all boxes" tone="blue" onClick={openHandler('total', 'Total')} />
+        <KpiCard icon={Users} label="Not Started" value={stats.notStarted} sub="Assigned, not yet due" tone="amber" onClick={openHandler('notStarted', 'Not Started')} />
+        <KpiCard icon={UserCheck} label="In Progress" value={stats.wip} sub="Assigned, not yet due" tone="sky" onClick={openHandler('wip', 'In Progress')} />
+        <KpiCard icon={CheckCircle2} label="Completed" value={stats.completed} sub="On or before target date" tone="green" onClick={openHandler('completed', 'Completed')} />
+        <KpiCard icon={AlertTriangle} label="Regret" value={stats.regret} tone="red" onClick={openHandler('regret', 'Regret')} />
+        <KpiCard icon={Users} label="Unassigned" value={stats.unassigned} sub="Open, no assignee, not yet due" tone="slate" onClick={openHandler('unassigned', 'Unassigned')} />
+        <KpiCard icon={AlertTriangle} label="Overdue" value={stats.overdue} sub="Open, past target date" tone="red" onClick={openHandler('overdue', 'Overdue')} />
+        <KpiCard
+          icon={AlertTriangle}
+          label={`Due in ${DUE_SOON_DAYS} days`}
+          value={stats.dueSoon}
+          sub="Open, close to target date"
+          tone="amber"
+          onClick={openHandler('dueSoon', `Due in ${DUE_SOON_DAYS} days`)}
+        />
+        <KpiCard
+          icon={CalendarClock}
+          label="Overdue & Completed"
+          value={stats.completedLate}
+          sub="Completed after target date"
+          tone="slate"
+          onClick={openHandler('completedLate', 'Overdue & Completed')}
+        />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">

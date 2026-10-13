@@ -94,6 +94,15 @@ export function normalizeAccessProfile(profile) {
  *   Non-HR grants (e.g. finance.pl) must still expand so Finance routes are not blocked.
  */
 export function getAccessibleSubModulePaths(profile, userMetadata = null) {
+  const paths = collectSubModulePaths(profile, userMetadata);
+  const role = normalizeAppRole(profile?.role);
+  if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) {
+    paths.add(PROJECTS_ENQUIRY_KPI_PATH);
+  }
+  return paths;
+}
+
+function collectSubModulePaths(profile, userMetadata = null) {
   const subMods = getEffectiveAllowedSubModules(profile, userMetadata);
   if (!subMods.length) return new Set();
 
@@ -124,6 +133,14 @@ export function getAccessibleSubModulePaths(profile, userMetadata = null) {
   for (const subKey of keysToExpand) {
     const parts = subKey.split(".");
     const moduleKey = parts[0];
+
+    // Enquiry Master page keys (projects.enquiry.<page>) → that page's routes only.
+    // Expanded even with the full Projects module so opt-in pages (KPI) are recorded.
+    if (parts.length === 3 && parts[0] === "projects" && parts[1] === "enquiry") {
+      const page = PROJECTS_ENQUIRY_PAGES.find((p) => p.value === subKey);
+      page?.paths.forEach((p) => paths.add(p));
+      continue;
+    }
 
     // Skip if user has full top-level module access — already covered by MODULE_PATH_PREFIXES.
     // Exception: HR/Admin recruitment tab restrictions (handled above / below).
@@ -678,6 +695,59 @@ export function getAllowedIevCostingTabs(profile, accessibleModules) {
   return picked.length ? picked : all;
 }
 
+/**
+ * Projects — Enquiry Master pages (User Management level 3 under "Enquiry Master").
+ * `paths` are the routes each page needs.
+ */
+export const PROJECTS_ENQUIRY_PAGES = [
+  { value: "projects.enquiry.dashboard", tab: "enquiry-dashboard", label: "Dashboard", paths: ["/app/projects/enquiry/enquiry-dashboard"] },
+  {
+    value: "projects.enquiry.database",
+    tab: "enquiry-database",
+    label: "Enquiry Database",
+    paths: ["/app/projects/enquiry/enquiry-database", "/app/projects/enquiry/enquiry-entry"],
+  },
+  {
+    value: "projects.enquiry.kpi",
+    tab: "enquiry-kpi",
+    label: "KPI",
+    paths: ["/app/projects/enquiry/enquiry-kpi"],
+    // Opt-in: Super Admins, or users ticked for KPI in User Management (not implied by Enquiry Master or Projects).
+    optIn: true,
+  },
+  { value: "projects.enquiry.dropdown", tab: "enquiry-dropdown", label: "Enquiry Dropdown", paths: ["/app/projects/enquiry/enquiry-dropdown"] },
+];
+
+export const PROJECTS_ENQUIRY_KPI_PATH = "/app/projects/enquiry/enquiry-kpi";
+
+/**
+ * Enquiry Master tab ids the user may open.
+ * Full Projects module, Enquiry Master sub-item, or no page keys at all → every standard tab (unchanged behaviour).
+ * Otherwise only the ticked pages. Opt-in pages (KPI) need their own tick in every case.
+ */
+export function getAllowedProjectsEnquiryTabs(profile, accessibleModules) {
+  const subs = parseAllowedSubModules(profile?.allowed_sub_modules);
+  const optIn = PROJECTS_ENQUIRY_PAGES.filter((page) => page.optIn && subs.includes(page.value));
+  const standard = PROJECTS_ENQUIRY_PAGES.filter((page) => !page.optIn);
+  const allowed = (pages) => {
+    const set = new Set([...pages, ...optIn].map((page) => page.value));
+    return PROJECTS_ENQUIRY_PAGES.filter((page) => set.has(page.value)).map((page) => page.tab);
+  };
+  const role = normalizeAppRole(profile?.role);
+  if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) return allowed(PROJECTS_ENQUIRY_PAGES);
+  if (accessibleModules?.has?.("projects")) return allowed(standard);
+  if (subs.includes("projects.enquiry")) return allowed(standard);
+  const picked = standard.filter((page) => subs.includes(page.value));
+  return allowed(picked.length || optIn.length ? picked : standard);
+}
+
+/** Enquiry Master tabs the user may open and whose route the route guard also allows. */
+export function getOpenableProjectsEnquiryTabs(profile, accessibleModules, subModulePaths) {
+  return getAllowedProjectsEnquiryTabs(profile, accessibleModules).filter((tab) =>
+    isPathAllowed(`/app/projects/enquiry/${tab}`, accessibleModules || new Set(), subModulePaths)
+  );
+}
+
 /** IEV Costing tabs the user may open and whose route the route guard also allows. */
 export function getOpenableIevCostingTabs(profile, accessibleModules, subModulePaths) {
   return getAllowedIevCostingTabs(profile, accessibleModules).filter((tab) =>
@@ -839,7 +909,13 @@ export const NAV_MODULE_TREE = [
     subModules: [
       { value: "projects.management",      label: "Projects Management",  pathPrefix: "/app/projects-management" },
       { value: "projects.billing",         label: "Projects Billing",     pathPrefix: "/app/projects-billing" },
-      { value: "projects.enquiry",         label: "Enquiry Master",       pathPrefix: "/app/projects/enquiry" },
+      {
+        value: "projects.enquiry",
+        label: "Enquiry Master",
+        pathPrefix: "/app/projects/enquiry",
+        // Page-wise access: ticking Enquiry Master grants every page; otherwise only the ticked pages.
+        tabModules: PROJECTS_ENQUIRY_PAGES.map(({ value, label, optIn }) => ({ value, label, optIn: Boolean(optIn) })),
+      },
       { value: "projects.quotation-master",label: "Quotation Master",     pathPrefix: "/app/projects/quotation" },
       { value: "projects.po",              label: "PO / WO Entry",        pathPrefix: "/app/projects/po" },
     ],
@@ -1442,6 +1518,12 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
   // Hard gate: Compliance (Payroll, IFSPL, General) — allowlisted emails, or the section granted in User Management
   if (isCompliancePath(pathname)) {
     return canOpenCompliancePath(accessIdentity, accessIdentity, pathname);
+  }
+
+  // Hard gate: Enquiry Master KPI is opt-in — Super Admins, or users ticked for it in User Management.
+  const normalizedForKpi = normalizeAppPath(pathname);
+  if (normalizedForKpi === PROJECTS_ENQUIRY_KPI_PATH || normalizedForKpi.startsWith(`${PROJECTS_ENQUIRY_KPI_PATH}/`)) {
+    return Boolean(subModulePaths?.has?.(PROJECTS_ENQUIRY_KPI_PATH));
   }
 
   if (accessibleModules.has("overview") && pathname === "/app/dashboard") return true;
