@@ -1,22 +1,14 @@
 /**
- * Compliance module (Payroll PF/ESIC, IFSPL, General) — hard email allowlist.
- * Only these signed-in people may see or open Compliance, even with full module access.
+ * Compliance module — Vivek, Vaisakh / Vaishak, and Rahul only.
+ * These signed-in people may see Compliance Forms and Payroll Compliance.
  */
 export const COMPLIANCE_ALLOWED_EMAILS = Object.freeze([
   "rahul.ifspl@gmail.com",
-  "bency@indusfire.com",
-  "latha@indusfire.com",
   "vivek@indusfire.com",
+  "sharmavivekz683@gmail.com",
   "vaisakh@indusfire.com",
-]);
-
-const COMPLIANCE_ALLOWED_LOCAL_PARTS = Object.freeze([
-  "rahul",
-  "rahul.ifspl",
-  "bency",
-  "latha",
-  "vivek",
-  "vaisakh",
+  "vaishak@indusfire.com",
+  "vaisakh_fire@yahoo.co.in",
 ]);
 
 export const COMPLIANCE_PATH_PREFIX = "/app/compliance";
@@ -35,13 +27,7 @@ export function resolveUserEmail(profile, user = null) {
 export function isComplianceAllowedEmail(email) {
   const norm = normalizeAccessEmail(email);
   if (!norm) return false;
-  if (COMPLIANCE_ALLOWED_EMAILS.includes(norm)) return true;
-  const at = norm.indexOf("@");
-  if (at < 1) return false;
-  const local = norm.slice(0, at);
-  const domain = norm.slice(at + 1);
-  if (!COMPLIANCE_ALLOWED_LOCAL_PARTS.includes(local)) return false;
-  return domain === "indusfire.com" || domain === "gmail.com";
+  return COMPLIANCE_ALLOWED_EMAILS.includes(norm);
 }
 
 export function canAccessCompliance(profile, user = null) {

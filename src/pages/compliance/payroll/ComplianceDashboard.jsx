@@ -62,21 +62,23 @@ function savedLabel(value) {
   return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function loadFormOverview() {
-  return FORM_GROUPS.map((group) => {
-    const packs = group.listPacks() || [];
-    return {
-      ...group,
-      count: packs.length,
-      records: packs.map((pack) => ({
-        id: pack.id,
-        title: packTitle(pack, group.forms),
-        savedAt: pack.savedAt || "",
-        tab: group.id,
-        code: group.label,
-      })),
-    };
-  });
+async function loadFormOverview() {
+  return Promise.all(
+    FORM_GROUPS.map(async (group) => {
+      const packs = (await group.listPacks()) || [];
+      return {
+        ...group,
+        count: packs.length,
+        records: packs.map((pack) => ({
+          id: pack.id,
+          title: packTitle(pack, group.forms),
+          savedAt: pack.savedAt || "",
+          tab: group.id,
+          code: group.label,
+        })),
+      };
+    })
+  );
 }
 
 function currentYm() {
@@ -90,7 +92,7 @@ function currentYm() {
 export default function ComplianceDashboard() {
   const navigate = useNavigate();
   const [runs, setRuns] = useState([]);
-  const [formGroups, setFormGroups] = useState(() => loadFormOverview());
+  const [formGroups, setFormGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -98,6 +100,11 @@ export default function ComplianceDashboard() {
     setLoading(true);
     setError("");
     try {
+      try {
+        setFormGroups(await loadFormOverview());
+      } catch (formErr) {
+        console.warn("Compliance forms overview skipped", formErr);
+      }
       if (USE_MOCK_SALARY_PROCESSING) {
         setRuns((mockListRunsWithLines() || []).map(({ run }) => run));
       } else {
@@ -123,8 +130,11 @@ export default function ComplianceDashboard() {
   }, [load]);
 
   useEffect(() => {
-    const refreshForms = () => setFormGroups(loadFormOverview());
-    refreshForms();
+    const refreshForms = () => {
+      loadFormOverview()
+        .then((groups) => setFormGroups(groups))
+        .catch((formErr) => console.warn("Compliance forms overview skipped", formErr));
+    };
     window.addEventListener("focus", refreshForms);
     document.addEventListener("visibilitychange", refreshForms);
     return () => {
