@@ -498,11 +498,57 @@ function drawIdentityPdf(doc, form, part) {
   });
 }
 
+function writeIndexSheet(workbook, pack, forms) {
+  const sheet = workbook.addWorksheet("Index", {
+    pageSetup: { orientation: "portrait", fitToPage: true, fitToWidth: 1, paperSize: 9 },
+  });
+  sheet.getColumn(1).width = 22;
+  sheet.getColumn(2).width = 56;
+  sheet.getColumn(3).width = 18;
+  sheet.mergeCells("A1:C1");
+  sheet.getCell("A1").value = "Compliance forms";
+  sheet.getCell("A1").font = { name: "Calibri", size: 16, bold: true };
+  sheet.getRow(1).height = 24;
+  const saved = pack?.savedAt ? new Date(pack.savedAt) : new Date();
+  sheet.getCell("A2").value = `Saved ${saved.toLocaleString("en-IN")}`;
+  sheet.getCell("A2").font = { name: "Calibri", size: 10, color: { argb: "FF5B6B74" } };
+
+  const head = sheet.getRow(4);
+  ["Form", "Name", "Rows entered"].forEach((label, index) => {
+    const cell = head.getCell(index + 1);
+    cell.value = label;
+    cell.font = { name: "Calibri", size: 10, bold: true };
+    cell.alignment = { horizontal: index === 2 ? "right" : "left", vertical: "middle" };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEEF2F6" } };
+    cell.border = thinBorder();
+  });
+  head.height = 22;
+
+  formsOf(forms).forEach((form, index) => {
+    const part = pack?.forms?.[form.id] || { rows: [] };
+    const entered = (part.rows || []).filter((row) =>
+      Object.values(row || {}).some((value) => String(value || "").trim() && !String(value).startsWith("data:image"))
+    ).length;
+    const row = sheet.getRow(5 + index);
+    row.getCell(1).value = form.button || form.title || "";
+    row.getCell(2).value = form.name || "";
+    row.getCell(3).value = entered;
+    row.eachCell((cell, col) => {
+      cell.font = { name: "Calibri", size: 10 };
+      cell.alignment = { horizontal: col === 3 ? "right" : "left", vertical: "middle", wrapText: true };
+      cell.border = thinBorder();
+    });
+    row.height = 20;
+  });
+}
+
 export async function buildWagePackWorkbook(pack, forms) {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Indus ERP";
+  workbook.creator = "Indus ERP Compliance";
   workbook.created = new Date();
-  const usedNames = new Set();
+  workbook.title = fileBase(pack, forms);
+  const usedNames = new Set(["Index"]);
+  writeIndexSheet(workbook, pack, forms);
 
   formsOf(forms).forEach((form, formIndex) => {
     const part = pack.forms?.[form.id] || { header: {}, rows: [] };
@@ -592,8 +638,8 @@ export async function buildWagePackWorkbook(pack, forms) {
     sheetColumns.forEach((column, index) => {
       const headingCell = headingRow.getCell(index + 1);
       headingCell.value = column.label;
-      headingCell.font = { name: "Calibri", size: 9, bold: true, color: { argb: "FF64748B" } };
-      headingCell.alignment = { horizontal: "left", vertical: "bottom", wrapText: true };
+      headingCell.font = { name: "Calibri", size: 9, bold: true, color: { argb: "FF334155" } };
+      headingCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
       headingCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEEF2F6" } };
       headingCell.border = thinBorder();
       sheet.getColumn(index + 1).width = column.key === "__sno" ? 8 : excelColumnWidth(column);

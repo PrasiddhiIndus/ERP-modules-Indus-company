@@ -1,6 +1,5 @@
-import { createStatutoryPack, deleteStatutoryPack, listStatutoryPacks, saveStatutoryPack } from "./statutoryPack";
-
-const PACK_KEY = "indus-ss-code-packs-v1";
+import { createStatutoryPack } from "./statutoryPack";
+import { COMPLIANCE_FORM_CODES, deleteFormPack, listFormPacks, saveFormPack } from "./complianceFormStore";
 
 function cols(pairs) {
   return pairs.map(([key, label]) => ({ key, label }));
@@ -237,6 +236,6 @@ export const SS_FORMS = {
 export const SS_FORM_LIST = [SS_FORMS["form-iii"]];
 
 export const createSsPack = () => createStatutoryPack(SS_FORM_LIST);
-export const listSsPacks = () => listStatutoryPacks(PACK_KEY);
-export const saveSsPack = (pack) => saveStatutoryPack(PACK_KEY, pack);
-export const deleteSsPack = (id) => deleteStatutoryPack(PACK_KEY, id);
+export const listSsPacks = () => listFormPacks(COMPLIANCE_FORM_CODES.social);
+export const saveSsPack = (pack) => saveFormPack(COMPLIANCE_FORM_CODES.social, pack);
+export const deleteSsPack = (id) => deleteFormPack(COMPLIANCE_FORM_CODES.social, id);

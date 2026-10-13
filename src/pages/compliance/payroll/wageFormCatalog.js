@@ -1,5 +1,4 @@
-const SHEET_KEY = "indus-wage-code-sheets-v1";
-const PACK_KEY = "indus-wage-code-packs-v1";
+import { COMPLIANCE_FORM_CODES, deleteFormPack, listFormPacks, saveFormPack } from "./complianceFormStore";
 
 const wageHeader = [
   { key: "establishment", label: "Name of the Establishment" },
@@ -127,33 +126,20 @@ export function emptyWageHeader(form) {
 }
 
 export function listWageSheets() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(SHEET_KEY) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return listFormPacks(COMPLIANCE_FORM_CODES.wageSheet);
 }
 
-export function getWageSheet(id) {
-  return listWageSheets().find((sheet) => sheet.id === id) || null;
+export async function getWageSheet(id) {
+  const sheets = await listWageSheets();
+  return sheets.find((sheet) => sheet.id === id) || null;
 }
 
 export function saveWageSheet(sheet) {
-  const all = listWageSheets();
-  const next = { ...sheet, savedAt: new Date().toISOString() };
-  const index = all.findIndex((item) => item.id === next.id);
-  if (index >= 0) all[index] = next;
-  else all.unshift(next);
-  localStorage.setItem(SHEET_KEY, JSON.stringify(all));
-  return next;
+  return saveFormPack(COMPLIANCE_FORM_CODES.wageSheet, sheet);
 }
 
 export function deleteWageSheet(id) {
-  localStorage.setItem(
-    SHEET_KEY,
-    JSON.stringify(listWageSheets().filter((sheet) => sheet.id !== id))
-  );
+  return deleteFormPack(COMPLIANCE_FORM_CODES.wageSheet, id);
 }
 
 export function newWageId() {
@@ -173,24 +159,13 @@ export function createWagePack() {
 }
 
 export function listWagePacks() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(PACK_KEY) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return listFormPacks(COMPLIANCE_FORM_CODES.wages);
 }
 
 export function saveWagePack(pack) {
-  const all = listWagePacks();
-  const next = { ...pack, savedAt: new Date().toISOString() };
-  const index = all.findIndex((item) => item.id === next.id);
-  if (index >= 0) all[index] = next;
-  else all.unshift(next);
-  localStorage.setItem(PACK_KEY, JSON.stringify(all));
-  return next;
+  return saveFormPack(COMPLIANCE_FORM_CODES.wages, pack);
 }
 
 export function deleteWagePack(id) {
-  localStorage.setItem(PACK_KEY, JSON.stringify(listWagePacks().filter((pack) => pack.id !== id)));
+  return deleteFormPack(COMPLIANCE_FORM_CODES.wages, id);
 }
