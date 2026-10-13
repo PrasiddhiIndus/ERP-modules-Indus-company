@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PageTaskHeader, SectionCard } from "../../adminOperations/components/AdminUi";
 import { toast } from "../../../lib/toast";
@@ -211,15 +211,24 @@ export default function WageStatutoryForm() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const form = WAGE_FORMS[formKey];
-  const existing = useMemo(() => getWageSheet(searchParams.get("id") || ""), [searchParams]);
+  const [sheetId] = useState(() => searchParams.get("id") || newId());
+  const [header, setHeader] = useState(() => (form ? emptyWageHeader(form) : {}));
+  const [rows, setRows] = useState(() => (form ? [blankWageRow(form)] : []));
 
-  const [sheetId] = useState(() => existing?.id || newId());
-  const [header, setHeader] = useState(() => existing?.header || (form ? emptyWageHeader(form) : {}));
-  const [rows, setRows] = useState(() => {
-    if (!form) return [];
-    if (existing?.rows?.length) return existing.rows;
-    return [blankWageRow(form)];
-  });
+  useEffect(() => {
+    if (!form) return undefined;
+    let cancelled = false;
+    const requested = searchParams.get("id");
+    if (!requested) return undefined;
+    getWageSheet(requested).then((existing) => {
+      if (cancelled || !existing) return;
+      setHeader(existing.header || emptyWageHeader(form));
+      setRows(existing.rows?.length ? existing.rows : [blankWageRow(form)]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [form, searchParams]);
 
   if (!form) {
     return (
@@ -231,13 +240,13 @@ export default function WageStatutoryForm() {
     );
   }
 
-  const save = () => {
+  const save = async () => {
     const establishment = header.establishment || header.period || "—";
     if (!String(header.establishment || "").trim() && form.id !== "form-v") {
       toast.warning("Enter the name of the establishment");
       return;
     }
-    saveWageSheet({
+    await saveWageSheet({
       id: sheetId,
       formKey: form.id,
       header,

@@ -265,7 +265,7 @@ export function canSeeSubModule(profile, accessibleModules, subModuleKey, userMe
     });
   }
 
-  // Compliance: email allowlist, or Compliance team / module / this section from User Management.
+  // Compliance: Vivek, Vaisakh / Vaishak, and Rahul only.
   if (String(subModuleKey || "").startsWith("compliance.")) {
     return canAccessComplianceSection(profile, {
       email: userMetadata?.email || profile?.email,

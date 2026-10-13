@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Eye, FileSpreadsheet, FileText, Filter, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { Modal } from "../../adminOperations/components/AdminUi";
 import { toast } from "../../../lib/toast";
@@ -62,14 +62,34 @@ export default function StatutoryCodePanel({
   exportExcel,
   exportPdf,
 }) {
-  const [packs, setPacks] = useState(() => listPacks());
+  const [packs, setPacks] = useState([]);
+  const [loadingList, setLoadingList] = useState(true);
   const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [busyKey, setBusyKey] = useState("");
 
-  const refresh = () => setPacks(listPacks());
+  const refresh = useCallback(async () => {
+    const rows = await Promise.resolve(listPacks());
+    setPacks(Array.isArray(rows) ? rows : []);
+  }, [listPacks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingList(true);
+    refresh()
+      .catch((error) => {
+        console.error(error);
+        if (!cancelled) toast.warning("Could not load saved forms");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingList(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refresh]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -97,10 +117,10 @@ export default function StatutoryCodePanel({
     }
   };
 
-  const remove = (pack) => {
+  const remove = async (pack) => {
     const label = summarize(pack, forms).establishment;
     if (!window.confirm(`Delete the saved forms for ${label === "—" ? "this record" : label}?`)) return;
-    deletePack(pack.id);
+    await deletePack(pack.id);
     toast.success("Saved forms deleted");
     if (currentPage > 1 && pageRows.length === 1) setPage(currentPage - 1);
     refresh();
@@ -242,7 +262,11 @@ export default function StatutoryCodePanel({
               ) : (
                 <tr>
                   <td colSpan={6} className="px-3 py-10 text-center text-sm text-gray-500">
-                    {query.trim() ? "No forms match this search." : "No saved forms yet. Use Form to add one."}
+                    {loadingList
+                      ? "Loading saved forms…"
+                      : query.trim()
+                        ? "No forms match this search."
+                        : "No saved forms yet. Use Form to add one."}
                   </td>
                 </tr>
               )}
@@ -335,7 +359,7 @@ function PackModal({ title, forms, pack, savePack, onClose, onSaved }) {
     setStep(nextStep);
   };
 
-  const save = () => {
+  const save = async () => {
     const first = forms[0];
     const required = first.header[0];
     const value = draft.forms[first.id]?.header?.[required?.key];
@@ -344,7 +368,7 @@ function PackModal({ title, forms, pack, savePack, onClose, onSaved }) {
       setStep(0);
       return;
     }
-    savePack(draft);
+    await savePack(draft);
     toast.success("Forms saved");
     onSaved();
   };

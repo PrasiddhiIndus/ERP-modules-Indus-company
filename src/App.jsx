@@ -495,7 +495,7 @@ function App() {
             <Route path="people-management" element={<PeopleManagement />} />
             <Route path="people-management/:personId" element={<PeoplePersonProfile />} />
             
-            {/* Compliance — email allowlist, or the section granted in User Management */}
+            {/* Compliance — Vivek, Vaisakh / Vaishak, and Rahul only */}
             <Route
               path="ifsp-employee-compliance"
               element={

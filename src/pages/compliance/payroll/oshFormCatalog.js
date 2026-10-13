@@ -1,6 +1,5 @@
-import { createStatutoryPack, deleteStatutoryPack, listStatutoryPacks, saveStatutoryPack } from "./statutoryPack";
-
-const PACK_KEY = "indus-oshwc-packs-v1";
+import { createStatutoryPack } from "./statutoryPack";
+import { COMPLIANCE_FORM_CODES, deleteFormPack, listFormPacks, saveFormPack } from "./complianceFormStore";
 
 function col(no, key, label, group = "", width = 168) {
   return {
@@ -237,6 +236,6 @@ export const OSH_FORM_LIST = ["form-13", "form-14", "form-17", "form-18", "form-
 );
 
 export const createOshPack = () => createStatutoryPack(OSH_FORM_LIST);
-export const listOshPacks = () => listStatutoryPacks(PACK_KEY);
-export const saveOshPack = (pack) => saveStatutoryPack(PACK_KEY, pack);
-export const deleteOshPack = (id) => deleteStatutoryPack(PACK_KEY, id);
+export const listOshPacks = () => listFormPacks(COMPLIANCE_FORM_CODES.osh);
+export const saveOshPack = (pack) => saveFormPack(COMPLIANCE_FORM_CODES.osh, pack);
+export const deleteOshPack = (id) => deleteFormPack(COMPLIANCE_FORM_CODES.osh, id);
