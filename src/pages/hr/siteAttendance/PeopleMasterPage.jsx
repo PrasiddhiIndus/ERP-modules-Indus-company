@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "../../../lib/toast";
-import { Download, Pencil, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Pencil, Plus, Upload, X } from "lucide-react";
 import { FormDateInput } from "../../../components/FormDateInput";
 import {
   DenseTable,
   Drawer,
   FilterBar,
+  KpiTile,
   PageTaskHeader,
   SectionCard,
   StatusChip,
@@ -15,11 +16,15 @@ import {
 import { addDaysIso, formatDateDisplay, parseLooseDateToIso } from "../../../lib/siteAttendance/dateFormat";
 import { filterSitesByType } from "../../../lib/siteAttendance/siteTypes";
 import {
+  countPeopleByStatus,
   createAssignment,
   createPerson,
+  deletePerson,
+  findPersonByCode,
   generateUniqueCode,
   listAllSites,
   listAssignments,
+  listDesignationMaster,
   listPeopleForSites,
   listPeoplePage,
   listSiteDesignations,
@@ -31,6 +36,8 @@ import {
 } from "../../../lib/siteAttendance/siteAttendanceApi";
 import { useSiteAttendanceAccess, useSiteAttendanceType } from "./SiteAttendanceLayout";
 import { siteIdsForQuery } from "../../../lib/siteAttendance/siteAttendanceAccess";
+
+const PAGE_SIZES = [25, 50, 100];
 
 function emptyPerson() {
   return {
@@ -52,18 +59,97 @@ function emptyPerson() {
   };
 }
 
+function useDebounced(value, delay = 300) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+function Field({ label, required, className = "", children }) {
+  return (
+    <label className={`flex flex-col gap-1 ${className}`.trim()}>
+      <span className="text-[11px] text-ink-secondary">
+        {label}
+        {required ? <span className="text-critical"> *</span> : null}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function pageWindow(page, pages) {
+  const start = Math.max(1, Math.min(page - 2, pages - 4));
+  const end = Math.min(pages, start + 4);
+  const list = [];
+  for (let n = start; n <= end; n += 1) list.push(n);
+  return list;
+}
+
+function Pager({ page, pageSize, total, onPage, onPageSize }) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const first = total ? (page - 1) * pageSize + 1 : 0;
+  const last = Math.min(total, page * pageSize);
+  const btn =
+    "h-8 min-w-8 px-2 rounded-control border text-xs inline-flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed";
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-divider">
+      <div className="flex items-center gap-2 text-xs text-ink-secondary">
+        <span>
+          Showing <span className="font-medium text-ink">{first}–{last}</span> of{" "}
+          <span className="font-medium text-ink">{total}</span>
+        </span>
+        <span className="text-ink-muted">·</span>
+        <span>Rows</span>
+        <TinySelect value={pageSize} onChange={(e) => onPageSize(Number(e.target.value))} aria-label="Rows per page">
+          {PAGE_SIZES.map((n) => (
+            <option key={n} value={n}>{n}</option>
+          ))}
+        </TinySelect>
+      </div>
+      <div className="flex items-center gap-1">
+        <button type="button" className={`${btn} border-border bg-surface`} disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page">
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+        {pageWindow(page, pages).map((n) => (
+          <button
+            key={n}
+            type="button"
+            className={`${btn} ${n === page ? "border-accent-border bg-accent-soft text-ink font-semibold" : "border-border bg-surface text-ink-secondary"}`}
+            onClick={() => onPage(n)}
+            aria-current={n === page ? "page" : undefined}
+          >
+            {n}
+          </button>
+        ))}
+        <button type="button" className={`${btn} border-border bg-surface`} disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page">
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function PeopleMasterPage() {
   const { siteType } = useSiteAttendanceType();
   const access = useSiteAttendanceAccess();
   const [people, setPeople] = useState([]);
   const [total, setTotal] = useState(0);
+  const [counts, setCounts] = useState({ total: 0, active: 0, inactive: 0 });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [search, setSearch] = useState("");
+  const [siteFilter, setSiteFilter] = useState("");
+  const [designationFilter, setDesignationFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [designationOptions, setDesignationOptions] = useState([]);
   const [sites, setSites] = useState([]);
   const [assignmentsByPerson, setAssignmentsByPerson] = useState({});
   const [loading, setLoading] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editingAssignmentId, setEditingAssignmentId] = useState(null);
   const [form, setForm] = useState(emptyPerson);
@@ -72,36 +158,69 @@ export default function PeopleMasterPage() {
   const [saving, setSaving] = useState(false);
   const [importFile, setImportFile] = useState(null);
   const [importSiteId, setImportSiteId] = useState("");
+  const [importing, setImporting] = useState(false);
+  const requestRef = useRef(0);
 
+  const debouncedSearch = useDebounced(search);
   const typedSites = useMemo(() => filterSitesByType(sites, siteType), [sites, siteType]);
   const siteName = (id) => sites.find((s) => String(s.id) === String(id))?.site_name || "—";
+  const hasFilters = Boolean(search || siteFilter || designationFilter || statusFilter);
+
+  useEffect(() => {
+    listDesignationMaster()
+      .then((names) => setDesignationOptions((names || []).map((n) => (typeof n === "string" ? n : n?.designation_name)).filter(Boolean)))
+      .catch(() => setDesignationOptions([]));
+  }, []);
 
   const refresh = useCallback(async () => {
+    const requestId = ++requestRef.current;
     setLoading(true);
     try {
       const from = (page - 1) * pageSize;
       const allSites = await listAllSites({ siteIds: siteIdsForQuery(access) });
+      if (requestId !== requestRef.current) return;
       setSites(allSites);
 
       let rows;
       let byPerson;
-      if (access.seesAllSites && !siteType) {
-        const result = await listPeoplePage({ search, from, to: from + pageSize - 1 });
+      let nextTotal;
+      let nextCounts;
+      if (access.seesAllSites && !siteType && !siteFilter) {
+        const [result, statusCounts] = await Promise.all([
+          listPeoplePage({
+            search: debouncedSearch,
+            status: statusFilter,
+            designation: designationFilter,
+            from,
+            to: from + pageSize - 1,
+          }),
+          countPeopleByStatus({ search: debouncedSearch, designation: designationFilter }),
+        ]);
         rows = result.rows;
-        setTotal(result.count);
+        nextTotal = result.count;
+        nextCounts = statusCounts;
         const allAssigns = rows.length ? await listAssignments({ personIds: rows.map((p) => p.id) }) : [];
         byPerson = {};
         for (const p of rows) byPerson[p.id] = [];
         for (const a of allAssigns) (byPerson[a.person_id] ||= []).push(a);
       } else {
-        const siteIds = filterSitesByType(allSites, siteType).map((s) => s.id);
-        const result = await listPeopleForSites({ siteIds, search });
-        setTotal(result.rows.length);
-        rows = result.rows.slice(from, from + pageSize);
+        const typedIds = filterSitesByType(allSites, siteType).map((s) => s.id);
+        const siteIds = siteFilter ? typedIds.filter((id) => String(id) === String(siteFilter)) : typedIds;
+        const result = await listPeopleForSites({ siteIds, search: debouncedSearch });
+        let list = result.rows.filter((p) => !designationFilter || p.designation === designationFilter);
+        const inactive = list.filter((p) => p.is_active === false).length;
+        nextCounts = { total: list.length, active: list.length - inactive, inactive };
+        if (statusFilter === "active") list = list.filter((p) => p.is_active !== false);
+        if (statusFilter === "inactive") list = list.filter((p) => p.is_active === false);
+        nextTotal = list.length;
+        rows = list.slice(from, from + pageSize);
         byPerson = result.assignmentsByPerson;
       }
+      if (requestId !== requestRef.current) return;
 
       setPeople(rows);
+      setTotal(nextTotal);
+      setCounts(nextCounts);
       const map = {};
       for (const p of rows) {
         const assigns = byPerson[p.id] || [];
@@ -109,11 +228,11 @@ export default function PeopleMasterPage() {
       }
       setAssignmentsByPerson(map);
     } catch (err) {
-      toast.error(userFriendlyError(err));
+      if (requestId === requestRef.current) toast.error(userFriendlyError(err));
     } finally {
-      setLoading(false);
+      if (requestId === requestRef.current) setLoading(false);
     }
-  }, [page, pageSize, search, siteType, access.seesAllSites, access.allowedSiteIds]);
+  }, [page, pageSize, debouncedSearch, siteFilter, designationFilter, statusFilter, siteType, access.seesAllSites, access.allowedSiteIds]);
 
   useEffect(() => {
     refresh();
@@ -121,7 +240,24 @@ export default function PeopleMasterPage() {
 
   useEffect(() => {
     setPage(1);
+    setSiteFilter("");
   }, [siteType]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, siteFilter, designationFilter, statusFilter, pageSize]);
+
+  useEffect(() => {
+    const pages = Math.max(1, Math.ceil(total / pageSize));
+    if (!loading && page > pages) setPage(pages);
+  }, [total, pageSize, page, loading]);
+
+  const clearFilters = () => {
+    setSearch("");
+    setSiteFilter("");
+    setDesignationFilter("");
+    setStatusFilter("");
+  };
 
   const setField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -133,10 +269,20 @@ export default function PeopleMasterPage() {
     setSiteDesignations(await listSiteDesignations(siteId));
   };
 
+  const formDesignations = useMemo(() => {
+    const names = siteDesignations.length
+      ? siteDesignations.map((d) => d.designation_name)
+      : designationOptions;
+    const list = [...new Set(names.filter(Boolean))];
+    if (form.designation && !list.includes(form.designation)) list.unshift(form.designation);
+    return list;
+  }, [siteDesignations, designationOptions, form.designation]);
+
   const openCreate = () => {
     setEditingId(null);
     setEditingAssignmentId(null);
     setForm(emptyPerson());
+    setSiteDesignations([]);
     setHistory([]);
     setDrawerOpen(true);
   };
@@ -165,6 +311,7 @@ export default function PeopleMasterPage() {
     });
     setHistory(assigns);
     if (current?.site_id) await loadDesigs(current.site_id);
+    else setSiteDesignations([]);
     setDrawerOpen(true);
   };
 
@@ -195,6 +342,12 @@ export default function PeopleMasterPage() {
 
     setSaving(true);
     try {
+      const sameCode = await findPersonByCode(personPayload.unique_code, editingId);
+      if (sameCode) {
+        toast.error(`Code ${personPayload.unique_code} is already used by ${sameCode.full_name || "another person"}. Use Generate for a new code.`);
+        return;
+      }
+
       if (form.transfer) {
         if (!form.transfer_site_id || !form.transfer_date) {
           toast.error("Select the new site and transfer date.");
@@ -235,6 +388,10 @@ export default function PeopleMasterPage() {
           toast.error("Assignment cannot start before joining date.");
           return;
         }
+        if (form.to_date && form.to_date < form.from_date) {
+          toast.error("Assignment to-date must be after the from-date.");
+          return;
+        }
         if (!editingAssignmentId) {
           const check = await validateMaxWorkers(Number(form.site_id), form.from_date, form.to_date || null);
           if (!check.allowed) {
@@ -243,24 +400,32 @@ export default function PeopleMasterPage() {
           }
         }
         let personId = editingId;
+        let createdNow = false;
         if (editingId) await updatePerson(editingId, personPayload);
         else {
           const created = await createPerson(personPayload);
+          if (!created?.id) throw new Error("Unable to create person.");
           personId = created.id;
+          createdNow = true;
         }
-        if (editingAssignmentId) {
-          await updateAssignment(editingAssignmentId, {
-            site_id: Number(form.site_id),
-            from_date: form.from_date,
-            to_date: form.to_date || null,
-          });
-        } else {
-          await createAssignment({
-            person_id: personId,
-            site_id: Number(form.site_id),
-            from_date: form.from_date,
-            to_date: form.to_date || null,
-          });
+        try {
+          if (editingAssignmentId) {
+            await updateAssignment(editingAssignmentId, {
+              site_id: Number(form.site_id),
+              from_date: form.from_date,
+              to_date: form.to_date || null,
+            });
+          } else {
+            await createAssignment({
+              person_id: personId,
+              site_id: Number(form.site_id),
+              from_date: form.from_date,
+              to_date: form.to_date || null,
+            });
+          }
+        } catch (assignErr) {
+          if (createdNow) await deletePerson(personId).catch(() => {});
+          throw assignErr;
         }
         toast.success(editingId ? "Person updated." : "Person created.");
       }
@@ -302,6 +467,7 @@ export default function PeopleMasterPage() {
         return;
       }
     }
+    setImporting(true);
     let ok = 0;
     let fail = 0;
     for (let i = 1; i < lines.length; i++) {
@@ -313,8 +479,9 @@ export default function PeopleMasterPage() {
         fail++;
         continue;
       }
+      let created = null;
       try {
-        const created = await createPerson({
+        created = await createPerson({
           unique_code: code,
           full_name: name,
           designation: values[idx("Designation")] || null,
@@ -331,23 +498,47 @@ export default function PeopleMasterPage() {
           to_date: null,
         });
         ok++;
-      } catch {
+      } catch (err) {
+        if (created?.id) await deletePerson(created.id).catch(() => {});
+        console.error("People import row", i + 1, err);
         fail++;
       }
     }
+    setImporting(false);
     toast.success(`Imported ${ok} people${fail ? `, ${fail} skipped` : ""}.`);
     setImportFile(null);
+    setImportOpen(false);
     refresh();
   };
 
   const columns = [
-    { key: "unique_code", label: "Code" },
-    { key: "full_name", label: "Name" },
+    { key: "unique_code", label: "Code", render: (row) => <span className="font-medium tabular-nums">{row.unique_code}</span> },
+    {
+      key: "full_name",
+      label: "Name",
+      render: (row) => (
+        <div className="min-w-[10rem]">
+          <p className="text-ink font-medium">{row.full_name}</p>
+          {row.phone_no ? <p className="text-[11px] text-ink-muted">{row.phone_no}</p> : null}
+        </div>
+      ),
+    },
     { key: "designation", label: "Designation", render: (row) => row.designation || "—" },
     {
       key: "site",
       label: "Current site",
-      render: (row) => siteName(assignmentsByPerson[row.id]?.current?.site_id),
+      render: (row) => {
+        const current = assignmentsByPerson[row.id]?.current;
+        if (!current) return <span className="text-ink-muted">Not assigned</span>;
+        return (
+          <div>
+            <p className="text-ink">{siteName(current.site_id)}</p>
+            <p className="text-[11px] text-ink-muted">
+              {current.to_date ? `Until ${formatDateDisplay(current.to_date)}` : `Since ${formatDateDisplay(current.from_date)}`}
+            </p>
+          </div>
+        );
+      },
     },
     { key: "joining_date", label: "Joined", render: (row) => formatDateDisplay(row.joining_date) },
     {
@@ -360,7 +551,7 @@ export default function PeopleMasterPage() {
       label: "",
       render: (row) => (
         <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-          <button type="button" className="p-1 text-accent" onClick={() => openEdit(row)} aria-label="Edit person">
+          <button type="button" className="p-1 rounded hover:bg-accent-soft text-accent" onClick={() => openEdit(row)} aria-label="Edit person">
             <Pencil className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -368,147 +559,226 @@ export default function PeopleMasterPage() {
     },
   ];
 
+  const statusTile = (key, label, value) => (
+    <KpiTile
+      label={label}
+      value={loading && !counts.total ? "…" : value}
+      onClick={() => setStatusFilter(key)}
+      tone={statusFilter === key ? "border-accent-border ring-1 ring-accent-border" : "border-border"}
+    />
+  );
+
   return (
     <div className="flex flex-col gap-4">
-      <PageTaskHeader title="People" subtitle="Site workers, assignments, and transfers.">
+      <PageTaskHeader title="People" subtitle="Site workers, their current site and transfers.">
+        <button
+          type="button"
+          className="erp-btn-secondary rounded-control px-3 py-2 text-xs inline-flex items-center gap-1.5"
+          onClick={() => setImportOpen(true)}
+        >
+          <Upload className="w-3.5 h-3.5" /> Import
+        </button>
         <button type="button" className="erp-btn-primary rounded-control px-3.5 py-2 text-xs inline-flex items-center gap-1.5" onClick={openCreate}>
           <Plus className="w-3.5 h-3.5" /> New person
         </button>
       </PageTaskHeader>
 
+      <div className="grid grid-cols-3 gap-3 max-w-xl">
+        {statusTile("", "All people", counts.total)}
+        {statusTile("active", "Active", counts.active)}
+        {statusTile("inactive", "Inactive", counts.inactive)}
+      </div>
+
       <FilterBar>
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] text-ink-secondary">Search</span>
-          <TinyInput value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Name or code" />
-        </label>
+        <Field label="Search" className="min-w-[14rem] flex-1 max-w-xs">
+          <TinyInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name or code" />
+        </Field>
+        <Field label="Site" className="min-w-[12rem]">
+          <TinySelect value={siteFilter} onChange={(e) => setSiteFilter(e.target.value)}>
+            <option value="">All sites</option>
+            {typedSites.map((s) => (
+              <option key={s.id} value={s.id}>{s.site_name}</option>
+            ))}
+          </TinySelect>
+        </Field>
+        <Field label="Designation" className="min-w-[10rem]">
+          <TinySelect value={designationFilter} onChange={(e) => setDesignationFilter(e.target.value)}>
+            <option value="">All designations</option>
+            {designationOptions.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </TinySelect>
+        </Field>
+        <Field label="Status" className="min-w-[8rem]">
+          <TinySelect value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </TinySelect>
+        </Field>
+        {hasFilters ? (
+          <button type="button" className="h-8 px-2.5 text-xs text-ink-secondary hover:text-ink inline-flex items-center gap-1" onClick={clearFilters}>
+            <X className="w-3.5 h-3.5" /> Clear filters
+          </button>
+        ) : null}
       </FilterBar>
 
-      <SectionCard title={loading ? "Loading…" : `${total} people`}>
-        <DenseTable columns={columns} rows={people} rowKey="id" onRowClick={openEdit} />
-        <div className="flex justify-end gap-2 mt-3">
-          <button type="button" className="erp-btn-secondary rounded-control px-3 py-1.5 text-xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</button>
-          <button type="button" className="erp-btn-secondary rounded-control px-3 py-1.5 text-xs" disabled={page * pageSize >= total} onClick={() => setPage((p) => p + 1)}>Next</button>
-        </div>
+      <SectionCard title={loading ? "Loading…" : `${total} ${total === 1 ? "person" : "people"}`}>
+        {!loading && people.length === 0 ? (
+          <div className="py-10 text-center text-sm text-ink-muted">
+            {hasFilters ? "No people match these filters." : "No people yet. Use New person to add one."}
+          </div>
+        ) : (
+          <DenseTable
+            columns={columns}
+            rows={people}
+            rowKey="id"
+            onRowClick={openEdit}
+            showSerialNumber
+            serialOffset={(page - 1) * pageSize}
+          />
+        )}
+        <Pager page={page} pageSize={pageSize} total={total} onPage={setPage} onPageSize={setPageSize} />
       </SectionCard>
 
-      <SectionCard title="CSV import">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px]">Site</span>
+      <Drawer open={importOpen} title="Import people" onClose={() => setImportOpen(false)} widthClass="max-w-md">
+        <div className="space-y-4 text-sm">
+          <p className="text-xs text-ink-secondary">
+            Upload a CSV with Code, Employee Name, Designation, Father Name, Date Of Birth and Date of Joining. Everyone is assigned to the site you pick from their joining date.
+          </p>
+          <Field label="Site" required>
             <TinySelect value={importSiteId} onChange={(e) => setImportSiteId(e.target.value)}>
               <option value="">Select site</option>
               {typedSites.map((s) => <option key={s.id} value={s.id}>{s.site_name}</option>)}
             </TinySelect>
-          </label>
-          <input type="file" accept=".csv" onChange={(e) => setImportFile(e.target.files?.[0] || null)} className="text-xs" />
-          <button type="button" className="erp-btn-secondary rounded-control px-3 py-1.5 text-xs inline-flex items-center gap-1" onClick={downloadSample}>
-            <Download className="w-3.5 h-3.5" /> Sample
-          </button>
-          <button type="button" className="erp-btn-primary rounded-control px-3.5 py-2 text-xs" onClick={importCsv}>Import</button>
+          </Field>
+          <Field label="CSV file" required>
+            <input type="file" accept=".csv" onChange={(e) => setImportFile(e.target.files?.[0] || null)} className="text-xs" />
+          </Field>
+          <div className="flex justify-between gap-2 pt-2">
+            <button type="button" className="erp-btn-secondary rounded-control px-3 py-1.5 text-xs inline-flex items-center gap-1" onClick={downloadSample}>
+              <Download className="w-3.5 h-3.5" /> Sample file
+            </button>
+            <button type="button" className="erp-btn-primary rounded-control px-3.5 py-2 text-xs" disabled={importing} onClick={importCsv}>
+              {importing ? "Importing…" : "Import"}
+            </button>
+          </div>
         </div>
-      </SectionCard>
+      </Drawer>
 
       <Drawer open={drawerOpen} title={editingId ? "Edit person" : "New person"} onClose={() => setDrawerOpen(false)} widthClass="max-w-xl">
-        <div className="space-y-3 text-sm">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1 col-span-2 sm:col-span-1">
-              <span className="text-[11px]">Unique code *</span>
-              <div className="flex gap-1">
-                <TinyInput className="flex-1" value={form.unique_code} onChange={(e) => setField("unique_code", e.target.value)} />
-                <button type="button" className="erp-btn-secondary rounded-control px-2 text-xs" onClick={async () => setField("unique_code", await generateUniqueCode())}>Generate</button>
+        <div className="space-y-5 text-sm">
+          <section className="space-y-3">
+            <p className="text-xs font-semibold text-ink">Personal details</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Unique code" required className="col-span-2 sm:col-span-1">
+                <div className="flex gap-1">
+                  <TinyInput className="flex-1" value={form.unique_code} onChange={(e) => setField("unique_code", e.target.value)} />
+                  <button
+                    type="button"
+                    className="erp-btn-secondary rounded-control px-2 text-xs"
+                    onClick={async () => {
+                      try {
+                        setField("unique_code", await generateUniqueCode());
+                      } catch (err) {
+                        toast.error(userFriendlyError(err));
+                      }
+                    }}
+                  >
+                    Generate
+                  </button>
+                </div>
+              </Field>
+              <Field label="Full name" required className="col-span-2 sm:col-span-1">
+                <TinyInput value={form.full_name} onChange={(e) => setField("full_name", e.target.value)} />
+              </Field>
+              <Field label="Father name">
+                <TinyInput value={form.father_name} onChange={(e) => setField("father_name", e.target.value)} />
+              </Field>
+              <Field label="Phone">
+                <TinyInput value={form.phone_no} onChange={(e) => setField("phone_no", e.target.value)} />
+              </Field>
+              <Field label="Date of birth">
+                <FormDateInput value={form.date_of_birth} compact onChange={(e) => setField("date_of_birth", e.target.value)} />
+              </Field>
+              <Field label="Joining date" required>
+                <FormDateInput value={form.joining_date} compact onChange={(e) => setField("joining_date", e.target.value)} />
+              </Field>
+              <Field label="Leaving date">
+                <FormDateInput value={form.leaving_date} compact onChange={(e) => setField("leaving_date", e.target.value)} />
+              </Field>
+              <label className="flex items-center gap-2 text-xs mt-5">
+                <input type="checkbox" checked={form.is_active} onChange={(e) => setField("is_active", e.target.checked)} /> Active
+              </label>
+            </div>
+          </section>
+
+          <section className="space-y-3 pt-4 border-t border-divider">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-ink">Site assignment</p>
+              {editingId ? (
+                <label className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={form.transfer} onChange={(e) => setField("transfer", e.target.checked)} /> Transfer to another site
+                </label>
+              ) : null}
+            </div>
+
+            {form.transfer ? (
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="New site" required className="col-span-2">
+                  <TinySelect value={form.transfer_site_id} onChange={(e) => setField("transfer_site_id", e.target.value)}>
+                    <option value="">Select</option>
+                    {typedSites.map((s) => <option key={s.id} value={s.id}>{s.site_name}</option>)}
+                  </TinySelect>
+                </Field>
+                <Field label="Transfer date" required>
+                  <FormDateInput value={form.transfer_date} compact onChange={(e) => setField("transfer_date", e.target.value)} />
+                </Field>
               </div>
-            </label>
-            <label className="flex flex-col gap-1 col-span-2 sm:col-span-1">
-              <span className="text-[11px]">Full name *</span>
-              <TinyInput value={form.full_name} onChange={(e) => setField("full_name", e.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px]">Date of birth</span>
-              <FormDateInput value={form.date_of_birth} compact onChange={(e) => setField("date_of_birth", e.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px]">Joining date *</span>
-              <FormDateInput value={form.joining_date} compact onChange={(e) => setField("joining_date", e.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px]">Father name</span>
-              <TinyInput value={form.father_name} onChange={(e) => setField("father_name", e.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px]">Phone</span>
-              <TinyInput value={form.phone_no} onChange={(e) => setField("phone_no", e.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px]">Leaving date</span>
-              <FormDateInput value={form.leaving_date} compact onChange={(e) => setField("leaving_date", e.target.value)} />
-            </label>
-            <label className="flex items-center gap-2 text-xs mt-5">
-              <input type="checkbox" checked={form.is_active} onChange={(e) => setField("is_active", e.target.checked)} /> Active
-            </label>
-          </div>
-
-          <label className="flex items-center gap-2 text-xs">
-            <input type="checkbox" checked={form.transfer} onChange={(e) => setField("transfer", e.target.checked)} /> Site transfer
-          </label>
-
-          {form.transfer ? (
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 col-span-2">
-                <span className="text-[11px]">New site</span>
-                <TinySelect value={form.transfer_site_id} onChange={(e) => setField("transfer_site_id", e.target.value)}>
-                  <option value="">Select</option>
-                  {typedSites.map((s) => <option key={s.id} value={s.id}>{s.site_name}</option>)}
-                </TinySelect>
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px]">Transfer date</span>
-                <FormDateInput value={form.transfer_date} compact onChange={(e) => setField("transfer_date", e.target.value)} />
-              </label>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 col-span-2">
-                <span className="text-[11px]">Site *</span>
-                <TinySelect
-                  value={form.site_id}
-                  onChange={async (e) => {
-                    setField("site_id", e.target.value);
-                    await loadDesigs(e.target.value);
-                  }}
-                >
-                  <option value="">Select</option>
-                  {typedSites.map((s) => <option key={s.id} value={s.id}>{s.site_name}</option>)}
-                </TinySelect>
-              </label>
-              <label className="flex flex-col gap-1 col-span-2">
-                <span className="text-[11px]">Designation</span>
-                <TinySelect value={form.designation} onChange={(e) => setField("designation", e.target.value)}>
-                  <option value="">Select</option>
-                  {siteDesignations.map((d) => <option key={d.id} value={d.designation_name}>{d.designation_name}</option>)}
-                </TinySelect>
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px]">From date *</span>
-                <FormDateInput value={form.from_date} compact onChange={(e) => setField("from_date", e.target.value)} />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px]">To date</span>
-                <FormDateInput value={form.to_date} compact onChange={(e) => setField("to_date", e.target.value)} />
-              </label>
-            </div>
-          )}
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Site" required className="col-span-2">
+                  <TinySelect
+                    value={form.site_id}
+                    onChange={async (e) => {
+                      setField("site_id", e.target.value);
+                      await loadDesigs(e.target.value);
+                    }}
+                  >
+                    <option value="">Select</option>
+                    {typedSites.map((s) => <option key={s.id} value={s.id}>{s.site_name}</option>)}
+                  </TinySelect>
+                </Field>
+                <Field label="Designation" className="col-span-2">
+                  <TinySelect value={form.designation} onChange={(e) => setField("designation", e.target.value)}>
+                    <option value="">Select</option>
+                    {formDesignations.map((d) => <option key={d} value={d}>{d}</option>)}
+                  </TinySelect>
+                </Field>
+                <Field label="From date" required>
+                  <FormDateInput value={form.from_date} compact onChange={(e) => setField("from_date", e.target.value)} />
+                </Field>
+                <Field label="To date">
+                  <FormDateInput value={form.to_date} compact onChange={(e) => setField("to_date", e.target.value)} />
+                </Field>
+              </div>
+            )}
+          </section>
 
           {history.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold mb-1">Assignment history</p>
-              <ul className="text-[11px] text-ink-secondary space-y-0.5">
+            <section className="pt-4 border-t border-divider">
+              <p className="text-xs font-semibold text-ink mb-2">Assignment history</p>
+              <ul className="text-[11px] text-ink-secondary space-y-1">
                 {history.map((a) => (
-                  <li key={a.id}>
-                    {siteName(a.site_id)} · {formatDateDisplay(a.from_date)} → {a.to_date ? formatDateDisplay(a.to_date) : "current"}
+                  <li key={a.id} className="flex justify-between gap-3">
+                    <span className="text-ink">{siteName(a.site_id)}</span>
+                    <span>
+                      {formatDateDisplay(a.from_date)} → {a.to_date ? formatDateDisplay(a.to_date) : "current"}
+                    </span>
                   </li>
                 ))}
               </ul>
-            </div>
+            </section>
           )}
 
           <div className="flex justify-end gap-2 pt-2">
