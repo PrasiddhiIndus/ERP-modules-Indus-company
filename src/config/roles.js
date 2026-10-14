@@ -91,6 +91,7 @@ export function normalizeAccessProfile(profile) {
  * REGRESSION GUARD (#2 from review):
  *   A user with team=hr OR "hr" in allowed_modules has the FULL hr module and does NOT
  *   need hr.* sub-module path expansion — they already pass isPathAllowed via MODULE_PATH_PREFIXES.
+ *   Exception: team=hr with HR sections ticked (hasHrSectionScope) gets only those sections.
  *   Non-HR grants (e.g. finance.pl) must still expand so Finance routes are not blocked.
  */
 export function getAccessibleSubModulePaths(profile, userMetadata = null) {
@@ -110,6 +111,7 @@ function collectSubModulePaths(profile, userMetadata = null) {
     resolveTeamModuleKey(profile?.team),
     ...normalizedAllowedModuleKeys(profile),
   ].filter(Boolean));
+  if (hasHrSectionScope(profile, userMetadata)) fullModuleKeys.delete("hr");
 
   // If user has the full "hr" module, skip hr.* expansion — those routes are already
   // covered by MODULE_PATH_PREFIXES["hr"]. Still expand non-HR sub-modules (e.g. finance.pl).
@@ -298,6 +300,7 @@ export function getPartialAccessModuleKeys(profile, userMetadata = null) {
     resolveTeamModuleKey(profile?.team),
     ...normalizedAllowedModuleKeys(profile),
   ].filter(Boolean));
+  if (hasHrSectionScope(profile, userMetadata)) full.delete("hr");
   const partial = new Set();
   for (const subKey of getEffectiveAllowedSubModules(profile, userMetadata)) {
     const mod = String(subKey).split(".")[0];
@@ -574,6 +577,40 @@ export function hasRecruitmentTabRestrictions(profile, userMetadata = null, scop
   return getRecruitmentRestrictionKeys(profile, userMetadata, scope).some(
     (k) => k === family.parentKey || !isRecruitmentOptInTabKey(k)
   );
+}
+
+/** HR sections and Recruitment pages ticked in User Management. Opt-in extras (Add Referral) do not limit HR. */
+function isHrSectionScopeKey(key) {
+  const k = String(key || "");
+  if (!k.startsWith("hr.") || isRecruitmentOptInTabKey(k)) return false;
+  const hrSections = NAV_MODULE_TREE.find((m) => m.value === "hr")?.subModules || [];
+  return hrSections.some((s) => s.value === k) || ALL_RECRUITMENT_TAB_KEYS.includes(k);
+}
+
+/**
+ * HR-team user with HR sections ticked → only those sections.
+ * Nothing ticked, or HR ticked as a full module → the whole HR module.
+ */
+export function hasHrSectionScope(profile, userMetadata = null) {
+  if (resolveTeamModuleKey(profile?.team) !== "hr") return false;
+  if (normalizedAllowedModuleKeys(profile).includes("hr")) return false;
+  return getEffectiveAllowedSubModules(profile, userMetadata).some(isHrSectionScopeKey);
+}
+
+/** First ticked HR section, in menu order. */
+function firstHrSectionPath(profile, accessibleModules) {
+  const subs = getEffectiveAllowedSubModules(profile);
+  const hrSections = NAV_MODULE_TREE.find((m) => m.value === "hr")?.subModules || [];
+  for (const sub of hrSections) {
+    if (sub.value === HR_RECRUITMENT_FAMILY.parentKey) {
+      if (hasAnyRecruitmentTabAccess(profile, accessibleModules)) {
+        return getRecruitmentLandingPath(profile, accessibleModules);
+      }
+      continue;
+    }
+    if (subs.includes(sub.value)) return sub.pathPrefix;
+  }
+  return null;
 }
 
 function recruitmentPathMatches(pathname, prefixPath, indexPath = RECRUITMENT_INDEX_PATH) {
@@ -1223,7 +1260,7 @@ export function isEmptyPendingAccessStub(profile) {
 function buildScopedModuleSet(profile, { includeOverview = false } = {}) {
   const scoped = new Set(includeOverview ? ["overview", "settings"] : ["settings"]);
   const teamKey = resolveTeamModuleKey(profile?.team);
-  if (teamKey) scoped.add(teamKey);
+  if (teamKey && !(teamKey === "hr" && hasHrSectionScope(profile))) scoped.add(teamKey);
   normalizedAllowedModuleKeys(profile).forEach((key) => scoped.add(key));
   SUPER_ADMIN_ONLY_MODULES.forEach((m) => scoped.delete(m));
   applyFireTenderModuleGate(profile, scoped);
@@ -1257,6 +1294,10 @@ export function getLandingPathForUser(userProfile, accessibleModules) {
   // 1) Primary team (normalized)
   const fromTeam = tryKey(teamKey);
   if (fromTeam) return fromTeam;
+  if (teamKey === "hr" && hasHrSectionScope(userProfile)) {
+    const hrHome = firstHrSectionPath(userProfile, mods);
+    if (hrHome) return hrHome;
+  }
 
   // 2) Explicit extra modules from User Management
   for (const k of allowedKeys) {
