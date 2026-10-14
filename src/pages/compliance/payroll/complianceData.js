@@ -19,7 +19,7 @@ import {
 } from "../../adminOperations/salaryAdmin/salaryMonthProcessing";
 import { ageFromDob, applyEpfDerived } from "./complianceEpf";
 import { overlayFilingOnRows, loadComplianceFiling } from "./complianceDb";
-import { sanitizeIpName } from "./complianceEsic";
+import { resolveEsicDaysPaid, sanitizeIpName } from "./complianceEsic";
 
 function num(v) {
   const n = Number(v);
@@ -94,12 +94,13 @@ function withAttendancePresent(epfRows, esicRows, index) {
 
   const esicNext = (esicRows || []).map((row) => {
     const hit = attendanceDaysForRow(index, { ...row, name: row.ipName || row.name });
-    const days = hit != null ? hit : Number(row.presentDays ?? row.daysPaid) || 0;
+    const attendance = hit != null ? hit : null;
+    const days = resolveEsicDaysPaid(row, attendance);
     const reason =
       Number(days) === 0 && !String(row.reasonCode ?? "").trim() ? "0" : row.reasonCode;
     return {
       ...row,
-      presentDays: days,
+      presentDays: attendance != null ? attendance : Number(row.presentDays) || days,
       daysPaid: days,
       reasonCode: reason ?? "",
     };
