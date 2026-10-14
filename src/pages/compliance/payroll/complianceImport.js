@@ -145,8 +145,9 @@ function classifyHeader(raw) {
   if (n.includes("no of days") || n.includes("days paid") || n.includes("days for which") || n === "days") {
     return "daysPaid";
   }
-  if (n.includes("total monthly wages") || n.includes("monthly wages") || n.includes("gross wages")) {
-    return "wages";
+  if (n.includes("gross wages") || n === "gross") return "epfGross";
+  if (n.includes("total monthly wages") || n.includes("monthly wages") || n === "wages") {
+    return "esicWages";
   }
   return null;
 }
@@ -243,6 +244,8 @@ function inferMissingColumns(matrix, headerIndex, colMap) {
 function betterDigits(current, incoming, exactLen) {
   const a = digitsOnly(current);
   const b = digitsOnly(incoming);
+  // A later sheet must not replace a UAN or IP that already has the right length.
+  if (a.length === exactLen && b.length === exactLen && a !== b) return a;
   if (b.length === exactLen) return b;
   if (a.length === exactLen) return a;
   return b || a;
@@ -255,7 +258,15 @@ function mergeEntry(target, incoming) {
   if (incoming.uan) out.uan = betterDigits(out.uan, incoming.uan, 12);
   if (incoming.ipNumber) out.ipNumber = betterDigits(out.ipNumber, incoming.ipNumber, 10);
   if (incoming.daysPaid != null && incoming.daysPaid !== "") out.daysPaid = incoming.daysPaid;
-  if (incoming.wages != null && incoming.wages !== "") out.wages = incoming.wages;
+  if (incoming.wages != null && incoming.wages !== "") {
+    const incomingSource = incoming.wagesSource || "";
+    const currentSource = out.wagesSource || "";
+    // PF gross wages must not replace ESIC monthly wages from the ESIC sheet.
+    if (incomingSource === "esic" || currentSource !== "esic") {
+      out.wages = incoming.wages;
+      out.wagesSource = incomingSource || currentSource;
+    }
+  }
   if (incoming.reasonCode != null && incoming.reasonCode !== "") out.reasonCode = incoming.reasonCode;
   if (incoming.lastWorkingDay) out.lastWorkingDay = incoming.lastWorkingDay;
   if (incoming.sheetName) {
@@ -321,12 +332,28 @@ function parseSheetMatrix(matrix, sheetName) {
     }
 
     const daysRaw = get("daysPaid");
-    const wagesRaw = get("wages");
+    const esicWagesRaw = get("esicWages");
+    const grossRaw = get("epfGross");
     if (!code && !name && !uan && !ipNumber) continue;
     if (!uan && !ipNumber) continue;
 
     const daysNum = daysRaw === "" ? null : Number(daysRaw);
-    const wagesNum = wagesRaw === "" ? null : Number(String(wagesRaw).replace(/,/g, ""));
+    const toMoney = (raw) => (raw === "" ? null : Number(String(raw).replace(/,/g, "")));
+    const esicWagesNum = toMoney(esicWagesRaw);
+    const grossNum = toMoney(grossRaw);
+    const sheetIsEsic = colMap.has("ipNumber");
+    let wages = null;
+    let wagesSource = "";
+    if (Number.isFinite(esicWagesNum)) {
+      wages = esicWagesNum;
+      wagesSource = "esic";
+    } else if (Number.isFinite(grossNum) && sheetIsEsic) {
+      wages = grossNum;
+      wagesSource = "esic";
+    } else if (Number.isFinite(grossNum)) {
+      wages = grossNum;
+      wagesSource = "epf";
+    }
 
     rows.push({
       sheetName,
@@ -335,7 +362,8 @@ function parseSheetMatrix(matrix, sheetName) {
       uan,
       ipNumber,
       daysPaid: Number.isFinite(daysNum) ? daysNum : null,
-      wages: Number.isFinite(wagesNum) ? wagesNum : null,
+      wages,
+      wagesSource,
       reasonCode: get("reasonCode"),
       lastWorkingDay: get("lastWorkingDay"),
     });
@@ -507,6 +535,13 @@ export async function parseComplianceWorkbook(file) {
   };
 }
 
+function sameEmployeeCode(a, b) {
+  const ca = normalizeEmpCode(a?.employeeCode);
+  const cb = normalizeEmpCode(b?.employeeCode);
+  if (!ca || !cb) return true;
+  return ca === cb;
+}
+
 function lookupParsed(row, parsed) {
   const parts = [];
   const codeKey = normalizeEmpCode(row.employeeCode);
@@ -514,20 +549,26 @@ function lookupParsed(row, parsed) {
   const idKey = normalizeEmpCode(row.employeeId);
   if (idKey && idKey !== codeKey && parsed.byCode?.has(idKey)) parts.push(parsed.byCode.get(idKey));
 
+  const codeHit = parts[0] || null;
   const targetName = row.name || row.ipName || "";
   const nameKey = normalizeName(targetName);
-  if (nameKey && parsed.byName?.has(nameKey)) parts.push(parsed.byName.get(nameKey));
+  const exactName = nameKey && parsed.byName?.has(nameKey) ? parsed.byName.get(nameKey) : null;
+  if (exactName && (!codeHit || sameEmployeeCode(codeHit, exactName))) parts.push(exactName);
 
-  let best = null;
-  let bestScore = 0;
-  for (const entry of parsed.entries || []) {
-    const score = namesMatch(targetName, entry.name);
-    if (score > bestScore) {
-      bestScore = score;
-      best = entry;
+  // A similar name is used only when employee code did not match.
+  // "AMIT KUMAR SHARMA" must not take the UAN of "SHARMA AMIT".
+  if (!codeHit) {
+    let best = null;
+    let bestScore = 0;
+    for (const entry of parsed.entries || []) {
+      const score = namesMatch(targetName, entry.name);
+      if (score >= 3 && score > bestScore) {
+        bestScore = score;
+        best = entry;
+      }
     }
+    if (best && (!exactName || best !== exactName)) parts.push(best);
   }
-  if (best) parts.push(best);
 
   if (!parts.length) return null;
   return parts.reduce((acc, part) => mergeEntry(acc, part), {});
@@ -595,8 +636,11 @@ export function applyComplianceWorkbookToRows({ epfRows = [], esicRows = [], par
       patch.ipNumber = ip;
       esicFilled += 1;
     }
-    if (hit.daysPaid != null) patch.daysPaid = hit.daysPaid;
-    if (hit.wages != null) patch.monthlyWages = hit.wages;
+    if (hit.daysPaid != null) {
+      patch.daysPaid = hit.daysPaid;
+      patch.daysPaidFromFiling = true;
+    }
+    if (hit.wages != null && hit.wagesSource !== "epf") patch.monthlyWages = hit.wages;
     if (hit.reasonCode != null && hit.reasonCode !== "") patch.reasonCode = hit.reasonCode;
     if (hit.lastWorkingDay) patch.lastWorkingDay = hit.lastWorkingDay;
     if (!Object.keys(patch).length) return row;
@@ -618,7 +662,9 @@ export function applyComplianceWorkbookToRows({ epfRows = [], esicRows = [], par
       ipNumber: ip,
       ipName: sanitizeIpName(epf.name) || epf.name,
       daysPaid: hit.daysPaid != null ? hit.daysPaid : Number(epf.presentDays) || 0,
-      monthlyWages: hit.wages != null ? hit.wages : Number(epf.grossWages) || 0,
+      daysPaidFromFiling: hit.daysPaid != null,
+      monthlyWages:
+        hit.wages != null && hit.wagesSource !== "epf" ? hit.wages : Number(epf.grossWages) || 0,
       reasonCode: hit.reasonCode || "",
       lastWorkingDay: hit.lastWorkingDay || "",
       reasonNote: "",
