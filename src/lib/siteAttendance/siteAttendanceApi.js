@@ -317,13 +317,55 @@ export async function saveSiteHrAssignments(siteId, assignments, hrTeam = []) {
   }
 }
 
-export async function listPeoplePage({ search = "", from = 0, to = 49 } = {}) {
-  let query = supabase.from("people").select("*", { count: "exact" }).order("full_name", { ascending: true });
-  const term = String(search || "").trim();
-  if (term) query = query.or(`full_name.ilike.%${term}%,unique_code.ilike.%${term}%`);
+function applyPeopleFilters(query, { search = "", status = "", designation = "" } = {}) {
+  let q = query;
+  const term = String(search || "").trim().replace(/[,()]/g, " ");
+  if (term) q = q.or(`full_name.ilike.%${term}%,unique_code.ilike.%${term}%`);
+  if (status === "active") q = q.or("is_active.is.null,is_active.eq.true");
+  if (status === "inactive") q = q.eq("is_active", false);
+  if (designation) q = q.eq("designation", designation);
+  return q;
+}
+
+export async function listPeoplePage({ search = "", status = "", designation = "", from = 0, to = 49 } = {}) {
+  const query = applyPeopleFilters(
+    supabase.from("people").select("*", { count: "exact" }).order("full_name", { ascending: true }),
+    { search, status, designation }
+  );
   const { data, error, count } = await query.range(from, to);
   throwIf(error, "Unable to load people.");
   return { rows: data || [], count: count ?? (data || []).length };
+}
+
+/** Active / inactive totals for the same search and designation filters. */
+export async function countPeopleByStatus({ search = "", designation = "" } = {}) {
+  const head = () => supabase.from("people").select("id", { count: "exact", head: true });
+  const [all, inactive] = await Promise.all([
+    applyPeopleFilters(head(), { search, designation }),
+    applyPeopleFilters(head(), { search, designation, status: "inactive" }),
+  ]);
+  throwIf(all.error || inactive.error, "Unable to count people.");
+  const total = all.count || 0;
+  const off = inactive.count || 0;
+  return { total, active: total - off, inactive: off };
+}
+
+/** Another person already using this code (case-insensitive), or null. */
+export async function findPersonByCode(code, excludeId = null) {
+  const value = String(code || "").trim();
+  if (!value) return null;
+  const { data, error } = await supabase
+    .from("people")
+    .select("id,unique_code,full_name")
+    .ilike("unique_code", value.replace(/[%_\\]/g, (ch) => `\\${ch}`))
+    .limit(5);
+  throwIf(error, "Unable to check the code.");
+  return (data || []).find((p) => excludeId == null || String(p.id) !== String(excludeId)) || null;
+}
+
+export async function deletePerson(id) {
+  const { error } = await supabase.from("people").delete().eq("id", id);
+  throwIf(error, "Unable to remove person.");
 }
 
 export async function listPeopleByIds(ids) {
@@ -418,19 +460,26 @@ export async function updatePerson(id, payload) {
 }
 
 export async function generateUniqueCode() {
-  const { data, error } = await supabase.from("people").select("unique_code,id").order("id", { ascending: false }).limit(100);
-  throwIf(error, "Unable to generate code.");
   let maxNumber = 0;
-  (data || []).forEach((person) => {
-    const match = String(person.unique_code || "").match(/(\d+)/);
-    if (match) maxNumber = Math.max(maxNumber, parseInt(match[1], 10));
-  });
-  let nextNumber = maxNumber > 0 ? maxNumber + 1 : 1;
-  if (maxNumber === 0) {
-    const { count } = await supabase.from("people").select("id", { count: "exact", head: true });
-    nextNumber = (count || 0) + 1;
+  for (let from = 0; ; from += PAGE_FETCH_SIZE) {
+    const { data, error } = await supabase
+      .from("people")
+      .select("unique_code")
+      .ilike("unique_code", "EMP%")
+      .order("id", { ascending: true })
+      .range(from, from + PAGE_FETCH_SIZE - 1);
+    throwIf(error, "Unable to generate code.");
+    (data || []).forEach((person) => {
+      const match = String(person.unique_code || "").match(/^EMP0*(\d+)$/i);
+      if (match) maxNumber = Math.max(maxNumber, parseInt(match[1], 10));
+    });
+    if (!data || data.length < PAGE_FETCH_SIZE) break;
   }
-  return `EMP${String(nextNumber).padStart(3, "0")}`;
+  for (let next = maxNumber + 1; next < maxNumber + 50; next += 1) {
+    const code = `EMP${String(next).padStart(3, "0")}`;
+    if (!(await findPersonByCode(code))) return code;
+  }
+  throw new Error("Unable to generate code.");
 }
 
 export async function listAssignments({ personId, personIds, siteId } = {}) {
@@ -459,9 +508,21 @@ export async function validateMaxWorkers(siteId, fromDate, toDate, excludePerson
   const site = await getSite(siteId);
   if (!site) return { allowed: false, message: "Site not found" };
   const allAssignments = await listAssignments({ siteId });
+  const personIds = [...new Set(allAssignments.map((a) => a.person_id).filter((id) => id != null))];
+  const inactivePersonIds = new Set();
+  if (personIds.length) {
+    const { data: inactivePeople, error: peopleError } = await supabase
+      .from("people")
+      .select("id")
+      .in("id", personIds)
+      .eq("is_active", false);
+    throwIf(peopleError, "Unable to check site capacity.");
+    (inactivePeople || []).forEach((p) => inactivePersonIds.add(String(p.id)));
+  }
   const newFrom = new Date(fromDate);
   const newTo = toDate ? new Date(toDate) : new Date("2099-12-31");
   const activeAssignments = allAssignments.filter((assignment) => {
+    if (inactivePersonIds.has(String(assignment.person_id))) return false;
     if (excludePersonId && assignment.person_id === excludePersonId) return false;
     if (endingPersonId && assignment.person_id === endingPersonId) return false;
     const assignFrom = new Date(assignment.from_date);
@@ -618,6 +679,19 @@ export async function pingSiteAttendanceTables() {
 
 export function userFriendlyError(err) {
   const msg = String(err?.message || err || "").trim();
+  if (msg) console.error("Site attendance:", msg);
+  if (/duplicate key/i.test(msg)) {
+    if (/unique_code|code/i.test(msg)) return "This code is already used by another person. Use Generate for a new code.";
+    if (/_pkey/i.test(msg)) {
+      return "The record could not be saved because record numbering is out of step. Ask an administrator to fix the numbering, then try again.";
+    }
+    return "This record already exists.";
+  }
+  const missing = msg.match(/null value in column "([^"]+)"/i);
+  if (missing) return `${missing[1].replace(/_/g, " ")} is required.`;
+  if (/violates foreign key/i.test(msg)) return "The selected site or person no longer exists. Refresh and try again.";
+  if (/violates check constraint/i.test(msg)) return "One of the values is not allowed. Check the dates and fields, then try again.";
+  if (/invalid input syntax for type date|date\/time field value out of range/i.test(msg)) return "One of the dates is not valid.";
   if (/permission|rls|policy|jwt/i.test(msg)) return "You do not have permission to change this data.";
   if (/relation|does not exist|schema cache/i.test(msg)) {
     return "This record type is not available yet. Ask an administrator to finish the site attendance setup.";
