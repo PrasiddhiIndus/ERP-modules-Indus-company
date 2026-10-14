@@ -514,8 +514,9 @@ export default function CompliancePayrollProcess() {
               </li>
             ) : (
               <li>
-                Present days come from that month’s attendance register and fill the days paid on
-                the return. Review IP number, name, monthly wages, reason code and last working day.
+                Days paid start from that month’s attendance. Change the number if the return
+                should use different days — the screen, the save, and the file use that same number.
+                Review IP number, name, monthly wages, reason code and last working day.
               </li>
             )}
             <li>Check errors, then download the filing file. IDs stay saved for later months.</li>
@@ -923,7 +924,7 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
                     />
                   </td>
                   <td className={formulaCellClass()} title="IF(age>=58, 0, MIN(EPF wages, 15000))">
-                    {row.epsWagesManual ? (
+                    {row.epsWagesManual && !row.age58Plus ? (
                       <input
                         type="number"
                         className={numInputClass(false)}
@@ -933,21 +934,22 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
                     ) : (
                       <span className="block text-right">{row.epsWages ?? 0}</span>
                     )}
-                    <button
-                      type="button"
-                      className="block w-full text-right text-[9px] text-ink-muted hover:text-ink mt-0.5"
-                      onClick={() =>
-                        onChange(row.id, {
-                          epsWagesManual: !row.epsWagesManual,
-                          epsWages: row.epsWages,
-                        })
-                      }
-                    >
-                      {row.epsWagesManual ? "Use formula" : "Type amount"}
-                    </button>
-                    {!row.epsWagesManual && row.age58Plus ? (
+                    {row.age58Plus ? (
                       <span className="block text-right text-[9px] text-amber-700">Age 58+ · EPS 0</span>
-                    ) : null}
+                    ) : (
+                      <button
+                        type="button"
+                        className="block w-full text-right text-[9px] text-ink-muted hover:text-ink mt-0.5"
+                        onClick={() =>
+                          onChange(row.id, {
+                            epsWagesManual: !row.epsWagesManual,
+                            epsWages: row.epsWages,
+                          })
+                        }
+                      >
+                        {row.epsWagesManual ? "Use formula" : "Type amount"}
+                      </button>
+                    )}
                   </td>
                   <td className={formulaCellClass()}>{row.edliWages ?? 0}</td>
                   <td className={formulaCellClass()}>{row.epfContn ?? 0}</td>
@@ -1002,10 +1004,7 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
 
 function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
   const indexOf = (id) => allRows.findIndex((r) => r.id === id);
-  const totalDays = allRows.reduce(
-    (sum, row) => sum + (Number(row.presentDays ?? row.daysPaid) || 0),
-    0
-  );
+  const totalDays = allRows.reduce((sum, row) => sum + (Number(row.daysPaid) || 0), 0);
   const totalWages = allRows.reduce((sum, row) => sum + (Number(row.monthlyWages) || 0), 0);
 
   return (
@@ -1016,7 +1015,7 @@ function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
             <th className={thLeft}>IP number</th>
             <th className={thLeft}>IP name</th>
             <th className={thLeft}>Category</th>
-            <th className={thRight}>Present days</th>
+            <th className={thRight}>Days paid</th>
             <th className={thRight}>Monthly wages</th>
             <th className={thLeft}>Reason code</th>
             <th className={thLeft}>Last working day</th>
@@ -1033,7 +1032,7 @@ function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
             rows.map((row) => {
               const idx = indexOf(row.id);
               const bad = errorIndexes.has(idx);
-              const present = row.presentDays ?? row.daysPaid;
+              const present = row.daysPaid;
               return (
                 <tr key={row.id} className={bad ? "bg-critical-soft/20" : ""}>
                   <td className="px-1.5 py-1.5 align-middle">
@@ -1066,7 +1065,30 @@ function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
                       onChange={(e) => onChange(row.id, { category: e.target.value })}
                     />
                   </td>
-                  <PresentDaysCell days={present} />
+                  <td className="px-1.5 py-1.5 align-middle">
+                    <input
+                      type="number"
+                      min="0"
+                      className={numInputClass(bad)}
+                      value={row.daysPaid ?? ""}
+                      title={
+                        Number(row.presentDays) !== Number(row.daysPaid)
+                          ? `Attendance for this month is ${formatDays(row.presentDays)}. This cell is the days on the ESIC file.`
+                          : "Days on the ESIC file. Starts from this month’s attendance."
+                      }
+                      onChange={(e) =>
+                        onChange(row.id, {
+                          daysPaid: e.target.value === "" ? 0 : Number(e.target.value),
+                          daysPaidFromFiling: true,
+                        })
+                      }
+                    />
+                    {Number(row.presentDays) !== Number(row.daysPaid) ? (
+                      <span className="block text-right text-[9px] text-ink-muted mt-0.5">
+                        Attendance {formatDays(row.presentDays)}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-1.5 py-1.5 align-middle">
                     <input
                       type="number"

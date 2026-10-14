@@ -96,8 +96,8 @@ export async function downloadEpfChallanWorkbook(rows = [], { year, month, month
     ]);
 
     // E EPS wages: IF(age>=58, 0, MIN(EPF wages, 15000)). Age is column L.
-    // A typed EPS amount (manual) is written as a value, same as a typed 0 on the sheet.
-    if (row.epsWagesManual) {
+    // A typed EPS amount is kept only under age 58. Age 58+ always uses the formula (EPS 0).
+    if (row.epsWagesManual && !row.age58Plus) {
       r.getCell(5).value = Number(row.epsWages) || 0;
     } else {
       r.getCell(5).value = {
