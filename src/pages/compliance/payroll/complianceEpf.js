@@ -30,13 +30,10 @@ export function calculateEPFChallan(employee = {}) {
   const age = employee.age == null || employee.age === "" ? null : Number(employee.age);
   const age58Plus = age != null && Number.isFinite(age) && age >= 58;
 
-  // Age 58+: EPS wages stay 0 unless caller already set a manual override to keep (still 0 for pension-ineligible)
+  // Age 58+: pension is not eligible, so EPS wages stay 0 even if an amount was typed.
   let epsWages;
   if (age58Plus) {
-    epsWages =
-      employee.epsWagesOverride != null && employee.epsWagesOverride !== ""
-        ? Math.max(0, Number(employee.epsWagesOverride) || 0)
-        : 0;
+    epsWages = 0;
   } else if (employee.epsWagesOverride != null && employee.epsWagesOverride !== "") {
     epsWages = Math.max(0, Number(employee.epsWagesOverride) || 0);
   } else {
@@ -86,6 +83,13 @@ export function validateEpfRows(rows = []) {
 
     if (!Number.isFinite(gross) || gross < 0) messages.push("Gross wages must be a valid amount.");
     if (!Number.isFinite(epfWages) || epfWages < 0) messages.push("EPF wages must be a valid amount.");
+    if (Number.isFinite(gross) && Number.isFinite(epfWages) && epfWages > gross) {
+      messages.push("EPF wages cannot be higher than gross wages.");
+    }
+    const ncp = Number(row.ncpDays);
+    if (Number.isFinite(ncp) && ncp > 31) {
+      messages.push("NCP days cannot be more than 31.");
+    }
 
     if (uan) {
       if (uanSeen.has(uan)) {
@@ -101,8 +105,9 @@ export function validateEpfRows(rows = []) {
       epsWagesOverride: row.epsWagesManual ? row.epsWages : null,
     });
     if (row.age58Plus || calc.age58Plus) {
-      if (Number(row.epsWages) !== 0 && !row.epsWagesManual) {
-        messages.push("Age 58+ — EPS wages should be 0 (pension not eligible).");
+      const epsShown = row.epsWagesManual ? Number(row.epsWages) : calc.epsWages;
+      if (epsShown !== 0) {
+        messages.push("Age 58 or above — EPS wages must be 0. Pension is not eligible.");
       }
     }
 
@@ -142,16 +147,18 @@ export function sumEpfTotals(rows = []) {
   return totals;
 }
 
-/** Apply derived EPF fields onto a row (keeps manual EPS when flagged). */
+/** Apply derived EPF fields onto a row. A typed EPS amount is kept only under age 58. */
 export function applyEpfDerived(row) {
+  const ageNum = row.age === "" || row.age == null ? null : Number(row.age);
+  const senior = ageNum != null && Number.isFinite(ageNum) && ageNum >= 58;
   const calc = calculateEPFChallan({
     epfWages: row.epfWages,
     age: row.age,
-    epsWagesOverride: row.epsWagesManual ? row.epsWages : row.age58Plus ? 0 : null,
+    epsWagesOverride: senior ? null : row.epsWagesManual ? row.epsWages : null,
   });
   return {
     ...row,
-    epsWages: row.epsWagesManual ? Number(row.epsWages) || 0 : calc.epsWages,
+    epsWages: !senior && row.epsWagesManual ? Number(row.epsWages) || 0 : calc.epsWages,
     edliWages: calc.edliWages,
     epfContn: calc.epfContn,
     epsContnAmt: calc.epsContnAmt,

@@ -128,3 +128,19 @@ export function validateEsicRows(rows = []) {
 
   return { ok: errors.length === 0, errors };
 }
+
+/**
+ * Days written on the ESIC return.
+ * A saved or uploaded value wins. Attendance is used only when nothing was filed.
+ */
+export function resolveEsicDaysPaid(row, attendanceDays) {
+  const filed =
+    row?.daysPaidFromFiling && row.daysPaid != null && row.daysPaid !== ""
+      ? Number(row.daysPaid)
+      : null;
+  if (filed != null && Number.isFinite(filed)) return filed;
+  if (attendanceDays != null && attendanceDays !== "" && Number.isFinite(Number(attendanceDays))) {
+    return Number(attendanceDays);
+  }
+  return Number(row?.daysPaid) || 0;
+}
