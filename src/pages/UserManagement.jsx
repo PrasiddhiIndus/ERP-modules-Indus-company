@@ -44,6 +44,7 @@ import {
   resolveTeamModuleKey,
   ALL_RECRUITMENT_TAB_KEYS,
   toggleRecruitmentAccessKey,
+  hasHrSectionScope,
 } from "../config/roles";
 import { ChevronDown as ChevronDownIcon } from "lucide-react";
 import {
@@ -248,6 +249,14 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
               ) : null}
             </div>
 
+            {implicitViaTeam && mod.value === "hr" && (
+              <p className="ml-9 mr-3 -mt-1 pb-2 text-[11px] text-gray-500">
+                {activeSubCount > 0
+                  ? "Only the ticked sections are shown to this user."
+                  : "Nothing ticked: this user sees all of HR. Tick sections to show only those."}
+              </p>
+            )}
+
             {fullChecked && hasSubs && (
               <p className="ml-9 mr-3 -mt-1 pb-2 text-[11px] text-gray-500">
                 Full access: includes every sub-module and page. Untick {mod.label} to choose sub-modules or pages.
@@ -406,7 +415,10 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
 }
 
 function hasFullHrAccess(form) {
-  return (form?.allowed_modules || []).includes("hr") || resolveTeamModuleKey(form?.team) === "hr";
+  return (
+    (form?.allowed_modules || []).includes("hr") ||
+    (resolveTeamModuleKey(form?.team) === "hr" && !hasHrSectionScope(form))
+  );
 }
 
 function hasCallingDatabaseAccess(form) {
