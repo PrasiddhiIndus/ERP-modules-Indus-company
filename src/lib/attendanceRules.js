@@ -365,7 +365,7 @@ export function attendanceTimesFor({ employeeCode = null, department = null, onD
   };
 }
 
-export const WEEKLY_OFF_PATTERNS = ["sun_3rd_sat", "sun_only", "none", "custom"];
+export const WEEKLY_OFF_PATTERNS = ["sun_3rd_sat", "sun_only", "third_sat_only", "none", "custom"];
 
 function isoParts(isoDate) {
   const iso = String(isoDate ?? "").slice(0, 10);
@@ -432,6 +432,8 @@ export function isWeeklyOffDay(isoDate, { employeeCode = null, department = null
       return false;
     case "sun_only":
       return p.dow === 0;
+    case "third_sat_only":
+      return isThirdSaturdayIso(p.iso);
     case "custom":
       return customWeeklyOffDays(ctx).includes(p.dow);
     default:
@@ -474,7 +476,7 @@ export function isWeeklyOffCandidateDate(isoDate) {
 export function isThirdSaturdayWorkingDepartment(department, onDate = null) {
   if (!department) return false;
   const pattern = weeklyOffPattern({ department, onDate });
-  if (pattern === "sun_3rd_sat") return false;
+  if (pattern === "sun_3rd_sat" || pattern === "third_sat_only") return false;
   if (pattern === "custom") return !customWeeklyOffDays({ department, onDate }).includes(6);
   return true;
 }

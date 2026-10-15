@@ -244,5 +244,101 @@ check("after rollback the three-checkbox save still works", (await save("102", n
 await db.exec(readMigration(CO_EXPIRY_MIGRATION));
 check("migration re-applies after rollback", (await flags("109")).co_expires, false);
 
+// ---------------------------------------------------------------------------
+section("7. Sunday off / 3rd Saturday off (20261015140000)");
+const SPLIT_MIGRATION = "20261015140000_employee_weekly_off_sunday_third_saturday.sql";
+const SPLIT_ROLLBACK = "20261015140000_employee_weekly_off_sunday_third_saturday_down.sql";
+const THIRD_SAT = DAYS.find((d) => {
+  const dt = new Date(`${d}T00:00:00Z`);
+  return dt.getUTCDay() === 6 && dt.getUTCDate() >= 15 && dt.getUTCDate() <= 21;
+});
+const HOLIDAYS = new Set((await db.query(`SELECT holiday_date::text AS d FROM public.admin_national_public_holidays`)).rows.map((r) => r.d));
+const SUNDAYS = DAYS.filter((d) => new Date(`${d}T00:00:00Z`).getUTCDay() === 0 && !HOLIDAYS.has(d));
+const weeklyOffGrid = async () => (await db.query(
+  `SELECT c, string_agg(public.admin_rule_is_weekly_off(c, d::date)::text || public.admin_rule_weekly_off_pattern(c, d::date), ',' ORDER BY d) AS g
+   FROM unnest($1::text[]) c, unnest($2::text[]) d GROUP BY c ORDER BY c`, [CODES, DAYS])).rows;
+const oldFlagView = (f) => ({ has_weekly_off: f.has_weekly_off, earns_co: f.earns_co, co_expires: f.co_expires, has_holidays: f.has_holidays });
+const savePattern = (code, pattern) => db.query(
+  `SELECT public.admin_employee_attendance_flags_save($1, p_weekly_off_pattern => $2) AS f`, [code, pattern]).then((r) => r.rows[0].f);
+const patternOn = (code) => one(`SELECT public.admin_rule_weekly_off_pattern($1, $2)`, [code, sunday]);
+
+const creditsBefore = await credits();
+const gridBefore = await weeklyOffGrid();
+const flagsBefore = (await Promise.all(CODES.map(flags))).map(oldFlagView);
+const ruleRowsBefore = await rowCount();
+await db.exec(readMigration(SPLIT_MIGRATION));
+check("C/O credits identical for every employee × day × mark", await credits(), creditsBefore);
+check("weekly off + pattern identical for every employee × day", await weeklyOffGrid(), gridBefore);
+check("existing four settings read back identical", (await Promise.all(CODES.map(flags))).map(oldFlagView), flagsBefore);
+check("migration writes no rule values", await rowCount(), ruleRowsBefore);
+check("Sunday / 3rd Saturday boxes match today's pattern",
+  (await Promise.all(CODES.map(flags))).map((f) => [f.sunday_off, f.third_saturday_off]),
+  await Promise.all(CODES.map(async (c) => {
+    const p = await patternOn(c);
+    return [p === "sun_3rd_sat" || p === "sun_only", p === "sun_3rd_sat" || p === "third_sat_only"];
+  })));
+check("old positional save (4 args) still works", (await save("102", null, true, null)).earns_co, true);
+check("old positional save (5 args) still works", (await save("109", null, null, null, false)).co_expires, false);
+check("internal helper not executable by signed-in users",
+  await one(`SELECT has_function_privilege('authenticated', 'public.admin_employee_value_apply(text, text, text, jsonb)', 'EXECUTE')`), false);
+await expectError("unknown pattern rejected", () => savePattern("110", "custom"), /Choose which days/);
+
+const n7 = await rowCount();
+check("same pattern as the department writes nothing", (await savePattern("113", "sun_only"), await rowCount()), n7);
+
+await savePattern("110", "third_sat_only");
+check("3rd Saturday only: pattern saved", await patternOn("110"), "third_sat_only");
+check("3rd Saturday only: Sundays are working days",
+  await Promise.all(SUNDAYS.map((d) => one(`SELECT public.admin_rule_is_weekly_off('110', $1)`, [d]))), SUNDAYS.map(() => false));
+check("3rd Saturday only: 3rd Saturday is a weekly off", await one(`SELECT public.admin_rule_is_weekly_off('110', $1)`, [THIRD_SAT]), true);
+check("3rd Saturday only: boxes read back", (({ sunday_off, third_saturday_off }) => ({ sunday_off, third_saturday_off }))(await flags("110")),
+  { sunday_off: false, third_saturday_off: true });
+{
+  const got = await credits(["110"]);
+  check("3rd Saturday only: worked Sunday (unmarked) earns no C/O",
+    await Promise.all(SUNDAYS.map((d) => one(`SELECT indus_one.comp_off_is_earning_day($1, NULL, '110')`, [d]))), SUNDAYS.map(() => false));
+  check("3rd Saturday only: worked 3rd Saturday earns C/O", got.some((r) => r.d === THIRD_SAT), true);
+}
+
+await savePattern("115", "sun_only");
+check("Sunday only: 3rd Saturday is a working day", await one(`SELECT public.admin_rule_is_weekly_off('115', $1)`, [THIRD_SAT]), false);
+check("Sunday only: Sunday still a weekly off", await one(`SELECT public.admin_rule_is_weekly_off('115', $1)`, [sunday]), true);
+
+await savePattern("113", "third_sat_only");
+await savePattern("113", "sun_only");
+check("back to the department pattern removes the employee value",
+  await one(`SELECT value IS NULL FROM public.admin_attendance_rule_values WHERE rule_key = 'wo.pattern' AND scope_type = 'employee' AND scope_id = '113' ORDER BY id DESC LIMIT 1`), true);
+check("…and follows the department again", await patternOn("113"), "sun_only");
+
+await loadJsSnapshot();
+{
+  const mismatch = [];
+  for (const code of CODES) {
+    for (const d of DAYS) {
+      const sql = await one(`SELECT public.admin_rule_is_weekly_off($1, $2)`, [code, d]);
+      if (sql !== rules.isWeeklyOffDay(d, { employeeCode: code, department: DEPT[code] })) mismatch.push(`${code} ${d}`);
+    }
+  }
+  check("SQL ↔ browser weekly off parity incl. 3rd Saturday only", mismatch, []);
+}
+
+{
+  const touched7 = new Set(["101", "102", "108", "109", "110", "113", "115", "116", "118"]);
+  const others7 = CODES.filter((c) => !touched7.has(c) && DEPT[c] !== "Dahej-HR");
+  const norm = (c) => c.replace(/^0+/, "");
+  const otherKeys7 = new Set(others7.map(norm));
+  const key = (r) => `${norm(r.employee_code)} ${r.d} ${r.source_type}`;
+  const want = new Set(creditsBefore.filter((r) => otherKeys7.has(norm(r.employee_code))).map(key));
+  const got = new Set((await credits(others7)).map(key));
+  check("employees not edited: C/O credits unchanged", [...got].filter((k) => !want.has(k)).concat([...want].filter((k) => !got.has(k))), []);
+}
+
+await db.exec(readRollback(SPLIT_ROLLBACK));
+check("after rollback 3rd Saturday only reads as Sunday + 3rd Saturday", await patternOn("110"), "sun_3rd_sat");
+check("after rollback the old save still works", (await save("102", null, true, null)).earns_co, true);
+check("after rollback flags have no Sunday / 3rd Saturday keys", "sunday_off" in (await flags("102")), false);
+await db.exec(readMigration(SPLIT_MIGRATION));
+check("migration re-applies after rollback", await patternOn("110"), "third_sat_only");
+
 await db.close();
 process.exit(done() ? 1 : 0);
