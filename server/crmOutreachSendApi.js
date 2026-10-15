@@ -1,5 +1,6 @@
 import { isMailDispatchConfigured, sendOutboundMail } from './mailDispatch.js';
 import { emailHtmlForSending, escapeTokenValues, looksLikeHtmlEmail } from '../shared/emailHtml.mjs';
+import { canUseSenderMailbox, senderNotAllowedMessage } from './mail/senderAccess.js';
 
 const PREVIEW_DEFAULTS = {
   event_name: 'Indus Fire Safety Expo 2026',
@@ -92,6 +93,7 @@ export async function sendCrmOutreachCampaign({
   templateName,
   recipientClientIds,
   previewSample,
+  userEmails,
 }) {
   if (!supabaseAdmin) throw httpError('Server database client is not configured.', 500);
   if (!userId) throw httpError('Authenticated user is required.', 401);
@@ -112,6 +114,9 @@ export async function sendCrmOutreachCampaign({
     senderMailboxId,
     senderMail
   );
+  if (!canUseSenderMailbox(senderMailbox.mail, userEmails)) {
+    throw httpError(senderNotAllowedMessage(senderMailbox.mail), 403);
+  }
 
   const sample = { ...PREVIEW_DEFAULTS, ...(previewSample || {}) };
   const uniqueIds = [...new Set(recipientClientIds.filter(Boolean))];

@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "../../../lib/toast";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { FormDateInput } from "../../../components/FormDateInput";
 import {
   DenseTable,
@@ -32,6 +32,7 @@ import {
 } from "../../../lib/siteAttendance/siteAttendanceApi";
 import { hrPersonLabel } from "../../../lib/siteAttendance/siteAttendanceAccess";
 import { useSiteAttendanceAccess, useSiteAttendanceType } from "./SiteAttendanceLayout";
+import TablePager from "./TablePager";
 
 const emptyDesignationRow = (name = "", selected = false) => ({
   designation: name,
@@ -83,7 +84,13 @@ export default function SiteMasterPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [shiftFilter, setShiftFilter] = useState("");
+  const [dutyFilter, setDutyFilter] = useState("");
+  const [contractFilter, setContractFilter] = useState("");
   const [loading, setLoading] = useState(true);
+  const requestRef = useRef(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -98,34 +105,66 @@ export default function SiteMasterPage() {
 
   const setField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
+  const effectiveType = siteType || typeFilter;
+  const hasFilters = Boolean(search || typeFilter || shiftFilter || dutyFilter || contractFilter);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const refresh = useCallback(async () => {
+    const requestId = ++requestRef.current;
     setLoading(true);
     try {
       const from = (page - 1) * pageSize;
       const { rows: list, count } = await listSites({
-        search,
+        search: debouncedSearch,
         from,
         to: from + pageSize - 1,
         siteIds: access.seesAllSites ? undefined : access.allowedSiteIds,
+        siteType: effectiveType,
+        shiftType: shiftFilter,
+        dutyHours: dutyFilter,
+        contractStatus: contractFilter,
       });
+      if (requestId !== requestRef.current) return;
       setRows(list);
       setTotal(count);
     } catch (err) {
+      if (requestId !== requestRef.current) return;
       toast.error(userFriendlyError(err));
       setRows([]);
+      setTotal(0);
     } finally {
-      setLoading(false);
+      if (requestId === requestRef.current) setLoading(false);
     }
-  }, [page, pageSize, search, access.seesAllSites, access.allowedSiteIds]);
+  }, [page, pageSize, debouncedSearch, effectiveType, shiftFilter, dutyFilter, contractFilter, access.seesAllSites, access.allowedSiteIds]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  const visibleRows = useMemo(() => {
-    if (!siteType) return rows;
-    return rows.filter((r) => r.site_type === siteType);
-  }, [rows, siteType]);
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, effectiveType, shiftFilter, dutyFilter, contractFilter, pageSize]);
+
+  useEffect(() => {
+    if (siteType) setTypeFilter("");
+  }, [siteType]);
+
+  useEffect(() => {
+    const pages = Math.max(1, Math.ceil(total / pageSize));
+    if (!loading && page > pages) setPage(pages);
+  }, [total, pageSize, page, loading]);
+
+  const clearFilters = () => {
+    setSearch("");
+    setTypeFilter("");
+    setShiftFilter("");
+    setDutyFilter("");
+    setContractFilter("");
+  };
 
   const openCreate = async () => {
     if (!canAssignHr) return;
@@ -301,18 +340,43 @@ export default function SiteMasterPage() {
   };
 
   const columns = [
-    { key: "site_name", label: "Site" },
-    { key: "location", label: "Location", render: (row) => row.location || "—" },
+    {
+      key: "site_name",
+      label: "Site",
+      render: (row) => (
+        <div className="min-w-[12rem]">
+          <p className="text-ink font-medium">{row.site_name}</p>
+          {row.location ? <p className="text-[11px] text-ink-muted">{row.location}</p> : null}
+        </div>
+      ),
+    },
     { key: "site_type", label: "Type", render: (row) => row.site_type || "—" },
-    { key: "shift", label: "Shift", render: (row) => (row.shift_type === "ABCG" ? "ABCG" : "P-days") },
+    {
+      key: "shift",
+      label: "Shift / duty",
+      render: (row) => `${row.shift_type === "ABCG" ? "ABCG" : "P-days"} · ${row.duty_hours === 12 ? "12" : "8"} h`,
+    },
     { key: "cycle", label: "Salary cycle", render: (row) => formatCycle(row) },
-    { key: "max_workers", label: "Max workers", render: (row) => row.max_workers ?? "—" },
+    { key: "max_workers", label: "Max workers", render: (row) => <span className="tabular-nums">{row.max_workers ?? "—"}</span> },
     {
       key: "sandwich_rule",
       label: "Sandwich",
       render: (row) => <StatusChip label={row.sandwich_rule ? "On" : "Off"} severity={row.sandwich_rule ? "info" : "neutral"} />,
     },
-    { key: "duty_hours", label: "Duty hours", render: (row) => (row.duty_hours === 12 ? "12" : "8") },
+    {
+      key: "contract",
+      label: "Contract",
+      render: (row) => {
+        if (!row.contract_end) return <span className="text-ink-muted">{row.contract_start ? `From ${formatDateDisplay(row.contract_start)}` : "—"}</span>;
+        const ended = row.contract_end < new Date().toISOString().slice(0, 10);
+        return (
+          <div>
+            <StatusChip label={ended ? "Ended" : "Running"} severity={ended ? "neutral" : "info"} />
+            <p className="text-[11px] text-ink-muted mt-0.5">Till {formatDateDisplay(row.contract_end)}</p>
+          </div>
+        );
+      },
+    },
     {
       key: "actions",
       label: "",
@@ -342,26 +406,68 @@ export default function SiteMasterPage() {
       </PageTaskHeader>
 
       <FilterBar>
-        <label className="flex flex-col gap-1">
+        <label className="flex flex-col gap-1 min-w-[14rem] flex-1 max-w-xs">
           <span className="text-[11px] text-ink-secondary">Search</span>
-          <TinyInput value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Site name" />
+          <TinyInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Site name or location" />
         </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] text-ink-secondary">Page size</span>
-          <TinySelect value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
-            {[25, 50, 100].map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
+        {!siteType ? (
+          <label className="flex flex-col gap-1 min-w-[9rem]">
+            <span className="text-[11px] text-ink-secondary">Site type</span>
+            <TinySelect value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+              <option value="">All types</option>
+              {allowedSiteTypes.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </TinySelect>
+          </label>
+        ) : null}
+        <label className="flex flex-col gap-1 min-w-[8rem]">
+          <span className="text-[11px] text-ink-secondary">Shift</span>
+          <TinySelect value={shiftFilter} onChange={(e) => setShiftFilter(e.target.value)}>
+            <option value="">All</option>
+            <option value="GENERAL">P-days</option>
+            <option value="ABCG">ABCG</option>
           </TinySelect>
         </label>
+        <label className="flex flex-col gap-1 min-w-[7rem]">
+          <span className="text-[11px] text-ink-secondary">Duty hours</span>
+          <TinySelect value={dutyFilter} onChange={(e) => setDutyFilter(e.target.value)}>
+            <option value="">All</option>
+            <option value="8">8 hours</option>
+            <option value="12">12 hours</option>
+          </TinySelect>
+        </label>
+        <label className="flex flex-col gap-1 min-w-[9rem]">
+          <span className="text-[11px] text-ink-secondary">Contract</span>
+          <TinySelect value={contractFilter} onChange={(e) => setContractFilter(e.target.value)}>
+            <option value="">All</option>
+            <option value="running">Running</option>
+            <option value="ended">Ended</option>
+          </TinySelect>
+        </label>
+        {hasFilters ? (
+          <button type="button" className="h-8 px-2.5 text-xs text-ink-secondary hover:text-ink inline-flex items-center gap-1" onClick={clearFilters}>
+            <X className="w-3.5 h-3.5" /> Clear filters
+          </button>
+        ) : null}
       </FilterBar>
 
-      <SectionCard title={loading ? "Loading…" : `${visibleRows.length} sites`} right={<span className="type-meta">{total} total</span>}>
-        <DenseTable columns={columns} rows={visibleRows} rowKey="id" onRowClick={openEdit} />
-        <div className="flex justify-end gap-2 mt-3">
-          <button type="button" className="erp-btn-secondary rounded-control px-3 py-1.5 text-xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</button>
-          <button type="button" className="erp-btn-secondary rounded-control px-3 py-1.5 text-xs" disabled={page * pageSize >= total} onClick={() => setPage((p) => p + 1)}>Next</button>
-        </div>
+      <SectionCard title={loading ? "Loading…" : `${total} ${total === 1 ? "site" : "sites"}`}>
+        {!loading && rows.length === 0 ? (
+          <div className="py-10 text-center text-sm text-ink-muted">
+            {hasFilters ? "No sites match these filters." : "No sites yet."}
+          </div>
+        ) : (
+          <DenseTable
+            columns={columns}
+            rows={rows}
+            rowKey="id"
+            onRowClick={openEdit}
+            showSerialNumber
+            serialOffset={(page - 1) * pageSize}
+          />
+        )}
+        <TablePager page={page} pageSize={pageSize} total={total} onPage={setPage} onPageSize={setPageSize} />
       </SectionCard>
 
       <Drawer open={drawerOpen} title={editingId ? "Edit site" : "New site"} onClose={() => setDrawerOpen(false)} widthClass="max-w-3xl">

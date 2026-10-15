@@ -57,6 +57,13 @@ export async function fetchInHouseEmployees() {
   };
 }
 
+/** "From" mailboxes the server may send as: [{ mail, name, label }], company mailbox first. */
+export async function fetchInHouseSenders() {
+  const res = await fetchApiWithAuth('/api/crm-outreach/inhouse/senders', { method: 'GET' });
+  if (!res.ok) throw apiError(res, 'Could not load sender mailboxes.');
+  return res.data?.senders || [];
+}
+
 // ---------------------------------------------------------------------------
 // Templates
 // ---------------------------------------------------------------------------
@@ -245,16 +252,21 @@ export async function loadInHouseSnapshot() {
       fetchInHouseTemplates(),
       fetchInHouseGroups(),
       fetchInHouseCampaigns(),
+      fetchInHouseSenders().catch((err) => {
+        console.warn('[crm-outreach/inhouse] senders unavailable:', err?.message);
+        return [];
+      }),
     ]);
   } catch (err) {
     throw friendlySetupError(err);
   }
-  const [employeesResult, templates, groups, campaigns] = results;
+  const [employeesResult, templates, groups, campaigns, senders] = results;
   return {
     employees: employeesResult.employees,
     employeeStats: employeesResult.stats,
     templates,
     groups,
     campaigns,
+    senders,
   };
 }
