@@ -179,12 +179,14 @@ describe("weekly off (Phase 2A)", () => {
       rule("wo.pattern", "department", "dahej-hr", "none"),
       rule("wo.pattern", "employee", "501", "custom"),
       rule("wo.custom_days", "employee", "501", [1, 6]),
+      rule("wo.pattern", "employee", "502", "third_sat_only"),
     ]);
     const days = (ctx) => [SUN, MON, SAT_2ND, SAT_3RD].filter((d) => isWeeklyOffDay(d, ctx));
     expect(days({ department: "HR" })).toEqual([SUN, SAT_3RD]);
     expect(days({ department: "Production" })).toEqual([SUN]);
     expect(days({ department: "Dahej - HR" })).toEqual([]);
     expect(days({ employeeCode: "0501", department: "HR" })).toEqual([MON, SAT_2ND, SAT_3RD]);
+    expect(days({ employeeCode: "502", department: "Production" })).toEqual([SAT_3RD]);
   });
 
   it("an unknown pattern value falls back to Sunday + 3rd Saturday", () => {

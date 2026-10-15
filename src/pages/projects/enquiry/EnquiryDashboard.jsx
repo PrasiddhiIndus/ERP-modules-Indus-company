@@ -1,15 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Area,
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
-  ComposedChart,
   LabelList,
-  Legend,
-  Line,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -23,6 +19,7 @@ import {
   BarChart3,
   CalendarClock,
   CheckCircle2,
+  ChevronRight,
   ClipboardList,
   Filter,
   Loader2,
@@ -33,13 +30,13 @@ import {
 } from 'lucide-react';
 import { DateInput } from '../../../components/DateInput';
 import { flattenEnquiryRow, getEnquiryFieldValue, projectsErrorMsg, projectsTable } from '../../../services/projectsApi';
-import { formatDateDdMmYyyy, normalizeToIsoDate } from '../../../utils/dateDisplay';
+import { normalizeToIsoDate } from '../../../utils/dateDisplay';
 import { getRowStatusValue, STATUS_LEGEND } from './enquiryStatusStyles';
-import { DUE_SOON_DAYS, dashboardBucket, startOfToday } from './enquiryDeadlines';
+import { DUE_SOON_DAYS, dashboardBucket, startOfToday, toLocalDate } from './enquiryDeadlines';
 import { useAuth } from '../../../contexts/AuthContext';
 import { getOpenableProjectsEnquiryTabs } from '../../../config/roles';
 import { useProjectsEnquiryDropdowns } from './useProjectsEnquiryDropdowns';
-import { CHART_SERIES, TOKENS } from '../../../theme/tokens';
+import { TOKENS } from '../../../theme/tokens';
 import './enquiryDashboard.css';
 
 const STATUS_CHART_COLORS = {
@@ -47,18 +44,8 @@ const STATUS_CHART_COLORS = {
   'Work in Progress': TOKENS.info,
   Completed: TOKENS.success,
   Regret: TOKENS.critical,
-  Unassigned: TOKENS.textDisabled,
-  Unknown: TOKENS.borderStrong,
 };
-
-const PRIORITY_COLORS = {
-  'High (>80%)': TOKENS.critical,
-  'Medium (>50%)': TOKENS.warning,
-  'Low (<50%)': TOKENS.success,
-  Unknown: TOKENS.textDisabled,
-};
-
-const CHART_PALETTE = [...CHART_SERIES];
+const OTHER_STATUS_COLOR = TOKENS.borderStrong;
 
 const EMPTY_FILTERS = {
   search: '',
@@ -74,10 +61,14 @@ const EMPTY_FILTERS = {
 
 const ENQUIRY_DATABASE_PATH = '/app/projects/enquiry/enquiry-database';
 
-const MONTH_OPTIONS = [
+const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
-].map((label, i) => ({ value: String(i + 1).padStart(2, '0'), label }));
+];
+const MONTH_OPTIONS = MONTH_NAMES.map((label, i) => ({ value: String(i + 1).padStart(2, '0'), label }));
+
+/** Longest month range the trend chart will draw before trimming to the most recent months. */
+const MAX_TREND_MONTHS = 36;
 
 const selectCls =
   'w-full min-h-[38px] py-2 px-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500';
@@ -86,95 +77,118 @@ const labelStyle = { fontSize: 11, fontWeight: 600, fill: 'var(--text-strong)' }
 
 const CHART_ANIM = {
   isAnimationActive: true,
-  animationDuration: 1400,
+  animationDuration: 900,
   animationEasing: 'ease-out',
 };
 
-function ChartDefs() {
-  return (
-    <defs>
-      <linearGradient id="enqBarGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="var(--info)" />
-        <stop offset="100%" stopColor="var(--info)" />
-      </linearGradient>
-      <linearGradient id="enqLineGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="var(--info)" stopOpacity={0.45} />
-        <stop offset="100%" stopColor="var(--info)" stopOpacity={0.02} />
-      </linearGradient>
-      <filter id="enqPieGlow" x="-30%" y="-30%" width="160%" height="160%">
-        <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor="var(--info)" floodOpacity="0.35" />
-      </filter>
-      <filter id="enqBarShadow" x="-10%" y="-10%" width="130%" height="140%">
-        <feDropShadow dx="2" dy="5" stdDeviation="4" floodColor="var(--info)" floodOpacity="0.28" />
-      </filter>
-    </defs>
-  );
+/** Maps free-typed statuses (case, spacing, "WIP") onto the standard status names. */
+function canonicalStatus(value) {
+  const raw = String(value ?? '').trim().replace(/\s+/g, ' ');
+  const key = raw.toLowerCase();
+  if (!key || key === 'not started') return 'Not Started';
+  if (key === 'wip' || key === 'work in progress' || key === 'in progress') return 'Work in Progress';
+  if (key === 'completed') return 'Completed';
+  if (key === 'regret') return 'Regret';
+  return raw;
+}
+
+function rowStatus(row) {
+  return canonicalStatus(getRowStatusValue(row));
 }
 
 function receiptMonthKey(dateStr) {
   const iso = normalizeToIsoDate(dateStr);
-  if (iso) return iso.slice(0, 7);
-  return null;
+  return iso ? iso.slice(0, 7) : null;
 }
 
-function countBy(rows, fieldKey, emptyLabel = 'Unassigned') {
-  const map = new Map();
-  for (const row of rows) {
-    const raw = getEnquiryFieldValue(row, fieldKey);
-    const label = raw == null || String(raw).trim() === '' ? emptyLabel : String(raw).trim();
-    map.set(label, (map.get(label) || 0) + 1);
-  }
-  return [...map.entries()]
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value);
+function rowMonthKey(row) {
+  return receiptMonthKey(getEnquiryFieldValue(row, 'enquiry_receipt_date'));
+}
+
+function monthKeyOf(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function shiftMonthKey(key, delta) {
+  const [y, m] = key.split('-').map(Number);
+  return monthKeyOf(new Date(y, m - 1 + delta, 1));
+}
+
+function formatMonthKey(key, { long = false } = {}) {
+  const [y, m] = key.split('-').map(Number);
+  const name = MONTH_NAMES[m - 1] || '';
+  return long ? `${name} ${y}` : `${name.slice(0, 3)} ${String(y).slice(2)}`;
 }
 
 function countByStatus(rows) {
   const map = new Map();
   for (const row of rows) {
-    const status = String(getRowStatusValue(row) || 'Not Started').trim() || 'Not Started';
-    map.set(status, (map.get(status) || 0) + 1);
+    const status = rowStatus(row);
+    if (!map.has(status)) map.set(status, []);
+    map.get(status).push(row.id);
   }
   const ordered = STATUS_LEGEND.map(({ status }) => ({
     name: status,
-    value: map.get(status) || 0,
-    fill: STATUS_CHART_COLORS[status] || STATUS_CHART_COLORS.Unknown,
+    ids: map.get(status) || [],
+    fill: STATUS_CHART_COLORS[status],
   }));
-  for (const [name, value] of map.entries()) {
-    if (!STATUS_LEGEND.some((s) => s.status === name)) {
-      ordered.push({ name, value, fill: STATUS_CHART_COLORS.Unknown });
-    }
+  for (const [name, ids] of map.entries()) {
+    if (!STATUS_CHART_COLORS[name]) ordered.push({ name, ids, fill: OTHER_STATUS_COLOR });
   }
-  return ordered.filter((d) => d.value > 0);
+  return ordered.map((d) => ({ ...d, value: d.ids.length }));
 }
 
-function countByMonth(rows) {
-  const map = new Map();
+/**
+ * Month range for the trend chart: follows the date-range / year filter when set,
+ * otherwise the last 12 calendar months. Months with no enquiries show as zero.
+ */
+function trendMonthRange(filters, monthKeys) {
+  const fromKey = receiptMonthKey(filters.dateFrom);
+  const toKey = receiptMonthKey(filters.dateTo);
+  const sorted = [...monthKeys].sort();
+  const currentKey = monthKeyOf(new Date());
+
+  let start;
+  let end;
+  if (fromKey || toKey) {
+    start = fromKey || sorted[0] || toKey;
+    end = toKey || (sorted.length ? sorted[sorted.length - 1] : fromKey);
+    if (!toKey && end < currentKey && start <= currentKey) end = currentKey;
+  } else if (filters.year) {
+    start = `${filters.year}-01`;
+    end = `${filters.year}-12`;
+  } else {
+    end = sorted.length && sorted[sorted.length - 1] > currentKey ? sorted[sorted.length - 1] : currentKey;
+    start = shiftMonthKey(end, -11);
+  }
+  if (start > end) [start, end] = [end, start];
+
+  const keys = [];
+  for (let k = start; k <= end; k = shiftMonthKey(k, 1)) keys.push(k);
+  return keys.slice(-MAX_TREND_MONTHS);
+}
+
+function buildTrend(rows, filters) {
+  const byMonth = new Map();
+  let undated = 0;
   for (const row of rows) {
-    const key = receiptMonthKey(getEnquiryFieldValue(row, 'enquiry_receipt_date'));
-    if (!key) continue;
-    map.set(key, (map.get(key) || 0) + 1);
+    const key = rowMonthKey(row);
+    if (!key) {
+      undated += 1;
+      continue;
+    }
+    if (!byMonth.has(key)) byMonth.set(key, []);
+    byMonth.get(key).push(row.id);
   }
-  return [...map.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .slice(-12)
-    .map(([key, count]) => ({
-      name: formatDateDdMmYyyy(`${key}-01`),
-      count,
-      key,
-    }));
-}
-
-function toLocalDate(value) {
-  const iso = normalizeToIsoDate(value);
-  if (!iso) return null;
-  const [y, m, d] = iso.split('-');
-  return new Date(Number(y), Number(m) - 1, Number(d));
-}
-
-function isClosedStatus(status) {
-  const s = String(status || '').toLowerCase();
-  return s === 'completed' || s === 'regret';
+  const keys = trendMonthRange(filters, byMonth.keys());
+  const data = keys.map((key) => {
+    const ids = byMonth.get(key) || [];
+    return { key, name: formatMonthKey(key), fullName: formatMonthKey(key, { long: true }), count: ids.length, ids };
+  });
+  const inRange = data.reduce((s, d) => s + d.count, 0);
+  const outsideRange = rows.length - undated - inRange;
+  const peak = data.reduce((best, d) => (d.count > (best?.count ?? 0) ? d : best), null);
+  return { data, undated, outsideRange, inRange, peak };
 }
 
 function matchesFilters(row, filters) {
@@ -185,10 +199,7 @@ function matchesFilters(row, filters) {
     if (!hit) return false;
   }
 
-  if (filters.status) {
-    const status = String(getRowStatusValue(row) || 'Not Started').trim() || 'Not Started';
-    if (status.toLowerCase() !== filters.status.toLowerCase()) return false;
-  }
+  if (filters.status && rowStatus(row) !== canonicalStatus(filters.status)) return false;
 
   if (filters.assignee) {
     const assignee = String(getEnquiryFieldValue(row, 'assigned_to_person') || '').trim();
@@ -228,7 +239,7 @@ function matchesFilters(row, filters) {
   }
 
   if (filters.month || filters.year) {
-    const key = receiptMonthKey(getEnquiryFieldValue(row, 'enquiry_receipt_date'));
+    const key = rowMonthKey(row);
     if (!key) return false;
     if (filters.year && key.slice(0, 4) !== filters.year) return false;
     if (filters.month && key.slice(5, 7) !== filters.month) return false;
@@ -241,20 +252,19 @@ function activeFilterCount(filters) {
   return Object.entries(filters).filter(([, v]) => String(v || '').trim() !== '').length;
 }
 
-function renderPieLabel({ value, percent }) {
-  if (!value) return null;
-  return `${value} (${Math.round(percent * 100)}%)`;
+function pct(part, total) {
+  return total ? Math.round((part / total) * 100) : 0;
 }
 
 function renderActivePieShape(props) {
   const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props;
   return (
-    <g filter="url(#enqPieGlow)">
+    <g>
       <Sector
         cx={cx}
         cy={cy}
         innerRadius={innerRadius}
-        outerRadius={outerRadius + 10}
+        outerRadius={outerRadius + 6}
         startAngle={startAngle}
         endAngle={endAngle}
         fill={fill}
@@ -262,8 +272,8 @@ function renderActivePieShape(props) {
       <Sector
         cx={cx}
         cy={cy}
-        innerRadius={outerRadius + 12}
-        outerRadius={outerRadius + 14}
+        innerRadius={outerRadius + 8}
+        outerRadius={outerRadius + 11}
         startAngle={startAngle}
         endAngle={endAngle}
         fill={fill}
@@ -273,16 +283,17 @@ function renderActivePieShape(props) {
   );
 }
 
-function ChartCard({ title, subtitle, children, className = '' }) {
+function ChartCard({ title, subtitle, action, children, className = '' }) {
   return (
-    <div className={`enquiry-chart-card bg-white rounded-xl border border-gray-200 ${className}`}>
-      <div className="px-4 py-3 border-b border-gray-100">
-        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-        {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+    <div className={`enquiry-chart-card bg-white rounded-xl border border-gray-200 flex flex-col ${className}`}>
+      <div className="px-4 py-3 border-b border-gray-100 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+          {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+        </div>
+        {action}
       </div>
-      <div className="p-4 enquiry-chart-stage">
-        <div className="enquiry-chart-3d">{children}</div>
-      </div>
+      <div className="p-4 flex-1">{children}</div>
     </div>
   );
 }
@@ -318,17 +329,29 @@ function KpiCard({ icon: Icon, label, value, sub, tone = 'blue', onClick }) {
   );
 }
 
-function ChartTooltip({ active, payload, labelKey = 'name', valueKey = 'value', total }) {
+function StatusTooltip({ active, payload, total }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload || {};
-  const val = payload[0]?.value ?? row[valueKey];
-  const pct = total && val ? Math.round((val / total) * 100) : null;
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-md px-3 py-2 text-xs">
-      <p className="font-semibold text-gray-900">{row[labelKey] ?? payload[0]?.name}</p>
+      <p className="font-semibold text-gray-900">{row.name}</p>
       <p className="text-gray-600 mt-0.5">
-        {val} enquiries{pct != null ? ` · ${pct}%` : ''}
+        {row.value} enquiries · {pct(row.value, total)}%
       </p>
+    </div>
+  );
+}
+
+function TrendTooltip({ active, payload, clickable }) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload || {};
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-md px-3 py-2 text-xs">
+      <p className="font-semibold text-gray-900">{row.fullName}</p>
+      <p className="text-gray-600 mt-0.5">
+        {row.count} {row.count === 1 ? 'enquiry' : 'enquiries'} received
+      </p>
+      {clickable && row.count > 0 && <p className="text-blue-600 mt-1">Click to open in Enquiry Database</p>}
     </div>
   );
 }
@@ -344,8 +367,6 @@ export default function EnquiryDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [activeStatusPie, setActiveStatusPie] = useState(null);
-  const [activePriorityPie, setActivePriorityPie] = useState(null);
 
   const statusOptions = valuesForKindKey('current_status');
   const assigneeOptions = valuesForKindKey('assigned_to_person');
@@ -380,7 +401,7 @@ export default function EnquiryDashboard() {
   const yearOptions = useMemo(() => {
     const years = new Set([String(new Date().getFullYear())]);
     for (const row of rows) {
-      const key = receiptMonthKey(getEnquiryFieldValue(row, 'enquiry_receipt_date'));
+      const key = rowMonthKey(row);
       if (key) years.add(key.slice(0, 4));
     }
     return [...years].sort((a, b) => b.localeCompare(a));
@@ -413,48 +434,33 @@ export default function EnquiryDashboard() {
     [kpiIds]
   );
 
-  const openInDatabase = (key, label) => {
-    const ids = kpiIds[key] || [];
-    if (!ids.length) return;
+  const openIds = (ids, label) => {
+    if (!canOpenDatabase || !ids?.length) return;
     navigate(ENQUIRY_DATABASE_PATH, { state: { dashboardView: { label, ids } } });
   };
 
-  const openHandler = (key, label) => (canOpenDatabase ? () => openInDatabase(key, label) : undefined);
+  const openHandler = (key, label) => (canOpenDatabase ? () => openIds(kpiIds[key], label) : undefined);
 
   const statusData = useMemo(() => countByStatus(filteredRows), [filteredRows]);
-  const assigneeData = useMemo(() => countBy(filteredRows, 'assigned_to_person'), [filteredRows]);
-  const priorityData = useMemo(() => {
-    return countBy(filteredRows, 'priority', 'Not set').map((d) => ({
-      ...d,
-      fill: PRIORITY_COLORS[d.name] || PRIORITY_COLORS.Unknown,
-    }));
-  }, [filteredRows]);
-  const sourceData = useMemo(() => countBy(filteredRows, 'enquiry_from', 'Not specified'), [filteredRows]);
-  const trendData = useMemo(() => countByMonth(filteredRows), [filteredRows]);
+  const statusPieData = useMemo(() => statusData.filter((d) => d.value > 0), [statusData]);
+  const statusTotal = filteredRows.length;
+  const openCount = useMemo(
+    () => statusData.filter((d) => d.name !== 'Completed' && d.name !== 'Regret').reduce((s, d) => s + d.value, 0),
+    [statusData]
+  );
 
-  const statusTotal = useMemo(() => statusData.reduce((s, d) => s + d.value, 0), [statusData]);
-  const priorityTotal = useMemo(() => priorityData.reduce((s, d) => s + d.value, 0), [priorityData]);
+  const trend = useMemo(() => buildTrend(filteredRows, filters), [filteredRows, filters]);
 
-  const attentionRows = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return filteredRows
-      .filter((row) => {
-        const status = getRowStatusValue(row);
-        if (isClosedStatus(status)) return false;
-        const target = toLocalDate(getEnquiryFieldValue(row, 'target_date'));
-        return target && target <= today;
-      })
-      .slice(0, 8)
-      .map((row) => ({
-        id: row.id,
-        serial: row.serial_number,
-        client: getEnquiryFieldValue(row, 'client_name') || '—',
-        assignee: getEnquiryFieldValue(row, 'assigned_to_person') || 'Unassigned',
-        target: getEnquiryFieldValue(row, 'target_date'),
-        status: getRowStatusValue(row) || 'Not Started',
-      }));
-  }, [filteredRows]);
+  const trendSubtitle = useMemo(() => {
+    if (filters.dateFrom || filters.dateTo) return 'Monthly count by enquiry receipt date, for the selected date range';
+    if (filters.year) return `Monthly count by enquiry receipt date, ${filters.year}`;
+    return 'Monthly count by enquiry receipt date, last 12 months';
+  }, [filters.dateFrom, filters.dateTo, filters.year]);
+
+  const trendNotes = [
+    trend.undated > 0 && `${trend.undated} without a receipt date`,
+    trend.outsideRange > 0 && `${trend.outsideRange} received outside this period`,
+  ].filter(Boolean);
 
   const setFilter = (key, value) => setFilters((prev) => ({ ...prev, [key]: value }));
   const clearFilters = () => setFilters(EMPTY_FILTERS);
@@ -477,7 +483,7 @@ export default function EnquiryDashboard() {
             Enquiry Analytics
           </h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            Charts and summaries from the enquiry register — status, assignment, priority, and sources.
+            Where enquiries stand today and how many arrive each month.
           </p>
         </div>
         <button
@@ -640,234 +646,155 @@ export default function EnquiryDashboard() {
         />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <ChartCard title="Current Status" subtitle="Count and share of filtered enquiries by status">
-          {statusData.length ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <ChartDefs />
-                <Pie
-                  data={statusData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={52}
-                  outerRadius={90}
-                  paddingAngle={3}
-                  label={renderPieLabel}
-                  labelLine={{ stroke: 'var(--text-disabled)', strokeWidth: 1 }}
-                  activeIndex={activeStatusPie}
-                  activeShape={renderActivePieShape}
-                  onMouseEnter={(_, i) => setActiveStatusPie(i)}
-                  onMouseLeave={() => setActiveStatusPie(null)}
-                  {...CHART_ANIM}
-                >
-                  {statusData.map((entry, i) => (
-                    <Cell
-                      key={entry.name}
-                      fill={entry.fill}
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] gap-4">
+        <ChartCard
+          title="Current Status"
+          subtitle={canOpenDatabase ? 'Share of filtered enquiries by status — click a status to open those enquiries' : 'Share of filtered enquiries by status'}
+        >
+          {statusTotal ? (
+            <div className="flex flex-col sm:flex-row items-center gap-4 h-full">
+              <div className="relative w-full sm:w-1/2 h-[260px] shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={statusPieData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius="58%"
+                      outerRadius="82%"
+                      paddingAngle={statusPieData.length > 1 ? 2 : 0}
                       stroke="var(--surface)"
                       strokeWidth={2}
-                      style={{ filter: 'url(#enqBarShadow)', animationDelay: `${i * 80}ms` }}
-                    />
-                  ))}
-                </Pie>
-                <Tooltip content={<ChartTooltip total={statusTotal} />} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-              </PieChart>
-            </ResponsiveContainer>
+                      activeShape={renderActivePieShape}
+                      onClick={(entry) => openIds(entry?.payload?.ids ?? entry?.ids, entry?.name)}
+                      style={{ cursor: canOpenDatabase ? 'pointer' : 'default' }}
+                      {...CHART_ANIM}
+                    >
+                      {statusPieData.map((entry) => (
+                        <Cell key={entry.name} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<StatusTooltip total={statusTotal} />} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-3xl font-bold text-gray-900 tabular-nums leading-none">{statusTotal}</span>
+                  <span className="text-[11px] uppercase tracking-wide text-gray-500 mt-1">Enquiries</span>
+                </div>
+              </div>
+
+              <ul className="w-full sm:w-1/2 space-y-1.5">
+                {statusData.map((d) => {
+                  const share = pct(d.value, statusTotal);
+                  const clickable = canOpenDatabase && d.value > 0;
+                  return (
+                    <li key={d.name}>
+                      <button
+                        type="button"
+                        disabled={!clickable}
+                        onClick={() => openIds(d.ids, d.name)}
+                        className={`w-full rounded-lg px-2.5 py-2 text-left transition-colors ${
+                          clickable ? 'hover:bg-gray-50 cursor-pointer' : 'cursor-default'
+                        } ${d.value ? '' : 'opacity-60'}`}
+                      >
+                        <div className="flex items-center justify-between gap-3 text-sm">
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: d.fill }} />
+                            <span className="text-gray-800 truncate">{d.name}</span>
+                          </span>
+                          <span className="flex items-center gap-1.5 shrink-0">
+                            <span className="font-semibold text-gray-900 tabular-nums">{d.value}</span>
+                            <span className="text-xs text-gray-500 tabular-nums w-9 text-right">{share}%</span>
+                            {clickable && <ChevronRight className="w-3.5 h-3.5 text-gray-400" />}
+                          </span>
+                        </div>
+                        <div className="mt-1.5 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-[width] duration-700 ease-out"
+                            style={{ width: `${share}%`, backgroundColor: d.fill }}
+                          />
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+                <li className="pt-2 mt-1 border-t border-gray-100 flex items-center justify-between px-2.5 text-xs text-gray-500">
+                  <span>Open (not completed or regret)</span>
+                  <span className="font-semibold text-gray-700 tabular-nums">{openCount}</span>
+                </li>
+              </ul>
+            </div>
           ) : (
             <p className="text-sm text-gray-500 py-16 text-center">No enquiries match the current filters.</p>
           )}
         </ChartCard>
 
-        <ChartCard title="Assigned to Person" subtitle="Workload by team member (filtered)">
-          {assigneeData.length ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={assigneeData} layout="vertical" margin={{ left: 8, right: 28 }}>
-                <ChartDefs />
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={TOKENS.chartGrid} />
-                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: TOKENS.chartAxis }} />
-                <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11, fill: TOKENS.chartAxis }} />
-                <Tooltip content={<ChartTooltip valueKey="value" total={stats.total} />} />
-                <Bar dataKey="value" radius={[0, 6, 6, 0]} {...CHART_ANIM}>
-                  {assigneeData.map((_, i) => (
-                    <Cell
-                      key={i}
-                      fill={CHART_PALETTE[i % CHART_PALETTE.length]}
-                      style={{ filter: 'url(#enqBarShadow)' }}
-                    />
-                  ))}
-                  <LabelList dataKey="value" position="right" style={labelStyle} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-sm text-gray-500 py-16 text-center">No assignment data for current filters.</p>
-          )}
-        </ChartCard>
-
-        <ChartCard title="Priority" subtitle="High / medium / low split with counts">
-          {priorityData.length ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <ChartDefs />
-                <Pie
-                  data={priorityData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={92}
-                  paddingAngle={3}
-                  label={renderPieLabel}
-                  labelLine={{ stroke: 'var(--text-disabled)', strokeWidth: 1 }}
-                  activeIndex={activePriorityPie}
-                  activeShape={renderActivePieShape}
-                  onMouseEnter={(_, i) => setActivePriorityPie(i)}
-                  onMouseLeave={() => setActivePriorityPie(null)}
-                  {...CHART_ANIM}
-                >
-                  {priorityData.map((entry, i) => (
-                    <Cell
-                      key={entry.name}
-                      fill={entry.fill}
-                      stroke="var(--surface)"
-                      strokeWidth={2}
-                      style={{ filter: 'url(#enqBarShadow)', animationDelay: `${i * 90}ms` }}
-                    />
-                  ))}
-                </Pie>
-                <Tooltip content={<ChartTooltip total={priorityTotal} />} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-sm text-gray-500 py-16 text-center">No priority data for current filters.</p>
-          )}
-        </ChartCard>
-
-        <ChartCard title="Enquiry From" subtitle="Source of enquiries (top 10)">
-          {sourceData.length ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={sourceData.slice(0, 10)} margin={{ bottom: 48, top: 16 }}>
-                <ChartDefs />
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={TOKENS.chartGrid} />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fontSize: 10, fill: TOKENS.chartAxis }}
-                  angle={-30}
-                  textAnchor="end"
-                  interval={0}
-                  height={70}
-                />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: TOKENS.chartAxis }} />
-                <Tooltip content={<ChartTooltip valueKey="value" total={stats.total} />} />
-                <Bar dataKey="value" fill="url(#enqBarGrad)" radius={[6, 6, 0, 0]} style={{ filter: 'url(#enqBarShadow)' }} {...CHART_ANIM}>
-                  <LabelList dataKey="value" position="top" style={labelStyle} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-sm text-gray-500 py-16 text-center">No source data for current filters.</p>
-          )}
-        </ChartCard>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_.9fr] gap-4">
-        <ChartCard title="Enquiries Over Time" subtitle="Monthly count by enquiry receipt date (filtered, last 12 months)">
-          {trendData.length ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <ComposedChart data={trendData} margin={{ top: 20, right: 12 }}>
-                <ChartDefs />
-                <CartesianGrid strokeDasharray="3 3" stroke={TOKENS.chartGrid} />
-                <XAxis dataKey="name" tick={{ fontSize: 10, fill: TOKENS.chartAxis }} interval="preserveStartEnd" />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: TOKENS.chartAxis }} />
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null;
-                    return (
-                      <div className="bg-white border border-gray-200 rounded-lg shadow-md px-3 py-2 text-xs">
-                        <p className="font-semibold text-gray-900">{payload[0].payload.name}</p>
-                        <p className="text-gray-600 mt-0.5">{payload[0].value} enquiries</p>
-                      </div>
-                    );
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="count"
-                  fill="url(#enqLineGrad)"
-                  stroke="none"
-                  {...CHART_ANIM}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="count"
-                  stroke="var(--info)"
-                  strokeWidth={3}
-                  dot={{ r: 5, strokeWidth: 2, fill: 'var(--surface)' }}
-                  activeDot={{ r: 8, strokeWidth: 0, fill: 'var(--info)' }}
-                  {...CHART_ANIM}
-                >
-                  <LabelList dataKey="count" position="top" offset={8} style={labelStyle} />
-                </Line>
-              </ComposedChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-sm text-gray-500 py-16 text-center">No receipt dates in the filtered set.</p>
-          )}
-        </ChartCard>
-
-        <ChartCard title="Status Legend" subtitle="Counts for the filtered selection">
-          <div className="space-y-2">
-            {STATUS_LEGEND.map(({ status, bg, label }) => (
-              <div key={status} className="flex items-center justify-between gap-3 text-sm">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span
-                    className="w-4 h-4 rounded border border-gray-200 shrink-0"
-                    style={{ backgroundColor: bg }}
-                  />
-                  <span className="text-gray-800 truncate">{label}</span>
-                </div>
-                <span className="font-semibold text-gray-900 tabular-nums">
-                  {statusData.find((d) => d.name === status)?.value ?? 0}
-                </span>
+        <ChartCard
+          title="Enquiries Over Time"
+          subtitle={trendSubtitle}
+          action={
+            trend.inRange > 0 ? (
+              <div className="text-right shrink-0">
+                <p className="text-lg font-bold text-gray-900 tabular-nums leading-none">{trend.inRange}</p>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  {trend.peak ? `Peak: ${trend.peak.fullName} (${trend.peak.count})` : 'in this period'}
+                </p>
               </div>
-            ))}
-          </div>
+            ) : null
+          }
+        >
+          {trend.data.length && trend.inRange > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={trend.data} margin={{ top: 20, right: 8, left: -12, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="enqTrendGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--info)" stopOpacity={0.95} />
+                      <stop offset="100%" stopColor="var(--info)" stopOpacity={0.55} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={TOKENS.chartGrid} />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 11, fill: TOKENS.chartAxis }}
+                    tickLine={false}
+                    axisLine={{ stroke: TOKENS.chartGrid }}
+                    interval={trend.data.length > 18 ? 'preserveStartEnd' : 0}
+                    minTickGap={4}
+                  />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: TOKENS.chartAxis }} tickLine={false} axisLine={false} />
+                  <Tooltip cursor={{ fill: 'rgba(59, 130, 246, 0.08)' }} content={<TrendTooltip clickable={canOpenDatabase} />} />
+                  <Bar
+                    dataKey="count"
+                    fill="url(#enqTrendGrad)"
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={44}
+                    onClick={(entry) => {
+                      const d = entry?.payload ?? entry;
+                      openIds(d?.ids, `Received ${d?.fullName}`);
+                    }}
+                    style={{ cursor: canOpenDatabase ? 'pointer' : 'default' }}
+                    {...CHART_ANIM}
+                  >
+                    <LabelList dataKey="count" position="top" style={labelStyle} formatter={(v) => (v ? v : '')} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              {trendNotes.length > 0 && (
+                <p className="text-xs text-gray-500 mt-2">Not shown: {trendNotes.join(' · ')}.</p>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-gray-500 py-16 text-center">
+              {trend.undated > 0
+                ? `No receipt dates in this period (${trend.undated} enquiries have no receipt date).`
+                : 'No enquiries received in this period.'}
+            </p>
+          )}
         </ChartCard>
       </div>
-
-      {attentionRows.length > 0 && (
-        <ChartCard title="Overdue & Due Today" subtitle="Open filtered enquiries at or past target date">
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
-                  <th className="py-2 pr-4 font-semibold">Sr.</th>
-                  <th className="py-2 pr-4 font-semibold">Client</th>
-                  <th className="py-2 pr-4 font-semibold">Assigned To</th>
-                  <th className="py-2 pr-4 font-semibold">Target Date</th>
-                  <th className="py-2 font-semibold">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {attentionRows.map((row) => (
-                  <tr key={row.id} className="border-b border-gray-50 last:border-0">
-                    <td className="py-2.5 pr-4 font-medium text-gray-900">{row.serial}</td>
-                    <td className="py-2.5 pr-4 text-gray-800">{row.client}</td>
-                    <td className="py-2.5 pr-4 text-gray-700">{row.assignee}</td>
-                    <td className="py-2.5 pr-4 text-red-700 font-medium">{formatDateDdMmYyyy(row.target)}</td>
-                    <td className="py-2.5 text-gray-700">{row.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </ChartCard>
-      )}
     </div>
   );
 }
