@@ -1,10 +1,9 @@
 import { getEnquiryFieldValue } from '../../../services/projectsApi';
-import { getRowStatusValue } from './enquiryStatusStyles';
 import {
   getCompletionDate,
   isCompletedAfterTarget,
-  isCompletedStatus,
   isOverdueOpen,
+  isWorkCompleted,
   startOfToday,
   toLocalDate,
 } from './enquiryDeadlines';
@@ -23,7 +22,7 @@ export function getAssignedStartDate(row) {
 
 /** Calendar days from assignment to completion, or null if unknown. */
 export function getDaysToComplete(row) {
-  if (!isCompletedStatus(getRowStatusValue(row))) return null;
+  if (!isWorkCompleted(row)) return null;
   const start = getAssignedStartDate(row);
   const done = getCompletionDate(row);
   if (!start || !done) return null;
@@ -70,7 +69,7 @@ function finalize(b) {
 
 function addRow(bucket, row, today) {
   bucket.received.push(row.id);
-  if (isCompletedStatus(getRowStatusValue(row))) {
+  if (isWorkCompleted(row)) {
     bucket.completed.push(row.id);
     if (isCompletedAfterTarget(row)) bucket.completedLate.push(row.id);
     else bucket.completedOnTime.push(row.id);

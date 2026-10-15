@@ -1,9 +1,11 @@
 /**
  * Email exit documents to an Inactive / Left employee. Documents are built in the
- * browser (same files as the download) and sent from the company mailbox by the API.
+ * browser (same content as the download), attached as PDF, and sent from the
+ * company mailbox by the API.
  */
 import { fetchApiWithAuth } from "./apiBase";
 import { buildExitDocument } from "./employeeExitDocuments";
+import { exitDocumentDocxToPdf } from "./exitDocumentPdf";
 
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -32,7 +34,8 @@ export async function emailExitDocuments({ employee, to, senderMail, documentKey
   const attachments = [];
   for (const key of documentKeys) {
     const { blob, fileName, label } = await buildExitDocument(key, employee);
-    attachments.push({ fileName, label, base64: await blobToBase64(blob) });
+    const pdf = await exitDocumentDocxToPdf(blob);
+    attachments.push({ fileName: fileName.replace(/\.docx$/i, ".pdf"), label, base64: await blobToBase64(pdf) });
   }
   const res = await fetchApiWithAuth("/api/admin/employee-exit/email", {
     method: "POST",

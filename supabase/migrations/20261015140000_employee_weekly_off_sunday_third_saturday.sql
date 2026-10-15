@@ -1,7 +1,8 @@
 -- =============================================================================
 -- Employee Master: "Has weekly off" split into "Sunday off" and "3rd Saturday off".
 --
--- Needs 20261008170000_employee_co_expiry_flag.sql.
+-- Needs 20261008160000_employee_attendance_flags.sql. Works with or without
+-- 20261008170000_employee_co_expiry_flag.sql ("C/O expires" is used only when it is installed).
 -- Rollback: supabase/rollbacks/20261015140000_employee_weekly_off_sunday_third_saturday_down.sql
 --
 -- The two checkboxes still save the employee's own wo.pattern value:
@@ -78,34 +79,41 @@ GRANT EXECUTE ON FUNCTION public.admin_rule_is_weekly_off(text, date) TO authent
 -- -----------------------------------------------------------------------------
 -- 3. Employee Master read: Sunday / 3rd Saturday checkboxes
 -- -----------------------------------------------------------------------------
+-- plpgsql so it can be created on databases without the "C/O expires" update (no co_expires key then).
 CREATE OR REPLACE FUNCTION public.admin_employee_attendance_flags(p_employee_code text)
 RETURNS jsonb
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 AS $$
-  SELECT jsonb_build_object(
-    'has_weekly_off', s.pattern <> 'none',
-    'sunday_off', CASE s.pattern
+DECLARE
+  v_pattern text := public.admin_rule_weekly_off_pattern(p_employee_code, current_date);
+  v_custom jsonb := coalesce(public.get_rule_value(p_employee_code, 'wo.custom_days', current_date), '[0]'::jsonb);
+  v_out jsonb;
+  v_co_expires boolean;
+BEGIN
+  v_out := jsonb_build_object(
+    'has_weekly_off', v_pattern <> 'none',
+    'sunday_off', CASE v_pattern
         WHEN 'sun_3rd_sat' THEN true
         WHEN 'sun_only' THEN true
-        WHEN 'custom' THEN s.custom_days @> '0'::jsonb
+        WHEN 'custom' THEN v_custom @> '0'::jsonb
         ELSE false
       END,
-    'third_saturday_off', CASE s.pattern
+    'third_saturday_off', CASE v_pattern
         WHEN 'sun_3rd_sat' THEN true
         WHEN 'third_sat_only' THEN true
-        WHEN 'custom' THEN s.custom_days @> '6'::jsonb
+        WHEN 'custom' THEN v_custom @> '6'::jsonb
         ELSE false
       END,
     'earns_co', public.admin_rule_earns_co(p_employee_code, current_date),
-    'co_expires', public.admin_rule_co_expires(p_employee_code, current_date),
     'has_holidays', public.admin_rule_holidays_apply(p_employee_code, current_date)
-  )
-  FROM (
-    SELECT
-      public.admin_rule_weekly_off_pattern(p_employee_code, current_date) AS pattern,
-      coalesce(public.get_rule_value(p_employee_code, 'wo.custom_days', current_date), '[0]'::jsonb) AS custom_days
-  ) s;
+  );
+  IF to_regprocedure('public.admin_rule_co_expires(text, date)') IS NOT NULL THEN
+    EXECUTE 'SELECT public.admin_rule_co_expires($1, current_date)' INTO v_co_expires USING p_employee_code;
+    v_out := v_out || jsonb_build_object('co_expires', v_co_expires);
+  END IF;
+  RETURN v_out;
+END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.admin_employee_attendance_flags(text) TO authenticated, service_role;
@@ -165,6 +173,8 @@ REVOKE ALL ON FUNCTION public.admin_employee_value_apply(text, text, text, jsonb
 -- -----------------------------------------------------------------------------
 -- 5. Employee Master save with p_weekly_off_pattern
 -- -----------------------------------------------------------------------------
+-- Both earlier versions, so named-argument calls from the app are never ambiguous.
+DROP FUNCTION IF EXISTS public.admin_employee_attendance_flags_save(text, boolean, boolean, boolean);
 DROP FUNCTION IF EXISTS public.admin_employee_attendance_flags_save(text, boolean, boolean, boolean, boolean);
 
 -- NULL for a setting = leave it unchanged. p_weekly_off_pattern wins over p_has_weekly_off.
@@ -223,6 +233,10 @@ BEGIN
       'false'::jsonb, 'true'::jsonb);
   END IF;
   IF p_co_expires IS NOT NULL THEN
+    IF to_regprocedure('indus_one.comp_off_resync_expiry(text)') IS NULL THEN
+      RAISE EXCEPTION 'The "C/O expires" setting is not set up on this server yet. Ask IT to apply the latest database update.'
+        USING ERRCODE = '22023';
+    END IF;
     IF public.admin_employee_flag_apply('co.expiry_mode', v_emp, v_label, p_co_expires,
          '"never"'::jsonb, '"months"'::jsonb) THEN
       PERFORM indus_one.comp_off_resync_expiry(v_emp);

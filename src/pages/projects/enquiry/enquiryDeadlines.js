@@ -86,12 +86,33 @@ export function getDaysLeft(row, today = startOfToday()) {
   return Math.round((target - today) / DAY_MS);
 }
 
+/** Completed Date entered on the enquiry (or recorded when saved as Completed), or null. */
+export function getRecordedCompletionDate(row) {
+  return toLocalDate(row?.data?.completed_on ?? getEnquiryFieldValue(row, 'completed_on'));
+}
+
+function isRegretStatus(status) {
+  return String(status || '').trim().toLowerCase() === 'regret';
+}
+
+/** Work is done: status Completed, or a Completed Date has been entered (Regret excluded). */
+export function isWorkCompleted(row) {
+  const status = getRowStatusValue(row);
+  if (isRegretStatus(status)) return false;
+  return isCompletedStatus(status) || Boolean(getRecordedCompletionDate(row));
+}
+
+/** No longer counts towards deadlines: completed (by status or Completed Date) or Regret. */
+export function isClosedRow(row) {
+  return isClosedStatus(getRowStatusValue(row)) || isWorkCompleted(row);
+}
+
 /**
  * Completion date: recorded when saved as Completed; otherwise the last edit
  * (only if the row was edited after it was created).
  */
 export function getCompletionDate(row) {
-  const recorded = toLocalDate(row?.data?.completed_on);
+  const recorded = getRecordedCompletionDate(row);
   if (recorded) return recorded;
   const created = Date.parse(row?.created_at || '');
   const updated = Date.parse(row?.updated_at || '');
@@ -103,19 +124,19 @@ export function getCompletionDate(row) {
 }
 
 export function isOverdueOpen(row, today = startOfToday()) {
-  if (isClosedStatus(getRowStatusValue(row))) return false;
+  if (isClosedRow(row)) return false;
   const daysLeft = getDaysLeft(row, today);
   return daysLeft != null && daysLeft < 0;
 }
 
 export function isDueSoon(row, today = startOfToday()) {
-  if (isClosedStatus(getRowStatusValue(row))) return false;
+  if (isClosedRow(row)) return false;
   const daysLeft = getDaysLeft(row, today);
   return daysLeft != null && daysLeft >= 0 && daysLeft <= DUE_SOON_DAYS;
 }
 
 export function isCompletedAfterTarget(row) {
-  if (!isCompletedStatus(getRowStatusValue(row))) return false;
+  if (!isWorkCompleted(row)) return false;
   const target = toLocalDate(getEnquiryFieldValue(row, 'target_date'));
   const completed = getCompletionDate(row);
   return Boolean(target && completed && completed > target);
@@ -129,7 +150,7 @@ export function isCompletedAfterTarget(row) {
 export function dashboardBucket(row, today = startOfToday()) {
   const status = String(getRowStatusValue(row) || '').trim().toLowerCase();
   if (status === 'regret') return 'regret';
-  if (status === 'completed') return isCompletedAfterTarget(row) ? 'completedLate' : 'completed';
+  if (isWorkCompleted(row)) return isCompletedAfterTarget(row) ? 'completedLate' : 'completed';
   if (isOverdueOpen(row, today)) return 'overdue';
   if (isDueSoon(row, today)) return 'dueSoon';
   if (!String(getEnquiryFieldValue(row, 'assigned_to_person') ?? '').trim()) return 'unassigned';
@@ -139,7 +160,23 @@ export function dashboardBucket(row, today = startOfToday()) {
 
 /** Colour + label for the Days left column. */
 export function daysLeftBadge(row, today = startOfToday()) {
-  if (isClosedStatus(getRowStatusValue(row))) {
+  if (isWorkCompleted(row)) {
+    const target = toLocalDate(getEnquiryFieldValue(row, 'target_date'));
+    const done = getCompletionDate(row);
+    if (!target || !done) {
+      return { label: 'Completed', className: 'bg-slate-100 text-slate-600', title: 'Enquiry is completed' };
+    }
+    const late = Math.round((done - target) / DAY_MS);
+    if (late > 0) {
+      return {
+        label: `Completed ${late} day${late === 1 ? '' : 's'} late`,
+        className: 'bg-rose-100 text-rose-800',
+        title: 'Completed after the target date',
+      };
+    }
+    return { label: 'Completed on time', className: 'bg-emerald-100 text-emerald-800', title: 'Completed on or before the target date' };
+  }
+  if (isClosedRow(row)) {
     return { label: 'Closed', className: 'bg-slate-100 text-slate-500', title: 'Enquiry is closed' };
   }
   const days = getDaysLeft(row, today);

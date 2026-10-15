@@ -103,6 +103,8 @@ export function InactiveEmployeesPage() {
   const [selected, setSelected] = useState(null);
   const [generatingKey, setGeneratingKey] = useState("");
   const [docError, setDocError] = useState("");
+  /** Employee id → document keys generated in this session; only these can be emailed. */
+  const [generatedByEmployee, setGeneratedByEmployee] = useState({});
 
   const loadInactiveEmployees = useCallback(async () => {
     setLoading(true);
@@ -322,6 +324,11 @@ export function InactiveEmployeesPage() {
       } else {
         await generateExitDocument(documentKey, selected);
       }
+      const done = documentKey === "all" ? Object.keys(EXIT_DOCUMENT_TEMPLATES) : [documentKey];
+      setGeneratedByEmployee((prev) => ({
+        ...prev,
+        [selected.id]: [...new Set([...(prev[selected.id] || []), ...done])],
+      }));
     } catch (err) {
       console.error(err);
       setDocError(err?.message || "Document generation failed.");
@@ -595,7 +602,11 @@ export function InactiveEmployeesPage() {
               </div>
             </div>
 
-            <EmailExitDocuments key={selected.id} employee={selected} />
+            <EmailExitDocuments
+              key={selected.id}
+              employee={selected}
+              generatedKeys={generatedByEmployee[selected.id] || []}
+            />
           </div>
         ) : null}
       </Drawer>
@@ -612,7 +623,7 @@ function DetailField({ label, value, className = "" }) {
   );
 }
 
-function EmailExitDocuments({ employee }) {
+function EmailExitDocuments({ employee, generatedKeys }) {
   const [email, setEmail] = useState("");
   const [lookup, setLookup] = useState("loading");
   const [senders, setSenders] = useState([]);
@@ -643,12 +654,15 @@ function EmailExitDocuments({ employee }) {
     setDocumentKeys((keys) => (keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]));
 
   const trimmedEmail = email.trim();
-  const canSend = !sending && lookup !== "loading" && trimmedEmail && documentKeys.length > 0;
+  const sendKeys = Object.keys(EXIT_DOCUMENT_TEMPLATES).filter(
+    (k) => documentKeys.includes(k) && generatedKeys.includes(k)
+  );
+  const canSend = !sending && lookup !== "loading" && trimmedEmail && sendKeys.length > 0;
 
   const handleSend = async () => {
     setSending(true);
     try {
-      const orderedKeys = Object.keys(EXIT_DOCUMENT_TEMPLATES).filter((k) => documentKeys.includes(k));
+      const orderedKeys = sendKeys;
       const result = await emailExitDocuments({
         employee,
         to: trimmedEmail,
@@ -671,7 +685,7 @@ function EmailExitDocuments({ employee }) {
     <div className="rounded-lg border border-gray-200 bg-white p-3">
       <p className="text-xs font-semibold text-gray-900 mb-1">Email to employee</p>
       <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
-        The selected documents are attached. Replies go to the mailbox you send from.
+        The selected documents are attached as PDF. Replies go to the mailbox you send from.
       </p>
 
       <label className="text-[11px] text-gray-600 flex flex-col gap-0.5 mb-3">
@@ -716,19 +730,31 @@ function EmailExitDocuments({ employee }) {
       </p>
 
       <div className="flex flex-col gap-1.5 mb-3">
-        {Object.entries(EXIT_DOCUMENT_TEMPLATES).map(([key, template]) => (
-          <label key={key} className="inline-flex items-center gap-2 text-[11px] text-gray-700">
-            <input
-              type="checkbox"
-              checked={documentKeys.includes(key)}
-              onChange={() => toggleDocument(key)}
-              disabled={sending}
-              className="h-3.5 w-3.5 rounded border-gray-300"
-            />
-            {template.label}
-          </label>
-        ))}
+        {Object.entries(EXIT_DOCUMENT_TEMPLATES).map(([key, template]) => {
+          const generated = generatedKeys.includes(key);
+          return (
+            <label
+              key={key}
+              className={`inline-flex items-center gap-2 text-[11px] ${generated ? "text-gray-700" : "text-gray-400"}`}
+            >
+              <input
+                type="checkbox"
+                checked={generated && documentKeys.includes(key)}
+                onChange={() => toggleDocument(key)}
+                disabled={sending || !generated}
+                className="h-3.5 w-3.5 rounded border-gray-300"
+              />
+              {template.label}
+              {generated ? null : <span className="text-[10px]">(generate first)</span>}
+            </label>
+          );
+        })}
       </div>
+      {generatedKeys.length === 0 ? (
+        <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1.5 mb-3">
+          Generate the documents above first. Only generated documents can be emailed.
+        </p>
+      ) : null}
 
       <button
         type="button"
@@ -737,7 +763,7 @@ function EmailExitDocuments({ employee }) {
         className="inline-flex w-full items-center justify-center gap-2 h-9 px-3 rounded-lg text-xs font-semibold border border-accent text-accent bg-white hover:bg-accent/5 disabled:opacity-50"
       >
         <Mail className="h-4 w-4 shrink-0" />
-        {sending ? "Sending…" : "Send Email"}
+        {sending ? "Preparing PDF and sending…" : "Send Email"}
       </button>
     </div>
   );
