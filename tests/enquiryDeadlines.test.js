@@ -6,9 +6,11 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: () => { throw new Error(
 const {
   addWorkingDays,
   daysLeftBadge,
+  dashboardBucket,
   getDaysLeft,
   isCompletedAfterTarget,
   isDueSoon,
+  isOverdueOpen,
   orderAssignmentFields,
   withAutoTargetDate,
 } = await import('../src/pages/projects/enquiry/enquiryDeadlines.js');
@@ -75,7 +77,25 @@ describe('days left', () => {
     expect(daysLeftBadge(row({ target_date: '2026-10-13' }), today).className).toContain('orange');
     expect(daysLeftBadge(row({ target_date: '2026-10-16' }), today).className).toContain('amber');
     expect(daysLeftBadge(row({ target_date: '2026-10-30' }), today).className).toContain('emerald');
-    expect(daysLeftBadge(row({ target_date: '2026-10-01', current_status: 'Completed' }), today).label).toBe('Closed');
+    expect(daysLeftBadge(row({ target_date: '2026-10-01', current_status: 'Completed' }), today).label).toBe('Completed');
+    expect(daysLeftBadge(row({ target_date: '2026-10-01', current_status: 'Regret' }), today).label).toBe('Closed');
+  });
+
+  it('a Completed Date stops the overdue count, whatever the status', () => {
+    const late = row({ target_date: '2026-10-05', current_status: 'Work in Progress', completed_on: '2026-10-08' });
+    expect(daysLeftBadge(late, today).label).toBe('Completed 3 days late');
+    expect(isOverdueOpen(late, today)).toBe(false);
+    expect(isCompletedAfterTarget(late)).toBe(true);
+    expect(dashboardBucket(late, today)).toBe('completedLate');
+
+    const onTime = row({ target_date: '2026-10-13', current_status: 'Not Started', completed_on: '12/10/2026' });
+    expect(daysLeftBadge(onTime, today).label).toBe('Completed on time');
+    expect(isDueSoon(onTime, today)).toBe(false);
+    expect(dashboardBucket(onTime, today)).toBe('completed');
+
+    const regret = row({ target_date: '2026-10-05', current_status: 'Regret', completed_on: '2026-10-08' });
+    expect(daysLeftBadge(regret, today).label).toBe('Closed');
+    expect(dashboardBucket(regret, today)).toBe('regret');
   });
 });
 

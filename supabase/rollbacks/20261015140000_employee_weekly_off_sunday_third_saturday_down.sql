@@ -52,15 +52,24 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.admin_employee_attendance_flags(p_employee_code text)
 RETURNS jsonb
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 AS $$
-  SELECT jsonb_build_object(
+DECLARE
+  v_out jsonb;
+  v_co_expires boolean;
+BEGIN
+  v_out := jsonb_build_object(
     'has_weekly_off', public.admin_rule_weekly_off_pattern(p_employee_code, current_date) <> 'none',
     'earns_co', public.admin_rule_earns_co(p_employee_code, current_date),
-    'co_expires', public.admin_rule_co_expires(p_employee_code, current_date),
     'has_holidays', public.admin_rule_holidays_apply(p_employee_code, current_date)
   );
+  IF to_regprocedure('public.admin_rule_co_expires(text, date)') IS NOT NULL THEN
+    EXECUTE 'SELECT public.admin_rule_co_expires($1, current_date)' INTO v_co_expires USING p_employee_code;
+    v_out := v_out || jsonb_build_object('co_expires', v_co_expires);
+  END IF;
+  RETURN v_out;
+END;
 $$;
 
 DROP FUNCTION IF EXISTS public.admin_employee_attendance_flags_save(text, boolean, boolean, boolean, boolean, text);
@@ -113,6 +122,10 @@ BEGIN
       'false'::jsonb, 'true'::jsonb);
   END IF;
   IF p_co_expires IS NOT NULL THEN
+    IF to_regprocedure('indus_one.comp_off_resync_expiry(text)') IS NULL THEN
+      RAISE EXCEPTION 'The "C/O expires" setting is not set up on this server yet. Ask IT to apply the latest database update.'
+        USING ERRCODE = '22023';
+    END IF;
     IF public.admin_employee_flag_apply('co.expiry_mode', v_emp, v_label, p_co_expires,
          '"never"'::jsonb, '"months"'::jsonb) THEN
       PERFORM indus_one.comp_off_resync_expiry(v_emp);

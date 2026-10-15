@@ -36,7 +36,7 @@ import {
   TARGET_BASIS_KEY,
   withAutoTargetDate,
   getDaysLeft,
-  isClosedStatus,
+  isClosedRow,
   isCompletedStatus,
   startOfToday,
   todayIso,
@@ -187,8 +187,8 @@ export default function EnquiryDatabase() {
       }
       if (sortConfig.key === DAYS_LEFT_KEY) {
         const today = startOfToday();
-        const da = isClosedStatus(getRowStatusValue(a)) ? null : getDaysLeft(a, today);
-        const db = isClosedStatus(getRowStatusValue(b)) ? null : getDaysLeft(b, today);
+        const da = isClosedRow(a) ? null : getDaysLeft(a, today);
+        const db = isClosedRow(b) ? null : getDaysLeft(b, today);
         if (da == null && db == null) return 0;
         if (da == null) return 1;
         if (db == null) return -1;

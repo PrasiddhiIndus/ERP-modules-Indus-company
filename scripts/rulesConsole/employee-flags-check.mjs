@@ -341,4 +341,57 @@ await db.exec(readMigration(SPLIT_MIGRATION));
 check("migration re-applies after rollback", await patternOn("110"), "third_sat_only");
 
 await db.close();
+
+// ---------------------------------------------------------------------------
+section("8. 20261015140000 on a database without the C/O expires update (170000)");
+{
+  const db2 = await buildEngineDb();
+  await db2.exec(`
+    ALTER TABLE public.profiles ADD COLUMN team text, ADD COLUMN allowed_modules jsonb, ADD COLUMN allowed_sub_modules jsonb;
+    CREATE FUNCTION public.jsonb_text_array(jsonb) RETURNS jsonb LANGUAGE sql IMMUTABLE
+      AS $$ SELECT CASE WHEN jsonb_typeof($1) = 'array' THEN $1 ELSE '[]'::jsonb END $$;
+    CREATE FUNCTION public.normalize_erp_module_key(text) RETURNS text LANGUAGE sql IMMUTABLE
+      AS $$ SELECT lower(btrim(coalesce($1, ''))) $$;
+  `);
+  for (const m of [CONSOLE_MIGRATION, SCOPES_MIGRATION, PRIORITY_MIGRATION, WEEKLY_OFF_MIGRATION,
+    WEEKLY_OFF_SPEED_MIGRATION, WEEKLY_OFF_WIRE_MIGRATION, PAGE_ACCESS_MIGRATION, FLAGS_MIGRATION]) {
+    await db2.exec(readMigration(m));
+  }
+  await db2.exec(`SET test.role = 'service_role'`);
+  await asUser(db2, "admin");
+  const one2 = async (sql, params = []) => Object.values((await db2.query(sql, params)).rows[0])[0];
+  const before2 = await one2(`SELECT public.admin_employee_attendance_flags('102')`);
+  let applied = true;
+  try {
+    await db2.exec(readMigration(SPLIT_MIGRATION));
+  } catch (e) {
+    applied = e.message;
+  }
+  check("migration applies without the C/O expires update", applied, true);
+  const after2 = await one2(`SELECT public.admin_employee_attendance_flags('102')`);
+  check("flags read: same values, no co_expires key",
+    { has_weekly_off: after2.has_weekly_off, earns_co: after2.earns_co, has_holidays: after2.has_holidays, co: "co_expires" in after2 },
+    { has_weekly_off: before2.has_weekly_off, earns_co: before2.earns_co, has_holidays: before2.has_holidays, co: false });
+  check("only one save function remains",
+    await one2(`SELECT count(*)::int FROM pg_proc WHERE proname = 'admin_employee_attendance_flags_save'`), 1);
+  check("app-style named save (no weekly change) works",
+    (await one2(`SELECT public.admin_employee_attendance_flags_save(p_employee_code => '118', p_earns_co => false, p_has_holidays => NULL)`)).earns_co, false);
+  check("weekly-off pattern save works",
+    (await one2(`SELECT public.admin_employee_attendance_flags_save(p_employee_code => '110', p_weekly_off_pattern => 'third_sat_only')`)).sunday_off, false);
+  let coErr = null;
+  try {
+    await db2.query(`SELECT public.admin_employee_attendance_flags_save(p_employee_code => '110', p_co_expires => false)`);
+  } catch (e) {
+    coErr = e.message;
+  }
+  check("C/O expires change gives a clear message", /not set up on this server/.test(String(coErr)), true);
+  let rbErr = null;
+  try {
+    await db2.exec(readRollback(SPLIT_ROLLBACK));
+  } catch (e) {
+    rbErr = e.message;
+  }
+  check("rollback applies without the C/O expires update", rbErr, null);
+  await db2.close();
+}
 process.exit(done() ? 1 : 0);
