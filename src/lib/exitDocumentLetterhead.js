@@ -70,6 +70,27 @@ export function loadLetterheadAssets() {
   return assetsPromise;
 }
 
+/** Page positions (points) of the letterhead images — shared by the Word file and its PDF copy. */
+export function letterheadLayout(assets, pageWPt, pageHPt) {
+  const logoHPt = (assets.logo.h / assets.logo.w) * LOGO_WIDTH_PT;
+  const redBarYPt = pageHPt - RED_BAR_BOTTOM_GAP_PT - RED_BAR_HEIGHT_PT;
+  const addressYPt = redBarYPt - 4 - FOOTER_ADDRESS_HEIGHT_PT;
+  const ruleYPt = addressYPt - 3;
+  return {
+    logoHPt,
+    ruleYPt,
+    logo: { xPt: pageWPt - LOGO_RIGHT_GAP_PT - LOGO_WIDTH_PT, yPt: LOGO_TOP_PT, wPt: LOGO_WIDTH_PT, hPt: logoHPt },
+    rule: { xPt: 0, yPt: ruleYPt, wPt: pageWPt, hPt: RULE_HEIGHT_PT },
+    footerAddress: {
+      xPt: (pageWPt - FOOTER_ADDRESS_WIDTH_PT) / 2,
+      yPt: addressYPt,
+      wPt: FOOTER_ADDRESS_WIDTH_PT,
+      hPt: FOOTER_ADDRESS_HEIGHT_PT,
+    },
+    redBar: { xPt: 0, yPt: redBarYPt, wPt: pageWPt, hPt: pageHPt - redBarYPt },
+  };
+}
+
 const emu = (pt) => Math.round(pt * EMU_PER_PT);
 
 function graphicXml({ rId, docPrId, name, wPt, hPt }) {
@@ -196,10 +217,8 @@ export function applyLetterhead(zip, assets, { sign = false } = {}) {
   const pageWPt = (readTwipsAttr(pgSz, "w") || 12240) / TWIPS_PER_PT;
   const pageHPt = (readTwipsAttr(pgSz, "h") || 15840) / TWIPS_PER_PT;
 
-  const logoHPt = (assets.logo.h / assets.logo.w) * LOGO_WIDTH_PT;
-  const redBarYPt = pageHPt - RED_BAR_BOTTOM_GAP_PT - RED_BAR_HEIGHT_PT;
-  const addressYPt = redBarYPt - 4 - FOOTER_ADDRESS_HEIGHT_PT;
-  const ruleYPt = addressYPt - 3;
+  const layout = letterheadLayout(assets, pageWPt, pageHPt);
+  const { logoHPt, ruleYPt } = layout;
 
   zip.file("word/media/letterhead-logo.png", assets.logo.bytes);
   zip.file("word/media/letterhead-footer.png", assets.footerAddress.bytes);
@@ -214,10 +233,7 @@ export function applyLetterhead(zip, assets, { sign = false } = {}) {
         rId: "rIdLhLogo",
         docPrId: 9001,
         name: "Letterhead logo",
-        xPt: pageWPt - LOGO_RIGHT_GAP_PT - LOGO_WIDTH_PT,
-        yPt: LOGO_TOP_PT,
-        wPt: LOGO_WIDTH_PT,
-        hPt: logoHPt,
+        ...layout.logo,
       })
     )
   );
@@ -234,28 +250,19 @@ export function applyLetterhead(zip, assets, { sign = false } = {}) {
         rId: "rIdLhRule",
         docPrId: 9002,
         name: "Letterhead rule",
-        xPt: 0,
-        yPt: ruleYPt,
-        wPt: pageWPt,
-        hPt: RULE_HEIGHT_PT,
+        ...layout.rule,
       }) +
         anchoredPictureRun({
           rId: "rIdLhAddress",
           docPrId: 9003,
           name: "Letterhead address",
-          xPt: (pageWPt - FOOTER_ADDRESS_WIDTH_PT) / 2,
-          yPt: addressYPt,
-          wPt: FOOTER_ADDRESS_WIDTH_PT,
-          hPt: FOOTER_ADDRESS_HEIGHT_PT,
+          ...layout.footerAddress,
         }) +
         anchoredPictureRun({
           rId: "rIdLhRedBar",
           docPrId: 9004,
           name: "Letterhead band",
-          xPt: 0,
-          yPt: redBarYPt,
-          wPt: pageWPt,
-          hPt: pageHPt - redBarYPt,
+          ...layout.redBar,
         })
     )
   );

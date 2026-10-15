@@ -1,5 +1,5 @@
 /**
- * Email exit documents (Word files built in the browser on the company letterhead)
+ * Email exit documents (PDF copies built in the browser on the company letterhead)
  * to an Inactive / Left employee from the configured company mailbox.
  */
 import { isMailDispatchConfigured, sendOutboundMail, MAIL_NOT_CONFIGURED_MESSAGE } from './mail/index.js';
@@ -8,7 +8,7 @@ import { resolveCtcEmailRecipient } from './salaryCtcEmailApi.js';
 import { listInHouseSenders } from './crmInHouseMailApi.js';
 import { isPersonalSenderMailbox, senderNotAllowedMessage } from './mail/senderAccess.js';
 
-const DOCX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const PDF_CONTENT_TYPE = 'application/pdf';
 const MAX_ATTACHMENTS = 3;
 const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 const INACTIVE_STATUSES = new Set(['inactive', 'left']);
@@ -27,14 +27,14 @@ function escapeHtml(v) {
     .replace(/"/g, '&quot;');
 }
 
-function sanitizeDocxName(name, fallback) {
+function sanitizePdfName(name, fallback) {
   const base = String(name || '')
     .trim()
-    .replace(/\.docx$/i, '')
+    .replace(/\.(pdf|docx)$/i, '')
     .replace(/[^a-zA-Z0-9 ._-]+/g, '-')
     .replace(/-+/g, '-')
     .slice(0, 120);
-  return `${base || fallback}.docx`;
+  return `${base || fallback}.pdf`;
 }
 
 /** Login email on file for the employee (profile, then auth account). */
@@ -83,14 +83,13 @@ function decodeAttachments(list) {
   if (items.length > MAX_ATTACHMENTS) throw httpError(400, 'Too many documents selected.');
   return items.map((item, i) => {
     const content = Buffer.from(String(item?.base64 || ''), 'base64');
-    // .docx files are zip archives.
-    if (content.length < 4 || content.subarray(0, 2).toString('latin1') !== 'PK') {
+    if (content.length < 5 || content.subarray(0, 5).toString('latin1') !== '%PDF-') {
       throw httpError(400, 'One of the documents could not be prepared. Please try again.');
     }
     if (content.length > MAX_ATTACHMENT_BYTES) throw httpError(413, 'A document is too large to email.');
     return {
-      filename: sanitizeDocxName(item?.fileName, `Exit-document-${i + 1}`),
-      contentType: DOCX_CONTENT_TYPE,
+      filename: sanitizePdfName(item?.fileName, `Exit-document-${i + 1}`),
+      contentType: PDF_CONTENT_TYPE,
       content,
       label: String(item?.label || '').slice(0, 120),
     };
