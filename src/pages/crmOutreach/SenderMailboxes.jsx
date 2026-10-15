@@ -14,7 +14,7 @@ function senderStatusSeverity(status) {
 }
 
 export default function SenderMailboxes() {
-  const { senders, openSenderEditor } = useCrmOutreach();
+  const { senders, personalSenders, openSenderEditor } = useCrmOutreach();
 
   const columns = useMemo(
     () => [
@@ -25,6 +25,18 @@ export default function SenderMailboxes() {
       },
       { key: 'name', label: 'Display Name' },
       { key: 'used', label: 'Used For' },
+      {
+        key: 'access',
+        label: 'Who can send',
+        render: (row) =>
+          personalSenders.has(String(row.mail || '').toLowerCase()) ? (
+            <span className="text-xs text-ink-secondary" title="Only the login with this same email can send from it">
+              Owner only
+            </span>
+          ) : (
+            <span className="text-xs text-ink-muted">Everyone</span>
+          ),
+      },
       {
         key: 'status',
         label: 'Status',
@@ -51,7 +63,7 @@ export default function SenderMailboxes() {
         ),
       },
     ],
-    [openSenderEditor]
+    [openSenderEditor, personalSenders]
   );
 
   return (

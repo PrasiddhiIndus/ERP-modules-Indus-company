@@ -27,6 +27,7 @@ export function InHouseOutreachProvider({ children }) {
   const [templates, setTemplates] = useState([]);
   const [groups, setGroups] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
+  const [senders, setSenders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -51,6 +52,7 @@ export function InHouseOutreachProvider({ children }) {
       setTemplates(snap.templates);
       setGroups(snap.groups);
       setCampaigns(snap.campaigns);
+      setSenders(snap.senders);
     } catch (err) {
       setError(crmOutreachErrorMsg(err, 'Could not load In-House mail data.'));
       throw err;
@@ -199,6 +201,7 @@ export function InHouseOutreachProvider({ children }) {
       templates,
       groups,
       campaigns,
+      senders,
       loading,
       refreshing,
       error,
@@ -231,6 +234,7 @@ export function InHouseOutreachProvider({ children }) {
       templates,
       groups,
       campaigns,
+      senders,
       loading,
       refreshing,
       error,

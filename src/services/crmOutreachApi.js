@@ -445,13 +445,27 @@ export async function sendMailCampaign(payload) {
   return res.data;
 }
 
+/** Personal "From" mailboxes (owner-only) and the ones this login may not use. */
+export async function fetchSenderAccess() {
+  const res = await fetchApiWithAuth('/api/crm-outreach/sender-access', { method: 'GET' });
+  if (!res.ok) throw new Error(res.error || 'Could not load sender access.');
+  return {
+    personalSenders: res.data?.personalSenders || [],
+    restrictedSenders: res.data?.restrictedSenders || [],
+  };
+}
+
 export async function loadCrmOutreachSnapshot(clientOptions = {}) {
-  const [clients, templates, senders, campaigns, stats] = await Promise.all([
+  const [clients, templates, senders, campaigns, stats, senderAccess] = await Promise.all([
     fetchOutreachClients(clientOptions),
     fetchMailTemplates(),
     fetchSenderMailboxes(),
     fetchMailCampaigns(),
     fetchOutreachStats(),
+    fetchSenderAccess().catch((err) => {
+      console.warn('[crm-outreach] sender access unavailable:', err?.message);
+      return { personalSenders: [], restrictedSenders: [] };
+    }),
   ]);
-  return { clients, templates, senders, campaigns, stats };
+  return { clients, templates, senders, campaigns, stats, senderAccess };
 }

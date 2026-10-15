@@ -34,13 +34,24 @@ import { fetchAllTourInboxTables } from './adminTourRequestsApi.js';
 import { createAuthMiddleware } from './authMiddleware.js';
 import { sendCrmOutreachCampaign } from './crmOutreachSendApi.js';
 import {
+  personalSenderMailboxes,
+  restrictedSenderMailboxes,
+  userEmailsFromRequest,
+} from './mail/senderAccess.js';
+import {
   listInHouseEmployees,
+  listInHouseSenders,
   processInHouseCampaignBatch,
   startInHouseCampaign,
 } from './crmInHouseMailApi.js';
 import { registerAdminRecruitmentRoutes, startAdminRecruitmentAutomation } from './adminRecruitmentApi.js';
 import { startPayrollMisAlerts } from './payrollMisAlerts.js';
 import { canEmailCtcDetails, resolveCtcEmailRecipient, sendCtcDetailsEmail } from './salaryCtcEmailApi.js';
+import {
+  listExitEmailSenders,
+  resolveExitEmailRecipient,
+  sendExitDocumentsEmail,
+} from './employeeExitEmailApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -1575,6 +1586,13 @@ async function handleUsbDscCertificates(req, res) {
 app.get('/api/billing/dsc/usb-certificates', einvoiceRateLimit, requireBillingAccess, handleUsbDscCertificates);
 app.post('/api/billing/dsc/usb-certificates', einvoiceRateLimit, requireBillingAccess, handleUsbDscCertificates);
 
+app.get('/api/crm-outreach/sender-access', requireCrmOutreachAccess, (req, res) => {
+  return res.json({
+    personalSenders: personalSenderMailboxes(),
+    restrictedSenders: restrictedSenderMailboxes(userEmailsFromRequest(req)),
+  });
+});
+
 app.post('/api/crm-outreach/send-campaign', requireCrmOutreachAccess, async (req, res) => {
   try {
     const supabaseAdmin = getSupabaseServiceClient(
@@ -1592,6 +1610,7 @@ app.post('/api/crm-outreach/send-campaign', requireCrmOutreachAccess, async (req
       templateName: req.body?.templateName,
       recipientClientIds: req.body?.recipientClientIds,
       previewSample: req.body?.previewSample,
+      userEmails: userEmailsFromRequest(req),
     });
     return res.json(result);
   } catch (err) {
@@ -1625,6 +1644,18 @@ app.get('/api/crm-outreach/inhouse/employees', requireCrmInHouseMailAccess, asyn
   }
 });
 
+app.get('/api/crm-outreach/inhouse/senders', requireCrmInHouseMailAccess, async (req, res) => {
+  try {
+    const senders = await listInHouseSenders({
+      supabaseAdmin: crmInHouseServiceClient(),
+      userEmails: userEmailsFromRequest(req),
+    });
+    return res.json({ senders });
+  } catch (err) {
+    return sendCrmInHouseError(res, err, 'Could not load sender mailboxes.');
+  }
+});
+
 app.post('/api/crm-outreach/inhouse/campaigns', requireCrmInHouseMailAccess, async (req, res) => {
   try {
     const result = await startInHouseCampaign({
@@ -1636,6 +1667,8 @@ app.post('/api/crm-outreach/inhouse/campaigns', requireCrmInHouseMailAccess, asy
       templateName: req.body?.templateName,
       recipientProfileIds: req.body?.recipientProfileIds,
       groupIds: req.body?.groupIds,
+      senderMail: req.body?.senderMail,
+      userEmails: userEmailsFromRequest(req),
     });
     return res.json(result);
   } catch (err) {
@@ -1688,6 +1721,43 @@ app.post('/api/admin/salary/ctc-email', einvoiceRateLimit, requireAuth, requireC
     return res.json(result);
   } catch (err) {
     return sendSalaryCtcEmailError(res, err, 'Could not send the email.');
+  }
+});
+
+function sendExitEmailError(res, err, fallback) {
+  const status = Number(err?.status) || 500;
+  if (status >= 500) console.error('[employee-exit/email]', err?.message || err);
+  const message = status >= 500 && !err?.status ? fallback : err?.message || fallback;
+  return res.status(status).json({ error: message, message });
+}
+
+app.get('/api/admin/employee-exit/email/recipient', requireHrOrAdmin, async (req, res) => {
+  try {
+    const db = crmInHouseServiceClient();
+    const [email, senders] = await Promise.all([
+      resolveExitEmailRecipient(db, req.query?.employeeId),
+      listExitEmailSenders(db, userEmailsFromRequest(req)),
+    ]);
+    return res.json({ email: email || null, senders });
+  } catch (err) {
+    return sendExitEmailError(res, err, 'Could not find the employee email.');
+  }
+});
+
+app.post('/api/admin/employee-exit/email', einvoiceRateLimit, requireHrOrAdmin, async (req, res) => {
+  try {
+    const result = await sendExitDocumentsEmail({
+      db: crmInHouseServiceClient(),
+      employeeMasterId: req.body?.employeeId,
+      to: req.body?.to,
+      attachments: req.body?.attachments,
+      senderMail: req.body?.senderMail,
+      userEmails: userEmailsFromRequest(req),
+      senderEmail: req.profile?.email || req.user?.email || null,
+    });
+    return res.json(result);
+  } catch (err) {
+    return sendExitEmailError(res, err, 'Could not send the email.');
   }
 });
 

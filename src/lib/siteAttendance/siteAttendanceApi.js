@@ -93,12 +93,31 @@ const DEFAULT_SITE_DESIGNATIONS = [
 
 export { DEFAULT_SITE_DESIGNATIONS };
 
-export async function listSites({ search = "", from = 0, to = 99, siteIds } = {}) {
+export async function listSites({
+  search = "",
+  from = 0,
+  to = 99,
+  siteIds,
+  siteType = "",
+  shiftType = "",
+  dutyHours = "",
+  contractStatus = "",
+} = {}) {
   if (Array.isArray(siteIds) && siteIds.length === 0) return { rows: [], count: 0 };
   let query = supabase.from("sites").select("*", { count: "exact" }).order("id", { ascending: false });
-  const term = String(search || "").trim();
-  if (term) query = query.ilike("site_name", `%${term}%`);
+  const term = String(search || "").trim().replace(/[,()]/g, " ");
+  if (term) query = query.or(`site_name.ilike.%${term}%,location.ilike.%${term}%`);
   if (Array.isArray(siteIds) && siteIds.length) query = query.in("id", siteIds);
+  if (siteType) query = query.eq("site_type", siteType);
+  if (shiftType === "ABCG") query = query.eq("shift_type", "ABCG");
+  if (shiftType === "GENERAL") query = query.or("shift_type.is.null,shift_type.neq.ABCG");
+  if (String(dutyHours) === "12") query = query.eq("duty_hours", 12);
+  if (String(dutyHours) === "8") query = query.or("duty_hours.is.null,duty_hours.neq.12");
+  if (contractStatus) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (contractStatus === "running") query = query.or(`contract_end.is.null,contract_end.gte.${today}`);
+    if (contractStatus === "ended") query = query.lt("contract_end", today);
+  }
   const { data, error, count } = await query.range(from, to);
   throwIf(error, "Unable to load sites.");
   return { rows: data || [], count: count ?? (data || []).length };

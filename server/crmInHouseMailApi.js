@@ -14,6 +14,7 @@ import {
   usesPersonalTokens,
 } from '../shared/crmInHouseMail.mjs';
 import { emailHtmlForSending, escapeTokenValues, looksLikeHtmlEmail } from '../shared/emailHtml.mjs';
+import { canUseSenderMailbox, isPersonalSenderMailbox, senderNotAllowedMessage } from './mail/senderAccess.js';
 
 const PROFILE_COLUMNS = 'id, email, username, team, employee_code, is_active';
 const PROFILE_PAGE_SIZE = 1000;
@@ -68,12 +69,50 @@ async function fetchProfilesByIds(supabaseAdmin, ids) {
   return rows;
 }
 
-function senderLabel() {
+function senderLabel(mail, name) {
+  return name ? `${name} <${mail}>` : mail;
+}
+
+/** Campaigns store the sender as "Name <mail>"; older rows may hold just the address. */
+function senderFromLabel(label) {
+  const text = String(label || '').trim();
+  const match = /^(.*)<([^>]+)>$/.exec(text);
+  if (match) return { mail: match[2].trim().toLowerCase(), name: match[1].trim() };
+  return { mail: text.toLowerCase(), name: '' };
+}
+
+/** Company mailbox first, then the user's own mailbox when the mail app may send as it. */
+export async function listInHouseSenders({ supabaseAdmin, userEmails }) {
   const config = getMicrosoftGraphMailConfig();
-  if (!config) return '';
-  return config.notificationName
-    ? `${config.notificationName} <${config.notificationEmail}>`
-    : config.notificationEmail;
+  if (!config) return [];
+  const senders = [
+    {
+      mail: config.notificationEmail,
+      name: config.notificationName,
+      label: senderLabel(config.notificationEmail, config.notificationName),
+    },
+  ];
+  const extra = config.allowedSenders.filter(
+    (m) => m !== config.notificationEmail && canUseSenderMailbox(m, userEmails)
+  );
+  if (!extra.length) return senders;
+
+  const namesByMail = new Map();
+  if (supabaseAdmin) {
+    const { data, error } = await supabaseAdmin
+      .from('sender_mailboxes')
+      .select('mail, display_name, status')
+      .in('mail', extra);
+    if (error) console.warn('[crm-outreach/inhouse] sender names lookup failed:', error.message);
+    for (const row of data || []) {
+      if (row.status !== 'Disabled') namesByMail.set(String(row.mail).toLowerCase(), row.display_name || '');
+    }
+  }
+  for (const mail of extra) {
+    const name = String(namesByMail.get(mail) || '').trim();
+    senders.push({ mail, name, label: senderLabel(mail, name) });
+  }
+  return senders;
 }
 
 async function fetchEmployeeMasterIndex(supabaseAdmin) {
@@ -140,6 +179,8 @@ export async function startInHouseCampaign({
   templateName,
   recipientProfileIds,
   groupIds,
+  senderMail,
+  userEmails,
 }) {
   requireDb(supabaseAdmin);
   if (!userId) throw httpError('Authenticated user is required.', 401);
@@ -155,6 +196,18 @@ export async function startInHouseCampaign({
     throw httpError(
       'Outbound mail is not configured on the server. Set MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, and MICROSOFT_NOTIFICATION_EMAIL in .env.server.',
       503
+    );
+  }
+
+  const senders = await listInHouseSenders({ supabaseAdmin, userEmails });
+  const requestedSender = String(senderMail || '').trim().toLowerCase();
+  const sender = requestedSender ? senders.find((s) => s.mail === requestedSender) : senders[0];
+  if (!sender) {
+    throw httpError(
+      isPersonalSenderMailbox(requestedSender)
+        ? senderNotAllowedMessage(requestedSender)
+        : 'This sender mailbox is not allowed. Choose another "From" address.',
+      403
     );
   }
 
@@ -208,7 +261,7 @@ export async function startInHouseCampaign({
         name: subjectText,
         template_id: templateId || null,
         template_name: templateName || 'Custom',
-        sender_mail: senderLabel(),
+        sender_mail: sender.label,
         subject: subjectText,
         body_template: String(bodyTemplate),
         group_ids: groups.map((g) => g.id),
@@ -308,13 +361,22 @@ function batchResult(row, update) {
   };
 }
 
+/** Mailbox the campaign sends from; falls back to the company mailbox for old rows. */
+function campaignSender(campaign) {
+  const config = getMicrosoftGraphMailConfig();
+  const { mail, name } = senderFromLabel(campaign?.sender_mail);
+  if (!mail.includes('@')) return { from: config?.notificationEmail || '', fromName: config?.notificationName || '' };
+  return { from: mail, fromName: name };
+}
+
 /** One message to the whole batch — employees are in BCC so they never see each other. */
 async function sendBulkBccMail(supabaseAdmin, campaign, rows) {
-  const config = getMicrosoftGraphMailConfig();
+  const sender = campaignSender(campaign);
   let update;
   try {
     await sendOutboundMail({
-      to: config.notificationEmail,
+      ...sender,
+      to: sender.from,
       bcc: rows.map((r) => r.recipient_email),
       subject: campaign.subject,
       ...mailBody(campaign.body_template),
@@ -353,7 +415,12 @@ async function sendPersonalMails(supabaseAdmin, campaign, rows) {
         : renderInHouseTokens(campaign.body_template, employee);
       let update;
       try {
-        await sendOutboundMail({ to: row.recipient_email, subject: renderedSubject, ...mailBody(renderedBody) });
+        await sendOutboundMail({
+          ...campaignSender(campaign),
+          to: row.recipient_email,
+          subject: renderedSubject,
+          ...mailBody(renderedBody),
+        });
         update = { status: 'Delivered', rendered_subject: renderedSubject, sent_at: new Date().toISOString(), error_message: null };
       } catch (err) {
         update = {

@@ -107,6 +107,7 @@ export default function InHouseComposeModal() {
     employeesById,
     groups,
     templates,
+    senders,
     selectedEmployeeIds,
     setSelectedEmployeeIds,
     composeOpen,
@@ -124,11 +125,13 @@ export default function InHouseComposeModal() {
   const [templateId, setTemplateId] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [senderMail, setSenderMail] = useState('');
   const { bodyRef, insertToken } = useTokenInsert(body, setBody);
 
   useEffect(() => {
     if (!composeOpen) return;
     setStep('compose');
+    setSenderMail(senders[0]?.mail || '');
     setEmployeeIds(new Set(composeIncludeSelected ? selectedEmployeeIds : []));
     setGroupIds(composeGroupIds);
     setTemplateId('');
@@ -156,6 +159,8 @@ export default function InHouseComposeModal() {
     setBody(tpl.body);
   };
 
+  const senderLabel = senders.find((s) => s.mail === senderMail)?.label || senders[0]?.label || INHOUSE_SENDER_LABEL;
+
   const personal = usesPersonalTokens(subject, body);
   const sending = progress.phase === 'starting' || progress.phase === 'sending';
   const canSend = recipients.length > 0 && subject.trim() && body.trim();
@@ -171,6 +176,7 @@ export default function InHouseComposeModal() {
         templateName: tpl?.name,
         recipientProfileIds: [...employeeIds],
         groupIds,
+        senderMail: senderMail || undefined,
       });
       if (result.phase === 'done' && result.failed === 0 && result.remaining === 0) {
         toast.success(`Sent to ${result.delivered} employee${result.delivered !== 1 ? 's' : ''}.`);
@@ -322,9 +328,17 @@ export default function InHouseComposeModal() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">From</label>
-                  <div className={`${inputCls} flex items-center bg-surface-sunken text-ink-secondary`}>
-                    {INHOUSE_SENDER_LABEL}
-                  </div>
+                  {senders.length > 1 ? (
+                    <select className={inputCls} value={senderMail} onChange={(e) => setSenderMail(e.target.value)}>
+                      {senders.map((s) => (
+                        <option key={s.mail} value={s.mail}>{s.label}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className={`${inputCls} flex items-center bg-surface-sunken text-ink-secondary`}>
+                      {senderLabel}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">Template</label>
@@ -365,7 +379,7 @@ export default function InHouseComposeModal() {
               </p>
               <div className="rounded-lg border border-border overflow-hidden">
                 <div className="bg-surface-sunken px-3 py-2 text-[11px] text-ink-muted border-b border-border">
-                  From: {INHOUSE_SENDER_LABEL} ·{' '}
+                  From: {senderLabel} ·{' '}
                   {personal
                     ? `To: ${previewEmployee?.email || '—'}`
                     : `BCC: ${recipients.length} employee${recipients.length !== 1 ? 's' : ''}`}
