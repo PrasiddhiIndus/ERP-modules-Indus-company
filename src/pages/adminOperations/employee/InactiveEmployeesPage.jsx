@@ -1,6 +1,6 @@
 /** Inactive Employees — exit document generation for Left/Inactive staff */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, FileDown, FileStack, RefreshCw, UserX, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileDown, FileStack, Mail, RefreshCw, UserX, X } from "lucide-react";
 import {
   PageTaskHeader,
   SectionCard,
@@ -15,12 +15,15 @@ import {
 } from "../components/AdminUi";
 import { supabase } from "../../../lib/supabase";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
+import toast from "../../../lib/toast";
 import {
+  EXIT_DOCUMENT_TEMPLATES,
   generateAllExitDocuments,
   generateExitDocument,
   isInactiveEmployeeStatus,
   mapInactiveEmployeeRow,
 } from "../../../lib/employeeExitDocuments";
+import { emailExitDocuments, fetchExitEmailSetup } from "../../../lib/employeeExitEmail";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -551,7 +554,8 @@ export function InactiveEmployeesPage() {
             <div className="rounded-lg border border-accent/15 bg-accent/[0.03] p-3">
               <p className="text-xs font-semibold text-gray-900 mb-1">Exit documents</p>
               <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
-                Original Word templates are preserved exactly. Only employee-specific fields are filled in.
+                Printed on the company letterhead. Experience and Relieving letters carry the authorised signature;
+                the No Due Certificate is left for the employee to sign.
               </p>
 
               {docError ? (
@@ -590,6 +594,8 @@ export function InactiveEmployeesPage() {
                 </button>
               </div>
             </div>
+
+            <EmailExitDocuments key={selected.id} employee={selected} />
           </div>
         ) : null}
       </Drawer>
@@ -602,6 +608,137 @@ function DetailField({ label, value, className = "" }) {
     <div className={className}>
       <dt className="text-[10px] uppercase tracking-wide text-gray-500">{label}</dt>
       <dd className="text-gray-900 mt-0.5">{value || "—"}</dd>
+    </div>
+  );
+}
+
+function EmailExitDocuments({ employee }) {
+  const [email, setEmail] = useState("");
+  const [lookup, setLookup] = useState("loading");
+  const [senders, setSenders] = useState([]);
+  const [senderMail, setSenderMail] = useState("");
+  const [documentKeys, setDocumentKeys] = useState(() => Object.keys(EXIT_DOCUMENT_TEMPLATES));
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchExitEmailSetup(employee.id)
+      .then(({ email: found, senders: options }) => {
+        if (cancelled) return;
+        setEmail(found);
+        setLookup(found ? "found" : "missing");
+        setSenders(options);
+        setSenderMail(options[0]?.mail || "");
+      })
+      .catch((err) => {
+        console.error(err);
+        if (!cancelled) setLookup("missing");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [employee.id]);
+
+  const toggleDocument = (key) =>
+    setDocumentKeys((keys) => (keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]));
+
+  const trimmedEmail = email.trim();
+  const canSend = !sending && lookup !== "loading" && trimmedEmail && documentKeys.length > 0;
+
+  const handleSend = async () => {
+    setSending(true);
+    try {
+      const orderedKeys = Object.keys(EXIT_DOCUMENT_TEMPLATES).filter((k) => documentKeys.includes(k));
+      const result = await emailExitDocuments({
+        employee,
+        to: trimmedEmail,
+        senderMail,
+        documentKeys: orderedKeys,
+      });
+      toast.success(
+        "Email sent",
+        `Exit documents sent to ${result?.email || trimmedEmail}${result?.from ? ` from ${result.from}` : ""}.`
+      );
+    } catch (err) {
+      console.error(err);
+      toast.error("Email not sent", err?.message || "Could not send the email.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3">
+      <p className="text-xs font-semibold text-gray-900 mb-1">Email to employee</p>
+      <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
+        The selected documents are attached. Replies go to the mailbox you send from.
+      </p>
+
+      <label className="text-[11px] text-gray-600 flex flex-col gap-0.5 mb-3">
+        From
+        {senders.length > 1 ? (
+          <TinySelect
+            value={senderMail}
+            onChange={(e) => setSenderMail(e.target.value)}
+            disabled={sending}
+            className="w-full"
+          >
+            {senders.map((s) => (
+              <option key={s.mail} value={s.mail}>
+                {s.label}
+              </option>
+            ))}
+          </TinySelect>
+        ) : (
+          <span className="h-8 flex items-center rounded-md border border-gray-200 bg-gray-50 px-2 text-[11px] text-gray-700">
+            {lookup === "loading" ? "Loading…" : senders[0]?.label || "Company mailbox"}
+          </span>
+        )}
+      </label>
+
+      <label className="text-[11px] text-gray-600 flex flex-col gap-0.5 mb-1">
+        Email address
+        <TinyInput
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder={lookup === "loading" ? "Looking up email…" : "name@example.com"}
+          disabled={lookup === "loading" || sending}
+          className="w-full"
+        />
+      </label>
+      <p className="text-[10px] text-gray-500 mb-3">
+        {lookup === "loading"
+          ? "Finding the email linked to this employee's login…"
+          : lookup === "found"
+            ? "From the employee's login. You can change it before sending."
+            : "No login email on file. Enter the employee's email address."}
+      </p>
+
+      <div className="flex flex-col gap-1.5 mb-3">
+        {Object.entries(EXIT_DOCUMENT_TEMPLATES).map(([key, template]) => (
+          <label key={key} className="inline-flex items-center gap-2 text-[11px] text-gray-700">
+            <input
+              type="checkbox"
+              checked={documentKeys.includes(key)}
+              onChange={() => toggleDocument(key)}
+              disabled={sending}
+              className="h-3.5 w-3.5 rounded border-gray-300"
+            />
+            {template.label}
+          </label>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        disabled={!canSend}
+        onClick={handleSend}
+        className="inline-flex w-full items-center justify-center gap-2 h-9 px-3 rounded-lg text-xs font-semibold border border-accent text-accent bg-white hover:bg-accent/5 disabled:opacity-50"
+      >
+        <Mail className="h-4 w-4 shrink-0" />
+        {sending ? "Sending…" : "Send Email"}
+      </button>
     </div>
   );
 }

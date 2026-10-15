@@ -147,9 +147,16 @@ export async function sendMail({
     throw httpError('Recipient email is required.', 400);
   }
 
+  const requestedSender = String(from || '').trim().toLowerCase();
+  const sendAsSender = Boolean(requestedSender) && config.allowedSenders.includes(requestedSender);
+  const mailbox = sendAsSender ? requestedSender : config.notificationEmail;
+
+  // Allowed senders send from their own mailbox, so replies reach them without a Reply-To.
   const reply = replyTo
     ? { replyTo: String(replyTo).trim(), replyToName: fromName || null }
-    : resolveReplyTo(from, config.notificationEmail);
+    : sendAsSender
+      ? { replyTo: null, replyToName: null }
+      : resolveReplyTo(from, config.notificationEmail);
 
   if (reply.replyTo && !reply.replyToName && fromName) {
     reply.replyToName = fromName;
@@ -164,12 +171,12 @@ export async function sendMail({
     replyTo: reply.replyTo,
     replyToName: reply.replyToName,
     attachments,
-    fromAddress: config.notificationEmail,
-    fromName: config.notificationName,
+    fromAddress: mailbox,
+    fromName: sendAsSender ? String(fromName || '').trim() : config.notificationName,
   });
 
   logMailInfo('graph.send.attempt', {
-    mailbox: config.notificationEmail,
+    mailbox,
     to: maskEmail(toMail),
     bccCount: payload.message.bccRecipients?.length || 0,
     subject: String(subject || '').slice(0, 120),
@@ -180,7 +187,7 @@ export async function sendMail({
   try {
     const accessToken = await fetchAccessToken(config);
     const client = await createGraphClient(async () => accessToken);
-    const sendPath = `/users/${encodeURIComponent(config.notificationEmail)}/sendMail`;
+    const sendPath = `/users/${encodeURIComponent(mailbox)}/sendMail`;
 
     await withTimeout(
       client.api(sendPath).post(payload),
@@ -189,20 +196,26 @@ export async function sendMail({
     );
 
     logMailInfo('graph.send.success', {
-      mailbox: config.notificationEmail,
+      mailbox,
       to: maskEmail(toMail),
     });
 
-    return { ok: true, messageId: null, provider: 'microsoft-graph' };
+    return { ok: true, messageId: null, provider: 'microsoft-graph', mailbox };
   } catch (err) {
     logMailError('graph.send.failed', {
-      mailbox: config.notificationEmail,
+      mailbox,
       to: maskEmail(toMail),
       status: err?.status || 502,
       message: err?.message || 'Mail delivery failed',
     });
 
     if (err.status) throw err;
+    if (sendAsSender && (err?.statusCode === 403 || err?.statusCode === 404)) {
+      throw httpError(
+        `Microsoft 365 did not allow sending as ${mailbox}. Ask IT to grant the ERP mail app access to this mailbox.`,
+        502
+      );
+    }
     throw httpError(err?.message || 'Mail delivery failed.', 502);
   }
 }

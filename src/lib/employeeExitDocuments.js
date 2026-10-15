@@ -5,6 +5,7 @@
 import PizZip from "pizzip";
 import { saveAs } from "file-saver";
 import { normalizeToIsoDate } from "../utils/dateDisplay";
+import { applyLetterhead, loadLetterheadAssets } from "./exitDocumentLetterhead";
 
 const WT_RE = /<w:t(?: xml:space="preserve")?>([^<]*)<\/w:t>/g;
 
@@ -67,20 +68,24 @@ const MONTH_NAMES = [
 ];
 
 export const EXIT_DOCUMENT_TEMPLATES = {
+  // No Due Certificate is the employee's own declaration, so it carries no company signature.
   noDueCertificate: {
     path: "/templates/employee-exit/no-due-certificate.docx",
     label: "No Due Certificate",
     fileSuffix: "No Due Certificate",
+    signed: false,
   },
   experienceLetter: {
     path: "/templates/employee-exit/experience-letter.docx",
     label: "Experience Letter",
     fileSuffix: "Experience Letter",
+    signed: true,
   },
   relievingLetter: {
     path: "/templates/employee-exit/relieving-letter.docx",
     label: "Relieving Letter",
     fileSuffix: "Relieving Letter",
+    signed: true,
   },
 };
 
@@ -388,14 +393,18 @@ export function sanitizeFileNamePart(value) {
     .slice(0, 120);
 }
 
-export async function generateExitDocument(documentKey, employee, options = {}) {
+/** Builds a filled exit document on the letterhead without downloading it. */
+export async function buildExitDocument(documentKey, employee, options = {}) {
   const template = EXIT_DOCUMENT_TEMPLATES[documentKey];
   const buildReplacements = REPLACEMENT_BUILDERS[documentKey];
   if (!template || !buildReplacements) {
     throw new Error("Unknown document type.");
   }
 
-  const buffer = await fetchTemplateArrayBuffer(template.path);
+  const [buffer, letterhead] = await Promise.all([
+    fetchTemplateArrayBuffer(template.path),
+    loadLetterheadAssets(),
+  ]);
   const zip = new PizZip(buffer);
   const documentXml = zip.file("word/document.xml")?.asText();
   if (!documentXml) {
@@ -405,6 +414,7 @@ export async function generateExitDocument(documentKey, employee, options = {}) 
   const replacements = buildReplacements(employee, options);
   const updatedXml = ensureTableRowsCanGrow(replaceWtNodeTexts(documentXml, replacements));
   zip.file("word/document.xml", updatedXml);
+  applyLetterhead(zip, letterhead, { sign: template.signed });
 
   const blob = zip.generate({
     type: "blob",
@@ -414,8 +424,12 @@ export async function generateExitDocument(documentKey, employee, options = {}) 
 
   const employeeName = sanitizeFileNamePart(employee?.full_name);
   const fileName = `${employeeName} - ${template.fileSuffix}.docx`;
-  saveAs(blob, fileName);
+  return { blob, fileName, label: template.label };
+}
 
+export async function generateExitDocument(documentKey, employee, options = {}) {
+  const { blob, fileName } = await buildExitDocument(documentKey, employee, options);
+  saveAs(blob, fileName);
   return fileName;
 }
 

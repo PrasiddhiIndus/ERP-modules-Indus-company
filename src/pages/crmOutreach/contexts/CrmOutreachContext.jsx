@@ -36,6 +36,7 @@ export function CrmOutreachProvider({ children }) {
   const [clients, setClients] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [senders, setSenders] = useState([]);
+  const [senderAccess, setSenderAccess] = useState({ personalSenders: [], restrictedSenders: [] });
   const [campaigns, setCampaigns] = useState([]);
   const [stats, setStats] = useState({ total: 0, active: 0, modules: 0, mails30d: 0 });
   const [loading, setLoading] = useState(true);
@@ -60,6 +61,7 @@ export function CrmOutreachProvider({ children }) {
     setClients(snapshot.clients || []);
     setTemplates(snapshot.templates || []);
     setSenders(snapshot.senders || []);
+    if (snapshot.senderAccess) setSenderAccess(snapshot.senderAccess);
     setCampaigns(snapshot.campaigns || []);
     setStats(snapshot.stats || { total: 0, active: 0, modules: 0, mails30d: 0 });
   }, []);
@@ -88,9 +90,16 @@ export function CrmOutreachProvider({ children }) {
     [senders]
   );
 
-  const verifiedSenders = useMemo(
-    () => senders.filter((s) => s.status === 'Verified'),
-    [senders]
+  const verifiedSenders = useMemo(() => {
+    const restricted = new Set(senderAccess.restrictedSenders.map((m) => String(m).toLowerCase()));
+    return senders.filter(
+      (s) => s.status === 'Verified' && !restricted.has(String(s.mail || '').toLowerCase())
+    );
+  }, [senders, senderAccess]);
+
+  const personalSenders = useMemo(
+    () => new Set(senderAccess.personalSenders.map((m) => String(m).toLowerCase())),
+    [senderAccess]
   );
 
   const counts = useMemo(
@@ -222,6 +231,7 @@ export function CrmOutreachProvider({ children }) {
       error,
       activeSenders,
       verifiedSenders,
+      personalSenders,
       counts,
       refresh,
       reloadClients,
@@ -262,6 +272,7 @@ export function CrmOutreachProvider({ children }) {
       error,
       activeSenders,
       verifiedSenders,
+      personalSenders,
       counts,
       refresh,
       reloadClients,
