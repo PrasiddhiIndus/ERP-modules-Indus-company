@@ -46,6 +46,7 @@ import {
 } from './crmInHouseMailApi.js';
 import { registerAdminRecruitmentRoutes, startAdminRecruitmentAutomation } from './adminRecruitmentApi.js';
 import { startPayrollMisAlerts } from './payrollMisAlerts.js';
+import { startProbationReviewReminders } from './probationReviewReminders.js';
 import { canEmailCtcDetails, resolveCtcEmailRecipient, sendCtcDetailsEmail } from './salaryCtcEmailApi.js';
 import {
   listExitEmailSenders,
@@ -2797,6 +2798,10 @@ const httpServer = app.listen(PORT, '0.0.0.0', () => {
     getServiceKey: getSupabaseServiceRoleKeyForServer,
   });
   startPayrollMisAlerts({
+    getSupabaseUrl: getSupabaseUrlForServer,
+    getServiceKey: getSupabaseServiceRoleKeyForServer,
+  });
+  startProbationReviewReminders({
     getSupabaseUrl: getSupabaseUrlForServer,
     getServiceKey: getSupabaseServiceRoleKeyForServer,
   });

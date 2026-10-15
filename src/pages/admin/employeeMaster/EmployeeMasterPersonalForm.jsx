@@ -43,9 +43,14 @@ import {
 
 const ATTENDANCE_FLAG_FIELDS = [
   {
-    key: 'has_weekly_off',
-    label: 'Has weekly off',
-    help: 'Untick for staff who work every day: no WO is filled in and Sundays / 3rd Saturdays are working days.',
+    key: 'sunday_off',
+    label: 'Sunday off',
+    help: 'Untick for staff who work Sundays: no WO is filled in and Sunday is a normal working day.',
+  },
+  {
+    key: 'third_saturday_off',
+    label: '3rd Saturday off',
+    help: 'Untick for staff who work the 3rd Saturday: no WO is filled in and it is a normal working day.',
   },
   {
     key: 'earns_co',
@@ -751,7 +756,7 @@ export default function EmployeeMasterPersonalForm({
           </p>
         ) : (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-x-3 gap-y-2">
               {ATTENDANCE_FLAG_FIELDS.map((field) => (
                 <label key={field.key} className="flex items-start gap-2 text-xs text-gray-700">
                   <input
