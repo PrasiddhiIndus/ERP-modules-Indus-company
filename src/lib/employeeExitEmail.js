@@ -43,6 +43,13 @@ export async function emailExitDocuments({ employee, to, senderMail, documentKey
     body: JSON.stringify({ employeeId: employee.id, to, senderMail: senderMail || undefined, attachments }),
     timeoutMs: 120_000,
   });
-  if (!res.ok) throw new Error(res.error || "Could not send the email.");
+  if (!res.ok) {
+    if (res.status === 413) {
+      throw new Error(
+        "The documents are too large for the server to accept. Try fewer documents, or ask IT to raise the API upload size limit."
+      );
+    }
+    throw new Error(res.error || "Could not send the email.");
+  }
   return res.data;
 }
