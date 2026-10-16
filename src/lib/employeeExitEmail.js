@@ -2,6 +2,8 @@
  * Email exit documents to an Inactive / Left employee. Documents are built in the
  * browser (same content as the download), attached as PDF, and sent from the
  * company mailbox by the API.
+ *
+ * PDFs are staged one-at-a-time (avoids nginx 1mb 413), then sent in a single email.
  */
 import { fetchApiWithAuth } from "./apiBase";
 import { buildExitDocument } from "./employeeExitDocuments";
@@ -34,31 +36,26 @@ export async function fetchExitEmailSetup(employeeId) {
 
 function exitEmailTooLargeMessage(status) {
   if (status === 413) {
-    return "The email is too large for the server upload limit. Try again after the latest update, or ask IT to set client_max_body_size 35m on /api/.";
+    return "The documents are too large to send in one email. Try fewer documents, or ask IT to review upload/mail size limits.";
   }
   return null;
 }
 
-async function postExitEmail({ employeeId, to, senderMail, attachments }) {
-  const res = await fetchApiWithAuth("/api/admin/employee-exit/email", {
+async function stageExitAttachment({ fileName, label, base64 }) {
+  const res = await fetchApiWithAuth("/api/admin/employee-exit/email/attachment", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      employeeId,
-      to,
-      senderMail: senderMail || undefined,
-      attachments,
-    }),
+    body: JSON.stringify({ fileName, label, base64 }),
     timeoutMs: 120_000,
   });
   if (!res.ok) {
     throw new Error(
-      exitEmailTooLargeMessage(res.status) ||
-        res.error ||
-        "Could not send the email."
+      exitEmailTooLargeMessage(res.status) || res.error || "Could not upload a document for email."
     );
   }
-  return res.data || {};
+  const id = res.data?.id;
+  if (!id) throw new Error("Could not upload a document for email.");
+  return id;
 }
 
 /** @param {{ employee: object, to: string, senderMail?: string, documentKeys: string[] }} p */
@@ -66,11 +63,8 @@ export async function emailExitDocuments({ employee, to, senderMail, documentKey
   const keys = Array.isArray(documentKeys) ? documentKeys : [];
   if (!keys.length) throw new Error("Select at least one document to send.");
 
-  let last = null;
-  let sent = 0;
-  let messages = 0;
-
-  // One attachment per API call — avoids production nginx 413 (1mb default) and Graph 3MB caps.
+  // Stage each PDF in a small request (nginx-safe), then send once with all attachments.
+  const attachmentIds = [];
   for (const key of keys) {
     const { blob, fileName, label } = await buildExitDocument(key, employee);
     const pdf = await exitDocumentDocxToPdf(blob, {
@@ -78,21 +72,27 @@ export async function emailExitDocuments({ employee, to, senderMail, documentKey
       maxBytes: EXIT_EMAIL_NGINX_SAFE_PDF_BYTES,
     });
     const base64 = await blobToBase64(pdf);
-    last = await postExitEmail({
-      employeeId: employee.id,
-      to,
-      senderMail,
-      attachments: [{ fileName: fileName.replace(/\.docx$/i, ".pdf"), label, base64 }],
+    const id = await stageExitAttachment({
+      fileName: fileName.replace(/\.docx$/i, ".pdf"),
+      label,
+      base64,
     });
-    sent += Number(last.sent) || 1;
-    messages += Number(last.messages) || 1;
+    attachmentIds.push(id);
   }
 
-  return {
-    ...(last || {}),
-    ok: true,
-    email: last?.email || to,
-    sent,
-    messages,
-  };
+  const res = await fetchApiWithAuth("/api/admin/employee-exit/email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      employeeId: employee.id,
+      to,
+      senderMail: senderMail || undefined,
+      attachmentIds,
+    }),
+    timeoutMs: 120_000,
+  });
+  if (!res.ok) {
+    throw new Error(exitEmailTooLargeMessage(res.status) || res.error || "Could not send the email.");
+  }
+  return res.data || {};
 }
