@@ -12,12 +12,11 @@ export function hasFleetModuleAccess(accessibleModules, profile = null, userMeta
 
 /**
  * Who receives fleet document-dues bell + once-per-day popup:
- * admins, or users with fleet management access — never super admins.
+ * only users with Fleet Management access — never super admins.
  */
 export function canReceiveFleetDueNotifications(accessibleModules, profile = null, userMetadata = null) {
   const role = normalizeAppRole(profile?.role);
   if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) return false;
-  if (role === ROLES.ADMIN) return true;
   return hasFleetModuleAccess(accessibleModules, profile, userMetadata);
 }
 

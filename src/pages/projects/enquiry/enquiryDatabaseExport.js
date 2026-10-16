@@ -46,7 +46,7 @@ const TABLE_COLUMN_MIN_WIDTHS = {
 };
 
 /** Computed "Days left" column shown in the register (not a stored field). */
-export const DAYS_LEFT_COLUMN_WIDTH = 112;
+export const DAYS_LEFT_COLUMN_WIDTH = 148;
 
 function columnWidth(field) {
   const key = field?.field_key;

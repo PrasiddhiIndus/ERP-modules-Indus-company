@@ -609,8 +609,12 @@ export default function EnquiryDatabase() {
                             </th>
                             {col.field_key === 'target_date' && (
                               <th
-                                style={{ width: DAYS_LEFT_COLUMN_WIDTH, minWidth: DAYS_LEFT_COLUMN_WIDTH }}
-                                className="font-bold text-black border-b border-r border-gray-200 bg-info-soft whitespace-normal leading-[1.15] text-center px-2 py-2.5 align-middle"
+                                style={{
+                                  width: DAYS_LEFT_COLUMN_WIDTH,
+                                  minWidth: DAYS_LEFT_COLUMN_WIDTH,
+                                  maxWidth: DAYS_LEFT_COLUMN_WIDTH,
+                                }}
+                                className="font-bold text-black border-b border-r border-gray-200 bg-info-soft whitespace-normal leading-[1.15] text-center px-1.5 py-2.5 align-middle"
                               >
                                 <button
                                   type="button"
@@ -682,11 +686,16 @@ export default function EnquiryDatabase() {
                               </td>
                               {col.field_key === 'target_date' && (
                                 <td
-                                  style={{ width: DAYS_LEFT_COLUMN_WIDTH, backgroundColor: bg }}
-                                  className="py-2 px-2 align-top text-center border-r border-black/5"
+                                  style={{
+                                    width: DAYS_LEFT_COLUMN_WIDTH,
+                                    minWidth: DAYS_LEFT_COLUMN_WIDTH,
+                                    maxWidth: DAYS_LEFT_COLUMN_WIDTH,
+                                    backgroundColor: bg,
+                                  }}
+                                  className="py-2 px-1.5 align-middle border-r border-black/5"
                                 >
                                   <span
-                                    className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap ${daysLeft.className}`}
+                                    className={`flex w-full items-center justify-center rounded-full px-1.5 py-1 text-[11px] font-semibold leading-tight text-center ${daysLeft.className}`}
                                     title={daysLeft.title}
                                   >
                                     {daysLeft.label}
