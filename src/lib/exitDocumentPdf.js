@@ -11,11 +11,13 @@ import { letterheadLayout, loadLetterheadAssets } from "./exitDocumentLetterhead
 
 /** Word points → CSS pixels at 96dpi (docx-preview’s coordinate system). */
 const CSS_PX_PER_PT = 96 / 72;
-const CAPTURE_SCALE = 2.5;
+/** Keep email PDFs sharp but small enough for production body limits (3× base64). */
+const CAPTURE_SCALE = 2;
+const JPEG_QUALITY = 0.84;
 const DEFAULT_PAGE_W_PT = 612; // US Letter (exit templates)
 const DEFAULT_PAGE_H_PT = 792;
-/** Stay under the exit-email attachment limit (2MB) with headroom. */
-const MAX_PDF_BYTES = 1.8 * 1024 * 1024;
+/** Soft cap per PDF so three attachments fit under API/nginx body limits. */
+const MAX_PDF_BYTES = 900 * 1024;
 /** No Due Certificate table column widths from the Word template (twips → pt). */
 const NO_DUE_COL_WIDTHS_PT = [3397 / 20, 5845 / 20];
 
@@ -238,14 +240,20 @@ function lockSectionToWordPage(section, pageWPt, pageHPt, marginPt) {
   return { pageWPx, pageHPx };
 }
 
-function canvasToImageData(pageCanvas) {
-  const png = pageCanvas.toDataURL("image/png");
-  // Rough size check from base64 length; fall back to high-quality JPEG if too heavy.
-  const approxBytes = Math.floor((png.length - "data:image/png;base64,".length) * 0.75);
-  if (approxBytes <= MAX_PDF_BYTES / 2) {
-    return { dataUrl: png, format: "PNG" };
+function canvasToImageData(pageCanvas, quality = JPEG_QUALITY) {
+  // JPEG keeps email payloads under production 413 limits; PNG was too large for 3 docs.
+  return { dataUrl: pageCanvas.toDataURL("image/jpeg", quality), format: "JPEG" };
+}
+
+/** If a PDF is still oversized, rebuild page images at a lower JPEG quality. */
+async function shrinkPdfBlobIfNeeded(buildAtQuality) {
+  let quality = JPEG_QUALITY;
+  let blob = await buildAtQuality(quality);
+  while (blob.size > MAX_PDF_BYTES && quality > 0.55) {
+    quality = Math.max(0.55, quality - 0.12);
+    blob = await buildAtQuality(quality);
   }
-  return { dataUrl: pageCanvas.toDataURL("image/jpeg", 0.95), format: "JPEG" };
+  return blob;
 }
 
 /**
@@ -299,7 +307,8 @@ export async function exitDocumentDocxToPdf(docxBlob, options = {}) {
     if (!sections.length) throw new Error("Could not prepare the PDF.");
 
     const orientation = pageWPt > pageHPt ? "landscape" : "portrait";
-    let pdf = null;
+    /** @type {{ canvas: HTMLCanvasElement, pageWPx: number, pageHPx: number }[]} */
+    const pageCaptures = [];
 
     for (const section of sections) {
       const { pageWPx, pageHPx } = lockSectionToWordPage(section, pageWPt, pageHPt, marginPt);
@@ -346,18 +355,21 @@ export async function exitDocumentDocxToPdf(docxBlob, options = {}) {
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, page.width, page.height);
         ctx.drawImage(canvas, 0, offset, canvas.width, height, 0, 0, canvas.width, height);
-
-        if (!pdf) pdf = new jsPDF({ unit: "pt", format: [pageWPt, pageHPt], orientation, compress: true });
-        else pdf.addPage([pageWPt, pageHPt], orientation);
-
-        const { dataUrl, format } = canvasToImageData(page);
-        // Always place into the full Word page box — never stretch to a different size.
-        pdf.addImage(dataUrl, format, 0, 0, pageWPt, pageHPt, undefined, "FAST");
-        drawLetterhead(pdf, assets, pageWPt, pageHPt);
+        pageCaptures.push({ canvas: page, pageWPx, pageHPx });
       }
     }
 
-    return pdf.output("blob");
+    return shrinkPdfBlobIfNeeded(async (quality) => {
+      let pdf = null;
+      for (const { canvas: page } of pageCaptures) {
+        if (!pdf) pdf = new jsPDF({ unit: "pt", format: [pageWPt, pageHPt], orientation, compress: true });
+        else pdf.addPage([pageWPt, pageHPt], orientation);
+        const { dataUrl, format } = canvasToImageData(page, quality);
+        pdf.addImage(dataUrl, format, 0, 0, pageWPt, pageHPt, undefined, "FAST");
+        drawLetterhead(pdf, assets, pageWPt, pageHPt);
+      }
+      return pdf.output("blob");
+    });
   } finally {
     host.remove();
     styleHost.remove();
