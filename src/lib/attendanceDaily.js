@@ -1536,7 +1536,10 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
     if (!empCode || !mark || !reqFrom || !reqTo) continue;
     const windowFrom = reqFrom < fromDate ? fromDate : reqFrom;
     const windowTo = reqTo > toDate ? toDate : reqTo;
-    for (const iso of enumerateLeaveDatesWithSandwich(reqFrom, reqTo)) {
+    for (const iso of enumerateLeaveDatesWithSandwich(reqFrom, reqTo, {
+      halfDay: isHalfDayLeaveRequest(req),
+      days: req.days,
+    })) {
       if (iso < windowFrom || iso > windowTo) continue;
       const day = dayOfMonthFromIsoDate(iso);
       if (day && marks[empCode]?.[day]) continue;
@@ -3895,21 +3898,34 @@ export function enumerateDates(fromDate, toDate) {
 
 /**
  * Leave attendance dates mirroring DB sandwich policy (within-request):
- * include all non-Sunday days, plus Sundays strictly between the first and last
- * leave working day. Explicit Saturday WO conversion is handled in DB when the
- * register already has WO; this fallback covers the common auto-WO Sunday case.
+ * include all non-weekoff days, plus weekoffs strictly between the first and last
+ * leave working day — unless either side is a half-day leave (no sandwich).
+ * Explicit Saturday WO conversion and adjacent blocks are handled in DB; this
+ * fallback covers the common auto-WO Sunday case for full-day leave.
+ *
+ * @param {string} fromDate
+ * @param {string} toDate
+ * @param {{ halfDay?: boolean }} [options] halfDay true when request.days === 0.5
  */
-export function enumerateLeaveDatesWithSandwich(fromDate, toDate) {
+export function enumerateLeaveDatesWithSandwich(fromDate, toDate, options = {}) {
   const all = enumerateDates(fromDate, toDate);
   if (!all.length) return [];
+  const halfDay = Boolean(options?.halfDay) || Number(options?.days) === 0.5;
   const anchors = all.filter((iso) => !isDefaultWeekoffDate(iso));
   if (!anchors.length) return [];
+  // Half-day leave never sandwiches a week-off (matches admin_leave_working_dates).
+  if (halfDay) return anchors;
   const amin = anchors[0];
   const amax = anchors[anchors.length - 1];
   return all.filter((iso) => {
     if (!isDefaultWeekoffDate(iso)) return true;
     return iso > amin && iso < amax;
   });
+}
+
+/** True when an approved leave request is half-day (days = 0.5). */
+export function isHalfDayLeaveRequest(req) {
+  return Number(req?.days) === 0.5;
 }
 
 export function comparePunchInStatus(punchIn, expectedIn, graceMinutes = 0) {
