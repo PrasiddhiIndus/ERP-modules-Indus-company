@@ -123,6 +123,18 @@ function resolveReplyTo(from, notificationEmail) {
   return { replyTo: sender, replyToName: null };
 }
 
+/** True when Graph rejected the send because the message/attachments exceed ~3MB. */
+export function isGraphMessageTooLargeError(graphStatus, graphCode, graphMessage) {
+  const status = Number(graphStatus) || 0;
+  const text = `${graphCode || ''} ${graphMessage || ''}`;
+  return (
+    status === 413 ||
+    /RequestEntityTooLarge|ErrorMessageSizeExceeded|ErrorAttachmentSizeLimitExceeded|message.?size|too large|Request Body too large/i.test(
+      text
+    )
+  );
+}
+
 /**
  * Send one message via Microsoft Graph (application permissions + dedicated mailbox).
  */
@@ -236,6 +248,16 @@ export async function sendMail({
       denied.mailbox = mailbox;
       throw denied;
     }
+
+    if (isGraphMessageTooLargeError(graphStatus, graphCode, graphMessage)) {
+      const sizeErr = httpError(
+        'The email attachments are too large for Microsoft 365 to send in one message.',
+        413
+      );
+      sizeErr.code = 'MAIL_MESSAGE_TOO_LARGE';
+      throw sizeErr;
+    }
+
     throw httpError(graphMessage || 'Mail delivery failed.', 502);
   }
 }

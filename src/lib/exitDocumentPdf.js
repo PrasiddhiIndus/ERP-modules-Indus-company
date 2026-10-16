@@ -16,8 +16,11 @@ const CAPTURE_SCALE = 2;
 const JPEG_QUALITY = 0.84;
 const DEFAULT_PAGE_W_PT = 612; // US Letter (exit templates)
 const DEFAULT_PAGE_H_PT = 792;
-/** Soft cap per PDF; server allows 5MB each / 15MB total (with buffer). */
-const MAX_PDF_BYTES = 4 * 1024 * 1024;
+/**
+ * Default soft cap per PDF. Microsoft Graph simple sendMail rejects messages over ~3MB,
+ * so callers should pass a tighter maxBytes when sending multiple attachments.
+ */
+const MAX_PDF_BYTES = 850 * 1024;
 /** No Due Certificate table column widths from the Word template (twips → pt). */
 const NO_DUE_COL_WIDTHS_PT = [3397 / 20, 5845 / 20];
 
@@ -246,11 +249,11 @@ function canvasToImageData(pageCanvas, quality = JPEG_QUALITY) {
 }
 
 /** If a PDF is still oversized, rebuild page images at a lower JPEG quality. */
-async function shrinkPdfBlobIfNeeded(buildAtQuality) {
+async function shrinkPdfBlobIfNeeded(buildAtQuality, maxBytes) {
   let quality = JPEG_QUALITY;
   let blob = await buildAtQuality(quality);
-  while (blob.size > MAX_PDF_BYTES && quality > 0.55) {
-    quality = Math.max(0.55, quality - 0.12);
+  while (blob.size > maxBytes && quality > 0.45) {
+    quality = Math.max(0.45, quality - 0.1);
     blob = await buildAtQuality(quality);
   }
   return blob;
@@ -258,11 +261,12 @@ async function shrinkPdfBlobIfNeeded(buildAtQuality) {
 
 /**
  * @param {Blob} docxBlob Word file from buildExitDocument (letterhead already applied).
- * @param {{ documentKey?: string }} [options]
+ * @param {{ documentKey?: string, maxBytes?: number }} [options]
  * @returns {Promise<Blob>}
  */
 export async function exitDocumentDocxToPdf(docxBlob, options = {}) {
   const documentKey = String(options.documentKey || "");
+  const maxBytes = Math.max(200 * 1024, Number(options.maxBytes) || MAX_PDF_BYTES);
   const docxBuffer = await docxBlob.arrayBuffer();
   const zip = new PizZip(docxBuffer);
   const documentXml = zip.file("word/document.xml")?.asText() || "";
@@ -369,7 +373,7 @@ export async function exitDocumentDocxToPdf(docxBlob, options = {}) {
         drawLetterhead(pdf, assets, pageWPt, pageHPt);
       }
       return pdf.output("blob");
-    });
+    }, maxBytes);
   } finally {
     host.remove();
     styleHost.remove();
