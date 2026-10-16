@@ -52,6 +52,7 @@ import {
   listExitEmailSenders,
   resolveExitEmailRecipient,
   sendExitDocumentsEmail,
+  stageExitEmailAttachment,
 } from './employeeExitEmailApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1747,6 +1748,21 @@ app.get('/api/admin/employee-exit/email/recipient', requireHrOrAdmin, async (req
   }
 });
 
+/** Stage one PDF (under nginx 1mb). Final /email call sends all staged files in one message. */
+app.post('/api/admin/employee-exit/email/attachment', einvoiceRateLimit, requireHrOrAdmin, async (req, res) => {
+  try {
+    const result = stageExitEmailAttachment({
+      base64: req.body?.base64,
+      fileName: req.body?.fileName,
+      label: req.body?.label,
+      userEmails: userEmailsFromRequest(req),
+    });
+    return res.json(result);
+  } catch (err) {
+    return sendExitEmailError(res, err, 'Could not upload the document.');
+  }
+});
+
 app.post('/api/admin/employee-exit/email', einvoiceRateLimit, requireHrOrAdmin, async (req, res) => {
   try {
     const result = await sendExitDocumentsEmail({
@@ -1754,6 +1770,7 @@ app.post('/api/admin/employee-exit/email', einvoiceRateLimit, requireHrOrAdmin, 
       employeeMasterId: req.body?.employeeId,
       to: req.body?.to,
       attachments: req.body?.attachments,
+      attachmentIds: req.body?.attachmentIds,
       senderMail: req.body?.senderMail,
       userEmails: userEmailsFromRequest(req),
       senderEmail: req.profile?.email || req.user?.email || null,

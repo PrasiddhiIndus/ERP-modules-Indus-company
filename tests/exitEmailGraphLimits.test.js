@@ -24,7 +24,7 @@ describe('exit email Graph / nginx size limits (production)', () => {
   });
 
   it('keeps a single exit PDF request under nginx’s default 1mb body limit', () => {
-    expect(EXIT_EMAIL_NGINX_SAFE_PDF_BYTES).toBeLessThanOrEqual(520 * 1024);
+    expect(EXIT_EMAIL_NGINX_SAFE_PDF_BYTES).toBeLessThanOrEqual(680 * 1024);
     const jsonOverhead = 2 * 1024; // employeeId, to, senderMail, filenames
     const base64Bytes = Math.ceil(EXIT_EMAIL_NGINX_SAFE_PDF_BYTES * (4 / 3));
     expect(base64Bytes + jsonOverhead).toBeLessThan(NGINX_DEFAULT_BODY_BYTES);
