@@ -11,15 +11,15 @@ import { letterheadLayout, loadLetterheadAssets } from "./exitDocumentLetterhead
 
 /** Word points → CSS pixels at 96dpi (docx-preview’s coordinate system). */
 const CSS_PX_PER_PT = 96 / 72;
-/** Keep email PDFs sharp but small enough for nginx 1mb + Graph limits (base64 expands ~33%). */
-const CAPTURE_SCALE = 1.75;
-const JPEG_QUALITY = 0.78;
+/** High-fidelity capture; size is controlled afterward (JPEG ladder / nginx-safe maxBytes). */
+const CAPTURE_SCALE = 2.5;
+const JPEG_QUALITY = 0.92;
 const DEFAULT_PAGE_W_PT = 612; // US Letter (exit templates)
 const DEFAULT_PAGE_H_PT = 792;
 /**
  * Default soft cap per PDF. Exit email sends one PDF per request under nginx’s 1mb default.
  */
-const MAX_PDF_BYTES = 520 * 1024;
+const MAX_PDF_BYTES = 680 * 1024;
 /** No Due Certificate table column widths from the Word template (twips → pt). */
 const NO_DUE_COL_WIDTHS_PT = [3397 / 20, 5845 / 20];
 
@@ -100,12 +100,11 @@ function replaceNoDueCertificateTable(root, rows) {
     "max-width:100%",
     "border-collapse:collapse",
     "border-spacing:0",
-    "margin-left:auto",
-    "margin-right:auto",
+    "margin:12pt auto",
     "table-layout:fixed",
     "font-family:'Times New Roman',Times,serif",
     "font-size:12pt",
-    "line-height:normal",
+    "line-height:1.35",
     "color:#000000",
     "background:#ffffff",
   ].join(";");
@@ -124,22 +123,35 @@ function replaceNoDueCertificateTable(root, rows) {
     cells.forEach((cellHtml, index) => {
       const td = document.createElement("td");
       // Real borders only — inset box-shadow fills cells black in html2canvas.
+      // Cell padding mirrors Word default tblCellMar (~0 top/bottom, 5.4pt sides).
       td.style.cssText = [
         "border:1px solid #000000",
-        "padding:4pt 6pt",
+        "padding:6pt 5.4pt",
         "vertical-align:middle",
         "text-align:center",
         "height:auto",
-        "min-height:22pt",
+        "min-height:24pt",
         "overflow:visible",
-        "word-wrap:break-word",
-        "overflow-wrap:break-word",
+        // Wrap between words only — never split "leaving" as "leavi" / "ng".
+        "word-break:normal",
+        "overflow-wrap:normal",
+        "word-wrap:normal",
+        "hyphens:none",
+        "white-space:normal",
         "background-color:#ffffff",
         "color:#000000",
         "box-shadow:none",
         index === 0 ? `width:${NO_DUE_COL_WIDTHS_PT[0]}pt` : `width:${NO_DUE_COL_WIDTHS_PT[1]}pt`,
       ].join(";");
-      td.innerHTML = cellHtml || "&nbsp;";
+      // Long label: break between words for html2canvas (avoids mid-word "leavi"/"ng").
+      let html = cellHtml || "&nbsp;";
+      if (index === 0) {
+        html = html.replace(
+          /Designation at the time of leaving the job/gi,
+          "Designation at the time of<br>leaving the job"
+        );
+      }
+      td.innerHTML = html;
       tr.appendChild(td);
     });
     table.appendChild(tr);
@@ -186,15 +198,48 @@ function preserveWordBlankParagraphSpacing(root) {
     const style = window.getComputedStyle(p);
     const lineHeight = style.lineHeight;
     const fontSizePx = parseFloat(style.fontSize) || 16;
+    // Exit templates commonly use 1.5 line spacing (w:line=360).
     const minPx =
       lineHeight && lineHeight !== "normal" && !Number.isNaN(parseFloat(lineHeight))
         ? parseFloat(lineHeight)
-        : fontSizePx * 1.15;
+        : fontSizePx * 1.5;
 
     p.style.minHeight = `${minPx}px`;
     p.style.marginTop = style.marginTop;
     p.style.marginBottom = style.marginBottom;
     if (!p.innerHTML.trim()) p.innerHTML = "&nbsp;";
+  }
+}
+
+/**
+ * Tighten typography for all exit letters: even spacing, alignment, and padding
+ * without overriding Word’s own alignment/indent classes from docx-preview.
+ */
+function polishExitLetterTypography(root) {
+  for (const section of root.querySelectorAll("section.exit-doc-pdf")) {
+    section.style.textRendering = "geometricPrecision";
+    section.style.webkitFontSmoothing = "antialiased";
+    section.style.mozOsxFontSmoothing = "grayscale";
+  }
+
+  for (const p of root.querySelectorAll("section.exit-doc-pdf p")) {
+    const style = window.getComputedStyle(p);
+    const fontSizePx = parseFloat(style.fontSize) || 16;
+    const lh = style.lineHeight;
+    // Normalize broken/missing line-heights to Word-like 1.5; keep explicit preview values.
+    if (!lh || lh === "normal" || lh === "0px") {
+      p.style.lineHeight = "1.5";
+    } else if (!Number.isNaN(parseFloat(lh)) && parseFloat(lh) < fontSizePx) {
+      p.style.lineHeight = "1.5";
+    }
+    p.style.letterSpacing = "normal";
+    p.style.wordSpacing = "normal";
+  }
+
+  for (const img of root.querySelectorAll("section.exit-doc-pdf img")) {
+    img.style.maxWidth = "100%";
+    img.style.height = "auto";
+    img.style.verticalAlign = "middle";
   }
 }
 
@@ -243,16 +288,22 @@ function lockSectionToWordPage(section, pageWPt, pageHPt, marginPt) {
 }
 
 function canvasToImageData(pageCanvas, quality = JPEG_QUALITY) {
-  // JPEG keeps email payloads under production 413 limits; PNG was too large for 3 docs.
+  // Prefer PNG for crisp text when quality is max; otherwise high-quality JPEG.
+  if (quality >= 0.95) {
+    return { dataUrl: pageCanvas.toDataURL("image/png"), format: "PNG" };
+  }
   return { dataUrl: pageCanvas.toDataURL("image/jpeg", quality), format: "JPEG" };
 }
 
-/** If a PDF is still oversized, rebuild page images at a lower JPEG quality. */
+/** Start sharp; only step JPEG quality down if the blob exceeds the send-size cap. */
 async function shrinkPdfBlobIfNeeded(buildAtQuality, maxBytes) {
-  let quality = JPEG_QUALITY;
+  let quality = Math.max(JPEG_QUALITY, 0.95);
   let blob = await buildAtQuality(quality);
-  while (blob.size > maxBytes && quality > 0.45) {
-    quality = Math.max(0.45, quality - 0.1);
+  if (blob.size <= maxBytes) return blob;
+  quality = JPEG_QUALITY;
+  blob = await buildAtQuality(quality);
+  while (blob.size > maxBytes && quality > 0.55) {
+    quality = Math.max(0.55, quality - 0.08);
     blob = await buildAtQuality(quality);
   }
   return blob;
@@ -304,6 +355,7 @@ export async function exitDocumentDocxToPdf(docxBlob, options = {}) {
     await waitForImages(host);
     if (document.fonts?.ready) await document.fonts.ready;
     preserveWordBlankParagraphSpacing(host);
+    polishExitLetterTypography(host);
     if (noDueTableRows) replaceNoDueCertificateTable(host, noDueTableRows);
 
     const sections = [...host.querySelectorAll("section.exit-doc-pdf")];
@@ -322,6 +374,8 @@ export async function exitDocumentDocxToPdf(docxBlob, options = {}) {
         useCORS: true,
         backgroundColor: "#ffffff",
         logging: false,
+        // Per-glyph layout — avoids irregular letter spacing in body text.
+        letterRendering: true,
         imageTimeout: 15_000,
         onclone(_doc, cloned) {
           cloned.style.boxShadow = "none";
@@ -335,12 +389,19 @@ export async function exitDocumentDocxToPdf(docxBlob, options = {}) {
           cloned.style.paddingBottom = `${marginPt.bottom * CSS_PX_PER_PT}px`;
           cloned.style.paddingLeft = `${marginPt.left * CSS_PX_PER_PT}px`;
           preserveWordBlankParagraphSpacing(cloned);
+          polishExitLetterTypography(cloned);
           // Guard against preview CSS flipping the rebuilt No Due table to black fills.
           for (const td of cloned.querySelectorAll('table[data-exit-nodue-table] td')) {
             td.style.backgroundColor = "#ffffff";
             td.style.color = "#000000";
             td.style.boxShadow = "none";
             td.style.border = "1px solid #000000";
+            td.style.padding = "6pt 5.4pt";
+            td.style.verticalAlign = "middle";
+            td.style.textAlign = "center";
+            td.style.wordBreak = "normal";
+            td.style.overflowWrap = "normal";
+            td.style.hyphens = "none";
           }
         },
       });
@@ -368,7 +429,8 @@ export async function exitDocumentDocxToPdf(docxBlob, options = {}) {
         if (!pdf) pdf = new jsPDF({ unit: "pt", format: [pageWPt, pageHPt], orientation, compress: true });
         else pdf.addPage([pageWPt, pageHPt], orientation);
         const { dataUrl, format } = canvasToImageData(page, quality);
-        pdf.addImage(dataUrl, format, 0, 0, pageWPt, pageHPt, undefined, "FAST");
+        // NONE avoids extra recompression blur on already-captured page images.
+        pdf.addImage(dataUrl, format, 0, 0, pageWPt, pageHPt, undefined, "NONE");
         drawLetterhead(pdf, assets, pageWPt, pageHPt);
       }
       return pdf.output("blob");

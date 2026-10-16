@@ -13,18 +13,103 @@ import { resolveCtcEmailRecipient } from './salaryCtcEmailApi.js';
 import { listInHouseSenders } from './crmInHouseMailApi.js';
 import { isPersonalSenderMailbox, senderNotAllowedMessage } from './mail/senderAccess.js';
 
+import { randomUUID } from 'crypto';
+
 const PDF_CONTENT_TYPE = 'application/pdf';
 const MAX_ATTACHMENTS = 3;
 /** Per-PDF cap (binary). Buffer above typical exit letter PDFs. */
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 /** All attachments combined (binary), with headroom for 3 docs. */
 const MAX_TOTAL_ATTACHMENT_BYTES = 15 * 1024 * 1024;
+/** Staged uploads expire so abandoned drafts do not hold memory. */
+const STAGED_ATTACHMENT_TTL_MS = 15 * 60 * 1000;
 const INACTIVE_STATUSES = new Set(['inactive', 'left']);
+
+/** @type {Map<string, { ownerKey: string, filename: string, contentType: string, content: Buffer, label: string, expiresAt: number }>} */
+const stagedAttachments = new Map();
 
 function httpError(status, message) {
   const err = new Error(message);
   err.status = status;
   return err;
+}
+
+function purgeExpiredStagedAttachments() {
+  const now = Date.now();
+  for (const [id, row] of stagedAttachments) {
+    if (row.expiresAt <= now) stagedAttachments.delete(id);
+  }
+}
+
+function ownerKeyFromEmails(userEmails) {
+  return (Array.isArray(userEmails) ? userEmails : [])
+    .map((e) => String(e || '').trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join('|');
+}
+
+function decodeOnePdfAttachment(item, index) {
+  const content = Buffer.from(String(item?.base64 || ''), 'base64');
+  if (content.length < 5 || content.subarray(0, 5).toString('latin1') !== '%PDF-') {
+    throw httpError(400, 'One of the documents could not be prepared. Please try again.');
+  }
+  if (content.length > MAX_ATTACHMENT_BYTES) {
+    throw httpError(413, 'A document is too large to email. Try regenerating or send fewer documents.');
+  }
+  return {
+    filename: sanitizePdfName(item?.fileName, `Exit-document-${index + 1}`),
+    contentType: PDF_CONTENT_TYPE,
+    content,
+    label: String(item?.label || '').slice(0, 120),
+  };
+}
+
+/** Stage one PDF (small request) so the final send can attach all files in a single email. */
+export function stageExitEmailAttachment({ base64, fileName, label, userEmails }) {
+  purgeExpiredStagedAttachments();
+  const ownerKey = ownerKeyFromEmails(userEmails);
+  if (!ownerKey) throw httpError(401, 'Not signed in.');
+  const file = decodeOnePdfAttachment({ base64, fileName, label }, stagedAttachments.size);
+  const id = randomUUID();
+  stagedAttachments.set(id, {
+    ownerKey,
+    filename: file.filename,
+    contentType: file.contentType,
+    content: file.content,
+    label: file.label,
+    expiresAt: Date.now() + STAGED_ATTACHMENT_TTL_MS,
+  });
+  return { id, filename: file.filename, bytes: file.content.length };
+}
+
+function takeStagedAttachments(attachmentIds, userEmails) {
+  purgeExpiredStagedAttachments();
+  const ownerKey = ownerKeyFromEmails(userEmails);
+  const ids = Array.isArray(attachmentIds) ? attachmentIds.map((id) => String(id || '').trim()).filter(Boolean) : [];
+  if (!ids.length) throw httpError(400, 'Select at least one document to send.');
+  if (ids.length > MAX_ATTACHMENTS) throw httpError(400, 'Too many documents selected.');
+
+  const files = [];
+  let totalBytes = 0;
+  for (const id of ids) {
+    const row = stagedAttachments.get(id);
+    if (!row || row.ownerKey !== ownerKey) {
+      throw httpError(400, 'A document upload expired. Please send again.');
+    }
+    totalBytes += row.content.length;
+    files.push({
+      filename: row.filename,
+      contentType: row.contentType,
+      content: row.content,
+      label: row.label,
+    });
+    stagedAttachments.delete(id);
+  }
+  if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
+    throw httpError(413, 'The selected documents together are too large to email. Send fewer at a time.');
+  }
+  return files;
 }
 
 function escapeHtml(v) {
@@ -91,20 +176,9 @@ function decodeAttachments(list) {
   if (items.length > MAX_ATTACHMENTS) throw httpError(400, 'Too many documents selected.');
   let totalBytes = 0;
   const files = items.map((item, i) => {
-    const content = Buffer.from(String(item?.base64 || ''), 'base64');
-    if (content.length < 5 || content.subarray(0, 5).toString('latin1') !== '%PDF-') {
-      throw httpError(400, 'One of the documents could not be prepared. Please try again.');
-    }
-    if (content.length > MAX_ATTACHMENT_BYTES) {
-      throw httpError(413, 'A document is too large to email. Try regenerating or send fewer documents.');
-    }
-    totalBytes += content.length;
-    return {
-      filename: sanitizePdfName(item?.fileName, `Exit-document-${i + 1}`),
-      contentType: PDF_CONTENT_TYPE,
-      content,
-      label: String(item?.label || '').slice(0, 120),
-    };
+    const file = decodeOnePdfAttachment(item, i);
+    totalBytes += file.content.length;
+    return file;
   });
   if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
     throw httpError(413, 'The selected documents together are too large to email. Send fewer at a time.');
@@ -117,6 +191,7 @@ export async function sendExitDocumentsEmail({
   employeeMasterId,
   to,
   attachments,
+  attachmentIds,
   senderMail,
   userEmails,
   senderEmail,
@@ -124,7 +199,10 @@ export async function sendExitDocumentsEmail({
   const employee = await loadInactiveEmployee(db, employeeMasterId);
   const email = normalizeEmployeeEmail(to);
   if (!isValidEmployeeEmail(email)) throw httpError(400, 'Enter a valid email address.');
-  const files = decodeAttachments(attachments);
+  const files =
+    Array.isArray(attachmentIds) && attachmentIds.length
+      ? takeStagedAttachments(attachmentIds, userEmails)
+      : decodeAttachments(attachments);
   if (!isMailDispatchConfigured()) throw httpError(503, MAIL_NOT_CONFIGURED_MESSAGE);
   const sender = await resolveSender(db, userEmails, senderMail);
 
@@ -147,61 +225,39 @@ export async function sendExitDocumentsEmail({
   let deliveredFrom = sender.mail;
   let deliveredVia = sender.mail;
   let usedFallback = false;
-  let messageCount = 1;
 
-  const sendOnce = (mailOpts) => sendOutboundMail(mailOpts);
-
-  /** Graph simple sendMail caps ~3MB — if too large, send one PDF per message. */
-  async function sendWithSizeFallback(baseOpts) {
-    try {
-      await sendOnce({ ...baseOpts, attachments: mailAttachments, subject, html });
-      return 1;
-    } catch (err) {
-      if (err?.code !== 'MAIL_MESSAGE_TOO_LARGE' || mailAttachments.length <= 1) throw err;
-      console.warn('[employee-exit/email] message too large; sending one attachment per email', {
-        files: mailAttachments.length,
-      });
-      for (let i = 0; i < mailAttachments.length; i += 1) {
-        const part = mailAttachments[i];
-        const partLabel = files[i]?.label || part.filename;
-        const partHtml = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111">
-<p>Dear ${escapeHtml(name)},</p>
-<p>Please find attached your exit document (${i + 1} of ${mailAttachments.length}):</p>
-<ul><li>${escapeHtml(partLabel)}</li></ul>
-<p>Please contact HR for any clarification.</p>
-<p>Regards,<br/>HR Department<br/>Indus Fire Safety Private Limited</p>
-</div>`;
-        await sendOnce({
-          ...baseOpts,
-          attachments: [part],
-          subject: `${subject} (${i + 1}/${mailAttachments.length})`,
-          html: partHtml,
-        });
-      }
-      return mailAttachments.length;
-    }
-  }
+  const mailBase = {
+    to: email,
+    bcc,
+    subject,
+    html,
+    attachments: mailAttachments,
+  };
 
   try {
-    messageCount = await sendWithSizeFallback({
+    await sendOutboundMail({
+      ...mailBase,
       from: sender.mail,
       fromName: sender.name,
-      to: email,
-      bcc,
     });
   } catch (err) {
     // Personal mailbox often lacks Graph app access; fall back to the company mailbox
     // with Reply-To + BCC so the chosen sender still gets the same mail.
+    if (err?.code === 'MAIL_MESSAGE_TOO_LARGE') {
+      throw httpError(
+        413,
+        'The documents are too large to send in one email. Try fewer documents, or ask IT to review mail size limits.'
+      );
+    }
     if (err?.code !== 'MAILBOX_SEND_DENIED' || !isPersonalSenderMailbox(sender.mail)) throw err;
 
     const config = getMicrosoftGraphMailConfig();
     if (!config?.notificationEmail) throw err;
 
-    messageCount = await sendWithSizeFallback({
+    await sendOutboundMail({
+      ...mailBase,
       from: config.notificationEmail,
       fromName: sender.name || config.notificationName,
-      to: email,
-      bcc,
       replyTo: sender.mail,
     });
     deliveredFrom = sender.mail;
@@ -217,7 +273,7 @@ export async function sendExitDocumentsEmail({
     employeeMasterId: employee.id,
     employeeCode: employee.employee_code,
     files: files.length,
-    messages: messageCount,
+    messages: 1,
     from: deliveredFrom,
     via: deliveredVia,
     senderCopy,
@@ -231,6 +287,6 @@ export async function sendExitDocumentsEmail({
     via: usedFallback ? deliveredVia : undefined,
     senderCopy: senderCopy || undefined,
     sent: files.length,
-    messages: messageCount,
+    messages: 1,
   };
 }
