@@ -16,8 +16,8 @@ const CAPTURE_SCALE = 2;
 const JPEG_QUALITY = 0.84;
 const DEFAULT_PAGE_W_PT = 612; // US Letter (exit templates)
 const DEFAULT_PAGE_H_PT = 792;
-/** Soft cap per PDF so three attachments fit under API/nginx body limits. */
-const MAX_PDF_BYTES = 900 * 1024;
+/** Soft cap per PDF; server allows 5MB each / 15MB total (with buffer). */
+const MAX_PDF_BYTES = 4 * 1024 * 1024;
 /** No Due Certificate table column widths from the Word template (twips → pt). */
 const NO_DUE_COL_WIDTHS_PT = [3397 / 20, 5845 / 20];
 

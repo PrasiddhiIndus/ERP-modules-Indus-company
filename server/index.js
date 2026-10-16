@@ -377,7 +377,8 @@ app.use(
   })
 );
 // Exit-document email sends up to 3 PDF attachments as base64 in JSON (~33% larger than binary).
-app.use(express.json({ limit: '20mb' }));
+// 35mb leaves buffer above 3 × ~5MB files + JSON overhead.
+app.use(express.json({ limit: '35mb' }));
 
 const {
   requireAuth,

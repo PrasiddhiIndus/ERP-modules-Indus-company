@@ -15,7 +15,10 @@ import { isPersonalSenderMailbox, senderNotAllowedMessage } from './mail/senderA
 
 const PDF_CONTENT_TYPE = 'application/pdf';
 const MAX_ATTACHMENTS = 3;
-const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
+/** Per-PDF cap (binary). Buffer above typical exit letter PDFs. */
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+/** All attachments combined (binary), with headroom for 3 docs. */
+const MAX_TOTAL_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 const INACTIVE_STATUSES = new Set(['inactive', 'left']);
 
 function httpError(status, message) {
@@ -86,12 +89,16 @@ function decodeAttachments(list) {
   const items = Array.isArray(list) ? list : [];
   if (!items.length) throw httpError(400, 'Select at least one document to send.');
   if (items.length > MAX_ATTACHMENTS) throw httpError(400, 'Too many documents selected.');
-  return items.map((item, i) => {
+  let totalBytes = 0;
+  const files = items.map((item, i) => {
     const content = Buffer.from(String(item?.base64 || ''), 'base64');
     if (content.length < 5 || content.subarray(0, 5).toString('latin1') !== '%PDF-') {
       throw httpError(400, 'One of the documents could not be prepared. Please try again.');
     }
-    if (content.length > MAX_ATTACHMENT_BYTES) throw httpError(413, 'A document is too large to email.');
+    if (content.length > MAX_ATTACHMENT_BYTES) {
+      throw httpError(413, 'A document is too large to email. Try regenerating or send fewer documents.');
+    }
+    totalBytes += content.length;
     return {
       filename: sanitizePdfName(item?.fileName, `Exit-document-${i + 1}`),
       contentType: PDF_CONTENT_TYPE,
@@ -99,6 +106,10 @@ function decodeAttachments(list) {
       label: String(item?.label || '').slice(0, 120),
     };
   });
+  if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
+    throw httpError(413, 'The selected documents together are too large to email. Send fewer at a time.');
+  }
+  return files;
 }
 
 export async function sendExitDocumentsEmail({
