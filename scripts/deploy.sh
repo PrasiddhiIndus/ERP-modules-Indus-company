@@ -162,6 +162,14 @@ echo "SERVER_PORT=8787" >> .env.server
 echo "PORT=8787" >> .env.server
 API_PORT=8787
 
+# Personal-letter greeting templates (birthday/anniversary) must exist for the 08:00 IST job.
+if [ ! -d "public/templates/personal-letters/birthday" ] || [ -z "$(ls -A public/templates/personal-letters/birthday/*.jpg 2>/dev/null || true)" ]; then
+  echo "WARNING: public/templates/personal-letters/birthday/*.jpg missing — personal letter cards cannot generate on this host"
+fi
+if [ ! -d "public/templates/personal-letters/anniversary" ] || [ -z "$(ls -A public/templates/personal-letters/anniversary/*.jpg 2>/dev/null || true)" ]; then
+  echo "WARNING: public/templates/personal-letters/anniversary/*.jpg missing — personal letter cards cannot generate on this host"
+fi
+
 echo "==> npm ci"
 npm ci
 
