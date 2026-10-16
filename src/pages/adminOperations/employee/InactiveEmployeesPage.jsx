@@ -673,7 +673,8 @@ function EmailExitDocuments({ employee, generatedKeys }) {
         const to = result?.email || trimmedEmail;
         const from = result?.from ? ` from ${result.from}` : "";
         const copy = result?.senderCopy ? ` A copy was also sent to ${result.senderCopy}.` : "";
-        toast.success("Email sent", `Exit documents sent to ${to}${from}.${copy}`);
+        const count = result?.sent ? ` (${result.sent} document${result.sent === 1 ? "" : "s"})` : "";
+        toast.success("Email sent", `Exit documents sent to ${to}${from}${count}.${copy}`);
       }
     } catch (err) {
       console.error(err);
