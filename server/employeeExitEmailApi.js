@@ -2,7 +2,12 @@
  * Email exit documents (PDF copies built in the browser on the company letterhead)
  * to an Inactive / Left employee from the configured company mailbox.
  */
-import { isMailDispatchConfigured, sendOutboundMail, MAIL_NOT_CONFIGURED_MESSAGE } from './mail/index.js';
+import {
+  isMailDispatchConfigured,
+  sendOutboundMail,
+  MAIL_NOT_CONFIGURED_MESSAGE,
+  getMicrosoftGraphMailConfig,
+} from './mail/index.js';
 import { isValidEmployeeEmail, normalizeEmployeeEmail } from '../shared/crmInHouseMail.mjs';
 import { resolveCtcEmailRecipient } from './salaryCtcEmailApi.js';
 import { listInHouseSenders } from './crmInHouseMailApi.js';
@@ -122,21 +127,72 @@ export async function sendExitDocumentsEmail({
 <p>Regards,<br/>HR Department<br/>Indus Fire Safety Private Limited</p>
 </div>`;
 
-  await sendOutboundMail({
-    from: sender.mail,
-    fromName: sender.name,
-    to: email,
-    subject: `Exit documents – ${name}${employee.employee_code ? ` (${employee.employee_code})` : ''}`,
-    html,
-    attachments: files.map(({ label: _label, ...f }) => f),
-  });
+  const subject = `Exit documents – ${name}${employee.employee_code ? ` (${employee.employee_code})` : ''}`;
+  const mailAttachments = files.map(({ label: _label, ...f }) => f);
+  // Same message to the From mailbox (Inbox), unless it is already the employee address.
+  const senderCopy = sender.mail && sender.mail !== email ? sender.mail : null;
+  const bcc = senderCopy ? [senderCopy] : undefined;
+
+  let deliveredFrom = sender.mail;
+  let deliveredVia = sender.mail;
+  let usedFallback = false;
+
+  try {
+    await sendOutboundMail({
+      from: sender.mail,
+      fromName: sender.name,
+      to: email,
+      bcc,
+      subject,
+      html,
+      attachments: mailAttachments,
+    });
+  } catch (err) {
+    // Personal mailbox often lacks Graph app access; fall back to the company mailbox
+    // with Reply-To + BCC so the chosen sender still gets the same mail.
+    const canFallback =
+      err?.code === 'MAILBOX_SEND_DENIED' &&
+      isPersonalSenderMailbox(sender.mail);
+    if (!canFallback) throw err;
+
+    const config = getMicrosoftGraphMailConfig();
+    if (!config?.notificationEmail) throw err;
+
+    await sendOutboundMail({
+      from: config.notificationEmail,
+      fromName: sender.name || config.notificationName,
+      to: email,
+      bcc,
+      replyTo: sender.mail,
+      subject,
+      html,
+      attachments: mailAttachments,
+    });
+    deliveredFrom = sender.mail;
+    deliveredVia = config.notificationEmail;
+    usedFallback = true;
+    console.warn('[employee-exit/email] send-as denied; sent via company mailbox', {
+      requested: sender.mail,
+      via: deliveredVia,
+    });
+  }
 
   console.info('[employee-exit/email] sent', {
     employeeMasterId: employee.id,
     employeeCode: employee.employee_code,
     files: files.length,
-    from: sender.mail,
+    from: deliveredFrom,
+    via: deliveredVia,
+    senderCopy,
+    fallback: usedFallback,
     by: senderEmail || null,
   });
-  return { ok: true, email, from: sender.mail, sent: files.length };
+  return {
+    ok: true,
+    email,
+    from: deliveredFrom,
+    via: usedFallback ? deliveredVia : undefined,
+    senderCopy: senderCopy || undefined,
+    sent: files.length,
+  };
 }

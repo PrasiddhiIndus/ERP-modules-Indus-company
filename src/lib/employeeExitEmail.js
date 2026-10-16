@@ -34,7 +34,7 @@ export async function emailExitDocuments({ employee, to, senderMail, documentKey
   const attachments = [];
   for (const key of documentKeys) {
     const { blob, fileName, label } = await buildExitDocument(key, employee);
-    const pdf = await exitDocumentDocxToPdf(blob);
+    const pdf = await exitDocumentDocxToPdf(blob, { documentKey: key });
     attachments.push({ fileName: fileName.replace(/\.docx$/i, ".pdf"), label, base64: await blobToBase64(pdf) });
   }
   const res = await fetchApiWithAuth("/api/admin/employee-exit/email", {

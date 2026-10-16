@@ -8,6 +8,8 @@
 -- Also covers adjacent approved leave blocks (e.g. Fri leave + Mon leave →
 -- Sat/Sun WO converted when the sandwich completes).
 -- NH/PH holidays are NOT converted (WO-only policy).
+-- Half-day leave on either flanking working day blocks sandwich
+-- (see also 20261016120000_admin_leave_sandwich_skip_half_day.sql).
 -- ---------------------------------------------------------------------------
 
 -- Ensure columns / helpers exist when earlier leave migrations were not applied.
@@ -111,6 +113,44 @@ AS $$
     );
 $$;
 
+-- True when the working day is a half-day leave (blocks sandwich on that side).
+CREATE OR REPLACE FUNCTION indus_one.admin_leave_date_is_half_day_leave(
+  p_employee_code text,
+  p_date date,
+  p_exclude_request_id uuid DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = indus_one, public
+SET row_security = off
+AS $$
+  SELECT p_date IS NOT NULL
+    AND nullif(btrim(p_employee_code), '') IS NOT NULL
+    AND NOT indus_one.admin_leave_date_is_week_off(p_employee_code, p_date)
+    AND NOT indus_one.admin_leave_date_is_nhph(p_employee_code, p_date)
+    AND (
+      EXISTS (
+        SELECT 1
+        FROM public.admin_attendance_register r
+        WHERE public.norm_emp_code(r.employee_code) = public.norm_emp_code(p_employee_code)
+          AND r.register_date = p_date
+          AND upper(btrim(r.mark)) IN ('P/SL', 'P/CL', 'P/PL', 'HD')
+          AND (p_exclude_request_id IS NULL OR r.leave_request_id IS DISTINCT FROM p_exclude_request_id)
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM indus_one.admin_leave_requests r
+        WHERE public.norm_emp_code(r.employee_code) = public.norm_emp_code(p_employee_code)
+          AND indus_one.admin_leave_request_is_approved(r.status, r.overall_status)
+          AND p_date BETWEEN r.from_date AND r.to_date
+          AND coalesce(r.days, 0) = 0.5
+          AND (p_exclude_request_id IS NULL OR r.id IS DISTINCT FROM p_exclude_request_id)
+      )
+    );
+$$;
+
 -- Another approved leave (or leave mark) already covers this working day.
 CREATE OR REPLACE FUNCTION indus_one.admin_leave_date_has_adjacent_leave(
   p_employee_code text,
@@ -183,6 +223,7 @@ DECLARE
   v_from_is_anchor boolean;
   v_to_is_anchor boolean;
   v_guard integer;
+  v_anchors_half boolean := false;
 BEGIN
   IF p_from IS NULL OR p_to IS NULL OR p_from > p_to THEN
     RETURN;
@@ -197,6 +238,12 @@ BEGIN
       AND NOT indus_one.admin_leave_date_is_nhph(v_emp, g.d::date)
   ) x;
 
+  IF v_emp IS NOT NULL AND v_amin IS NOT NULL THEN
+    v_anchors_half :=
+      indus_one.admin_leave_date_is_half_day_leave(v_emp, v_amin)
+      OR indus_one.admin_leave_date_is_half_day_leave(v_emp, v_amax);
+  END IF;
+
   FOR v_d IN
     SELECT g.d::date
     FROM generate_series(p_from, p_to, interval '1 day') AS g(d)
@@ -208,8 +255,9 @@ BEGIN
           AND NOT indus_one.admin_leave_date_is_nhph(v_emp, v_d)
           AND v_amin IS NOT NULL
           AND v_d > v_amin
-          AND v_d < v_amax THEN
-      -- Within-request sandwich: WO strictly between first and last leave working day
+          AND v_d < v_amax
+          AND NOT v_anchors_half THEN
+      -- Within-request sandwich: WO strictly between first and last full-day leave working day
       v_dates := array_append(v_dates, v_d);
     END IF;
   END LOOP;
@@ -221,12 +269,15 @@ BEGIN
 
   v_from_is_anchor :=
     NOT indus_one.admin_leave_date_is_week_off(v_emp, p_from)
-    AND NOT indus_one.admin_leave_date_is_nhph(v_emp, p_from);
+    AND NOT indus_one.admin_leave_date_is_nhph(v_emp, p_from)
+    AND NOT indus_one.admin_leave_date_is_half_day_leave(v_emp, p_from);
   v_to_is_anchor :=
     NOT indus_one.admin_leave_date_is_week_off(v_emp, p_to)
-    AND NOT indus_one.admin_leave_date_is_nhph(v_emp, p_to);
+    AND NOT indus_one.admin_leave_date_is_nhph(v_emp, p_to)
+    AND NOT indus_one.admin_leave_date_is_half_day_leave(v_emp, p_to);
 
   -- Adjacent sandwich before from_date: … Leave | WO…WO | Leave(from)
+  -- Skipped when from_date or the far leave day is half-day.
   IF v_from_is_anchor THEN
     v_cursor := p_from - 1;
     v_guard := 0;
@@ -239,6 +290,7 @@ BEGIN
     END LOOP;
     IF v_guard > 0 AND v_guard < 14
        AND indus_one.admin_leave_date_has_adjacent_leave(v_emp, v_cursor)
+       AND NOT indus_one.admin_leave_date_is_half_day_leave(v_emp, v_cursor)
     THEN
       v_d := v_cursor + 1;
       WHILE v_d < p_from LOOP
@@ -264,6 +316,7 @@ BEGIN
     END LOOP;
     IF v_guard > 0 AND v_guard < 14
        AND indus_one.admin_leave_date_has_adjacent_leave(v_emp, v_cursor)
+       AND NOT indus_one.admin_leave_date_is_half_day_leave(v_emp, v_cursor)
     THEN
       v_d := p_to + 1;
       WHILE v_d < v_cursor LOOP
@@ -489,6 +542,7 @@ GRANT EXECUTE ON FUNCTION indus_one.admin_leave_effective_status(text, text) TO 
 GRANT EXECUTE ON FUNCTION indus_one.admin_leave_request_is_approved(text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION indus_one.admin_leave_date_is_week_off(text, date) TO authenticated;
 GRANT EXECUTE ON FUNCTION indus_one.admin_leave_date_is_nhph(text, date) TO authenticated;
+GRANT EXECUTE ON FUNCTION indus_one.admin_leave_date_is_half_day_leave(text, date, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION indus_one.admin_leave_date_has_adjacent_leave(text, date, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION indus_one.admin_leave_working_dates(date, date, text) TO authenticated;
 

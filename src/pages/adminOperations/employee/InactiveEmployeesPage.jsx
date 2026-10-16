@@ -669,10 +669,12 @@ function EmailExitDocuments({ employee, generatedKeys }) {
         senderMail,
         documentKeys: orderedKeys,
       });
-      toast.success(
-        "Email sent",
-        `Exit documents sent to ${result?.email || trimmedEmail}${result?.from ? ` from ${result.from}` : ""}.`
-      );
+      {
+        const to = result?.email || trimmedEmail;
+        const from = result?.from ? ` from ${result.from}` : "";
+        const copy = result?.senderCopy ? ` A copy was also sent to ${result.senderCopy}.` : "";
+        toast.success("Email sent", `Exit documents sent to ${to}${from}.${copy}`);
+      }
     } catch (err) {
       console.error(err);
       toast.error("Email not sent", err?.message || "Could not send the email.");
@@ -685,7 +687,7 @@ function EmailExitDocuments({ employee, generatedKeys }) {
     <div className="rounded-lg border border-gray-200 bg-white p-3">
       <p className="text-xs font-semibold text-gray-900 mb-1">Email to employee</p>
       <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
-        The selected documents are attached as PDF. Replies go to the mailbox you send from.
+        The selected documents are attached as PDF. A copy also goes to the From mailbox. Replies go to that mailbox.
       </p>
 
       <label className="text-[11px] text-gray-600 flex flex-col gap-0.5 mb-3">
