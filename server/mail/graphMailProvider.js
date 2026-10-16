@@ -202,21 +202,41 @@ export async function sendMail({
 
     return { ok: true, messageId: null, provider: 'microsoft-graph', mailbox };
   } catch (err) {
+    const graphStatus = Number(err?.statusCode || err?.status) || 0;
+    const graphCode = String(err?.code || err?.body?.error?.code || '').trim();
+    const graphMessage = String(
+      err?.body?.error?.message || err?.message || 'Mail delivery failed'
+    ).trim();
+
     logMailError('graph.send.failed', {
       mailbox,
       to: maskEmail(toMail),
-      status: err?.status || 502,
-      message: err?.message || 'Mail delivery failed',
+      status: graphStatus || 502,
+      code: graphCode || null,
+      message: graphMessage,
     });
 
-    if (err.status) throw err;
-    if (sendAsSender && (err?.statusCode === 403 || err?.statusCode === 404)) {
-      throw httpError(
+    if (err.status && err.code === 'MAILBOX_SEND_DENIED') throw err;
+    if (err.status && !graphStatus) throw err;
+
+    const mailboxDenied =
+      sendAsSender &&
+      (graphStatus === 403 ||
+        graphStatus === 404 ||
+        /AccessDenied|MailboxNotEnabledForRESTAPI|ErrorItemNotFound|ErrorInvalidUser|ErrorSendAsDenied/i.test(
+          `${graphCode} ${graphMessage}`
+        ));
+
+    if (mailboxDenied) {
+      const denied = httpError(
         `Microsoft 365 did not allow sending as ${mailbox}. Ask IT to grant the ERP mail app access to this mailbox.`,
         502
       );
+      denied.code = 'MAILBOX_SEND_DENIED';
+      denied.mailbox = mailbox;
+      throw denied;
     }
-    throw httpError(err?.message || 'Mail delivery failed.', 502);
+    throw httpError(graphMessage || 'Mail delivery failed.', 502);
   }
 }
 
