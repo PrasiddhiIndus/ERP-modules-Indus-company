@@ -11,16 +11,15 @@ import { letterheadLayout, loadLetterheadAssets } from "./exitDocumentLetterhead
 
 /** Word points → CSS pixels at 96dpi (docx-preview’s coordinate system). */
 const CSS_PX_PER_PT = 96 / 72;
-/** Keep email PDFs sharp but small enough for production body limits (3× base64). */
-const CAPTURE_SCALE = 2;
-const JPEG_QUALITY = 0.84;
+/** Keep email PDFs sharp but small enough for nginx 1mb + Graph limits (base64 expands ~33%). */
+const CAPTURE_SCALE = 1.75;
+const JPEG_QUALITY = 0.78;
 const DEFAULT_PAGE_W_PT = 612; // US Letter (exit templates)
 const DEFAULT_PAGE_H_PT = 792;
 /**
- * Default soft cap per PDF. Microsoft Graph simple sendMail rejects messages over ~3MB,
- * so callers should pass a tighter maxBytes when sending multiple attachments.
+ * Default soft cap per PDF. Exit email sends one PDF per request under nginx’s 1mb default.
  */
-const MAX_PDF_BYTES = 850 * 1024;
+const MAX_PDF_BYTES = 520 * 1024;
 /** No Due Certificate table column widths from the Word template (twips → pt). */
 const NO_DUE_COL_WIDTHS_PT = [3397 / 20, 5845 / 20];
 
