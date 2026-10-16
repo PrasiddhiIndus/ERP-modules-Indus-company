@@ -29,12 +29,17 @@ export async function fetchExitEmailSetup(employeeId) {
   return { email: res.data?.email || "", senders: res.data?.senders || [] };
 }
 
+/** Graph simple sendMail fails above ~3MB total; budget per PDF so batches stay under that. */
+const GRAPH_SAFE_TOTAL_BYTES = 2.4 * 1024 * 1024;
+
 /** @param {{ employee: object, to: string, senderMail?: string, documentKeys: string[] }} p */
 export async function emailExitDocuments({ employee, to, senderMail, documentKeys }) {
+  const keys = Array.isArray(documentKeys) ? documentKeys : [];
+  const maxBytes = Math.floor(GRAPH_SAFE_TOTAL_BYTES / Math.max(1, keys.length));
   const attachments = [];
-  for (const key of documentKeys) {
+  for (const key of keys) {
     const { blob, fileName, label } = await buildExitDocument(key, employee);
-    const pdf = await exitDocumentDocxToPdf(blob, { documentKey: key });
+    const pdf = await exitDocumentDocxToPdf(blob, { documentKey: key, maxBytes });
     attachments.push({ fileName: fileName.replace(/\.docx$/i, ".pdf"), label, base64: await blobToBase64(pdf) });
   }
   const res = await fetchApiWithAuth("/api/admin/employee-exit/email", {
