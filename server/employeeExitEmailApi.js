@@ -147,37 +147,62 @@ export async function sendExitDocumentsEmail({
   let deliveredFrom = sender.mail;
   let deliveredVia = sender.mail;
   let usedFallback = false;
+  let messageCount = 1;
+
+  const sendOnce = (mailOpts) => sendOutboundMail(mailOpts);
+
+  /** Graph simple sendMail caps ~3MB — if too large, send one PDF per message. */
+  async function sendWithSizeFallback(baseOpts) {
+    try {
+      await sendOnce({ ...baseOpts, attachments: mailAttachments, subject, html });
+      return 1;
+    } catch (err) {
+      if (err?.code !== 'MAIL_MESSAGE_TOO_LARGE' || mailAttachments.length <= 1) throw err;
+      console.warn('[employee-exit/email] message too large; sending one attachment per email', {
+        files: mailAttachments.length,
+      });
+      for (let i = 0; i < mailAttachments.length; i += 1) {
+        const part = mailAttachments[i];
+        const partLabel = files[i]?.label || part.filename;
+        const partHtml = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111">
+<p>Dear ${escapeHtml(name)},</p>
+<p>Please find attached your exit document (${i + 1} of ${mailAttachments.length}):</p>
+<ul><li>${escapeHtml(partLabel)}</li></ul>
+<p>Please contact HR for any clarification.</p>
+<p>Regards,<br/>HR Department<br/>Indus Fire Safety Private Limited</p>
+</div>`;
+        await sendOnce({
+          ...baseOpts,
+          attachments: [part],
+          subject: `${subject} (${i + 1}/${mailAttachments.length})`,
+          html: partHtml,
+        });
+      }
+      return mailAttachments.length;
+    }
+  }
 
   try {
-    await sendOutboundMail({
+    messageCount = await sendWithSizeFallback({
       from: sender.mail,
       fromName: sender.name,
       to: email,
       bcc,
-      subject,
-      html,
-      attachments: mailAttachments,
     });
   } catch (err) {
     // Personal mailbox often lacks Graph app access; fall back to the company mailbox
     // with Reply-To + BCC so the chosen sender still gets the same mail.
-    const canFallback =
-      err?.code === 'MAILBOX_SEND_DENIED' &&
-      isPersonalSenderMailbox(sender.mail);
-    if (!canFallback) throw err;
+    if (err?.code !== 'MAILBOX_SEND_DENIED' || !isPersonalSenderMailbox(sender.mail)) throw err;
 
     const config = getMicrosoftGraphMailConfig();
     if (!config?.notificationEmail) throw err;
 
-    await sendOutboundMail({
+    messageCount = await sendWithSizeFallback({
       from: config.notificationEmail,
       fromName: sender.name || config.notificationName,
       to: email,
       bcc,
       replyTo: sender.mail,
-      subject,
-      html,
-      attachments: mailAttachments,
     });
     deliveredFrom = sender.mail;
     deliveredVia = config.notificationEmail;
@@ -192,6 +217,7 @@ export async function sendExitDocumentsEmail({
     employeeMasterId: employee.id,
     employeeCode: employee.employee_code,
     files: files.length,
+    messages: messageCount,
     from: deliveredFrom,
     via: deliveredVia,
     senderCopy,
@@ -205,5 +231,6 @@ export async function sendExitDocumentsEmail({
     via: usedFallback ? deliveredVia : undefined,
     senderCopy: senderCopy || undefined,
     sent: files.length,
+    messages: messageCount,
   };
 }
