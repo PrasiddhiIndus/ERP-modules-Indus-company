@@ -23,7 +23,9 @@ export const STATUS_PROBATION = "probation";
 export const STATUS_CONFIRMED = "confirmed";
 
 export const CATEGORY_EXISTING_CONFIRMED = "existing_confirmed";
+export const CATEGORY_EXISTING_CONTRACT = "existing_contract";
 export const CATEGORY_NEW_PROBATION = "new_probation";
+export const CATEGORY_NEW_EMPLOYEE_CONTRACT = "new_employee_contract";
 export const CATEGORY_NEW_JOINER_NEW_SCHEME = "new_joiner_new_scheme";
 export const CATEGORY_PROBATION_TO_CONFIRMED = "probation_to_confirmed";
 
@@ -757,6 +759,7 @@ export function resolveCategory(category, selectedScheme, schemeAfterConfirmatio
   const scheme = normalizeScheme(selectedScheme);
   switch (category) {
     case CATEGORY_EXISTING_CONFIRMED:
+    case CATEGORY_EXISTING_CONTRACT:
       return { status: STATUS_CONFIRMED, scheme, schemeLocked: false, benefits: "ON" };
     case CATEGORY_NEW_JOINER_NEW_SCHEME:
       return { status: STATUS_PROBATION, scheme: SCHEME_NEW, schemeLocked: true, benefits: "OFF" };
@@ -775,6 +778,7 @@ export function resolveCategory(category, selectedScheme, schemeAfterConfirmatio
       };
     }
     case CATEGORY_NEW_PROBATION:
+    case CATEGORY_NEW_EMPLOYEE_CONTRACT:
     default:
       return { status: STATUS_PROBATION, scheme, schemeLocked: false, benefits: "OFF" };
   }

@@ -6,6 +6,8 @@
 
 import {
   CATEGORY_EXISTING_CONFIRMED,
+  CATEGORY_EXISTING_CONTRACT,
+  CATEGORY_NEW_EMPLOYEE_CONTRACT,
   CATEGORY_NEW_JOINER_NEW_SCHEME,
   CATEGORY_NEW_PROBATION,
   CATEGORY_PROBATION_TO_CONFIRMED,
@@ -26,7 +28,9 @@ export const ANNEXURE_STRUCTURE_VERSION = "annexure_2026";
 
 export const CATEGORY_OPTIONS = Object.freeze([
   { value: CATEGORY_EXISTING_CONFIRMED, label: "Existing / Confirmed" },
+  { value: CATEGORY_EXISTING_CONTRACT, label: "Existing / Contract" },
   { value: CATEGORY_NEW_PROBATION, label: "New Employee / Probation" },
+  { value: CATEGORY_NEW_EMPLOYEE_CONTRACT, label: "New Employee / Contract" },
   { value: CATEGORY_NEW_JOINER_NEW_SCHEME, label: "New Joiner / New Scheme" },
   { value: CATEGORY_PROBATION_TO_CONFIRMED, label: "Probation → Confirmed" },
 ]);
