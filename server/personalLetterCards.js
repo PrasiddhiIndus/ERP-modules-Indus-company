@@ -11,8 +11,22 @@
 import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
-import sharp from 'sharp';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
+
+/** Lazy-load sharp so a missing install does not crash the whole API process at boot. */
+async function getSharp() {
+  try {
+    const mod = await import('sharp');
+    return mod.default || mod;
+  } catch (err) {
+    const detail = err?.message || String(err);
+    const e = new Error(
+      `Greeting-card image library is not available (${detail}). Run npm install in the project root, then restart the API server.`
+    );
+    e.status = 503;
+    throw e;
+  }
+}
 
 const CHECK_EVERY_MS = 15 * 60 * 1000;
 const RUN_AT_IST_HOUR = 8;
@@ -267,6 +281,7 @@ export async function renderPersonalLetterCard({ kind, fullName, templatePath })
         font-weight="700" font-size="${fontSize}" fill="${layout.color}">${escapeXml(text)}</text>
 </svg>`;
 
+  const sharp = await getSharp();
   return sharp(templatePath)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
     .jpeg({ quality: 90, mozjpeg: true })
