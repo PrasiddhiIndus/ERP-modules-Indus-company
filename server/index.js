@@ -47,6 +47,13 @@ import {
 import { registerAdminRecruitmentRoutes, startAdminRecruitmentAutomation } from './adminRecruitmentApi.js';
 import { startPayrollMisAlerts } from './payrollMisAlerts.js';
 import { startProbationReviewReminders } from './probationReviewReminders.js';
+import {
+  PERSONAL_LETTERS_R2_PREFIX,
+  PERSONAL_LETTERS_TABLE,
+  renderStoredPersonalLetter,
+  runPersonalLetterCards,
+  startPersonalLetterCards,
+} from './personalLetterCards.js';
 import { canEmailCtcDetails, resolveCtcEmailRecipient, sendCtcDetailsEmail } from './salaryCtcEmailApi.js';
 import {
   listExitEmailSenders,
@@ -426,6 +433,7 @@ const R2_SOFTWARE_SUB_KEY_PREFIX = 'software-subscriptions/';
 const R2_HR_CALLING_KEY_PREFIX = 'hr-calling/';
 const R2_ADMIN_POLICIES_KEY_PREFIX = 'admin-policies/';
 const R2_ADMIN_JOINING_KEY_PREFIX = 'admin-joining/';
+const R2_ADMIN_PERSONAL_LETTERS_KEY_PREFIX = PERSONAL_LETTERS_R2_PREFIX;
 const R2_COMMERCIAL_PO_KEY_PREFIX = 'commercial-po/';
 const R2_COMMERCIAL_PO_FOLDERS = new Set(['po-copy', 'scope-of-work', 'penalty-clause']);
 const R2_PRESIGN_GET_EXPIRES_SEC = 600;
@@ -2701,6 +2709,96 @@ app.post('/api/admin-joining/r2/delete', requireAdminPoliciesR2, async (req, res
   }
 });
 
+/** Personal letters (birthday / wedding anniversary cards) — Admin / HR. */
+app.post('/api/admin/personal-letters/run', requireHrOrAdmin, async (req, res) => {
+  try {
+    const serviceKey = getSupabaseServiceRoleKeyForServer();
+    const supabaseUrl = getSupabaseUrlForServer();
+    if (!serviceKey || !supabaseUrl) {
+      return res.status(500).json({ message: 'Server is missing Supabase service settings.' });
+    }
+    const svc = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+    const out = await runPersonalLetterCards(svc, {
+      getR2Client: getR2S3Client,
+      getR2Bucket: getR2BucketName,
+    });
+    res.json({ ok: true, ...out });
+  } catch (err) {
+    console.error('[personal-letters] manual run failed:', err?.message || err);
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ message: err?.message || 'Could not generate personal letters.' });
+  }
+});
+
+app.get('/api/admin/personal-letters/:id/image', requireHrOrAdmin, async (req, res) => {
+  try {
+    const id = String(req.params?.id || '').trim();
+    if (!id) return res.status(400).json({ message: 'Letter id is required.' });
+
+    const serviceKey = getSupabaseServiceRoleKeyForServer();
+    const supabaseUrl = getSupabaseUrlForServer();
+    if (!serviceKey || !supabaseUrl) {
+      return res.status(500).json({ message: 'Server is missing Supabase service settings.' });
+    }
+    const svc = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+    const { data: row, error } = await svc.from(PERSONAL_LETTERS_TABLE).select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    if (!row) return res.status(404).json({ message: 'Personal letter not found.' });
+
+    const download = String(req.query?.download || '') === '1' || String(req.query?.download || '').toLowerCase() === 'true';
+    const fileName = String(row.file_name || `${row.employee_full_name || 'card'}.jpg`).replace(/[^\w.\- ()]+/g, '_');
+
+    const disposition = `${download ? 'attachment' : 'inline'}; filename="${fileName}"`;
+
+    // Prefer R2 stream (same-origin proxy — no browser CORS). Fall back to
+    // composing from on-disk templates when the object is missing.
+    const objectKey = String(row.object_key || '').trim().replace(/^\/+/, '');
+    if (objectKey.startsWith(R2_ADMIN_PERSONAL_LETTERS_KEY_PREFIX)) {
+      try {
+        const client = getR2S3Client();
+        const bucket = getR2BucketName();
+        const out = await client.send(
+          new GetObjectCommand({
+            Bucket: bucket,
+            Key: objectKey,
+          })
+        );
+        res.setHeader('Content-Type', out.ContentType || 'image/jpeg');
+        res.setHeader('Content-Disposition', disposition);
+        res.setHeader('Cache-Control', 'private, max-age=300');
+        if (out.ContentLength != null) {
+          res.setHeader('Content-Length', String(out.ContentLength));
+        }
+        const body = out.Body;
+        if (body && typeof body.transformToByteArray === 'function') {
+          const bytes = await body.transformToByteArray();
+          return res.send(Buffer.from(bytes));
+        }
+        if (body && typeof body.pipe === 'function') {
+          body.on('error', (streamErr) => {
+            console.warn('[personal-letters] R2 stream failed:', streamErr?.message || streamErr);
+            if (!res.headersSent) res.status(500).end();
+            else res.destroy(streamErr);
+          });
+          return body.pipe(res);
+        }
+      } catch (r2Err) {
+        console.warn('[personal-letters] R2 open failed, regenerating:', r2Err?.message || r2Err);
+      }
+    }
+
+    const buffer = await renderStoredPersonalLetter(row);
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Disposition', disposition);
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    return res.send(buffer);
+  } catch (err) {
+    console.error('[personal-letters] image failed:', err?.message || err);
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ message: err?.message || 'Could not open the greeting card.' });
+  }
+});
+
 app.get('/api/commercial-po/f/:code', async (req, res) => {
   try {
     pruneCommercialPoShareLinks();
@@ -2823,6 +2921,12 @@ const httpServer = app.listen(PORT, '0.0.0.0', () => {
   startProbationReviewReminders({
     getSupabaseUrl: getSupabaseUrlForServer,
     getServiceKey: getSupabaseServiceRoleKeyForServer,
+  });
+  startPersonalLetterCards({
+    getSupabaseUrl: getSupabaseUrlForServer,
+    getServiceKey: getSupabaseServiceRoleKeyForServer,
+    getR2Client: getR2S3Client,
+    getR2Bucket: getR2BucketName,
   });
 });
 

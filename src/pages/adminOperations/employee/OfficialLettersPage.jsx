@@ -1,9 +1,12 @@
-/** Official Letters — issue HR letters and track probation reviews (2 / 4 / 5.5 months). */
+/** Official Letters — issue HR letters and track probation reviews (2 / 4 / 5.5 months).
+ *  Personal Letters tab — birthday & wedding-anniversary greeting cards (8:00 IST). */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   FileText,
+  Gift,
+  Heart,
   RefreshCw,
   ScrollText,
 } from "lucide-react";
@@ -52,6 +55,14 @@ import {
   OFFICIAL_LETTER_TYPES,
   officialLetterTypeLabel,
 } from "../../../lib/officialLetterDocuments";
+import {
+  fetchPersonalLetterImageBlobUrl,
+  fetchPersonalLetters,
+  friendlyPersonalLettersError,
+  isMissingPersonalLettersTableError,
+  personalLetterKindLabel,
+  runPersonalLettersGeneration,
+} from "../../../lib/personalLettersApi";
 import { supabase } from "../../../lib/supabase";
 import { employmentTypeLabel } from "../../../utils/employeeMasterReminders";
 import { getSalaryStructure } from "../salaryAdmin/salaryData";
@@ -65,6 +76,16 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 const COL_MIN = "min-w-[120px]";
 const COL_NAME = "min-w-[200px]";
 const COL_DATE = "min-w-[130px]";
+const OFFICIAL_TAB = "official";
+const PERSONAL_TAB = "personal";
+
+function pageTabClass(active) {
+  return `inline-flex items-center gap-2 px-3.5 py-2 rounded-md text-sm font-medium border transition-colors ${
+    active
+      ? "bg-accent text-white border-accent"
+      : "bg-white text-slate-700 hover:bg-slate-50 border-slate-300"
+  }`;
+}
 
 const PROBATION_FILTER_OPTIONS = [
   { value: "all", label: "All probation stages" },
@@ -130,6 +151,7 @@ function applyEmployeeMasterPatch(employee, masterPatch, reviewsMap) {
 
 export function OfficialLettersPage() {
   const { user } = useAuth();
+  const [pageTab, setPageTab] = useState(OFFICIAL_TAB);
   const [rows, setRows] = useState([]);
   const [reviewsByEmployee, setReviewsByEmployee] = useState(() => new Map());
   const [letterTypesByEmployee, setLetterTypesByEmployee] = useState(() => new Map());
@@ -147,6 +169,21 @@ export function OfficialLettersPage() {
   const [issuedLetterType, setIssuedLetterType] = useState("");
   const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(1);
+
+  const [personalLetters, setPersonalLetters] = useState([]);
+  const [personalLoading, setPersonalLoading] = useState(false);
+  const [personalMissing, setPersonalMissing] = useState(false);
+  const [personalKindFilter, setPersonalKindFilter] = useState("");
+  const [personalSearch, setPersonalSearch] = useState("");
+  const [generatingPersonal, setGeneratingPersonal] = useState(false);
+  const [cardPreviewOpen, setCardPreviewOpen] = useState(false);
+  const [cardPreviewUrl, setCardPreviewUrl] = useState("");
+  const [cardPreviewTitle, setCardPreviewTitle] = useState("");
+  const [cardPreviewId, setCardPreviewId] = useState("");
+  const [cardPreviewLoading, setCardPreviewLoading] = useState(false);
+  const [cardPreviewError, setCardPreviewError] = useState("");
+  const [employeePersonalLetters, setEmployeePersonalLetters] = useState([]);
+  const cardPreviewAbortRef = React.useRef(null);
 
   const [selected, setSelected] = useState(null);
   const [history, setHistory] = useState([]);
@@ -232,6 +269,169 @@ export function OfficialLettersPage() {
     load();
   }, [load]);
 
+  const loadPersonalLetters = useCallback(async () => {
+    setPersonalLoading(true);
+    try {
+      const list = await fetchPersonalLetters();
+      setPersonalLetters(list);
+      setPersonalMissing(false);
+    } catch (err) {
+      console.error(err);
+      if (isMissingPersonalLettersTableError(err)) {
+        setPersonalMissing(true);
+        setPersonalLetters([]);
+      } else {
+        toast.error(friendlyPersonalLettersError(err, "Could not load personal letters."));
+      }
+    } finally {
+      setPersonalLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (pageTab === PERSONAL_TAB) loadPersonalLetters();
+  }, [pageTab, loadPersonalLetters]);
+
+  useEffect(() => {
+    return () => {
+      if (cardPreviewUrl) URL.revokeObjectURL(cardPreviewUrl);
+      cardPreviewAbortRef.current?.abort?.();
+    };
+  }, [cardPreviewUrl]);
+
+  const closeCardPreview = useCallback(() => {
+    cardPreviewAbortRef.current?.abort?.();
+    cardPreviewAbortRef.current = null;
+    setCardPreviewOpen(false);
+    setCardPreviewLoading(false);
+    setCardPreviewError("");
+    setCardPreviewTitle("");
+    setCardPreviewId("");
+    setCardPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return "";
+    });
+  }, []);
+
+  const employeeById = useMemo(() => {
+    const map = new Map();
+    for (const e of rows) map.set(String(e.id), e);
+    return map;
+  }, [rows]);
+
+  const filteredPersonalLetters = useMemo(() => {
+    const q = personalSearch.trim().toLowerCase();
+    return (personalLetters || []).filter((row) => {
+      if (personalKindFilter && row.letter_kind !== personalKindFilter) return false;
+      if (!q) return true;
+      const emp = employeeById.get(String(row.employee_master_id));
+      const hay = [
+        row.employee_full_name,
+        row.subject,
+        emp?.employee_code,
+        emp?.department,
+        emp?.designation,
+        personalLetterKindLabel(row.letter_kind),
+      ]
+        .map((v) => String(v || "").toLowerCase())
+        .join(" ");
+      return hay.includes(q);
+    });
+  }, [personalLetters, personalKindFilter, personalSearch, employeeById]);
+
+  const personalKpiBirthday = useMemo(
+    () => personalLetters.filter((r) => r.letter_kind === "birthday").length,
+    [personalLetters]
+  );
+  const personalKpiAnniversary = useMemo(
+    () => personalLetters.filter((r) => r.letter_kind === "anniversary").length,
+    [personalLetters]
+  );
+  const personalKpiToday = useMemo(() => {
+    const today = new Date();
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    return personalLetters.filter((r) => r.occasion_date === iso).length;
+  }, [personalLetters]);
+
+  const openPersonalCard = async (row, { download = false } = {}) => {
+    const title = row.subject || personalLetterKindLabel(row.letter_kind);
+    const fileName = row.file_name || `${row.employee_full_name || "card"}.jpg`;
+
+    if (download) {
+      try {
+        const url = await fetchPersonalLetterImageBlobUrl(row.id, { download: true });
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        toast.success("Download started");
+      } catch (err) {
+        console.error(err);
+        toast.error(friendlyPersonalLettersError(err, "Could not download the greeting card."));
+      }
+      return;
+    }
+
+    // Open popup immediately so production feels responsive while the image loads.
+    cardPreviewAbortRef.current?.abort?.();
+    const controller = new AbortController();
+    cardPreviewAbortRef.current = controller;
+    setCardPreviewOpen(true);
+    setCardPreviewLoading(true);
+    setCardPreviewError("");
+    setCardPreviewTitle(title);
+    setCardPreviewId(row.id);
+    setCardPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return "";
+    });
+
+    try {
+      const url = await fetchPersonalLetterImageBlobUrl(row.id, { signal: controller.signal });
+      if (controller.signal.aborted) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+      setCardPreviewUrl(url);
+      setCardPreviewLoading(false);
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+      console.error(err);
+      const message = friendlyPersonalLettersError(err, "Could not open the greeting card.");
+      setCardPreviewLoading(false);
+      setCardPreviewError(message);
+      toast.error(message);
+    }
+  };
+
+  const handleGeneratePersonalToday = async () => {
+    setGeneratingPersonal(true);
+    try {
+      const out = await runPersonalLettersGeneration();
+      const created = Number(out.created || 0);
+      const skipped = Number(out.skipped || 0);
+      if (created) {
+        toast.success(
+          `Generated ${created} personal letter${created === 1 ? "" : "s"} for ${out.occasionDate || "today"}.`
+        );
+      } else if (skipped) {
+        toast.info("Today’s birthday and anniversary cards are already generated.");
+      } else {
+        toast.info("No birthdays or wedding anniversaries fall today.");
+      }
+      await loadPersonalLetters();
+    } catch (err) {
+      console.error(err);
+      toast.error(friendlyPersonalLettersError(err, "Could not generate today’s cards."));
+    } finally {
+      setGeneratingPersonal(false);
+    }
+  };
+
   const departmentOptions = useMemo(
     () => [{ value: "", label: "All departments" }, ...uniqueSorted(rows.map((r) => r.department)).map((v) => ({ value: v, label: v }))],
     [rows]
@@ -312,13 +512,22 @@ export function OfficialLettersPage() {
     setDrawerLoading(true);
     setHistory([]);
     setReviews([]);
+    setEmployeePersonalLetters([]);
     try {
-      const [letterRows, reviewRows] = await Promise.all([
+      const [letterRows, reviewRows, personalRows] = await Promise.all([
         fetchLettersForEmployee(row.id),
         fetchReviewsForEmployee(row.id),
+        fetchPersonalLetters({ employeeMasterId: row.id }).catch((err) => {
+          if (isMissingPersonalLettersTableError(err)) {
+            setPersonalMissing(true);
+            return [];
+          }
+          throw err;
+        }),
       ]);
       setHistory(letterRows);
       setReviews(reviewRows);
+      setEmployeePersonalLetters(personalRows);
     } catch (err) {
       console.error(err);
       if (isMissingOfficialLettersTableError(err)) {
@@ -654,6 +863,80 @@ export function OfficialLettersPage() {
     []
   );
 
+  const personalColumns = useMemo(
+    () => [
+      {
+        key: "employee_full_name",
+        label: "Employee",
+        headerClassName: COL_NAME,
+        cellClassName: COL_NAME,
+        render: (row) => {
+          const emp = employeeById.get(String(row.employee_master_id));
+          return (
+            <div className="min-w-0">
+              <p className="font-medium text-gray-900 truncate">{row.employee_full_name || emp?.full_name || "—"}</p>
+              <p className="text-[11px] text-gray-500 truncate">
+                {emp?.employee_code || "—"}
+                {emp?.department ? ` · ${emp.department}` : ""}
+              </p>
+            </div>
+          );
+        },
+      },
+      {
+        key: "letter_kind",
+        label: "Type",
+        headerClassName: COL_MIN,
+        cellClassName: COL_MIN,
+        render: (row) => (
+          <StatusChip
+            label={personalLetterKindLabel(row.letter_kind)}
+            severity={row.letter_kind === "anniversary" ? "info" : "warning"}
+          />
+        ),
+      },
+      {
+        key: "occasion_date",
+        label: "Occasion",
+        headerClassName: COL_DATE,
+        cellClassName: COL_DATE,
+        render: (row) => formatDateDdMmYyyy(row.occasion_date) || "—",
+      },
+      {
+        key: "subject",
+        label: "Subject",
+        headerClassName: "min-w-[220px]",
+        cellClassName: "min-w-[220px]",
+        render: (row) => row.subject || "—",
+      },
+      {
+        key: "actions",
+        label: "",
+        headerClassName: "min-w-[150px]",
+        cellClassName: "min-w-[150px]",
+        render: (row) => (
+          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => openPersonalCard(row)}
+              className="h-7 px-2 rounded-lg border border-gray-200 text-[11px] hover:bg-gray-50"
+            >
+              View card
+            </button>
+            <button
+              type="button"
+              onClick={() => openPersonalCard(row, { download: true })}
+              className="h-7 px-2 rounded-lg border border-gray-200 text-[11px] hover:bg-gray-50"
+            >
+              Download
+            </button>
+          </div>
+        ),
+      },
+    ],
+    [employeeById]
+  );
+
   return (
     <div className="space-y-4 p-3 sm:p-4 max-w-[1680px] mx-auto min-w-0">
       <div className="flex flex-wrap items-start gap-3">
@@ -663,53 +946,168 @@ export function OfficialLettersPage() {
         <div className="flex-1 min-w-0">
           <PageTaskHeader
             title="Official Letters"
-            subtitle="Issue warning, show-cause, appointment, experience, confirmation, promotion and other letters. Track probation reviews at 2, 4 and 5.5 months."
+            subtitle={
+              pageTab === PERSONAL_TAB
+                ? "Birthday and wedding-anniversary greeting cards are created automatically at 8:00 AM IST for employees whose occasion falls that day."
+                : "Issue warning, show-cause, appointment, experience, confirmation, promotion and other letters. Track probation reviews at 2, 4 and 5.5 months."
+            }
           >
-            <button
-              type="button"
-              onClick={load}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 bg-white text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-              Refresh
-            </button>
+            {pageTab === PERSONAL_TAB ? (
+              <>
+                <button
+                  type="button"
+                  onClick={handleGeneratePersonalToday}
+                  disabled={generatingPersonal || personalMissing}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-accent text-white text-xs font-medium hover:opacity-90 disabled:opacity-50"
+                >
+                  <Gift className={`w-3.5 h-3.5 ${generatingPersonal ? "animate-pulse" : ""}`} />
+                  {generatingPersonal ? "Generating…" : "Generate today’s cards"}
+                </button>
+                <button
+                  type="button"
+                  onClick={loadPersonalLetters}
+                  disabled={personalLoading}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 bg-white text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${personalLoading ? "animate-spin" : ""}`} />
+                  Refresh
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={load}
+                disabled={loading}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 bg-white text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+                Refresh
+              </button>
+            )}
           </PageTaskHeader>
           <CollapsibleHelp label="how this works">
-            <ul className="list-disc pl-4 space-y-1">
-              <li>Select an employee to open letters and probation reviews.</li>
-              <li>Probation milestones are calculated from date of joining (2 months, 4 months, 5.5 months).</li>
-              <li>Mark a review as held, optionally with appraisal, and choose the outcome.</li>
-              <li>
-                Review outcomes update Employee Master — confirm → Permanent, continue/extend → Probation,
-                exit → Inactive (latest logged milestone wins).
-              </li>
-              <li>
-                Permanent employees (Employee Master) skip probation logging; confirmation date is shown when set.
-              </li>
-              <li>
-                Letter history shows Indus One acknowledgment status when the employee agrees and signs there.
-              </li>
-              <li>Confirmation letters can also update confirmation date and employment type on the master record.</li>
-              <li>Preview shows the letter in-app (Print from there). Download saves a Word document you can replace with company templates later.</li>
-            </ul>
+            {pageTab === PERSONAL_TAB ? (
+              <ul className="list-disc pl-4 space-y-1">
+                <li>Each morning at 8:00 AM IST, cards are created for employees with a birthday or wedding anniversary that day.</li>
+                <li>Employee full name from Employee Master replaces the name placeholder on the Indus greeting template.</li>
+                <li>Cards appear here under Personal Letters and against the employee when you open their profile.</li>
+                <li>Use Generate today’s cards if the server was offline at 8:00 AM or you need to re-check today’s occasions.</li>
+              </ul>
+            ) : (
+              <ul className="list-disc pl-4 space-y-1">
+                <li>Select an employee to open letters and probation reviews.</li>
+                <li>Probation milestones are calculated from date of joining (2 months, 4 months, 5.5 months).</li>
+                <li>Mark a review as held, optionally with appraisal, and choose the outcome.</li>
+                <li>
+                  Review outcomes update Employee Master — confirm → Permanent, continue/extend → Probation,
+                  exit → Inactive (latest logged milestone wins).
+                </li>
+                <li>
+                  Permanent employees (Employee Master) skip probation logging; confirmation date is shown when set.
+                </li>
+                <li>
+                  Letter history shows Indus One acknowledgment status when the employee agrees and signs there.
+                </li>
+                <li>Confirmation letters can also update confirmation date and employment type on the master record.</li>
+                <li>Preview shows the letter in-app (Print from there). Download saves a Word document you can replace with company templates later.</li>
+              </ul>
+            )}
           </CollapsibleHelp>
         </div>
       </div>
 
-      {tablesMissing ? (
+      <div className="flex flex-wrap gap-2" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={pageTab === OFFICIAL_TAB}
+          className={pageTabClass(pageTab === OFFICIAL_TAB)}
+          onClick={() => setPageTab(OFFICIAL_TAB)}
+        >
+          <ScrollText className="h-4 w-4 shrink-0" />
+          Official letters
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={pageTab === PERSONAL_TAB}
+          className={pageTabClass(pageTab === PERSONAL_TAB)}
+          onClick={() => setPageTab(PERSONAL_TAB)}
+        >
+          <Heart className="h-4 w-4 shrink-0" />
+          Personal letters
+        </button>
+      </div>
+
+      {pageTab === OFFICIAL_TAB && tablesMissing ? (
         <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
           Letter history and probation logs need a database update. You can still browse employees; saving letters will work after IT applies the Official Letters migration.
         </p>
       ) : null}
 
+      {pageTab === PERSONAL_TAB && personalMissing ? (
+        <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+          Personal Letters needs a database update. Ask IT to apply the latest migration, then use Generate today’s cards.
+        </p>
+      ) : null}
+
+      {pageTab === OFFICIAL_TAB ? (
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <KpiTile label="Due reviews" value={String(kpiDue)} />
         <KpiTile label="Overdue" value={String(kpiOverdue)} />
         <KpiTile label="Confirmed this year" value={String(kpiConfirmedYear)} />
         <KpiTile label="Letters this month" value={String(lettersThisMonth)} />
       </div>
+      ) : (
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <KpiTile label="Birthday cards" value={String(personalKpiBirthday)} />
+        <KpiTile label="Anniversary cards" value={String(personalKpiAnniversary)} />
+        <KpiTile label="Created today" value={String(personalKpiToday)} />
+      </div>
+      )}
 
+      {pageTab === PERSONAL_TAB ? (
+      <SectionCard title={`Personal letters (${filteredPersonalLetters.length})`}>
+        <FilterBar>
+          <label className="text-[11px] text-gray-600 flex flex-col gap-0.5 flex-1 min-w-[180px]">
+            Search
+            <TinyInput
+              value={personalSearch}
+              onChange={(e) => setPersonalSearch(e.target.value)}
+              placeholder="Name, code, department…"
+              className="w-full"
+            />
+          </label>
+          <label className="text-[11px] text-gray-600 flex flex-col gap-0.5">
+            Type
+            <TinySelect value={personalKindFilter} onChange={(e) => setPersonalKindFilter(e.target.value)}>
+              <option value="">All types</option>
+              <option value="birthday">Birthday</option>
+              <option value="anniversary">Wedding anniversary</option>
+            </TinySelect>
+          </label>
+        </FilterBar>
+        <div className="mt-3">
+          {personalLoading ? (
+            <p className="text-sm text-ink-secondary py-6 text-center">Loading personal letters…</p>
+          ) : filteredPersonalLetters.length === 0 ? (
+            <p className="text-xs text-gray-500 py-8 text-center border border-gray-200 rounded-lg">
+              No personal letters yet. Cards are created at 8:00 AM IST on each birthday or wedding anniversary, or use Generate today’s cards.
+            </p>
+          ) : (
+            <DenseTable
+              columns={personalColumns}
+              rows={filteredPersonalLetters}
+              onRowClick={(row) => {
+                const emp = employeeById.get(String(row.employee_master_id));
+                if (emp) openEmployee(emp);
+                else openPersonalCard(row);
+              }}
+            />
+          )}
+        </div>
+      </SectionCard>
+      ) : (
       <SectionCard title={`Employee register (${filteredRows.length})`}>
         <FilterBar>
           <label className="text-[11px] text-gray-600 flex flex-col gap-0.5 flex-1 min-w-[180px]">
@@ -838,6 +1236,7 @@ export function OfficialLettersPage() {
           </div>
         </div>
       </SectionCard>
+      )}
 
       <Drawer
         open={Boolean(selected)}
@@ -955,6 +1354,48 @@ export function OfficialLettersPage() {
                       </li>
                     );
                   })}
+                </ul>
+              )}
+            </SectionCard>
+
+            <SectionCard title="Personal letters">
+              {drawerLoading ? (
+                <p className="text-xs text-ink-secondary">Loading…</p>
+              ) : employeePersonalLetters.length === 0 ? (
+                <p className="text-xs text-ink-secondary">
+                  No birthday or anniversary cards yet for this employee.
+                </p>
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {employeePersonalLetters.map((row) => (
+                    <li key={row.id} className="py-2.5 flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900">
+                          {row.subject || personalLetterKindLabel(row.letter_kind)}
+                        </p>
+                        <p className="text-[11px] text-gray-500">
+                          {personalLetterKindLabel(row.letter_kind)}
+                          {row.occasion_date ? ` · ${formatDateDdMmYyyy(row.occasion_date)}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openPersonalCard(row)}
+                          className="h-7 px-2 rounded-lg border border-gray-200 text-[11px] hover:bg-gray-50"
+                        >
+                          View card
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openPersonalCard(row, { download: true })}
+                          className="h-7 px-2 rounded-lg border border-gray-200 text-[11px] hover:bg-gray-50"
+                        >
+                          Download
+                        </button>
+                      </div>
+                    </li>
+                  ))}
                 </ul>
               )}
             </SectionCard>
@@ -1280,6 +1721,60 @@ export function OfficialLettersPage() {
               className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-medium"
             >
               {savingReview ? "Saving…" : "Save review"}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={cardPreviewOpen}
+        onClose={closeCardPreview}
+        title={cardPreviewTitle || "Greeting card"}
+        widthClass="max-w-3xl"
+      >
+        <div className="space-y-3">
+          {cardPreviewLoading ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-16 text-sm text-ink-secondary">
+              <RefreshCw className="h-5 w-5 animate-spin text-accent" />
+              <p>Loading greeting card…</p>
+            </div>
+          ) : null}
+          {cardPreviewError && !cardPreviewLoading ? (
+            <p className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{cardPreviewError}</p>
+          ) : null}
+          {cardPreviewUrl && !cardPreviewLoading ? (
+            <img
+              src={cardPreviewUrl}
+              alt={cardPreviewTitle || "Greeting card"}
+              className="w-full h-auto max-h-[70vh] object-contain rounded-lg border border-gray-200 bg-white"
+            />
+          ) : null}
+          <div className="flex justify-end gap-2">
+            {cardPreviewId && !cardPreviewLoading ? (
+              <button
+                type="button"
+                onClick={() =>
+                  openPersonalCard(
+                    {
+                      id: cardPreviewId,
+                      subject: cardPreviewTitle,
+                      file_name: `${String(cardPreviewTitle || "card").replace(/[^\w.\- ]+/g, "_")}.jpg`,
+                      employee_full_name: cardPreviewTitle,
+                    },
+                    { download: true }
+                  )
+                }
+                className="h-8 px-3 rounded-lg border border-gray-200 text-xs font-medium hover:bg-gray-50"
+              >
+                Download
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={closeCardPreview}
+              className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-medium"
+            >
+              Close
             </button>
           </div>
         </div>
