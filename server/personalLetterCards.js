@@ -34,6 +34,9 @@ const TABLE = 'admin_personal_letters';
 const R2_PREFIX = 'admin-personal-letters/';
 const IMAGE_W = 3840;
 const IMAGE_H = 3840;
+/** PostgREST caps a single select; page like Admin Ops Dashboard so birthdays past row 1000 are not missed. */
+const EMPLOYEE_PAGE_SIZE = 1000;
+const MAX_EMPLOYEE_PAGES = 20;
 
 /**
  * Candidate folders under public/ for birthday / anniversary JPGs.
@@ -322,15 +325,25 @@ async function uploadCard(getR2Client, getR2Bucket, { kind, employeeId, occasion
   return { objectKey, fileName, contentType: 'image/jpeg', fileSize: buffer.length };
 }
 
-async function loadOccasionEmployees(svc) {
-  const { data, error } = await svc
-    .from('admin_ifsp_employee_master')
-    .select(
-      'id, employee_code, full_name, status, date_of_birth, date_of_anniversary, birthday_reminder, anniversary_reminder'
-    )
-    .not('status', 'ilike', 'inactive');
-  if (error) throw error;
-  return data || [];
+/** Load all active employees for occasion matching (paginated — PostgREST row cap). */
+export async function loadOccasionEmployees(svc) {
+  const select =
+    'id, employee_code, full_name, status, date_of_birth, date_of_anniversary, birthday_reminder, anniversary_reminder';
+  const rows = [];
+  for (let page = 0; page < MAX_EMPLOYEE_PAGES; page += 1) {
+    const from = page * EMPLOYEE_PAGE_SIZE;
+    const { data, error } = await svc
+      .from('admin_ifsp_employee_master')
+      .select(select)
+      .order('id', { ascending: true })
+      .range(from, from + EMPLOYEE_PAGE_SIZE - 1);
+    if (error) throw error;
+    const batch = data || [];
+    rows.push(...batch);
+    if (batch.length < EMPLOYEE_PAGE_SIZE) break;
+  }
+  // Match dashboard: only exclude literal "inactive"; NULL/empty status stays eligible.
+  return rows.filter(isActiveEmployee);
 }
 
 async function createOneCard(svc, deps, { employee, kind, occasionDate }) {
