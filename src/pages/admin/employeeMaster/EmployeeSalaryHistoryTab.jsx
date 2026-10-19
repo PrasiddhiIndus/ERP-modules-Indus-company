@@ -177,6 +177,18 @@ export default function EmployeeSalaryHistoryTab({ employee }) {
               render: (r) => <span className="font-semibold text-emerald-800">₹ {formatPayslipMoney(r.net_salary)}</span>,
             },
             {
+              key: "remarks",
+              label: "Remarks",
+              render: (r) =>
+                r.month_remarks ? (
+                  <span className="text-[11px] text-slate-600 line-clamp-2 max-w-[220px]" title={r.month_remarks}>
+                    {r.month_remarks}
+                  </span>
+                ) : (
+                  <span className="text-slate-400">—</span>
+                ),
+            },
+            {
               key: "status",
               label: "Status",
               render: (r) => (
@@ -196,9 +208,18 @@ export default function EmployeeSalaryHistoryTab({ employee }) {
                   disabled={!r.payslip_id && !(r.line && r.run)}
                   onClick={() => {
                     if (r.payslip_id) {
-                      setPreview(getPayslipById(r.payslip_id));
+                      const slip = getPayslipById(r.payslip_id);
+                      setPreview(
+                        slip && r.month_remarks && !slip.month_remarks
+                          ? { ...slip, month_remarks: r.month_remarks }
+                          : slip
+                      );
                     } else if (r.line && r.run) {
-                      setPreview(buildPayslipFromLine(r.run, r.line));
+                      setPreview(
+                        buildPayslipFromLine(r.run, r.line, {
+                          monthRemarks: r.month_remarks || r.line?.computed_json?.month_remarks || "",
+                        })
+                      );
                     }
                   }}
                 >

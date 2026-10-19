@@ -71,6 +71,11 @@ import {
 import { printAnnexure } from "./annexurePrint";
 import { exportCtcDetailsExcel } from "./annexureCtcExcel";
 import { annexurePdfBase64, fetchCtcEmailRecipient, sendCtcEmail } from "./ctcEmail";
+import {
+  getMonthRemarks,
+  listMonthRemarksForEmployee,
+  upsertEmployeeMonthRemarks,
+} from "./salaryMonthRemarksDb";
 
 const COMPONENT_LABELS = {
   basic: "Basic",
@@ -259,6 +264,8 @@ function formFromRecord(record, employee) {
   const extraB = sumExtraComponents(extras, EXTRA_PART_B);
   return {
     ...base,
+    /** New revision always starts with today's W.E.F.; user can change it. */
+    wef: todayIso(),
     extras,
     skill: record.skill_category || SKILL_SKILLED,
     category:
@@ -271,6 +278,11 @@ function formFromRecord(record, employee) {
     manual: record.is_custom ? manualSeed(recordToComponents(record), record.custom_overrides_json) : {},
     perfIncentiveOn: Boolean(record.is_custom && record.perf_incentive_enabled),
   };
+}
+
+function currentMonthKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 /** Annexure-I table. `groups` = [{ title, values }]; optional change column. */
@@ -610,6 +622,10 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
   const [emailOpen, setEmailOpen] = useState(false);
   const [wefEdit, setWefEdit] = useState(null);
   const [wefSaving, setWefSaving] = useState(false);
+  const [remarkMonth, setRemarkMonth] = useState(() => currentMonthKey());
+  const [remarkText, setRemarkText] = useState("");
+  const [remarkSaving, setRemarkSaving] = useState(false);
+  const [remarkRows, setRemarkRows] = useState([]);
 
   const segment = employmentTypeLabel(employee?.employment_type) || "—";
 
@@ -617,16 +633,18 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     setLoading(true);
     setLoadError("");
     try {
-      const [s, versions, runs] = await Promise.all([
+      const [s, versions, runs, remarks] = await Promise.all([
         getSalaryStructure(employee.id),
         fetchRuleVersions(),
         listMonthRuns().catch(() => []),
+        listMonthRemarksForEmployee(employee.id).catch(() => []),
       ]);
       setStructure(s?.declared ? s : null);
       setRuleVersions(versions);
       setProcessedMonths(
         new Set((runs || []).filter((r) => r.status === "processed").map((r) => String(r.month_key)))
       );
+      setRemarkRows(remarks || []);
     } catch (err) {
       console.error("CTC details: load failed", err);
       setLoadError("Could not load CTC details. Please try again.");
@@ -639,6 +657,17 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     load();
   }, [load]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const text = await getMonthRemarks(employee.id, remarkMonth).catch(() => "");
+      if (!cancelled) setRemarkText(text);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [employee.id, remarkMonth]);
+
   const history = useMemo(() => buildCtcHistory(structure).map(historyRowSummary), [structure]);
   const current = structure?.declared ? structure : null;
   const currentIsAnnexure = isAnnexureRecord(current);
@@ -648,8 +677,30 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
   const startEdit = () => {
     const next = formFromRecord(current, employee);
     if (!current) next.revisionType = "initial";
+    next.wef = todayIso();
     setForm(next);
     setEditing(true);
+  };
+
+  const saveMonthRemark = async () => {
+    if (salaryFiguresHidden()) return;
+    const mk = String(remarkMonth || "").slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mk)) {
+      toast.error("Select a valid month.");
+      return;
+    }
+    setRemarkSaving(true);
+    try {
+      await upsertEmployeeMonthRemarks(employee.id, mk, remarkText);
+      const rows = await listMonthRemarksForEmployee(employee.id).catch(() => []);
+      setRemarkRows(rows || []);
+      toast.success(String(remarkText || "").trim() ? "Month remark saved." : "Month remark cleared.");
+    } catch (err) {
+      console.error("Month remark save failed", err);
+      toast.error(err?.message || "Could not save month remark.");
+    } finally {
+      setRemarkSaving(false);
+    }
   };
 
   // ── Live calculation ────────────────────────────────────────────────────
@@ -1348,8 +1399,15 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   {isConfirmationFlow ? "Probation W.E.F." : "W.E.F. / Effective From"}
                 </span>
                 <div className="mt-1">
-                  <TinyInput type="date" value={form.wef} onChange={(e) => setField("wef", e?.target?.value || "")} />
+                  <TinyInput
+                    type="date"
+                    value={form.wef}
+                    onChange={(e) => setField("wef", e?.target?.value || "")}
+                  />
                 </div>
+                <span className="block mt-1 text-[11px] text-ink-muted">
+                  Defaults to today for a new revision; change if the effective date should differ.
+                </span>
               </label>
 
               {isConfirmationFlow ? (
@@ -1600,6 +1658,78 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
           </div>
         </div>
       )}
+
+      {!editing ? (
+        <SectionCard title="Month remarks">
+          <p className="text-[11px] text-ink-secondary mb-3">
+            Add a note for a specific pay month. It appears on that month&apos;s payslip and salary history.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-[160px_1fr_auto] gap-3 items-start">
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-wide text-ink-muted">Month</span>
+              <TinyInput
+                type="month"
+                className="mt-1 w-full"
+                value={remarkMonth}
+                onChange={(e) => setRemarkMonth(e?.target?.value || currentMonthKey())}
+                disabled={salaryFiguresHidden()}
+              />
+            </label>
+            <label className="block min-w-0">
+              <span className="text-[10px] uppercase tracking-wide text-ink-muted">Remarks</span>
+              <textarea
+                className="mt-1 w-full min-h-[72px] rounded-lg border border-border bg-white px-2.5 py-2 text-xs text-ink resize-y disabled:bg-slate-50 disabled:text-slate-400"
+                value={remarkText}
+                onChange={(e) => setRemarkText(e.target.value)}
+                placeholder="e.g. Arrears for increment, leave adjustment note…"
+                disabled={salaryFiguresHidden()}
+                maxLength={1000}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={saveMonthRemark}
+              disabled={remarkSaving || salaryFiguresHidden()}
+              className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-deep disabled:opacity-50 md:mt-5"
+            >
+              {remarkSaving ? "Saving…" : "Save remark"}
+            </button>
+          </div>
+          {remarkRows.length ? (
+            <div className="mt-3 overflow-x-auto rounded-lg border border-gray-200">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 text-gray-600">
+                  <tr>
+                    <th className="px-2 py-1.5 text-left w-28">Month</th>
+                    <th className="px-2 py-1.5 text-left">Remarks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {remarkRows.map((r) => (
+                    <tr key={r.month_key} className="border-t border-gray-100">
+                      <td className="px-2 py-1.5 font-medium text-ink whitespace-nowrap">
+                        <button
+                          type="button"
+                          className="text-accent hover:underline"
+                          onClick={() => {
+                            setRemarkMonth(r.month_key);
+                            setRemarkText(r.remarks || "");
+                          }}
+                        >
+                          {r.month_key}
+                        </button>
+                      </td>
+                      <td className="px-2 py-1.5 text-ink-secondary whitespace-pre-wrap">{r.remarks || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-2 text-[11px] text-ink-muted">No month remarks saved yet.</p>
+          )}
+        </SectionCard>
+      ) : null}
 
       <SectionCard title="CTC history">
         <DenseTable columns={historyColumns} rows={history} rowKey="key" showSerialNumber={false} />
