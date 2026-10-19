@@ -2228,6 +2228,16 @@ export async function publishSalarySlipsForMonth({ year, month, employeeIds = []
   const { buildPayslipFromLine, generatePayslipsForRun, upsertPayslipsToDb } = await import(
     "../../../lib/salaryPayslips"
   );
+  let remarksByEmp = new Map();
+  try {
+    const { fetchMonthRemarksMap } = await import("./salaryMonthRemarksDb");
+    remarksByEmp = await fetchMonthRemarksMap(
+      key,
+      target.map((l) => l.employee_master_id)
+    );
+  } catch (remarksErr) {
+    console.warn("Salary slips: month remarks load skipped", remarksErr);
+  }
 
   const stamped = target.map((line) => {
     const cj =
@@ -2236,7 +2246,13 @@ export async function publishSalarySlipsForMonth({ year, month, employeeIds = []
       line.source_snapshot_json && typeof line.source_snapshot_json === "object"
         ? line.source_snapshot_json
         : {};
-    const slip = buildPayslipFromLine(runMeta, line, { processedOn, generatedAt: processAt });
+    const monthRemarks =
+      remarksByEmp.get(String(line.employee_master_id)) || String(cj.month_remarks || "").trim();
+    const slip = buildPayslipFromLine(runMeta, line, {
+      processedOn,
+      generatedAt: processAt,
+      monthRemarks,
+    });
     return {
       ...line,
       computed_json: {
@@ -2245,6 +2261,7 @@ export async function publishSalarySlipsForMonth({ year, month, employeeIds = []
         processed_on: cj.processed_on || processedOn,
         slip_generated_on: processedOn,
         slip_generated_at: processAt,
+        month_remarks: monthRemarks || "",
         payslip: slip,
       },
       source_snapshot_json: {
@@ -2252,6 +2269,7 @@ export async function publishSalarySlipsForMonth({ year, month, employeeIds = []
         pay_month_key: key,
         processed_on: snap.processed_on || processedOn,
         slip_generated_on: processedOn,
+        month_remarks: monthRemarks || "",
       },
     };
   });
@@ -2277,6 +2295,7 @@ export async function publishSalarySlipsForMonth({ year, month, employeeIds = []
         processedOn,
         generatedAt: processAt,
         skipExisting: true,
+        remarksByEmp,
       });
       await upsertPayslipsToDb(slips);
     }

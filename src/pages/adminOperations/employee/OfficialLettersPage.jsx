@@ -25,7 +25,7 @@ import {
 } from "../components/AdminUi";
 import { useAuth } from "../../../contexts/AuthContext";
 import { toast } from "../../../lib/toast";
-import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
+import { ERP_TIMEZONE, formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import {
   confirmedThisYearCount,
   deriveProbationStage,
@@ -348,8 +348,13 @@ export function OfficialLettersPage() {
     [personalLetters]
   );
   const personalKpiToday = useMemo(() => {
-    const today = new Date();
-    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    // Match server occasion_date (IST calendar day), not the browser's local date.
+    const iso = new Intl.DateTimeFormat("en-CA", {
+      timeZone: ERP_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
     return personalLetters.filter((r) => r.occasion_date === iso).length;
   }, [personalLetters]);
 
@@ -414,12 +419,19 @@ export function OfficialLettersPage() {
       const out = await runPersonalLettersGeneration();
       const created = Number(out.created || 0);
       const skipped = Number(out.skipped || 0);
+      const failed = Number(out.failed || 0);
+      const matched =
+        Number(out.birthdayCount || 0) + Number(out.anniversaryCount || 0);
       if (created) {
         toast.success(
           `Generated ${created} personal letter${created === 1 ? "" : "s"} for ${out.occasionDate || "today"}.`
         );
       } else if (skipped) {
         toast.info("Today’s birthday and anniversary cards are already generated.");
+      } else if (failed && matched) {
+        toast.error(
+          `Found ${matched} occasion${matched === 1 ? "" : "s"} today but could not create cards. Check the API server logs.`
+        );
       } else {
         toast.info("No birthdays or wedding anniversaries fall today.");
       }

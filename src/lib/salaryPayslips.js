@@ -97,6 +97,12 @@ export function buildPayslipFromLine(run, line, opts = {}) {
     run.summary_json?.processed_on ||
     todayProcessDate();
   const generatedAt = opts.generatedAt || new Date().toISOString();
+  const monthRemarks = String(
+    opts.monthRemarks ??
+      line.computed_json?.month_remarks ??
+      line.source_snapshot_json?.month_remarks ??
+      ""
+  ).trim();
 
   return {
     id: payslipId(monthKey, line.employee_master_id),
@@ -149,6 +155,8 @@ export function buildPayslipFromLine(run, line, opts = {}) {
     total_ded: num(line.total_ded),
     net_salary: num(line.net_salary),
     bank_amount: num(line.bank_amount),
+    /** Optional note for this pay month (from CTC Details). */
+    month_remarks: monthRemarks || "",
     status: "generated",
     /** Calendar day the Process salary button was clicked */
     processed_on: processedOn,
@@ -164,11 +172,21 @@ export function generatePayslipsForRun(run, lines, opts = {}) {
   const all = readAll();
   const byId = new Map(all.map((p) => [p.id, p]));
   const created = [];
+  const remarksByEmp =
+    opts.remarksByEmp instanceof Map
+      ? opts.remarksByEmp
+      : opts.remarksByEmp && typeof opts.remarksByEmp === "object"
+        ? new Map(Object.entries(opts.remarksByEmp))
+        : null;
   for (const line of lines) {
     const monthKey = run.month_key || `${run.pay_year}-${String(run.pay_month).padStart(2, "0")}`;
     const existingId = payslipId(monthKey, line.employee_master_id);
     if (opts.skipExisting && byId.has(existingId)) continue;
-    const slip = buildPayslipFromLine(run, line, { processedOn, generatedAt });
+    const monthRemarks =
+      remarksByEmp?.get(String(line.employee_master_id)) ??
+      line.computed_json?.month_remarks ??
+      "";
+    const slip = buildPayslipFromLine(run, line, { processedOn, generatedAt, monthRemarks });
     if (!slip) continue;
     byId.set(slip.id, slip);
     created.push(slip);
@@ -328,11 +346,26 @@ export async function fetchPayslipsFromMonthLines(employeeMasterId) {
 }
 
 export async function listPayslipsForEmployeeAsync(employeeMasterId) {
-  const [fromTable, fromLines] = await Promise.all([
+  const [fromTable, fromLines, remarksRows] = await Promise.all([
     fetchPayslipsForEmployeeFromDb(employeeMasterId),
     fetchPayslipsFromMonthLines(employeeMasterId),
+    import("../pages/adminOperations/salaryAdmin/salaryMonthRemarksDb")
+      .then((m) => m.listMonthRemarksForEmployee(employeeMasterId))
+      .catch(() => []),
   ]);
-  const merged = mergePayslips(fromTable, fromLines, listPayslipsForEmployee(employeeMasterId));
+  const remarksByMonth = new Map(
+    (remarksRows || [])
+      .filter((r) => r?.month_key && String(r.remarks || "").trim())
+      .map((r) => [String(r.month_key).slice(0, 7), String(r.remarks).trim()])
+  );
+  const merged = mergePayslips(fromTable, fromLines, listPayslipsForEmployee(employeeMasterId)).map(
+    (slip) => {
+      const mk = String(slip?.month_key || "").slice(0, 7);
+      const fromDb = remarksByMonth.get(mk);
+      if (fromDb == null) return slip;
+      return { ...slip, month_remarks: fromDb };
+    }
+  );
   if (merged.length) {
     const all = readAll();
     const byId = new Map(all.map((p) => [p.id, p]));
@@ -395,6 +428,7 @@ export async function fetchSalaryHistoryForEmployee(employeeMasterId) {
       total_ded: p.total_ded,
       net_salary: p.net_salary,
       bank_amount: p.bank_amount,
+      month_remarks: p.month_remarks || "",
       payslip_id: p.id,
       status: p.status || "processed",
       updated_at: p.generated_at,
@@ -428,12 +462,30 @@ export async function fetchSalaryHistoryForEmployee(employeeMasterId) {
         total_ded: line.total_ded,
         net_salary: line.net_salary,
         bank_amount: line.bank_amount,
+        month_remarks: String(line.computed_json?.month_remarks || "").trim(),
         payslip_id: null,
         status: run.status || "processed",
         updated_at: run.updated_at,
         line,
         run,
       });
+    }
+    try {
+      const { listMonthRemarksForEmployee } = await import(
+        "../pages/adminOperations/salaryAdmin/salaryMonthRemarksDb"
+      );
+      const remarksRows = await listMonthRemarksForEmployee(id);
+      const byMonth = new Map(
+        (remarksRows || [])
+          .filter((r) => r?.month_key && String(r.remarks || "").trim())
+          .map((r) => [String(r.month_key).slice(0, 7), String(r.remarks).trim()])
+      );
+      for (const row of rows) {
+        const mk = String(row.month_key || "").slice(0, 7);
+        if (byMonth.has(mk)) row.month_remarks = byMonth.get(mk);
+      }
+    } catch {
+      /* remarks optional */
     }
     return rows.sort((a, b) => String(b.month_key).localeCompare(String(a.month_key)));
   } catch (err) {
