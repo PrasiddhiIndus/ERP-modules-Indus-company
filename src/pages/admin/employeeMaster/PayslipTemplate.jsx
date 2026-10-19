@@ -362,6 +362,41 @@ export default function PayslipTemplate({
         </div>
       </div>
 
+      {payslip.month_remarks ? (
+        <div style={{ padding: "10px 22px 0" }}>
+          <div
+            style={{
+              border: `1px solid ${LINE}`,
+              background: "#fff",
+              padding: "8px 12px",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 8,
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: BLUE,
+              }}
+            >
+              Remarks
+            </div>
+            <div
+              style={{
+                marginTop: 4,
+                fontSize: 10.5,
+                color: INK,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}
+            >
+              {payslip.month_remarks}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* Footer bar — invoice footer */}
       <div
         style={{
