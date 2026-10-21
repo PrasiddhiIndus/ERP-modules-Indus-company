@@ -732,6 +732,7 @@ function App() {
             <Route path="accounts-finance/import-export" element={<AccountsFinance />} />
             <Route path="accounts-finance/reports" element={<AccountsFinance />} />
             <Route path="accounts-finance/reports/site-ledger" element={<AccountsFinance />} />
+            <Route path="accounts-finance/bank-formats" element={<AccountsFinance />} />
             <Route path="accounts-finance/settings" element={<AccountsFinance />} />
 
             {/* Indus LMS / Trainings */}

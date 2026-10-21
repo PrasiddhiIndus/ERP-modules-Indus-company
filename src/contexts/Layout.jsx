@@ -1447,6 +1447,9 @@ const Layout = () => {
                   <NavLink to="/app/accounts-finance/reports/site-ledger" className={subNavClass}>
                     <span className="type-meta type-truncate">P&amp;L</span>
                   </NavLink>
+                  <NavLink to="/app/accounts-finance/bank-formats" className={subNavClass}>
+                    <span className="type-meta type-truncate">Bank formats</span>
+                  </NavLink>
                 </div>
               )}
             </div>

@@ -1,10 +1,11 @@
-import { FileBarChart, Settings } from "lucide-react";
+import { FileBarChart, Landmark, Settings } from "lucide-react";
 
 export const FINANCE_BASE = "/app/accounts-finance";
 
 /** Site Ledger covers sites, heads, entries, budgets, spreads, variance, and reports. */
 export const FINANCE_NAV = [
   { id: "site-ledger", label: "Site Ledger", path: `${FINANCE_BASE}/reports/site-ledger`, icon: FileBarChart },
+  { id: "bank-formats", label: "Bank formats", path: `${FINANCE_BASE}/bank-formats`, icon: Landmark },
   { id: "settings", label: "Settings", path: `${FINANCE_BASE}/settings`, icon: Settings },
 ];
 
@@ -25,6 +26,9 @@ const LEGACY_PATHS = new Set([
 export function getFinanceTabFromPath(pathname) {
   const p = String(pathname || "").replace(/\/$/, "");
   if (p === `${FINANCE_BASE}/settings`) return "settings";
+  if (p === `${FINANCE_BASE}/bank-formats` || p.startsWith(`${FINANCE_BASE}/bank-formats/`)) {
+    return "bank-formats";
+  }
   if (p.startsWith(`${FINANCE_BASE}/reports/site-ledger`) || LEGACY_PATHS.has(p)) return "site-ledger";
   if (p.startsWith(FINANCE_BASE)) return "site-ledger";
   return "site-ledger";
