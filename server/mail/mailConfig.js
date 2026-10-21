@@ -10,11 +10,23 @@ export function getMicrosoftGraphMailConfig() {
     .trim()
     .toLowerCase();
   const notificationName = String(process.env.MICROSOFT_NOTIFICATION_NAME || '').trim();
+  // Admin Salary (CTC details / payslips) shared From — not the company notifications mailbox.
+  const salaryOutboundEmail = String(
+    process.env.SALARY_OUTBOUND_FROM_EMAIL || 'shilpa@indusfire.com'
+  )
+    .trim()
+    .toLowerCase();
+  const salaryOutboundName = String(
+    process.env.SALARY_OUTBOUND_FROM_NAME || 'HR Department'
+  ).trim();
   // Extra mailboxes the app may send as (Graph Mail.Send must cover them in Exchange).
   const allowedSenders = String(process.env.MICROSOFT_ALLOWED_SENDERS || '')
     .split(/[,;\s]+/)
     .map((s) => s.trim().toLowerCase())
     .filter((s) => s.includes('@'));
+  if (salaryOutboundEmail.includes('@') && !allowedSenders.includes(salaryOutboundEmail)) {
+    allowedSenders.push(salaryOutboundEmail);
+  }
   const timeoutMs = Math.max(
     5000,
     Number(process.env.MICROSOFT_GRAPH_TIMEOUT_MS || 30000) || 30000
@@ -30,6 +42,8 @@ export function getMicrosoftGraphMailConfig() {
     clientSecret,
     notificationEmail,
     notificationName,
+    salaryOutboundEmail,
+    salaryOutboundName,
     allowedSenders,
     timeoutMs,
   };

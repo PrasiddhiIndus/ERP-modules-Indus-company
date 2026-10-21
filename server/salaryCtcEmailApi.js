@@ -3,12 +3,26 @@
  * The recipient is always resolved on the server from the employee's login
  * (profile linked by employee code / user id, then the auth account) — never taken from the client.
  */
-import { isMailDispatchConfigured, sendOutboundMail, MAIL_NOT_CONFIGURED_MESSAGE } from './mail/index.js';
+import {
+  getMicrosoftGraphMailConfig,
+  isMailDispatchConfigured,
+  sendOutboundMail,
+  MAIL_NOT_CONFIGURED_MESSAGE,
+} from './mail/index.js';
 import { isValidEmployeeEmail, normalizeEmployeeEmail } from '../shared/crmInHouseMail.mjs';
 import {
   isSalaryAdminAllowedEmail,
   isSalaryFiguresHidden,
 } from '../src/pages/adminOperations/salaryAdmin/salaryAccess.js';
+
+/** Shared From for Admin Salary outbound mail (CTC details, payslips). */
+export function salaryOutboundFrom() {
+  const config = getMicrosoftGraphMailConfig();
+  return {
+    from: config?.salaryOutboundEmail || 'shilpa@indusfire.com',
+    fromName: config?.salaryOutboundName || 'HR Department',
+  };
+}
 
 const MAX_ATTACHMENTS = 12;
 const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
@@ -151,7 +165,10 @@ export async function sendCtcDetailsEmail({ db, employeeMasterId, attachments, s
 <p>Regards,<br/>HR Department<br/>Indus Fire Safety Private Limited</p>
 </div>`;
 
+  const { from, fromName } = salaryOutboundFrom();
   await sendOutboundMail({
+    from,
+    fromName,
     to: email,
     subject: `CTC details (Annexure-I) – ${name}${employee.employee_code ? ` (${employee.employee_code})` : ''}`,
     html,
@@ -162,7 +179,8 @@ export async function sendCtcDetailsEmail({ db, employeeMasterId, attachments, s
     employeeMasterId: employee.id,
     employeeCode: employee.employee_code,
     files: files.length,
+    from,
     by: senderEmail || null,
   });
-  return { ok: true, email, sent: files.length };
+  return { ok: true, email, sent: files.length, from };
 }

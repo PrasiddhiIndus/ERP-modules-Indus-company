@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { saveAs } from "file-saver";
-import { ArrowLeft, BadgeCheck, Clock, FileDown, Loader2, Lock, PenLine, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Clock, FileDown, Loader2, Lock, Mail, PenLine, Plus, Save, Trash2, X } from "lucide-react";
 import { toast } from "../../../lib/toast";
 import {
   OC_COMPANY_NAME, OC_CONTACTS_HEADING, OC_DOC_REF, OC_FORM_TITLE, OC_SECURITY_HEADING,
@@ -8,7 +8,9 @@ import {
   blankSecurityRow, contractValueInWords, emptyOcForm, formFromRecord, formatSignedAt, isBlank, milestoneTotal,
   ocExportFileName, signoffPending, toSavePayload, validateOcForm,
 } from "./ocModel";
-import { amFinance, friendlyOcError, loadOc, loadSignoffAssignees, myEmployeeCode, saveOc } from "./ocApi";
+import {
+  amFinance, friendlyOcError, loadOc, loadSignoffAssignees, myEmployeeCode, notifyOcSignoff, saveOc,
+} from "./ocApi";
 import { buildOcDocx } from "./ocWordExport";
 
 const inputCls =
@@ -61,7 +63,7 @@ function YesNo({ value, onChange, name }) {
 }
 
 /** Digital sign-off: the signer types their name; the date and time are recorded on save. */
-function SignatureBox({ label, value, onChange, disabled, assignee, locked }) {
+function SignatureBox({ label, value, onChange, disabled, assignee, locked, onRequestSign }) {
   const pending = signoffPending(value);
   const signedAt = !pending && !isBlank(value.signed_by) ? formatSignedAt(value.signed_at) : "";
   const signName = assignee?.employee_name;
@@ -85,7 +87,14 @@ function SignatureBox({ label, value, onChange, disabled, assignee, locked }) {
         />
       </label>
       {!disabled && !locked && isBlank(value.signed_by) && signName && (
-        <button type="button" className={`${smallBtn} self-start`} onClick={() => onChange({ ...value, signed_by: signName })}>
+        <button
+          type="button"
+          className={`${smallBtn} self-start`}
+          onClick={() => {
+            if (typeof onRequestSign === "function") onRequestSign(signName);
+            else onChange({ ...value, signed_by: signName });
+          }}
+        >
           <PenLine className="h-3 w-3" /> Sign as {signName}
         </button>
       )}
@@ -98,12 +107,100 @@ function SignatureBox({ label, value, onChange, disabled, assignee, locked }) {
         ) : pending ? (
           <>
             <Clock className="mt-px h-3.5 w-3.5 shrink-0 text-amber-600" />
-            <span className="text-amber-800">Date and time are recorded when you save.</span>
+            <span className="text-amber-800">Date and time are recorded when you save. The four assigned users will be emailed.</span>
           </>
         ) : (
           <span className="text-slate-400">Not signed</span>
         )}
       </p>
+    </div>
+  );
+}
+
+/** Confirm sign-off + show email result to the four assigned users. */
+function SignNotifyModal({ state, onClose, onConfirmSign }) {
+  if (!state?.open) return null;
+  const mode = state.mode || "result";
+  const signs = state.signatures || [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true">
+      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-xl">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">
+              {mode === "confirm" ? "Confirm PO signature" : state.ok ? "PO signed — email sent" : "PO signed — email not sent"}
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {state.ocNo ? `OC No. ${state.ocNo}` : "PO At Glance"}
+              {state.client ? ` · ${state.client}` : ""}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-3 px-4 py-3 text-sm text-slate-700">
+          {signs.length ? (
+            <ul className="list-disc space-y-1 pl-5 text-xs">
+              {signs.map((s) => (
+                <li key={s.slot}>
+                  <span className="font-medium">{s.label}</span> — {s.signed_by}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {mode === "confirm" ? (
+            <p className="text-xs text-slate-600">
+              On save, a notification will be emailed from the Outreach module&apos;s verified From mailbox to the four
+              users assigned under PO At Glance Sign-off.
+            </p>
+          ) : state.ok ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+              <p className="flex items-center gap-1.5 font-medium">
+                <Mail className="h-3.5 w-3.5" /> Notification emailed
+                {state.from ? ` from ${state.from}` : ""}.
+              </p>
+              {state.sent?.length ? (
+                <p className="mt-1 text-emerald-800">Sent to: {state.sent.join(", ")}</p>
+              ) : null}
+              {state.skipped?.length ? (
+                <p className="mt-1 text-amber-800">
+                  Skipped (no email): {state.skipped.map((s) => s.name || s.code).join(", ")}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+              <p className="font-medium">This PO signature was saved, but the email was not sent to the assigned users.</p>
+              <p className="mt-1 text-amber-900">{state.error || "Please try saving again, or check Outreach sender mailboxes and employee emails."}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-200 px-4 py-3">
+          {mode === "confirm" ? (
+            <>
+              <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={onConfirmSign}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700"
+              >
+                <PenLine className="h-3.5 w-3.5" /> Sign &amp; continue
+              </button>
+            </>
+          ) : (
+            <button type="button" onClick={onClose} className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700">
+              OK
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -118,6 +215,8 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(Boolean(ocId));
   const [saving, setSaving] = useState(false);
+  const [signNotify, setSignNotify] = useState(null);
+  const [pendingSignSlot, setPendingSignSlot] = useState(null);
   const [exporting, setExporting] = useState(false);
   const topRef = useRef(null);
   const [assignees, setAssignees] = useState({});
@@ -193,6 +292,11 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
       topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
+    const newSignatures = SIGNOFF_SLOTS.filter(({ slot }) => signoffPending(form.signoff[slot])).map(({ slot, label }) => ({
+      slot,
+      label,
+      signed_by: String(form.signoff[slot]?.signed_by || "").trim(),
+    }));
     setSaving(true);
     try {
       const res = await saveOc(toSavePayload(form));
@@ -202,6 +306,38 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
       setInitial(JSON.stringify(f));
       toast.success(saved ? "PO At Glance updated." : res.oc_no ? `PO At Glance for OC No. ${res.oc_no} created.` : "PO At Glance created.");
       onSaved?.(res.id);
+
+      if (newSignatures.length) {
+        try {
+          const mail = await notifyOcSignoff({
+            ocId: res.id,
+            signatures: newSignatures.map(({ slot, signed_by }) => ({ slot, signed_by })),
+            signerName: newSignatures[0]?.signed_by,
+          });
+          setSignNotify({
+            open: true,
+            mode: "result",
+            ok: true,
+            signatures: newSignatures,
+            ocNo: res.oc_no || f.oc_no || form.oc_no,
+            client: f.client_name || form.client_name,
+            from: mail?.from,
+            sent: mail?.sent || [],
+            skipped: mail?.skipped || [],
+          });
+        } catch (mailErr) {
+          console.error("[PO At Glance] sign-off email failed", mailErr);
+          setSignNotify({
+            open: true,
+            mode: "result",
+            ok: false,
+            signatures: newSignatures,
+            ocNo: res.oc_no || f.oc_no || form.oc_no,
+            client: f.client_name || form.client_name,
+            error: mailErr?.message || "Could not send the notification email.",
+          });
+        }
+      }
     } catch (e) {
       toast.error(friendlyOcError(e, "Could not save the PO At Glance."));
     } finally {
@@ -623,6 +759,16 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
                 assignee={assignees[slot]}
                 locked={isLockedFor(slot)}
                 onChange={(v) => setForm((f) => ({ ...f, signoff: { ...f.signoff, [slot]: v } }))}
+                onRequestSign={(signName) => {
+                  setPendingSignSlot(slot);
+                  setSignNotify({
+                    open: true,
+                    mode: "confirm",
+                    signatures: [{ slot, label, signed_by: signName }],
+                    ocNo: form.oc_no,
+                    client: form.client_name,
+                  });
+                }}
               />
             ))}
           </div>
@@ -645,6 +791,30 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
           </button>
         </div>
       )}
+
+      <SignNotifyModal
+        state={signNotify}
+        onClose={() => {
+          setSignNotify(null);
+          setPendingSignSlot(null);
+        }}
+        onConfirmSign={() => {
+          if (!pendingSignSlot || !signNotify?.signatures?.[0]?.signed_by) {
+            setSignNotify(null);
+            setPendingSignSlot(null);
+            return;
+          }
+          const name = signNotify.signatures[0].signed_by;
+          const slot = pendingSignSlot;
+          setForm((f) => ({
+            ...f,
+            signoff: { ...f.signoff, [slot]: { ...f.signoff[slot], signed_by: name } },
+          }));
+          setSignNotify(null);
+          setPendingSignSlot(null);
+          toast.success("Name filled. Save the PO At Glance to record the signature and email the four assigned users.");
+        }}
+      />
     </div>
   );
 }
