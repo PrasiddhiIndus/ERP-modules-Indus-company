@@ -14,7 +14,11 @@ export function userEmailsFromRequest(req) {
 export function isPersonalSenderMailbox(mail) {
   const config = getMicrosoftGraphMailConfig();
   const address = String(mail || '').trim().toLowerCase();
-  return Boolean(config && address && address !== config.notificationEmail && config.allowedSenders.includes(address));
+  if (!config || !address) return false;
+  // Shared company / HR salary From — any allowed login may send as these.
+  if (address === config.notificationEmail) return false;
+  if (address === config.salaryOutboundEmail) return false;
+  return config.allowedSenders.includes(address);
 }
 
 export function canUseSenderMailbox(mail, userEmails) {
@@ -26,7 +30,9 @@ export function canUseSenderMailbox(mail, userEmails) {
 export function personalSenderMailboxes() {
   const config = getMicrosoftGraphMailConfig();
   if (!config) return [];
-  return config.allowedSenders.filter((mail) => mail !== config.notificationEmail);
+  return config.allowedSenders.filter(
+    (mail) => mail !== config.notificationEmail && mail !== config.salaryOutboundEmail
+  );
 }
 
 /** Personal mailboxes this user may not pick (used to hide them in the UI). */

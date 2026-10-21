@@ -61,6 +61,7 @@ import {
   sendExitDocumentsEmail,
   stageExitEmailAttachment,
 } from './employeeExitEmailApi.js';
+import { notifyOcSignoffAssignees } from './ocSignoffNotifyApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -1733,6 +1734,24 @@ app.post('/api/admin/salary/ctc-email', einvoiceRateLimit, requireAuth, requireC
     return res.json(result);
   } catch (err) {
     return sendSalaryCtcEmailError(res, err, 'Could not send the email.');
+  }
+});
+
+app.post('/api/fire-tender/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
+  try {
+    const result = await notifyOcSignoffAssignees({
+      db: crmInHouseServiceClient(),
+      ocId: req.body?.ocId,
+      signatures: req.body?.signatures,
+      senderMailboxId: req.body?.senderMailboxId,
+      signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
+    });
+    return res.json(result);
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    if (status >= 500) console.error('[oc/signoff-notify]', err?.message || err);
+    const message = err?.message || 'Could not send the sign-off notification.';
+    return res.status(status).json({ error: message, message });
   }
 });
 
