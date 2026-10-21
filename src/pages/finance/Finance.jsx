@@ -7,9 +7,11 @@ import FinanceTypographyStyles from "./components/FinanceTypographyStyles";
 import FinanceTabNav from "./components/FinanceTabNav";
 import Settings from "./Settings";
 import SiteLedgerApp from "./SiteLedgerApp";
+import BankFormats from "./bankFormats/BankFormats";
 
 const PAGE_MAP = {
   "site-ledger": () => <SiteLedgerApp embedded />,
+  "bank-formats": BankFormats,
   settings: Settings,
 };
 
@@ -38,6 +40,7 @@ function FinanceShell() {
   const activeId = getFinanceTabFromPath(location.pathname);
   const ActivePage = PAGE_MAP[activeId] || PAGE_MAP["site-ledger"];
   const isSiteLedger = activeId === "site-ledger";
+  const isBankFormats = activeId === "bank-formats";
   const path = location.pathname.replace(/\/$/, "");
 
   if (path === "/app/accounts-finance") {
@@ -50,6 +53,15 @@ function FinanceShell() {
         <FinanceTypographyStyles />
         <FinanceSchemaBanner />
         <SiteLedgerApp embedded />
+      </div>
+    );
+  }
+
+  if (isBankFormats) {
+    return (
+      <div className="min-h-screen bg-slate-50 finance-module">
+        <FinanceTypographyStyles />
+        <BankFormats />
       </div>
     );
   }
