@@ -90,6 +90,83 @@ export async function saveCompOffAvailableBalance(supabase, employeeCode, target
 }
 
 /**
+ * Set remaining C/O for credits earned in a specific month (YYYY-MM).
+ * Admin may set any Jan–Dec month in the current or a past calendar year.
+ */
+export async function saveCompOffMonthBalance(supabase, employeeCode, monthKey, targetRemaining) {
+  const code = normalizeAttendanceEmpCode(employeeCode);
+  if (!code) throw new Error("Employee code is required.");
+  const mk = String(monthKey || "").trim().slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(mk)) throw new Error("Select a valid month.");
+  const year = Number(mk.slice(0, 4));
+  const currentYear = Number(compOffCurrentMonthKey().slice(0, 4));
+  if (year > currentYear) throw new Error("Cannot set C/O balance for a future year.");
+  const target = Math.max(0, Number(targetRemaining));
+  if (!Number.isFinite(target)) throw new Error("Enter a valid balance.");
+  const { data, error } = await supabase.schema("indus_one").rpc("set_comp_off_month_balance", {
+    p_employee_code: code,
+    p_month_key: mk,
+    p_target_remaining: target,
+    p_note: null,
+  });
+  if (error) throw error;
+  return Number(data ?? target);
+}
+
+/** Month keys from cutoff through current month (for past-month balance entry). */
+export function pastAndCurrentCompOffMonthKeys(refDate = new Date()) {
+  const cutoff = compOffCutoffMonthKey(refDate);
+  const current = compOffCurrentMonthKey(refDate);
+  const [startY, startM] = cutoff.split("-").map(Number);
+  const [endY, endM] = current.split("-").map(Number);
+  const keys = [];
+  let y = startY;
+  let m = startM;
+  while (y < endY || (y === endY && m <= endM)) {
+    keys.push(`${y}-${String(m).padStart(2, "0")}`);
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return keys;
+}
+
+/**
+ * Set remaining C/O for many months at once (Jan–Dec of a year).
+ * @param {Record<string, string|number>} monthAmounts map YYYY-MM → remaining
+ * @returns {{ saved: string[], skipped: string[] }}
+ */
+export async function saveCompOffAllMonthBalances(supabase, employeeCode, monthAmounts) {
+  const code = normalizeAttendanceEmpCode(employeeCode);
+  if (!code) throw new Error("Employee code is required.");
+  const currentYear = Number(compOffCurrentMonthKey().slice(0, 4));
+  const entries = Object.entries(monthAmounts || {})
+    .map(([mk, raw]) => ({ mk: String(mk || "").trim().slice(0, 7), raw }))
+    .filter(({ mk, raw }) => {
+      if (!/^\d{4}-\d{2}$/.test(mk) || raw === "" || raw == null) return false;
+      return Number(mk.slice(0, 4)) <= currentYear;
+    });
+
+  if (!entries.length) throw new Error("Enter a balance for at least one month.");
+
+  const saved = [];
+  const skipped = [];
+  for (const { mk, raw } of entries) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) {
+      skipped.push(mk);
+      continue;
+    }
+    await saveCompOffMonthBalance(supabase, code, mk, n);
+    saved.push(mk);
+  }
+  if (!saved.length) throw new Error("Enter a valid balance for at least one month.");
+  return { saved, skipped };
+}
+
+/**
  * Merge RPC summary with employee list.
  * Each month column = C/O earned in that month only (by earned_date).
  * Does not carry/copy credits into later months. Usable period is separate
@@ -122,11 +199,6 @@ export function buildCompOffEmployeeRows(employees, summaryRows, year, refDate =
     let availableNow = 0;
 
     for (const mk of allMonths) {
-      if (isCompOffMonthBeforeCutoff(mk, refDate)) {
-        monthBalances[mk] = null;
-        continue;
-      }
-
       const cell = byEmpMonth.get(`${code}|${mk}`) || {
         earned: 0,
         used: 0,
@@ -135,7 +207,7 @@ export function buildCompOffEmployeeRows(employees, summaryRows, year, refDate =
         remaining: 0,
       };
 
-      // Month column = remaining of C/O earned that month (not copied to other months).
+      // Month column = remaining of C/O earned that month (Jan–Dec of the year).
       monthBalances[mk] = Number(cell.remaining || 0);
 
       if (mk === currentMonthKey) {
@@ -206,6 +278,9 @@ export function formatCompOffError(err) {
     /relation ["']?comp_off_/i.test(msg)
   ) {
     return "C/O ledger is not available. Apply migrations 20260902150000_comp_off_credit_ledger.sql through 20260903100000_comp_off_restore_and_remaining.sql.";
+  }
+  if (/could not find the function.*set_comp_off_month_balance/i.test(msg)) {
+    return "Month C/O balance is not set up yet. Apply migration 20261021140000_comp_off_set_month_balance_full_year.sql.";
   }
   return msg || "C/O balance operation failed.";
 }

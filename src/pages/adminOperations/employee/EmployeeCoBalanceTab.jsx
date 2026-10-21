@@ -1,5 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DenseTable, FilterBar, SectionCard, TinyInput, TinySelect } from "../components/AdminUi";
+import {
+  DenseTable,
+  FilterBar,
+  SectionCard,
+  TinyInput,
+  TinySelect,
+} from "../components/AdminUi";
 import { supabase } from "../../../lib/supabase";
 import { toast } from "../../../lib/toast";
 import {
@@ -9,10 +15,9 @@ import {
   compOffMonthYearLabel,
   compOffCutoffMonthKey,
   compOffCurrentMonthKey,
-  isCompOffMonthBeforeCutoff,
   fetchCompOffMonthlySummary,
   formatCompOffError,
-  saveCompOffAvailableBalance,
+  saveCompOffAllMonthBalances,
   sortCompOffEmployeeRows,
 } from "../../../lib/compOffBalance";
 
@@ -40,14 +45,19 @@ export default function EmployeeCoBalanceTab({
   const [pageSize, setPageSize] = useState(25);
   const [sort, setSort] = useState({ field: "empCode", direction: "asc" });
   const [editingCode, setEditingCode] = useState(null);
-  const [editDraft, setEditDraft] = useState("");
-  const editDraftRef = useRef("");
+  const [editDrafts, setEditDrafts] = useState({});
+  const editDraftsRef = useRef({});
   const [editSaving, setEditSaving] = useState(false);
 
   const monthKeys = useMemo(() => allCalendarMonthKeysForYear(year), [year]);
   const cutoffLabel = compOffCutoffMonthKey();
   const currentMonthKey = compOffCurrentMonthKey();
-  const canEditCurrentYear = canEditBalances && year === Number(currentMonthKey.slice(0, 4));
+  /** All Jan–Dec columns for the selected year (past/current years only). */
+  const editableMonthKeys = useMemo(() => {
+    const currentYear = Number(currentMonthKey.slice(0, 4));
+    if (Number(year) > currentYear) return [];
+    return monthKeys;
+  }, [currentMonthKey, monthKeys, year]);
 
   const loadSummary = useCallback(async () => {
     setLoading(true);
@@ -66,9 +76,6 @@ export default function EmployeeCoBalanceTab({
   useEffect(() => {
     loadSummary();
   }, [loadSummary]);
-
-  // No realtime auto-refresh on this tab: reconcile/earn writes were retriggering
-  // loadSummary in a loop and timing out. Reload after explicit save only.
 
   const gridRows = useMemo(
     () => buildCompOffEmployeeRows(employees, summaryRows, year),
@@ -150,16 +157,27 @@ export default function EmployeeCoBalanceTab({
 
   const cancelEdit = useCallback(() => {
     setEditingCode(null);
-    setEditDraft("");
-    editDraftRef.current = "";
+    setEditDrafts({});
+    editDraftsRef.current = {};
   }, []);
 
-  const startEdit = useCallback((row) => {
-    // Edit adjusts usable available balance (2-month validity), not month earned count.
-    const draft = String(Number(row.availableNow || 0));
-    editDraftRef.current = draft;
-    setEditDraft(draft);
-    setEditingCode(row.empCode);
+  const startEdit = useCallback(
+    (row) => {
+      const drafts = {};
+      for (const mk of editableMonthKeys) {
+        const v = row.monthBalances?.[mk];
+        drafts[mk] = v == null || v === "" ? "" : String(Number(v));
+      }
+      editDraftsRef.current = drafts;
+      setEditDrafts(drafts);
+      setEditingCode(row.empCode);
+    },
+    [editableMonthKeys]
+  );
+
+  const setMonthDraft = useCallback((mk, value) => {
+    editDraftsRef.current = { ...editDraftsRef.current, [mk]: value };
+    setEditDrafts((prev) => ({ ...prev, [mk]: value }));
   }, []);
 
   const saveEdit = useCallback(
@@ -167,10 +185,14 @@ export default function EmployeeCoBalanceTab({
       setEditSaving(true);
       setError("");
       try {
-        await saveCompOffAvailableBalance(supabase, row.empCode, editDraftRef.current);
+        const { saved } = await saveCompOffAllMonthBalances(
+          supabase,
+          row.empCode,
+          editDraftsRef.current
+        );
         cancelEdit();
         await loadSummary();
-        toast.success("C/O balance saved.");
+        toast.success(`C/O balances saved for ${saved.length} month(s).`);
       } catch (err) {
         const msg = formatCompOffError(err);
         toast.error(msg);
@@ -186,27 +208,24 @@ export default function EmployeeCoBalanceTab({
 
   const renderMonthCell = useCallback(
     (row, mk) => {
-      const isCurrentMonth = mk === currentMonthKey;
-      const isEditing = editingCode === row.empCode;
-      if (isEditing && isCurrentMonth && canEditCurrentYear) {
+      const isEditing = editingCode === row.empCode && editableMonthKeys.includes(mk);
+      if (isEditing && canEditBalances) {
         return (
           <input
             type="number"
             min="0"
             step="0.5"
-            value={editDraft}
-            onChange={(e) => {
-              editDraftRef.current = e.target.value;
-              setEditDraft(e.target.value);
-            }}
+            value={editDrafts[mk] ?? ""}
+            onChange={(e) => setMonthDraft(mk, e.target.value)}
             disabled={editSaving}
+            aria-label={`${compOffMonthYearLabel(mk)} remaining`}
             className="h-6 w-12 max-w-[52px] rounded border border-gray-300 px-1 text-[11px] leading-tight text-center tabular-nums"
           />
         );
       }
       return fmtCell(row.monthBalances?.[mk]);
     },
-    [canEditCurrentYear, currentMonthKey, editDraft, editSaving, editingCode]
+    [canEditBalances, editDrafts, editSaving, editableMonthKeys, editingCode, setMonthDraft]
   );
 
   const columns = useMemo(() => {
@@ -232,21 +251,20 @@ export default function EmployeeCoBalanceTab({
     ];
 
     for (const mk of monthKeys) {
-      const beforeCutoff = isCompOffMonthBeforeCutoff(mk);
       const colKey = `m_${mk}`;
       const isCurrentMonth = mk === currentMonthKey;
       base.push({
         key: colKey,
         label: compOffMonthLabel(mk),
         className: `text-center tabular-nums min-w-[2.5rem] ${
-          beforeCutoff ? "text-gray-300" : isCurrentMonth ? "text-gray-900 font-medium" : "text-gray-900"
+          isCurrentMonth ? "text-gray-900 font-medium" : "text-gray-900"
         }`,
         headerRender: () => sortableHeader(colKey, compOffMonthLabel(mk), "center"),
         render: (r) => renderMonthCell(r, mk),
       });
     }
 
-    if (canEditCurrentYear) {
+    if (canEditBalances) {
       base.push({
         key: "actions",
         label: "Actions",
@@ -286,19 +304,11 @@ export default function EmployeeCoBalanceTab({
           );
         },
       });
-    } else if (canEditBalances) {
-      base.push({
-        key: "actions",
-        label: "Actions",
-        className: "whitespace-nowrap",
-        render: () => <span className="text-[11px] text-gray-400">View only</span>,
-      });
     }
 
     return base;
   }, [
     canEditBalances,
-    canEditCurrentYear,
     cancelEdit,
     currentMonthKey,
     editSaving,
@@ -316,13 +326,12 @@ export default function EmployeeCoBalanceTab({
       <p className="text-xs text-gray-600 mb-3">
         Each month shows remaining C/O <strong>earned in that month</strong> (by work date on WO/NH/PH). Marking CO
         reduces that month&apos;s remaining value; credits are not copied into later months. Unused amounts expire 2
-        months after the earning date. Data from <strong>{compOffMonthYearLabel(cutoffLabel)}</strong> onward — earlier
-        months are blank.
-        {canEditCurrentYear ? (
+        months after the earning date. System earning still starts from{" "}
+        <strong>{compOffMonthYearLabel(cutoffLabel)}</strong>; admins can set January–December balances for the year.
+        {canEditBalances ? (
           <>
             {" "}
-            <strong>Edit</strong> adjusts the currently available (usable) balance; month columns stay remaining of
-            that month&apos;s earnings.
+            <strong>Edit</strong> opens text boxes for all 12 months, then <strong>Save</strong>.
           </>
         ) : null}
       </p>
@@ -390,6 +399,7 @@ export default function EmployeeCoBalanceTab({
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
         <span>
           {sortedRows.length} employee(s) · C/O data from {compOffMonthYearLabel(cutoffLabel)} onward
+          {editingCode ? ` · Editing ${editingCode}` : ""}
         </span>
         <div className="flex items-center gap-2">
           <TinySelect value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="w-[100px]">
@@ -401,7 +411,7 @@ export default function EmployeeCoBalanceTab({
           </TinySelect>
           <button
             type="button"
-            disabled={currentPage <= 1}
+            disabled={currentPage <= 1 || !!editingCode}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             className="h-7 px-2 rounded border border-gray-300 bg-white disabled:opacity-50"
           >
@@ -412,7 +422,7 @@ export default function EmployeeCoBalanceTab({
           </span>
           <button
             type="button"
-            disabled={currentPage >= totalPages}
+            disabled={currentPage >= totalPages || !!editingCode}
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             className="h-7 px-2 rounded border border-gray-300 bg-white disabled:opacity-50"
           >
