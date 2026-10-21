@@ -67,6 +67,7 @@ export const ROUTE_MODULE_MAP = [
   ['/app/store-inventory', 'Admin · Store inventory'],
   ['/app/gate-pass', 'Admin · Gate pass'],
   ['/app/admin', 'Admin · Operations'],
+  ['/app/accounts-finance/bank-formats', 'Finance · Bank formats'],
   ['/app/accounts-finance', 'Finance / P&L'],
   ['/app/fire-tender-vehicle-management', 'Operations · Fire tender vehicle'],
   ['/app/fire-tender', 'IEV'],
