@@ -40,6 +40,9 @@ import {
   downloadMonthlyRegisterExcel,
   buildPunchLookupByEmpDate,
   isPurplePresentPunch,
+  resolveRegisterCellDisplayMark,
+  isRegisterPodPunchCombinedMark,
+  isRegisterCompositeHalfDayMark,
   sortRegisterEmployeeRows,
   formatAttendanceSupabaseError,
   fetchActiveEmployeesForRegister,
@@ -1249,7 +1252,9 @@ export function EmployeeAttendanceDailyPage() {
         ...row,
         dayRemarks: manualRemarks[row.empCode] || {},
       }));
-      await downloadMonthlyRegisterExcel(rowsWithRemarks, daysInMonth, monthMeta?.monthKey);
+      await downloadMonthlyRegisterExcel(rowsWithRemarks, daysInMonth, monthMeta?.monthKey, {
+        punchByEmpDate: buildPunchLookupByEmpDate(punches),
+      });
     } finally {
       setExporting(false);
     }
@@ -1266,6 +1271,7 @@ export function EmployeeAttendanceDailyPage() {
       const punchByEmpDate = buildPunchLookupByEmpDate(punches);
       await downloadMonthlyRegisterExcel(rowsWithRemarks, daysInMonth, monthMeta.monthKey, {
         punchByEmpDate,
+        includePunchDetail: true,
       });
     } finally {
       setExportingPunches(false);
@@ -1664,7 +1670,16 @@ export function EmployeeAttendanceDailyPage() {
           const punchInfo = cellDate
             ? punchByEmpDate.get(`${normalizeAttendanceEmpCode(row.empCode)}|${cellDate}`)
             : null;
+          const displayMark = resolveRegisterCellDisplayMark(value, punchInfo, {
+            employeeCode: row.empCode,
+            department: row.department,
+            onDate: cellDate,
+          });
+          const combinedPodPunch = isRegisterPodPunchCombinedMark(displayMark);
+          const combinedHalfDayLeave = isRegisterCompositeHalfDayMark(displayMark);
           const purplePresent =
+            !combinedPodPunch &&
+            !combinedHalfDayLeave &&
             String(value || "").trim() === "P" &&
             isPurplePresentPunch(
               { punchIn: punchInfo?.punchIn, punchOut: punchInfo?.punchOut },
@@ -1679,15 +1694,26 @@ export function EmployeeAttendanceDailyPage() {
                 .filter(Boolean)
                 .join(" · ") || "Unusual punch window"
             : undefined;
-          const cellHoverTitle = hasComment ? comment : skyBluePunchTitle;
+          const combinedTitle =
+            combinedPodPunch || combinedHalfDayLeave
+              ? [
+                  registerMarkDisplayValue(displayMark),
+                  punchInfo?.punchIn ? `In: ${punchInfo.punchIn}` : null,
+                  punchInfo?.punchOut ? `Out: ${punchInfo.punchOut}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : undefined;
+          const cellHoverTitle = hasComment ? comment : combinedTitle || skyBluePunchTitle;
           const cellInner = (
             <div
-              style={registerMarkCellInlineStyle(value, markStyleOpts)}
-              className={`${registerMarkCellWrapperClass(value, markStyleOpts)} relative ${isCommentMark ? "cursor-pointer" : ""}`}
+              style={registerMarkCellInlineStyle(displayMark, markStyleOpts)}
+              className={`${registerMarkCellWrapperClass(displayMark, markStyleOpts)} relative ${isCommentMark ? "cursor-pointer" : ""}`}
               title={cellHoverTitle}
             >
               <RegisterMarkPicker
                 value={value}
+                displayMark={displayMark}
                 readOnly={leavingLocked}
                 purplePresent={purplePresent}
                 hoverTitle={cellHoverTitle}
