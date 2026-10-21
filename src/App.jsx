@@ -155,6 +155,7 @@ import {
   SalaryProcessReportPage,
   PayrollMisRoutePage,
   SalaryComponentsMasterPage,
+  CtcCalculatorPage,
   PayrollRuleMasterPage,
   CompliancePayrollLayoutPage,
   ComplianceDashboardPage,
@@ -592,6 +593,7 @@ function App() {
               <Route path="dashboard" element={<SalaryDashboardPage />} />
               <Route path="salary-components" element={<SalaryComponentsMasterPage />} />
               <Route path="payroll-rules" element={<PayrollRuleMasterPage />} />
+              <Route path="ctc-calculator" element={<CtcCalculatorPage />} />
               <Route path="salary-processing" element={<SalaryProcessingPage />} />
               <Route path="reports" element={<SalaryProcessReportPage />} />
               <Route path="mis" element={<PayrollMisRoutePage />} />
