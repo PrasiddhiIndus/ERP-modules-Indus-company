@@ -73,8 +73,22 @@ function centered(doc, text, y, { px, underline = false }) {
 }
 
 /** Annexure-I (same layout as Print Annexure, employee copy) → base64 PDF. */
-export async function annexurePdfBase64({ employee, record, ruleVersion, segment }) {
-  const parts = annexureParts({ employee, record, ruleVersion, segment });
+export async function annexurePdfBase64({
+  employee,
+  record,
+  ruleVersion,
+  segment,
+  monthRemarks = "",
+  showMonthRemarks = false,
+}) {
+  const parts = annexureParts({
+    employee,
+    record,
+    ruleVersion,
+    segment,
+    monthRemarks,
+    showMonthRemarks,
+  });
   const cur = recordToComponents(record);
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   doc.setTextColor(TEXT);
@@ -133,6 +147,30 @@ export async function annexurePdfBase64({ employee, record, ruleVersion, segment
     const lines = doc.splitTextToSize(parts.note, CONTENT_W);
     doc.text(lines, MARGIN, y, { baseline: "top", lineHeightFactor: LINE });
     y += lines.length * 10 * LINE * PX_MM;
+  }
+
+  if (parts.showMonthRemarks && parts.monthRemarks) {
+    y += 8 * PX_MM;
+    doc.setDrawColor(BORDER);
+    doc.setLineWidth(PX_MM);
+    const remarkLines = doc.splitTextToSize(parts.monthRemarks, CONTENT_W - 8 * PX_MM);
+    const boxH = 14 * PX_MM + remarkLines.length * 10 * LINE * PX_MM;
+    if (y + boxH > PAGE_H - MARGIN - 40 * PX_MM) {
+      doc.addPage();
+      y = MARGIN;
+    }
+    doc.rect(MARGIN, y, CONTENT_W, boxH);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9 * PX_PT);
+    doc.setTextColor(TEXT);
+    doc.text("REMARKS", MARGIN + 4 * PX_MM, y + 5 * PX_MM, { baseline: "top" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10 * PX_PT);
+    doc.text(remarkLines, MARGIN + 4 * PX_MM, y + 12 * PX_MM, {
+      baseline: "top",
+      lineHeightFactor: LINE,
+    });
+    y += boxH;
   }
 
   const sign = parts.signatureImage ? await loadImage(parts.signatureImage).catch(() => null) : null;
