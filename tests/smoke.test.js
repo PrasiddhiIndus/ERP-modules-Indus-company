@@ -520,6 +520,8 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
       present: 'P',
       leave: 'CL',
       combined: 'P/CL',
+      diagonal: true,
+      presentFirst: true,
     });
   });
 
