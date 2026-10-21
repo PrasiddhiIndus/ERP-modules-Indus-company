@@ -1,6 +1,14 @@
 import React from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { Calculator, FileBarChart2, LayoutDashboard, Layers, PieChart, SlidersHorizontal } from "lucide-react";
+import {
+  Calculator,
+  FileBarChart2,
+  LayoutDashboard,
+  Layers,
+  PieChart,
+  Sigma,
+  SlidersHorizontal,
+} from "lucide-react";
 
 const BASE = "/app/admin/salary-admin";
 
@@ -26,6 +34,13 @@ const MODULES = [
     path: `${BASE}/payroll-rules`,
     icon: SlidersHorizontal,
     match: (p) => p.startsWith(`${BASE}/payroll-rules`),
+  },
+  {
+    id: "ctc-calculator",
+    label: "CTC Calculator",
+    path: `${BASE}/ctc-calculator`,
+    icon: Sigma,
+    match: (p) => p.startsWith(`${BASE}/ctc-calculator`),
   },
   {
     id: "processing",
@@ -65,7 +80,7 @@ export default function SalaryAdminLayout() {
             <h2 className="type-card-title text-ink mt-0.5">Salary Admin</h2>
           </div>
           <p className="type-meta text-ink-secondary hidden sm:block max-w-md text-right">
-            Switch modules here — dashboard, components, processing, and reports.
+            Switch modules here — dashboard, components, CTC calculator, processing, and reports.
           </p>
         </div>
 

@@ -57,6 +57,7 @@ export const ROUTE_MODULE_MAP = [
   ['/app/compliance/payroll-process', 'Compliance · Payroll'],
   ['/app/compliance/forms', 'Compliance · Forms'],
   ['/app/compliance', 'Compliance · Dashboard'],
+  ['/app/admin/salary-admin/ctc-calculator', 'Admin · CTC calculator'],
   ['/app/admin/salary-admin', 'Admin · Salary admin'],
   ['/app/admin/store', 'Admin · Store'],
   ['/app/admin/gate', 'Admin · Gate pass'],
