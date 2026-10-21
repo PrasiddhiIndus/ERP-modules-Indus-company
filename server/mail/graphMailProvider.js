@@ -160,7 +160,12 @@ export async function sendMail({
   }
 
   const requestedSender = String(from || '').trim().toLowerCase();
-  const sendAsSender = Boolean(requestedSender) && config.allowedSenders.includes(requestedSender);
+  const salaryFrom = String(config.salaryOutboundEmail || '').trim().toLowerCase();
+  // Admin Salary CTC / payslip mail must send as the salary From (shilpa@…), not notifications@.
+  const sendAsSender =
+    Boolean(requestedSender) &&
+    (config.allowedSenders.includes(requestedSender) ||
+      (Boolean(salaryFrom) && requestedSender === salaryFrom));
   const mailbox = sendAsSender ? requestedSender : config.notificationEmail;
 
   // Allowed senders send from their own mailbox, so replies reach them without a Reply-To.

@@ -1,4 +1,5 @@
 ﻿import { supabase } from "../../../lib/supabase";
+import { fetchApiWithAuth } from "../../../lib/apiBase";
 
 /** User-facing message; technical detail goes to the console. */
 export function friendlyOcError(error, fallback = "Something went wrong. Please try again.") {
@@ -113,4 +114,19 @@ export async function amFinance() {
 export async function deleteOc(id) {
   const { error } = await supabase.from("oc_master").delete().eq("id", id);
   if (error) throw error;
+}
+
+/**
+ * Email the four assigned sign-off users (outreach Verified From mailbox) after a PO slot is signed.
+ * @param {{ ocId: string, signatures: { slot: string, signed_by: string }[], signerName?: string }} p
+ */
+export async function notifyOcSignoff({ ocId, signatures, signerName }) {
+  const res = await fetchApiWithAuth("/api/fire-tender/oc/signoff-notify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ocId, signatures, signerName }),
+    timeoutMs: 60_000,
+  });
+  if (!res.ok) throw new Error(res.error || "Could not send the sign-off notification.");
+  return res.data;
 }
