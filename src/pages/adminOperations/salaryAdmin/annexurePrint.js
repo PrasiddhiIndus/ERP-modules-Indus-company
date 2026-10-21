@@ -30,11 +30,15 @@ function fmtDate(d) {
 }
 
 /** Text shared by the printed Annexure-I and the emailed PDF. */
-export function annexureParts({ employee, record, ruleVersion, segment }) {
+export function annexureParts({ employee, record, ruleVersion, segment, monthRemarks, showMonthRemarks }) {
+  const remarksText =
+    showMonthRemarks === true ? String(monthRemarks || "").trim() : "";
   return {
     companyName: DEFAULT_COMPANY_NAME,
     title: ruleVersion?.annexure_title || "COMPENSATION SCHEME – YEAR 2026-27",
     note: ruleVersion?.annexure_note || "",
+    monthRemarks: remarksText,
+    showMonthRemarks: Boolean(remarksText),
     sigCompany: ruleVersion?.signatory_company || "For Indus Fire Safety Private Limited",
     sigTitle: SIGNATORY_TITLE,
     signatureImage,
@@ -60,12 +64,34 @@ export function annexureParts({ employee, record, ruleVersion, segment }) {
  * @param {object} [p.ruleVersion] rule version (title, note, signatory)
  * @param {string} [p.segment]  segment label
  * @param {boolean} [p.internal] internal copy: shows Custom marker and system values
+ * @param {string} [p.monthRemarks] CTC month remarks (shown only when visibility allows)
+ * @param {boolean} [p.showMonthRemarks] when false, Remarks section is omitted
  */
-export function buildAnnexureHtml({ employee, record, previous, ruleVersion, segment, internal = false }) {
+export function buildAnnexureHtml({
+  employee,
+  record,
+  previous,
+  ruleVersion,
+  segment,
+  internal = false,
+  monthRemarks = "",
+  showMonthRemarks = false,
+}) {
   const cur = recordToComponents(record);
   const prev = previous ? recordToComponents(previous) : null;
-  const parts = annexureParts({ employee, record, ruleVersion, segment });
+  const parts = annexureParts({
+    employee,
+    record,
+    ruleVersion,
+    segment,
+    monthRemarks,
+    showMonthRemarks,
+  });
   const { title, note, sigCompany, sigTitle } = parts;
+  const remarksBlock =
+    parts.showMonthRemarks && parts.monthRemarks
+      ? `<div class="remarks"><div class="remarks-h">Remarks</div><div class="remarks-b">${esc(parts.monthRemarks)}</div></div>`
+      : "";
   const overrides = internal && record?.is_custom ? record.custom_overrides_json || {} : {};
   const systemValues = internal && record?.is_custom ? record.system_values_json || {} : {};
 
@@ -121,6 +147,9 @@ export function buildAnnexureHtml({ employee, record, previous, ruleVersion, seg
   .brk tr.total td { font-weight: bold; background: #f3f4f6; }
   .brk tr.heading td { font-weight: bold; background: #e5e7eb; }
   .note { margin-top: 10px; font-size: 10px; font-style: italic; }
+  .remarks { margin-top: 10px; border: 1px solid #999; padding: 6px 8px; }
+  .remarks-h { font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.06em; color: #1a3a6c; margin-bottom: 4px; }
+  .remarks-b { font-size: 10.5px; white-space: pre-wrap; word-break: break-word; }
   .sig { margin-top: 36px; text-align: right; font-weight: bold; }
   .sig .sign { display: block; height: 70px; margin: 6px 0 4px auto; }
   .meta { font-size: 10px; color: #444; margin: 4px 0 0; }
@@ -133,6 +162,7 @@ export function buildAnnexureHtml({ employee, record, previous, ruleVersion, seg
   ${internalLine}
   <table class="brk"><thead>${head}</thead><tbody>${body}</tbody></table>
   ${note ? `<p class="note">${esc(note)}</p>` : ""}
+  ${remarksBlock}
   <div class="sig"><div>${esc(sigCompany)}</div><img class="sign" src="${signatureImage}" alt="" /><div>${esc(sigTitle)}</div></div>
 </body></html>`;
 }

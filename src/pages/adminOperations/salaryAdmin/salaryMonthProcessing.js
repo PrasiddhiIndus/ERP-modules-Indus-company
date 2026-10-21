@@ -2248,10 +2248,12 @@ export async function publishSalarySlipsForMonth({ year, month, employeeIds = []
         : {};
     const monthRemarks =
       remarksByEmp.get(String(line.employee_master_id)) || String(cj.month_remarks || "").trim();
+    const showMonthRemarks = Boolean(monthRemarks);
     const slip = buildPayslipFromLine(runMeta, line, {
       processedOn,
       generatedAt: processAt,
       monthRemarks,
+      showMonthRemarks,
     });
     return {
       ...line,
@@ -2262,6 +2264,7 @@ export async function publishSalarySlipsForMonth({ year, month, employeeIds = []
         slip_generated_on: processedOn,
         slip_generated_at: processAt,
         month_remarks: monthRemarks || "",
+        show_month_remarks: showMonthRemarks,
         payslip: slip,
       },
       source_snapshot_json: {
@@ -2270,6 +2273,7 @@ export async function publishSalarySlipsForMonth({ year, month, employeeIds = []
         processed_on: snap.processed_on || processedOn,
         slip_generated_on: processedOn,
         month_remarks: monthRemarks || "",
+        show_month_remarks: showMonthRemarks,
       },
     };
   });
