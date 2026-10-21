@@ -72,8 +72,10 @@ import { printAnnexure } from "./annexurePrint";
 import { exportCtcDetailsExcel } from "./annexureCtcExcel";
 import { annexurePdfBase64, fetchCtcEmailRecipient, sendCtcEmail } from "./ctcEmail";
 import {
-  getMonthRemarks,
+  getAnnexureMonthRemarks,
+  getStoredMonthRemarks,
   listMonthRemarksForEmployee,
+  resolveEffectiveMonthRemarks,
   upsertEmployeeMonthRemarks,
 } from "./salaryMonthRemarksDb";
 
@@ -624,6 +626,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
   const [wefSaving, setWefSaving] = useState(false);
   const [remarkMonth, setRemarkMonth] = useState(() => currentMonthKey());
   const [remarkText, setRemarkText] = useState("");
+  const [remarkShowOnDocuments, setRemarkShowOnDocuments] = useState(false);
   const [remarkSaving, setRemarkSaving] = useState(false);
   const [remarkRows, setRemarkRows] = useState([]);
 
@@ -660,13 +663,22 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const text = await getMonthRemarks(employee.id, remarkMonth).catch(() => "");
-      if (!cancelled) setRemarkText(text);
+      const mk = /^\d{4}-\d{2}$/.test(remarkMonth) ? remarkMonth : currentMonthKey();
+      const stored = await getStoredMonthRemarks(employee.id, mk).catch(() => null);
+      if (cancelled) return;
+      if (stored?.stored) {
+        setRemarkText(stored.remarks || "");
+        setRemarkShowOnDocuments(Boolean(stored.showOnPayslip && stored.showOnAnnexure));
+        return;
+      }
+      const eff = resolveEffectiveMonthRemarks(remarkRows, mk);
+      setRemarkText(eff.remarks || "");
+      setRemarkShowOnDocuments(Boolean(eff.remarks && eff.showOnPayslip && eff.showOnAnnexure));
     })();
     return () => {
       cancelled = true;
     };
-  }, [employee.id, remarkMonth]);
+  }, [employee.id, remarkMonth, remarkRows]);
 
   const history = useMemo(() => buildCtcHistory(structure).map(historyRowSummary), [structure]);
   const current = structure?.declared ? structure : null;
@@ -686,21 +698,43 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     if (salaryFiguresHidden()) return;
     const mk = String(remarkMonth || "").slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(mk)) {
-      toast.error("Select a valid month.");
+      toast.error("Select a month.");
       return;
     }
     setRemarkSaving(true);
     try {
-      await upsertEmployeeMonthRemarks(employee.id, mk, remarkText);
+      await upsertEmployeeMonthRemarks({
+        employeeMasterId: employee.id,
+        monthKeys: [mk],
+        remarks: remarkText,
+        showOnDocuments: remarkShowOnDocuments,
+      });
       const rows = await listMonthRemarksForEmployee(employee.id).catch(() => []);
       setRemarkRows(rows || []);
-      toast.success(String(remarkText || "").trim() ? "Month remark saved." : "Month remark cleared.");
+      const cleared = !String(remarkText || "").trim();
+      toast.success(
+        cleared
+          ? "Month remark cleared."
+          : remarkShowOnDocuments
+            ? "Month remark saved."
+            : "Remarks saved and hidden on payslip / annexure."
+      );
     } catch (err) {
       console.error("Month remark save failed", err);
       toast.error(err?.message || "Could not save month remark.");
     } finally {
       setRemarkSaving(false);
     }
+  };
+
+  const resolveAnnexureRemarksForRecord = async (row) => {
+    const mk =
+      String(row?.wef_date || "").slice(0, 7) ||
+      currentMonthKey();
+    return getAnnexureMonthRemarks(employee.id, mk).catch(() => ({
+      remarks: "",
+      show: false,
+    }));
   };
 
   // ── Live calculation ────────────────────────────────────────────────────
@@ -1046,8 +1080,9 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     findRuleVersionById(ruleVersions, row?.rule_version_id) ||
     resolveRuleVersion(ruleVersions, row?.salary_scheme || SCHEME_OLD, row?.wef_date);
 
-  const print = (row, { previous = null, internal = false } = {}) => {
+  const print = async (row, { previous = null, internal = false } = {}) => {
     if (salaryFiguresHidden()) return;
+    const annexureRemarks = await resolveAnnexureRemarksForRecord(row);
     printAnnexure({
       employee,
       record: row,
@@ -1055,6 +1090,8 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
       ruleVersion: ruleVersionFor(row),
       segment,
       internal,
+      monthRemarks: annexureRemarks.remarks || "",
+      showMonthRemarks: Boolean(annexureRemarks.show),
     });
   };
 
@@ -1662,16 +1699,17 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
       {!editing ? (
         <SectionCard title="Month remarks">
           <p className="text-[11px] text-ink-secondary mb-3">
-            Add a note for a specific pay month. It appears on that month&apos;s payslip and salary history.
+            Remarks carry forward to later months until you edit or clear them. Use the checkbox to show or hide the
+            Remarks section on the payslip and Annexure-I.
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-[160px_1fr_auto] gap-3 items-start">
-            <label className="block">
+          <div className="space-y-3">
+            <label className="block w-full max-w-[14rem]">
               <span className="text-[10px] uppercase tracking-wide text-ink-muted">Month</span>
-              <TinyInput
+              <input
                 type="month"
-                className="mt-1 w-full"
+                className="mt-1 w-full h-9 rounded-lg border border-border bg-white px-2.5 text-xs text-ink disabled:bg-slate-50 disabled:text-slate-400"
                 value={remarkMonth}
-                onChange={(e) => setRemarkMonth(e?.target?.value || currentMonthKey())}
+                onChange={(e) => setRemarkMonth(e.target.value || currentMonthKey())}
                 disabled={salaryFiguresHidden()}
               />
             </label>
@@ -1686,14 +1724,41 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                 maxLength={1000}
               />
             </label>
-            <button
-              type="button"
-              onClick={saveMonthRemark}
-              disabled={remarkSaving || salaryFiguresHidden()}
-              className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-deep disabled:opacity-50 md:mt-5"
-            >
-              {remarkSaving ? "Saving…" : "Save remark"}
-            </button>
+            <label className="inline-flex items-start gap-2 text-xs text-ink">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={remarkShowOnDocuments}
+                onChange={(e) => setRemarkShowOnDocuments(e.target.checked)}
+                disabled={salaryFiguresHidden()}
+              />
+              <span>
+                Show Remarks section on payslip and Annexure-I
+                <span className="block text-[11px] text-ink-muted">
+                  Uncheck to hide the section on both documents (remarks text is kept).
+                </span>
+              </span>
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={saveMonthRemark}
+                disabled={remarkSaving || salaryFiguresHidden() || !/^\d{4}-\d{2}$/.test(remarkMonth)}
+                className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-deep disabled:opacity-50"
+              >
+                {remarkSaving ? "Saving…" : "Save remark"}
+              </button>
+              {(() => {
+                const eff = resolveEffectiveMonthRemarks(remarkRows, remarkMonth);
+                if (!eff.remarks || !eff.carried) return null;
+                return (
+                  <span className="text-[11px] text-ink-muted">
+                    Carried from {eff.sourceMonth}
+                    {!eff.showOnPayslip ? " · currently hidden on documents" : ""}
+                  </span>
+                );
+              })()}
+            </div>
           </div>
           {remarkRows.length ? (
             <div className="mt-3 overflow-x-auto rounded-lg border border-gray-200">
@@ -1702,6 +1767,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   <tr>
                     <th className="px-2 py-1.5 text-left w-28">Month</th>
                     <th className="px-2 py-1.5 text-left">Remarks</th>
+                    <th className="px-2 py-1.5 text-left w-28">On documents</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1714,12 +1780,24 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                           onClick={() => {
                             setRemarkMonth(r.month_key);
                             setRemarkText(r.remarks || "");
+                            setRemarkShowOnDocuments(
+                              Boolean(r.remarks && r.show_on_payslip && r.show_on_annexure)
+                            );
                           }}
                         >
                           {r.month_key}
                         </button>
                       </td>
-                      <td className="px-2 py-1.5 text-ink-secondary whitespace-pre-wrap">{r.remarks || "—"}</td>
+                      <td className="px-2 py-1.5 text-ink-secondary whitespace-pre-wrap">
+                        {r.remarks ? r.remarks : <span className="text-ink-muted">Cleared (stops carry-forward)</span>}
+                      </td>
+                      <td className="px-2 py-1.5 text-ink-secondary">
+                        {r.remarks
+                          ? r.show_on_payslip && r.show_on_annexure
+                            ? "Shown"
+                            : "Hidden"
+                          : "—"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1928,6 +2006,11 @@ function SendCtcEmailModal({ open, onClose, employee, segment, records, ruleVers
       const attachments = [];
       for (const r of picked) {
         const wef = fmtDate(r.effective_from);
+        const mk = String(r.row?.wef_date || r.effective_from || "").slice(0, 7);
+        const annexureRemarks = await getAnnexureMonthRemarks(employee.id, mk || currentMonthKey()).catch(() => ({
+          remarks: "",
+          show: false,
+        }));
         attachments.push({
           fileName: `Annexure-I_${code}_WEF_${wef}`,
           label: `Annexure-I – W.E.F. ${wef}${r.current ? " (current)" : ""}`,
@@ -1936,6 +2019,8 @@ function SendCtcEmailModal({ open, onClose, employee, segment, records, ruleVers
             record: r.row,
             ruleVersion: ruleVersionFor(r.row),
             segment,
+            monthRemarks: annexureRemarks.remarks || "",
+            showMonthRemarks: Boolean(annexureRemarks.show),
           }),
         });
       }

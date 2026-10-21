@@ -97,12 +97,19 @@ export function buildPayslipFromLine(run, line, opts = {}) {
     run.summary_json?.processed_on ||
     todayProcessDate();
   const generatedAt = opts.generatedAt || new Date().toISOString();
-  const monthRemarks = String(
+  const monthRemarksRaw = String(
     opts.monthRemarks ??
       line.computed_json?.month_remarks ??
       line.source_snapshot_json?.month_remarks ??
       ""
   ).trim();
+  const showMonthRemarks =
+    opts.showMonthRemarks != null
+      ? Boolean(opts.showMonthRemarks)
+      : line.computed_json?.show_month_remarks != null
+        ? Boolean(line.computed_json.show_month_remarks)
+        : false;
+  const monthRemarks = showMonthRemarks ? monthRemarksRaw : "";
 
   return {
     id: payslipId(monthKey, line.employee_master_id),
@@ -157,6 +164,8 @@ export function buildPayslipFromLine(run, line, opts = {}) {
     bank_amount: num(line.bank_amount),
     /** Optional note for this pay month (from CTC Details). */
     month_remarks: monthRemarks || "",
+    /** When false, PayslipTemplate hides the Remarks section entirely. */
+    show_month_remarks: Boolean(showMonthRemarks && monthRemarks),
     status: "generated",
     /** Calendar day the Process salary button was clicked */
     processed_on: processedOn,
@@ -353,17 +362,20 @@ export async function listPayslipsForEmployeeAsync(employeeMasterId) {
       .then((m) => m.listMonthRemarksForEmployee(employeeMasterId))
       .catch(() => []),
   ]);
-  const remarksByMonth = new Map(
-    (remarksRows || [])
-      .filter((r) => r?.month_key && String(r.remarks || "").trim())
-      .map((r) => [String(r.month_key).slice(0, 7), String(r.remarks).trim()])
-  );
+  const { resolveEffectiveMonthRemarks } = await import(
+    "../pages/adminOperations/salaryAdmin/salaryMonthRemarksDb"
+  ).catch(() => ({ resolveEffectiveMonthRemarks: null }));
   const merged = mergePayslips(fromTable, fromLines, listPayslipsForEmployee(employeeMasterId)).map(
     (slip) => {
+      if (typeof resolveEffectiveMonthRemarks !== "function") return slip;
       const mk = String(slip?.month_key || "").slice(0, 7);
-      const fromDb = remarksByMonth.get(mk);
-      if (fromDb == null) return slip;
-      return { ...slip, month_remarks: fromDb };
+      const eff = resolveEffectiveMonthRemarks(remarksRows || [], mk);
+      const show = Boolean(eff.showOnPayslip && eff.remarks);
+      return {
+        ...slip,
+        month_remarks: show ? eff.remarks : "",
+        show_month_remarks: show,
+      };
     }
   );
   if (merged.length) {
@@ -429,6 +441,7 @@ export async function fetchSalaryHistoryForEmployee(employeeMasterId) {
       net_salary: p.net_salary,
       bank_amount: p.bank_amount,
       month_remarks: p.month_remarks || "",
+      show_month_remarks: p.show_month_remarks === true && Boolean(p.month_remarks),
       payslip_id: p.id,
       status: p.status || "processed",
       updated_at: p.generated_at,
@@ -463,6 +476,7 @@ export async function fetchSalaryHistoryForEmployee(employeeMasterId) {
         net_salary: line.net_salary,
         bank_amount: line.bank_amount,
         month_remarks: String(line.computed_json?.month_remarks || "").trim(),
+        show_month_remarks: line.computed_json?.show_month_remarks === true,
         payslip_id: null,
         status: run.status || "processed",
         updated_at: run.updated_at,
@@ -471,18 +485,16 @@ export async function fetchSalaryHistoryForEmployee(employeeMasterId) {
       });
     }
     try {
-      const { listMonthRemarksForEmployee } = await import(
+      const { listMonthRemarksForEmployee, resolveEffectiveMonthRemarks } = await import(
         "../pages/adminOperations/salaryAdmin/salaryMonthRemarksDb"
       );
       const remarksRows = await listMonthRemarksForEmployee(id);
-      const byMonth = new Map(
-        (remarksRows || [])
-          .filter((r) => r?.month_key && String(r.remarks || "").trim())
-          .map((r) => [String(r.month_key).slice(0, 7), String(r.remarks).trim()])
-      );
       for (const row of rows) {
         const mk = String(row.month_key || "").slice(0, 7);
-        if (byMonth.has(mk)) row.month_remarks = byMonth.get(mk);
+        const eff = resolveEffectiveMonthRemarks(remarksRows || [], mk);
+        const show = Boolean(eff.showOnPayslip && eff.remarks);
+        row.month_remarks = show ? eff.remarks : "";
+        row.show_month_remarks = show;
       }
     } catch {
       /* remarks optional */

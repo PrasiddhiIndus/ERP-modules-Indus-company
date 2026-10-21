@@ -180,7 +180,7 @@ export default function EmployeeSalaryHistoryTab({ employee }) {
               key: "remarks",
               label: "Remarks",
               render: (r) =>
-                r.month_remarks ? (
+                r.show_month_remarks === true && r.month_remarks ? (
                   <span className="text-[11px] text-slate-600 line-clamp-2 max-w-[220px]" title={r.month_remarks}>
                     {r.month_remarks}
                   </span>

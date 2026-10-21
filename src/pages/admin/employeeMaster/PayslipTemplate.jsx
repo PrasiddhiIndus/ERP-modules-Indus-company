@@ -362,7 +362,7 @@ export default function PayslipTemplate({
         </div>
       </div>
 
-      {payslip.month_remarks ? (
+      {payslip.show_month_remarks === true && payslip.month_remarks ? (
         <div style={{ padding: "10px 22px 0" }}>
           <div
             style={{
