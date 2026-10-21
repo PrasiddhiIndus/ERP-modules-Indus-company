@@ -340,6 +340,9 @@ export const PayrollRuleMasterPage = lazy(
 export const SalaryComponentsMasterPage = lazy(
   () => import("../pages/adminOperations/salaryAdmin/SalaryComponentsMaster.jsx")
 );
+export const CtcCalculatorPage = lazy(
+  () => import("../pages/adminOperations/salaryAdmin/CtcCalculator.jsx")
+);
 
 export const CompliancePayrollLayoutPage = lazy(
   () => import("../pages/compliance/payroll/CompliancePayrollLayout")
