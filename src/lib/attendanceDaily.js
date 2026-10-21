@@ -111,10 +111,12 @@ export const REGISTER_LEAVE_SUBMENU_OPTIONS = [
 ];
 
 /**
- * Half-day composite marks: 0.5 Present + 0.5 typed leave (Option A).
- * Session order is Present first only (P/SL, P/CL, P/PL).
+ * Half-day composite marks stored in DB: Present first (P/SL, P/CL, P/PL).
+ * Leave-first order (SL/P, CL/P, PL/P) is display-only from punch window.
  */
 export const REGISTER_HALF_DAY_COMPOSITE_MARKS = new Set(["P/SL", "P/CL", "P/PL"]);
+/** Display-only leave-first half-day composites (never persisted). */
+export const REGISTER_HALF_DAY_LEAVE_FIRST_MARKS = new Set(["SL/P", "CL/P", "PL/P"]);
 
 /** Half Day submenu under the register mark picker. */
 export const REGISTER_HALF_DAY_SUBMENU_OPTIONS = [
@@ -178,9 +180,28 @@ export function canonicalRegisterCompositeMark(mark) {
   return `P/${match[1].toUpperCase()}`;
 }
 
+/** Canonical SL/P | CL/P | PL/P (display-only leave-first half-day). */
+export function canonicalRegisterLeaveFirstCompositeMark(mark) {
+  const compact = String(mark ?? "")
+    .trim()
+    .replace(/\s+/g, "");
+  const match = compact.match(/^(SL|CL|PL)\/P$/i);
+  if (!match) return null;
+  return `${match[1].toUpperCase()}/P`;
+}
+
+/** Leave type from either P/CL or CL/P style half-day composite. */
+export function halfDayLeaveTypeFromCompositeMark(mark) {
+  const presentFirst = canonicalRegisterCompositeMark(mark);
+  if (presentFirst) return presentFirst.slice(2);
+  const leaveFirst = canonicalRegisterLeaveFirstCompositeMark(mark);
+  if (leaveFirst) return leaveFirst.slice(0, leaveFirst.indexOf("/"));
+  return null;
+}
+
 /**
  * Leave balance / deductible weight for PL / SL / CL register marks.
- * Full PL|CL|SL = 1; P/PL|P/CL|P/SL composites = 0.5 (half-day deduction unchanged).
+ * Full PL|CL|SL = 1; P/PL|P/CL|P/SL (and display-only leave-first) composites = 0.5.
  */
 export function registerPlSlClLeaveDayWeight(mark, leaveType) {
   const type = String(leaveType || "").trim().toUpperCase();
@@ -188,8 +209,8 @@ export function registerPlSlClLeaveDayWeight(mark, leaveType) {
   const raw = String(mark ?? "").trim();
   if (!raw) return 0;
   if (raw.toUpperCase() === type) return 1;
-  const composite = canonicalRegisterCompositeMark(raw);
-  return composite && composite.slice(2) === type ? 0.5 : 0;
+  const leaveHalf = halfDayLeaveTypeFromCompositeMark(raw);
+  return leaveHalf === type ? 0.5 : 0;
 }
 
 /** Canonical LWP/SL | LWP/CL | LWP/PL. */
@@ -201,27 +222,151 @@ export function canonicalRegisterLwpCompositeMark(mark) {
 }
 
 export function isRegisterCompositeHalfDayMark(mark) {
-  return canonicalRegisterCompositeMark(mark) != null;
+  return (
+    canonicalRegisterCompositeMark(mark) != null ||
+    canonicalRegisterLeaveFirstCompositeMark(mark) != null
+  );
 }
 
 export function isRegisterLwpCompositeMark(mark) {
   return canonicalRegisterLwpCompositeMark(mark) != null;
 }
 
-/** Leave type half of a composite mark (e.g. P/SL → SL, LWP/PL → PL), or null. */
+/** Leave type half of a composite mark (e.g. P/SL → SL, CL/P → CL, LWP/PL → PL), or null. */
 export function compositeLeaveTypeFromMark(mark) {
-  const halfDay = canonicalRegisterCompositeMark(mark);
-  if (halfDay) return halfDay.slice(2);
+  const leaveHalf = halfDayLeaveTypeFromCompositeMark(mark);
+  if (leaveHalf) return leaveHalf;
   const lwp = canonicalRegisterLwpCompositeMark(mark);
   if (lwp) return lwp.slice(4);
   return null;
 }
 
-/** Dual register cell parts (P/CL → P+CL, LWP/PL → LWP+PL). */
+/**
+ * Which office half the biometric window covers.
+ * @returns {"first"|"second"|null}
+ */
+export function inferOfficeHalfFromPunch(punchInfo = {}, times = {}) {
+  const punchIn = String(punchInfo?.punchIn || "").trim();
+  const punchOut = String(punchInfo?.punchOut || "").trim();
+  if (!punchIn) return null;
+
+  const firstFrom = times.purpleFirstFrom || "12:00";
+  const lastBefore = times.purpleLastBefore || "12:00";
+  const halfDayCutoff = times.halfDayCutoff || "13:00";
+
+  const inMin = timeToMinutes(punchIn);
+  const outMin = timeToMinutes(punchOut);
+  const afternoonStart = timeToMinutes(firstFrom);
+  const noon = timeToMinutes(lastBefore);
+  const cutoff = timeToMinutes(halfDayCutoff);
+
+  if (inMin != null && afternoonStart != null && inMin >= afternoonStart) return "second";
+  if (outMin != null) {
+    if (cutoff != null && outMin <= cutoff) return "first";
+    if (noon != null && outMin < noon) return "first";
+  }
+  return null;
+}
+
+/** Display-only: POD first half + machine Present second half. Never persisted. */
+export const REGISTER_POD_PUNCH_FIRST = "P(OD)/P";
+/** Display-only: machine Present first half + POD second half. Never persisted. */
+export const REGISTER_POD_PUNCH_SECOND = "P/P(OD)";
+
+export function isRegisterPodOrTourMark(mark) {
+  const m = String(mark ?? "").trim();
+  return m === "P(OD)" || m === "T";
+}
+
+export function isRegisterPodPunchCombinedMark(mark) {
+  const m = String(mark ?? "").trim();
+  return m === REGISTER_POD_PUNCH_FIRST || m === REGISTER_POD_PUNCH_SECOND;
+}
+
+/**
+ * When approved POD/tour and biometric punches share a date, pick display order from punch window.
+ * Afternoon punch-in → POD first (`P(OD)/P`). Early out / morning window → POD second (`P/P(OD)`).
+ * Returns null when not a combined case. Never write these marks to the DB.
+ */
+export function resolvePodPunchCombinedDisplayMark(mark, punchInfo = {}, times = {}) {
+  if (!isRegisterPodOrTourMark(mark)) return null;
+  if (!String(punchInfo?.punchIn || "").trim()) return null;
+  const officeHalf = inferOfficeHalfFromPunch(punchInfo, times);
+  // Office second half → POD first; office first half → POD second; full day → POD first.
+  if (officeHalf === "first") return REGISTER_POD_PUNCH_SECOND;
+  return REGISTER_POD_PUNCH_FIRST;
+}
+
+/**
+ * Half-day leave composites (P/CL …) — diagonal order from punch window.
+ * Office first half → `P/CL`; office second half → display-only `CL/P`.
+ * Never persists leave-first marks.
+ */
+export function resolveHalfDayLeaveCombinedDisplayMark(mark, punchInfo = {}, times = {}) {
+  const fromComposite = halfDayLeaveTypeFromCompositeMark(mark);
+  if (!fromComposite) return null;
+
+  const officeHalf = inferOfficeHalfFromPunch(punchInfo, times);
+  if (officeHalf === "second") return `${fromComposite}/P`;
+  // Present first (stored form) when office is first half, or no clear half / no punch.
+  return `P/${fromComposite}`;
+}
+
+/** Resolve cell display mark (POD+P or half-day leave+P). Stored mark unchanged. */
+export function resolveRegisterCellDisplayMark(
+  storedMark,
+  punchInfo,
+  { employeeCode = null, department = null, onDate = null } = {}
+) {
+  const times = attendanceTimesFor({ employeeCode, department, onDate });
+  return (
+    resolvePodPunchCombinedDisplayMark(storedMark, punchInfo, times) ||
+    resolveHalfDayLeaveCombinedDisplayMark(storedMark, punchInfo, times) ||
+    storedMark
+  );
+}
+
+/** Dual register cell parts (P/CL → P+CL, CL/P → CL+P, P(OD)/P → POD+P). */
 export function registerMarkCompositeDisplayParts(mark) {
+  const m = String(mark ?? "").trim();
+  if (m === REGISTER_POD_PUNCH_FIRST) {
+    return {
+      present: "P(OD)",
+      leave: "P",
+      combined: REGISTER_POD_PUNCH_FIRST,
+      diagonal: true,
+      podFirst: true,
+    };
+  }
+  if (m === REGISTER_POD_PUNCH_SECOND) {
+    return {
+      present: "P",
+      leave: "P(OD)",
+      combined: REGISTER_POD_PUNCH_SECOND,
+      diagonal: true,
+      podFirst: false,
+    };
+  }
+  const leaveFirst = canonicalRegisterLeaveFirstCompositeMark(mark);
+  if (leaveFirst) {
+    const leaveType = leaveFirst.slice(0, leaveFirst.indexOf("/"));
+    return {
+      present: leaveType,
+      leave: "P",
+      combined: leaveFirst,
+      diagonal: true,
+      leaveFirst: true,
+    };
+  }
   const halfDay = canonicalRegisterCompositeMark(mark);
   if (halfDay) {
-    return { present: "P", leave: halfDay.slice(2), combined: halfDay };
+    return {
+      present: "P",
+      leave: halfDay.slice(2),
+      combined: halfDay,
+      diagonal: true,
+      presentFirst: true,
+    };
   }
   const lwp = canonicalRegisterLwpCompositeMark(mark);
   if (lwp) {
@@ -235,13 +380,20 @@ export function isRegisterTourMark(mark) {
   return String(mark ?? "").trim() === "T";
 }
 
-/** Closed-cell / export label (T → P(OD)). */
+/** Closed-cell / export label (T → P(OD); combined POD/leave+P use pipe form). */
 export function registerMarkDisplayValue(mark) {
   const m = String(mark ?? "").trim();
   if (!m) return "-";
+  if (m === REGISTER_POD_PUNCH_FIRST) return "P(OD) | P";
+  if (m === REGISTER_POD_PUNCH_SECOND) return "P | P(OD)";
   if (isRegisterTourMark(m)) return "P(OD)";
+  const leaveFirst = canonicalRegisterLeaveFirstCompositeMark(m);
+  if (leaveFirst) {
+    const leaveType = leaveFirst.slice(0, leaveFirst.indexOf("/"));
+    return `${leaveType} | P`;
+  }
   const halfDay = canonicalRegisterCompositeMark(m);
-  if (halfDay) return halfDay;
+  if (halfDay) return `P | ${halfDay.slice(2)}`;
   const lwp = canonicalRegisterLwpCompositeMark(m);
   if (lwp) return lwp;
   return m;
@@ -250,6 +402,13 @@ export function registerMarkDisplayValue(mark) {
 export function registerMarkOptionLabel(value) {
   if (!value) return "—";
   if (isRegisterLeftMark(value)) return "Left";
+  if (value === REGISTER_POD_PUNCH_FIRST) return "P(OD) | P — POD + Present";
+  if (value === REGISTER_POD_PUNCH_SECOND) return "P | P(OD) — Present + POD";
+  const leaveFirst = canonicalRegisterLeaveFirstCompositeMark(value);
+  if (leaveFirst) {
+    const leaveType = leaveFirst.slice(0, leaveFirst.indexOf("/"));
+    return `${leaveType} | P — Leave + Present`;
+  }
   if (isRegisterTourMark(value)) return "P(OD) — Present on Duty";
   const lwpOpt = REGISTER_LWP_SUBMENU_OPTIONS.find((o) => o.value === value);
   if (lwpOpt) return lwpOpt.label;
@@ -300,8 +459,8 @@ export function isRegisterSummaryLeaveMark(mark) {
  * Leave balance deduction remains 0.5 via registerPlSlClLeaveDayWeight / leaveDayFraction.
  */
 export function registerCompositePaidLeaveSummaryCredit(mark) {
-  const composite = canonicalRegisterCompositeMark(mark);
-  return composite ? 1 : 0;
+  // Present-first or leave-first half-day composites count as 1 in Total present display.
+  return halfDayLeaveTypeFromCompositeMark(mark) ? 1 : 0;
 }
 
 /** Leave-day credit for register summary (HD / P/* / LWP/* half-day marks = 0.5; full leave = 1). */
@@ -331,6 +490,8 @@ export function registerPresentDayCredit(mark) {
   const raw = String(mark ?? "").trim();
   if (!raw) return 0;
   if (isRegisterNhphMark(raw)) return 1;
+  // Combined POD + punch is still one present day (display-only composite).
+  if (isRegisterPodPunchCombinedMark(raw)) return 1;
   if (raw === "P(OD)") return 1;
   if (REGISTER_PRESENT_CREDIT_MARKS.has(raw)) return 1;
   const canonical = normalizeRegisterMarkForDb(raw);
@@ -505,6 +666,9 @@ export function normalizeRegisterMarkForDb(mark) {
   if (!m) return null;
   const halfDay = canonicalRegisterCompositeMark(m);
   if (halfDay) return halfDay;
+  // Display-only leave-first → persist Present-first (DB check constraint).
+  const leaveFirst = canonicalRegisterLeaveFirstCompositeMark(m);
+  if (leaveFirst) return `P/${leaveFirst.slice(0, leaveFirst.indexOf("/"))}`;
   const lwpComposite = canonicalRegisterLwpCompositeMark(m);
   if (lwpComposite) return lwpComposite;
   if (isRegisterNhphMark(m)) return REGISTER_MARK_NHPH;
@@ -580,13 +744,76 @@ export const REGISTER_MARK_CELL_COLORS = {
   NHPH: { bg: "#ff7a29", border: "#ff7a29", text: "white" },
   CO: { bg: "#1a7a1a", border: "#1a7a1a", text: "white" },
   HD: { bg: "#ff7a29", border: "#ff7a29", text: "white" },
-  /** Dual-state: present half (green) + leave half (red). */
-  "P/SL": { bg: "#1a7a1a", border: "#c62818", text: "white", dual: true },
-  "P/CL": { bg: "#1a7a1a", border: "#c62818", text: "white", dual: true },
-  "P/PL": { bg: "#1a7a1a", border: "#c62818", text: "white", dual: true },
+  /** Diagonal: Present first half (green) + leave second half (red). */
+  "P/SL": {
+    bg: "#1a7a1a",
+    border: "#c62818",
+    text: "white",
+    diagonal: true,
+    topLeft: "#1a7a1a",
+    bottomRight: "#c62818",
+  },
+  "P/CL": {
+    bg: "#1a7a1a",
+    border: "#c62818",
+    text: "white",
+    diagonal: true,
+    topLeft: "#1a7a1a",
+    bottomRight: "#c62818",
+  },
+  "P/PL": {
+    bg: "#1a7a1a",
+    border: "#c62818",
+    text: "white",
+    diagonal: true,
+    topLeft: "#1a7a1a",
+    bottomRight: "#c62818",
+  },
+  /** Diagonal display-only: leave first half (red) + Present second half (green). */
+  "SL/P": {
+    bg: "#c62818",
+    border: "#1a7a1a",
+    text: "white",
+    diagonal: true,
+    topLeft: "#c62818",
+    bottomRight: "#1a7a1a",
+  },
+  "CL/P": {
+    bg: "#c62818",
+    border: "#1a7a1a",
+    text: "white",
+    diagonal: true,
+    topLeft: "#c62818",
+    bottomRight: "#1a7a1a",
+  },
+  "PL/P": {
+    bg: "#c62818",
+    border: "#1a7a1a",
+    text: "white",
+    diagonal: true,
+    topLeft: "#c62818",
+    bottomRight: "#1a7a1a",
+  },
   "LWP/PL": { bg: "#c62818", border: "#c62818", text: "white", dual: true },
   "LWP/SL": { bg: "#c62818", border: "#c62818", text: "white", dual: true },
   "LWP/CL": { bg: "#c62818", border: "#c62818", text: "white", dual: true },
+  /** Diagonal POD + Present (display-only). */
+  [REGISTER_POD_PUNCH_FIRST]: {
+    bg: "#9a2a9a",
+    border: "#1a7a1a",
+    text: "white",
+    diagonal: true,
+    topLeft: "#9a2a9a",
+    bottomRight: "#1a7a1a",
+  },
+  [REGISTER_POD_PUNCH_SECOND]: {
+    bg: "#1a7a1a",
+    border: "#9a2a9a",
+    text: "white",
+    diagonal: true,
+    topLeft: "#1a7a1a",
+    bottomRight: "#9a2a9a",
+  },
   WFH: { bg: TOKENS.info, border: TOKENS.info, text: "white" },
   [REGISTER_MARK_LEFT]: { bg: TOKENS.textMuted, border: TOKENS.textSecondary, text: "white" },
 };
@@ -594,8 +821,11 @@ export const REGISTER_MARK_CELL_COLORS = {
 export function resolveRegisterMarkCellColors(mark, { purplePresent = false } = {}) {
   const m = String(mark ?? "").trim();
   if (!m) return null;
+  if (isRegisterPodPunchCombinedMark(m)) return REGISTER_MARK_CELL_COLORS[m];
   if (m === "P" && purplePresent) return REGISTER_MARK_CELL_COLORS.P_PURPLE;
   if (m === "T") return REGISTER_MARK_CELL_COLORS["P(OD)"];
+  const leaveFirst = canonicalRegisterLeaveFirstCompositeMark(m);
+  if (leaveFirst) return REGISTER_MARK_CELL_COLORS[leaveFirst];
   const halfDay = canonicalRegisterCompositeMark(m);
   if (halfDay) return REGISTER_MARK_CELL_COLORS[halfDay];
   const lwpComposite = canonicalRegisterLwpCompositeMark(m);
@@ -646,6 +876,14 @@ export function registerMarkSelectTextClass(value, options) {
 export function registerMarkCellInlineStyle(value, options) {
   const colors = resolveRegisterMarkCellColors(value, options);
   if (!colors) return undefined;
+  if (colors.diagonal) {
+    const topLeft = colors.topLeft || colors.bg;
+    const bottomRight = colors.bottomRight || colors.border;
+    return {
+      backgroundImage: `linear-gradient(135deg, ${topLeft} 0%, ${topLeft} 48%, ${bottomRight} 52%, ${bottomRight} 100%)`,
+      borderColor: colors.border,
+    };
+  }
   if (colors.dual) {
     return {
       backgroundImage: `linear-gradient(90deg, #1a7a1a 50%, #c62818 50%)`,
@@ -2156,16 +2394,19 @@ export async function refreshApprovedToursOnRegister(supabase, monthMeta, option
 }
 
 
-/** Merge approved tour T marks + comments into register view. Punch (P) wins over tour. Manual wins over both. */
+/**
+ * Merge approved tour T marks + comments into register view.
+ * Manual marks win. Leave overlay wins over tour.
+ * When a biometric punch exists the same day, keep T so the UI can show combined P(OD)|P / P|P(OD).
+ */
 export function mergeApprovedTourIntoRegisterView(
   manualMarks,
   manualRemarks,
   tourData,
-  { punches = [], monthKey, registerRows = null, masterCodeMap = null } = {}
+  { punches: _punches = [], monthKey: _monthKey = null, registerRows = null, masterCodeMap = null } = {}
 ) {
   const tourMarks = tourData?.marks || {};
   const tourRemarks = tourData?.remarks || {};
-  const presentKeys = buildPresentKeysFromPunches(punches);
   const manualSourcedByCode = buildManualSourcedDaySet(registerRows, masterCodeMap);
   const nextMarks = {};
   for (const [code, days] of Object.entries(manualMarks || {})) {
@@ -2183,12 +2424,11 @@ export function mergeApprovedTourIntoRegisterView(
       const canonical = normalizeRegisterMarkForDb(mark);
       if (!Number.isFinite(day) || canonical !== "T") continue;
       if (manualSourcedByCode.get(code)?.has(day)) continue;
-      const iso = monthKey ? registerDateFromDay(monthKey, day) : null;
-      if (iso && presentKeys.has(`${normalizeAttendanceEmpCode(code)}|${iso}`)) continue;
       const existing = nextMarks[code][day];
-      if (existing === "P") continue;
       // Keep Indus One leave overlay over tour T.
       if (isIndusOneApprovedLeaveDisplayMark(existing)) continue;
+      // Keep manual / stored POD over tour.
+      if (existing === "P(OD)") continue;
       const tourRemark = String(tourRemarks[code]?.[day] || tourRemarks[empCode]?.[day] || "").trim();
       const existingRemark = String(nextRemarks[code]?.[day] || "").trim();
       nextMarks[code][day] = "T";
@@ -2200,21 +2440,6 @@ export function mergeApprovedTourIntoRegisterView(
       } else {
         delete nextRemarks[code][day];
       }
-    }
-  }
-
-  // Biometric punch wins over tour T in the grid (same as leave overlay).
-  for (const key of presentKeys) {
-    const pipe = key.indexOf("|");
-    if (pipe < 0) continue;
-    const code = key.slice(0, pipe);
-    const iso = key.slice(pipe + 1);
-    const day = dayOfMonthFromIsoDate(iso);
-    if (!code || !day) continue;
-    if (nextMarks[code]?.[day] === "T") {
-      if (manualSourcedByCode.get(code)?.has(day)) continue;
-      delete nextMarks[code][day];
-      if (nextRemarks[code]) delete nextRemarks[code][day];
     }
   }
 
@@ -3520,11 +3745,14 @@ const REGISTER_EXPORT_FILL_TOUR_OR_POD = {
   fgColor: { argb: "FFCCFBF1" },
 };
 
-/** @returns {"latePunchIn"|"tourOrPod"|""} */
+/** @returns {"latePunchIn"|"tourOrPod"|"podPunchCombined"|"halfDayLeave"|""} */
 export function registerExportDayCellTone(mark, punchInfo) {
   const m = String(mark || "").trim();
   if (!m) return "";
 
+  if (isRegisterPodPunchCombinedMark(m)) return "podPunchCombined";
+  if (isRegisterPodOrTourMark(m) && punchInfo?.punchIn) return "podPunchCombined";
+  if (isRegisterCompositeHalfDayMark(m)) return "halfDayLeave";
   if (m === "T" || m === "P(OD)") return "tourOrPod";
 
   if (m !== "P" || !punchInfo) return "";
@@ -3532,9 +3760,31 @@ export function registerExportDayCellTone(mark, punchInfo) {
   return "";
 }
 
+const REGISTER_EXPORT_FILL_POD_PUNCH = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FFE9D5FF" },
+};
+
+const REGISTER_EXPORT_FILL_HALF_DAY_LEAVE = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FFFECACA" },
+};
+
 function applyRegisterExportCellStyle(cell, tone) {
   if (tone === "latePunchIn") {
     cell.fill = REGISTER_EXPORT_FILL_LATE_PUNCH_IN;
+    cell.font = { color: { argb: "FF991B1B" } };
+    return;
+  }
+  if (tone === "podPunchCombined") {
+    cell.fill = REGISTER_EXPORT_FILL_POD_PUNCH;
+    cell.font = { color: { argb: "FF6B21A8" } };
+    return;
+  }
+  if (tone === "halfDayLeave") {
+    cell.fill = REGISTER_EXPORT_FILL_HALF_DAY_LEAVE;
     cell.font = { color: { argb: "FF991B1B" } };
     return;
   }
@@ -3583,16 +3833,26 @@ export function formatRegisterDayExportCell(mark, punchInfo) {
   ].join("\r\n");
 }
 
-function resolveRegisterExportDayCell(row, day, monthKey, punchByEmpDate) {
+function resolveRegisterExportDayCell(row, day, monthKey, punchByEmpDate, { includePunchDetail = false } = {}) {
   const mark = String(row.dayMarks?.[day] || "").trim();
   if (!mark) return "";
-  const exportMark = registerMarkDisplayValue(mark);
-  if (exportMark === "-") return "";
-  if (!punchByEmpDate || mark !== "P") return exportMark;
   const iso = registerDateFromDay(monthKey, day);
   const empCode = normalizeAttendanceEmpCode(row.empCode);
+  const punchInfo =
+    iso && empCode && punchByEmpDate ? punchByEmpDate.get(`${empCode}|${iso}`) : null;
+  const displayMark = resolveRegisterCellDisplayMark(mark, punchInfo, {
+    employeeCode: empCode,
+    department: row.department,
+    onDate: iso,
+  });
+  const exportMark = registerMarkDisplayValue(displayMark);
+  if (exportMark === "-") return "";
+  if (isRegisterPodPunchCombinedMark(displayMark) || isRegisterCompositeHalfDayMark(displayMark)) {
+    return exportMark;
+  }
+  if (!includePunchDetail || !punchByEmpDate || mark !== "P") return exportMark;
   if (!iso || !empCode) return mark;
-  return formatRegisterDayExportCell(mark, punchByEmpDate.get(`${empCode}|${iso}`));
+  return formatRegisterDayExportCell(mark, punchInfo);
 }
 
 async function downloadMonthlyRegisterExcelWithPunchWrap(rows, daysInMonth, monthKey, punchByEmpDate, fileName) {
@@ -3623,7 +3883,9 @@ async function downloadMonthlyRegisterExcelWithPunchWrap(rows, daysInMonth, mont
       row.employeeName,
       row.department || "",
       ...Array.from({ length: daysInMonth }, (_, i) =>
-        resolveRegisterExportDayCell(row, i + 1, monthKey, punchByEmpDate)
+        resolveRegisterExportDayCell(row, i + 1, monthKey, punchByEmpDate, {
+          includePunchDetail: true,
+        })
       ),
       ...summaryCellsForRow(row),
     ]);
@@ -3636,7 +3898,12 @@ async function downloadMonthlyRegisterExcelWithPunchWrap(rows, daysInMonth, mont
       const empCode = normalizeAttendanceEmpCode(row.empCode);
       const punchInfo =
         iso && empCode && punchByEmpDate ? punchByEmpDate.get(`${empCode}|${iso}`) : null;
-      const tone = registerExportDayCellTone(dayMark, punchInfo);
+      const displayMark = resolveRegisterCellDisplayMark(dayMark, punchInfo, {
+        employeeCode: empCode,
+        department: row.department,
+        onDate: iso,
+      });
+      const tone = registerExportDayCellTone(displayMark, punchInfo);
       if (tone) applyRegisterExportCellStyle(cell, tone);
       const comment = String(row.dayRemarks?.[day] || "").trim();
       if (comment && isRegisterCommentMark(dayMark)) {
@@ -3686,13 +3953,14 @@ async function downloadMonthlyRegisterExcelWithPunchWrap(rows, daysInMonth, mont
 export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey, options = {}) {
   const XLSX = await import("xlsx");
   const punchByEmpDate = options.punchByEmpDate || null;
+  const includePunchDetail = Boolean(options.includePunchDetail);
   const fileName =
     options.fileName ||
-    (punchByEmpDate
+    (includePunchDetail
       ? `daily-attendance-register-with-punch-${monthKey}.xlsx`
       : `daily-attendance-register-${monthKey}.xlsx`);
 
-  if (punchByEmpDate) {
+  if (includePunchDetail && punchByEmpDate) {
     await downloadMonthlyRegisterExcelWithPunchWrap(rows, daysInMonth, monthKey, punchByEmpDate, fileName);
     return;
   }
@@ -3714,7 +3982,9 @@ export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey, 
     row.employeeName,
     row.department || "",
     ...Array.from({ length: daysInMonth }, (_, i) =>
-      resolveRegisterExportDayCell(row, i + 1, monthKey, punchByEmpDate)
+      resolveRegisterExportDayCell(row, i + 1, monthKey, punchByEmpDate, {
+        includePunchDetail: false,
+      })
     ),
     ...summaryCellsForRow(row),
   ]);

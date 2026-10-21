@@ -212,7 +212,8 @@ export function canPunchSyncOverwriteExisting(existing) {
   const markSource = existing.mark_source ?? null;
   const leaveRequestId = existing.leave_request_id ?? null;
   const tourRequestId = existing.tour_request_id ?? null;
-  if (isTourMarkSource(markSource, tourRequestId)) return true;
+  // Keep approved tour / POD so the register can show combined P(OD)|P with punches.
+  if (isTourMarkSource(markSource, tourRequestId)) return false;
   if (markNorm === 'P(OD)' || markNorm === 'T') return false;
   if (String(existing.mark_remark ?? '').trim()) return false;
   if (!mark && !markSource) return true;

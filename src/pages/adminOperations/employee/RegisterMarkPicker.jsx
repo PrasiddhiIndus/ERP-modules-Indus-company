@@ -149,6 +149,8 @@ function SubmenuRow({
 
 export function RegisterMarkPicker({
   value,
+  /** Optional display-only mark (e.g. P(OD)/P); picker edits `value`. */
+  displayMark = null,
   onChange,
   readOnly = false,
   purplePresent = false,
@@ -163,6 +165,7 @@ export function RegisterMarkPicker({
   const rootRef = useRef(null);
   const buttonRef = useRef(null);
   const menuRef = useRef(null);
+  const visualMark = displayMark != null && displayMark !== "" ? displayMark : value;
   const markStyleOpts = purplePresent ? { purplePresent: true } : undefined;
 
   const updateMenuPos = useCallback(() => {
@@ -241,13 +244,27 @@ export function RegisterMarkPicker({
     setOpen(true);
   };
 
-  const display = registerMarkDisplayValue(value);
-  const compositeParts = registerMarkCompositeDisplayParts(value);
-  const displayClass = `${registerMarkSelectTextClass(value, markStyleOpts)} ${
-    compositeParts ? "text-[10px]" : String(value || "").includes("/") ? "text-[10px]" : "text-[11px]"
+  const display = registerMarkDisplayValue(visualMark);
+  const compositeParts = registerMarkCompositeDisplayParts(visualMark);
+  const displayClass = `${registerMarkSelectTextClass(visualMark, markStyleOpts)} ${
+    compositeParts?.diagonal
+      ? "text-[8px]"
+      : compositeParts
+        ? "text-[10px]"
+        : String(visualMark || "").includes("/")
+          ? "text-[10px]"
+          : "text-[11px]"
   }`;
 
   const renderMarkLabel = () => {
+    if (compositeParts?.diagonal) {
+      return (
+        <span className="relative block w-full h-8 leading-none">
+          <span className="absolute top-0.5 left-0.5 font-bold drop-shadow-sm">{compositeParts.present}</span>
+          <span className="absolute bottom-0.5 right-0.5 font-bold drop-shadow-sm">{compositeParts.leave}</span>
+        </span>
+      );
+    }
     if (compositeParts) {
       return (
         <span className="flex w-full items-center justify-between px-0.5 leading-none">
@@ -352,9 +369,9 @@ export function RegisterMarkPicker({
     <div ref={rootRef} className="relative w-full" data-register-mark-picker>
       {readOnly ? (
         <span
-          aria-label={registerMarkOptionLabel(value)}
+          aria-label={registerMarkOptionLabel(visualMark)}
           title={hoverTitle}
-          className={`${displayClass} block w-full h-8 px-1 font-semibold text-center leading-8 cursor-default`}
+          className={`${displayClass} block w-full h-8 px-1 font-semibold text-center ${compositeParts?.diagonal ? "leading-none" : "leading-8"} cursor-default`}
         >
           {renderMarkLabel()}
         </span>
@@ -362,13 +379,13 @@ export function RegisterMarkPicker({
         <button
           ref={buttonRef}
           type="button"
-          aria-label={registerMarkOptionLabel(value)}
+          aria-label={registerMarkOptionLabel(visualMark)}
           aria-expanded={open}
           title={hoverTitle}
           onClick={toggleOpen}
           onMouseDown={(e) => e.stopPropagation()}
-          style={registerMarkCellInlineStyle(value, markStyleOpts)}
-          className={`${displayClass} w-full h-8 px-1 font-semibold text-center cursor-pointer bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-white/50 rounded`}
+          style={registerMarkCellInlineStyle(visualMark, markStyleOpts)}
+          className={`${displayClass} w-full h-8 px-1 font-semibold text-center cursor-pointer bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-white/50 rounded ${compositeParts?.diagonal ? "leading-none" : ""}`}
         >
           {renderMarkLabel()}
         </button>
