@@ -1,24 +1,35 @@
 /**
- * Download bank payment format as Excel (headers match Axis upload sheet).
+ * Download bank payment format as Excel — matches Axis upload sheet layout.
+ * Yellow columns: Payment Amount, Beneficiary Name, Account No, Receiver IFSC.
  */
 
 import ExcelJS from "exceljs";
 import {
   BANK_FORMAT_HEADERS,
-  bankRowToExportArray,
+  DEFAULT_DEBIT_ACCOUNT_NO,
+  DEFAULT_RECEIVER_ACCOUNT_TYPE,
 } from "./bankFormatModel";
 
+/** 1-based columns highlighted yellow in the bank template (B, D, E, J). */
+const YELLOW_COLS = new Set([2, 4, 5, 10]);
+
 const thinBorder = {
-  top: { style: "thin", color: { argb: "FFB0B0B0" } },
-  left: { style: "thin", color: { argb: "FFB0B0B0" } },
-  bottom: { style: "thin", color: { argb: "FFB0B0B0" } },
-  right: { style: "thin", color: { argb: "FFB0B0B0" } },
+  top: { style: "thin", color: { argb: "FF000000" } },
+  left: { style: "thin", color: { argb: "FF000000" } },
+  bottom: { style: "thin", color: { argb: "FF000000" } },
+  right: { style: "thin", color: { argb: "FF000000" } },
 };
 
-const headerFill = {
+const yellowFill = {
   type: "pattern",
   pattern: "solid",
-  fgColor: { argb: "FFF2F2F2" },
+  fgColor: { argb: "FFFFFF00" },
+};
+
+const headerPlainFill = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FFFFFFFF" },
 };
 
 function downloadBlob(buffer, filename) {
@@ -33,51 +44,123 @@ function downloadBlob(buffer, filename) {
   URL.revokeObjectURL(url);
 }
 
+function asText(v) {
+  if (v == null || v === "") return "";
+  return String(v);
+}
+
+function asAmount(v) {
+  if (v === "" || v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 /**
- * @param {Array<object>} rows bank format rows
+ * Build one data row in template column order (A–K).
+ * Account / IFSC / debit kept as text so Excel does not drop digits.
+ */
+function rowValues(row) {
+  const amount = asAmount(row.paymentAmount);
+  return [
+    asText(row.paymentMethod || "N"),
+    amount,
+    asText(row.activationDate || ""),
+    asText(row.beneficiaryName || ""),
+    asText(row.beneficiaryAccountNo || ""),
+    asText(row.blank || ""),
+    asText(row.emailBody || ""),
+    asText(row.debitAccountNo || DEFAULT_DEBIT_ACCOUNT_NO),
+    asText(row.crnNo || ""),
+    asText(row.receiverIfsc || ""),
+    asText(row.receiverAccountType || DEFAULT_RECEIVER_ACCOUNT_TYPE),
+  ];
+}
+
+function styleCell(cell, colNumber, { header = false } = {}) {
+  cell.border = thinBorder;
+  cell.alignment = {
+    horizontal: "center",
+    vertical: "middle",
+    wrapText: header,
+  };
+  if (header) {
+    cell.font = { bold: true, size: 10, name: "Calibri" };
+  } else {
+    cell.font = { size: 10, name: "Calibri" };
+  }
+  if (YELLOW_COLS.has(colNumber)) {
+    cell.fill = yellowFill;
+  } else if (header) {
+    cell.fill = headerPlainFill;
+  }
+}
+
+/**
+ * @param {Array<object>} rows bank format rows (real processed salary data)
  * @param {{ filename?: string, monthLabel?: string }} opts
  */
 export async function downloadBankFormatWorkbook(rows = [], opts = {}) {
   const wb = new ExcelJS.Workbook();
   wb.creator = "Indus ERP Finance";
-  const ws = wb.addWorksheet("Bank Format");
-
-  const headerRow = ws.addRow(BANK_FORMAT_HEADERS);
-  headerRow.height = 28;
-  headerRow.eachCell((cell) => {
-    cell.font = { bold: true, size: 10 };
-    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-    cell.border = thinBorder;
-    cell.fill = headerFill;
+  wb.created = new Date();
+  const ws = wb.addWorksheet("Bank Format", {
+    views: [{ state: "frozen", ySplit: 1 }],
   });
 
+  const headerRow = ws.addRow(BANK_FORMAT_HEADERS);
+  headerRow.height = 32;
+  headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    styleCell(cell, colNumber, { header: true });
+  });
+  // Ensure all 11 header cells exist even if empty trailing
+  for (let c = 1; c <= BANK_FORMAT_HEADERS.length; c++) {
+    const cell = headerRow.getCell(c);
+    if (!cell.value) cell.value = BANK_FORMAT_HEADERS[c - 1];
+    styleCell(cell, c, { header: true });
+  }
+
   for (const row of rows) {
-    const values = bankRowToExportArray(row);
+    const values = rowValues(row);
     const excelRow = ws.addRow(values);
-    excelRow.eachCell((cell, colNumber) => {
-      cell.border = thinBorder;
-      cell.alignment = { horizontal: "center", vertical: "middle" };
-      if (colNumber === 2) {
-        cell.numFmt = "#,##0";
+    excelRow.height = 18;
+    for (let c = 1; c <= values.length; c++) {
+      const cell = excelRow.getCell(c);
+      const val = values[c - 1];
+
+      // Force text columns so long account numbers stay intact
+      if (c === 5 || c === 8 || c === 10 || c === 1 || c === 11) {
+        cell.value = val == null || val === "" ? "" : String(val);
+        cell.numFmt = "@";
+      } else if (c === 2) {
+        if (val == null || val === "") {
+          cell.value = "";
+        } else {
+          cell.value = Number(val);
+          cell.numFmt = "#,##0";
+        }
+      } else {
+        cell.value = val == null ? "" : val;
       }
-    });
+
+      styleCell(cell, c, { header: false });
+    }
   }
 
   ws.columns = [
-    { width: 18 },
-    { width: 22 },
-    { width: 14 },
-    { width: 24 },
-    { width: 22 },
-    { width: 10 },
-    { width: 14 },
-    { width: 20 },
-    { width: 12 },
-    { width: 18 },
-    { width: 18 },
+    { width: 18 }, // A Payment Method
+    { width: 22 }, // B Amount (yellow)
+    { width: 14 }, // C Activation Date
+    { width: 24 }, // D Name (yellow)
+    { width: 20 }, // E Account (yellow)
+    { width: 10 }, // F blank
+    { width: 12 }, // G Email body
+    { width: 18 }, // H Debit Account
+    { width: 12 }, // I CRN
+    { width: 16 }, // J IFSC (yellow)
+    { width: 18 }, // K Account Type
   ];
 
-  const label = opts.monthLabel ? `_${opts.monthLabel.replace(/\s+/g, "_")}` : "";
+  const label = opts.monthLabel ? `_${String(opts.monthLabel).replace(/\s+/g, "_")}` : "";
   const filename = opts.filename || `Bank_Payment_Format${label}.xlsx`;
   const buffer = await wb.xlsx.writeBuffer();
   downloadBlob(buffer, filename);
