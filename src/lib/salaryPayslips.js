@@ -312,6 +312,135 @@ export async function generateAndSavePayslipsForRun(run, lines, opts = {}) {
   return created;
 }
 
+/** Compact snapshot kept on each payslip revision for history. */
+function revisionSnapshot(slip) {
+  if (!slip) return null;
+  return {
+    present_days: num(slip.present_days),
+    gross_wages: num(slip.gross_wages),
+    emp_pf: num(slip.emp_pf),
+    emp_esic: num(slip.emp_esic),
+    pt_amount: num(slip.pt_amount),
+    loan: num(slip.loan),
+    sal_adv: num(slip.sal_adv),
+    unpaid_paid: num(slip.unpaid_paid),
+    tds: num(slip.tds),
+    total_ded: num(slip.total_ded),
+    net_salary: num(slip.net_salary),
+    bank_amount: num(slip.bank_amount),
+  };
+}
+
+/**
+ * Attach revision history when regenerating / editing a payslip.
+ * Previous current slip is pushed into revision_history; payslip_revision_no increments.
+ */
+export function withPayslipRevision(previousSlip, nextSlip, opts = {}) {
+  if (!nextSlip) return null;
+  const history = Array.isArray(previousSlip?.revision_history)
+    ? [...previousSlip.revision_history]
+    : [];
+  if (previousSlip && (previousSlip.net_salary != null || previousSlip.gross_wages != null)) {
+    history.push({
+      revision_no: num(previousSlip.payslip_revision_no) || history.length + 1 || 1,
+      generated_at: previousSlip.generated_at || previousSlip.processed_on || null,
+      note: String(previousSlip.revision_note || "").trim(),
+      revised_by: previousSlip.revised_by || "",
+      ...revisionSnapshot(previousSlip),
+    });
+  }
+  const prevNo = num(previousSlip?.payslip_revision_no) || history.length || 0;
+  return {
+    ...nextSlip,
+    payslip_revision_no: prevNo + 1,
+    revision_history: history,
+    revision_note: String(opts.note || "").trim(),
+    revised_by: opts.revisedBy || "",
+    generated_at: opts.generatedAt || new Date().toISOString(),
+  };
+}
+
+export function payslipRevisionList(slip) {
+  const history = Array.isArray(slip?.revision_history) ? slip.revision_history : [];
+  const current = slip
+    ? {
+        revision_no: num(slip.payslip_revision_no) || history.length + 1 || 1,
+        generated_at: slip.generated_at || slip.processed_on || null,
+        note: String(slip.revision_note || "").trim() || "Current",
+        revised_by: slip.revised_by || "",
+        current: true,
+        ...revisionSnapshot(slip),
+      }
+    : null;
+  const past = history
+    .map((h, i) => ({
+      ...h,
+      revision_no: num(h.revision_no) || i + 1,
+      current: false,
+    }))
+    .sort((a, b) => num(b.revision_no) - num(a.revision_no));
+  return current ? [current, ...past] : past;
+}
+
+/**
+ * Build + save payslips for selected lines, preserving revision history when regenerating.
+ * @param {{ skipExisting?: boolean, forceRevision?: boolean, note?: string, revisedBy?: string }} opts
+ */
+export async function generatePayslipsPreservingHistory(run, lines, opts = {}) {
+  if (!run || !Array.isArray(lines) || !lines.length) return [];
+  const monthKeyValue =
+    run.month_key || `${run.pay_year}-${String(run.pay_month).padStart(2, "0")}`;
+  const existing = await fetchPayslipsForMonthFromDb(monthKeyValue);
+  const byEmp = new Map(existing.map((s) => [String(s.employee_master_id), s]));
+  const local = readAll().filter((s) => String(s.month_key).slice(0, 7) === String(monthKeyValue).slice(0, 7));
+  for (const s of local) {
+    const id = String(s.employee_master_id);
+    if (!byEmp.has(id)) byEmp.set(id, s);
+  }
+
+  const processedOn = opts.processedOn || todayProcessDate();
+  const generatedAt = opts.generatedAt || new Date().toISOString();
+  const created = [];
+  const all = readAll();
+  const byId = new Map(all.map((p) => [p.id, p]));
+
+  for (const line of lines) {
+    const empId = String(line.employee_master_id);
+    const prev = byEmp.get(empId) || byId.get(payslipId(monthKeyValue, line.employee_master_id));
+    if (opts.skipExisting && prev && !opts.forceRevision) continue;
+
+    const base = buildPayslipFromLine(run, line, {
+      processedOn: prev?.processed_on || processedOn,
+      generatedAt,
+      monthRemarks: opts.remarksByEmp?.get?.(empId) ?? line.computed_json?.month_remarks ?? "",
+      showMonthRemarks: line.computed_json?.show_month_remarks,
+    });
+    if (!base) continue;
+
+    const slip =
+      prev || opts.forceRevision
+        ? withPayslipRevision(prev, base, {
+            note: opts.note || (prev ? "Regenerated" : "Generated"),
+            revisedBy: opts.revisedBy || "",
+            generatedAt,
+          })
+        : {
+            ...base,
+            payslip_revision_no: 1,
+            revision_history: [],
+            revision_note: opts.note || "Generated",
+          };
+
+    byId.set(slip.id, slip);
+    byEmp.set(empId, slip);
+    created.push(slip);
+  }
+
+  writeAll([...byId.values()].sort((a, b) => String(b.month_key).localeCompare(String(a.month_key))));
+  if (created.length) await upsertPayslipsToDb(created);
+  return created;
+}
+
 /** Full slips built from this employee's lines on processed salary months (the saved salary sheet). */
 export async function fetchPayslipsFromMonthLines(employeeMasterId) {
   if (employeeMasterId == null || employeeMasterId === "") return [];

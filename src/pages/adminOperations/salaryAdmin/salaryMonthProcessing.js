@@ -2348,6 +2348,233 @@ export async function publishSalarySlipsForMonth({ year, month, employeeIds = []
   };
 }
 
+/**
+ * Generate / regenerate payslips for processed month lines (Generate Payslip tab).
+ * Does not change lock stamps when regenerating an already-locked slip.
+ */
+export async function generatePayslipsForProcessedEmployees({
+  year,
+  month,
+  employeeIds = [],
+  note = "",
+  forceRevision = false,
+} = {}) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isFinite(y) || m < 1 || m > 12) {
+    throw new Error("Select a valid month and year.");
+  }
+  const key = monthKey(y, m);
+  const existing = await getMonthRunByKey(key);
+  if (!existing?.id) {
+    throw new Error("Process salary for this month first, then generate payslips.");
+  }
+  const bundle = await getMonthRunWithLines(existing.id);
+  const allLines = bundle.lines || [];
+  const idSet = new Set((employeeIds || []).map(String).filter(Boolean));
+  const target = idSet.size
+    ? allLines.filter((l) => idSet.has(String(l.employee_master_id)))
+    : allLines;
+  if (!target.length) {
+    throw new Error("Select processed employees to generate payslips.");
+  }
+
+  const { generatePayslipsPreservingHistory } = await import("../../../lib/salaryPayslips");
+  let remarksByEmp = new Map();
+  try {
+    const { fetchMonthRemarksMap } = await import("./salaryMonthRemarksDb");
+    remarksByEmp = await fetchMonthRemarksMap(
+      key,
+      target.map((l) => l.employee_master_id)
+    );
+  } catch (remarksErr) {
+    console.warn("Salary slips: month remarks load skipped", remarksErr);
+  }
+
+  const user = await currentUserMeta();
+  const generatedAt = new Date().toISOString();
+  const processedOn =
+    bundle.run?.processed_on ||
+    bundle.run?.summary_json?.processed_on ||
+    generatedAt.slice(0, 10);
+
+  const slips = await generatePayslipsPreservingHistory(bundle.run, target, {
+    processedOn,
+    generatedAt,
+    forceRevision: Boolean(forceRevision),
+    skipExisting: !forceRevision,
+    note: note || (forceRevision ? "Regenerated" : "Generated"),
+    revisedBy: user?.email || user?.id || "",
+    remarksByEmp,
+  });
+
+  // Stamp payslip on lines that did not already have a lock (first generate).
+  const processAt = generatedAt;
+  for (const line of target) {
+    if (!line?.id) continue;
+    const slip = slips.find((s) => String(s.employee_master_id) === String(line.employee_master_id));
+    if (!slip) continue;
+    const cj =
+      line.computed_json && typeof line.computed_json === "object" ? { ...line.computed_json } : {};
+    const snap =
+      line.source_snapshot_json && typeof line.source_snapshot_json === "object"
+        ? { ...line.source_snapshot_json }
+        : {};
+    const alreadyLocked = Boolean(cj.slip_generated_on || snap.slip_generated_on);
+    const nextCj = {
+      ...cj,
+      payslip: slip,
+      ...(alreadyLocked
+        ? {}
+        : {
+            slip_generated_on: processedOn,
+            slip_generated_at: processAt,
+            processed_on: cj.processed_on || processedOn,
+          }),
+    };
+    const nextSnap = {
+      ...snap,
+      ...(alreadyLocked
+        ? {}
+        : {
+            slip_generated_on: processedOn,
+            processed_on: snap.processed_on || processedOn,
+          }),
+    };
+    const { error } = await supabase
+      .from(MONTH_LINES_TABLE)
+      .update({
+        computed_json: nextCj,
+        source_snapshot_json: nextSnap,
+        updated_at: processAt,
+      })
+      .eq("id", line.id);
+    if (error) throw error;
+  }
+
+  return { run: bundle.run, slips, slipCount: slips.length };
+}
+
+/**
+ * Edit amounts on a processed line and save a new payslip revision (with history).
+ * Works even when the line is already slip-locked — sheet lock stamp is kept.
+ */
+export async function reviseProcessedLineForPayslip({
+  year,
+  month,
+  employeeMasterId,
+  patch = {},
+  note = "",
+} = {}) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isFinite(y) || m < 1 || m > 12) {
+    throw new Error("Select a valid month and year.");
+  }
+  if (employeeMasterId == null || employeeMasterId === "") {
+    throw new Error("Select an employee.");
+  }
+  const key = monthKey(y, m);
+  const existing = await getMonthRunByKey(key);
+  if (!existing?.id) throw new Error("No processed salary for this month.");
+  assertMonthRunUnlocked(existing);
+
+  const bundle = await getMonthRunWithLines(existing.id);
+  const line = (bundle.lines || []).find(
+    (l) => String(l.employee_master_id) === String(employeeMasterId)
+  );
+  if (!line?.id) throw new Error("Employee is not on this month's salary sheet.");
+
+  const EDITABLE = [
+    "present_days",
+    "loan",
+    "sal_adv",
+    "unpaid_paid",
+    "tds",
+    "pt_amount",
+    "pf_basic",
+    "custom_earn_full",
+    "custom_ded_full",
+  ];
+  const merged = { ...line };
+  for (const k of EDITABLE) {
+    if (patch[k] !== undefined) merged[k] = patch[k];
+  }
+  const next = recomputeLineFromEdits(merged, bundle.run.month_days);
+  const user = await currentUserMeta();
+  const generatedAt = new Date().toISOString();
+  const processDay = generatedAt.slice(0, 10);
+
+  const { buildPayslipFromLine, withPayslipRevision, upsertPayslipsToDb, generatePayslipsForRun } =
+    await import("../../../lib/salaryPayslips");
+
+  const prevSlip =
+    (line.computed_json && typeof line.computed_json === "object"
+      ? line.computed_json.payslip
+      : null) || null;
+  let existingDbSlip = null;
+  try {
+    const { fetchPayslipsForMonthFromDb } = await import("../../../lib/salaryPayslips");
+    const monthSlips = await fetchPayslipsForMonthFromDb(key);
+    existingDbSlip =
+      monthSlips.find((s) => String(s.employee_master_id) === String(employeeMasterId)) || null;
+  } catch {
+    /* optional */
+  }
+  const previous = existingDbSlip || prevSlip;
+
+  const baseSlip = buildPayslipFromLine(bundle.run, next, {
+    processedOn: previous?.processed_on || salaryLockedOn(line) || processDay,
+    generatedAt,
+    monthRemarks: next.computed_json?.month_remarks || "",
+    showMonthRemarks: next.computed_json?.show_month_remarks,
+  });
+  const slip = withPayslipRevision(previous, baseSlip, {
+    note: note || "Amount revision",
+    revisedBy: user?.email || user?.id || "",
+    generatedAt,
+  });
+
+  const prevCj =
+    next.computed_json && typeof next.computed_json === "object" ? next.computed_json : {};
+  const prevSnap =
+    next.source_snapshot_json && typeof next.source_snapshot_json === "object"
+      ? next.source_snapshot_json
+      : {};
+  const lockedOn = prevCj.slip_generated_on || prevSnap.slip_generated_on || processDay;
+  const stamped = {
+    ...next,
+    line_revision_no: num(next.line_revision_no, num(bundle.run.revision_no, 1)) + 1,
+    computed_json: {
+      ...prevCj,
+      payslip: slip,
+      slip_generated_on: lockedOn,
+      slip_generated_at: prevCj.slip_generated_at || generatedAt,
+      payslip_revision_no: slip.payslip_revision_no,
+      last_payslip_revision_at: generatedAt,
+      last_payslip_revision_note: note || "Amount revision",
+    },
+    source_snapshot_json: {
+      ...prevSnap,
+      slip_generated_on: lockedOn,
+    },
+    updated_at: generatedAt,
+  };
+
+  const payload = toDbLinePayload(stamped, { includeRunId: false });
+  const { error } = await supabase.from(MONTH_LINES_TABLE).update(payload).eq("id", line.id);
+  if (error) throw error;
+
+  generatePayslipsForRun(bundle.run, [stamped], {
+    processedOn: lockedOn,
+    generatedAt,
+    skipExisting: false,
+  });
+  await upsertPayslipsToDb([slip]);
+
+  return { run: bundle.run, line: stamped, slip };
+}
+
 function collectOverrides(line, original) {
   const keys = [
     "account_no",
