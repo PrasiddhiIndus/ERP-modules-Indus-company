@@ -225,8 +225,18 @@ const MOCK_PEOPLE = [
   },
 ];
 
+function mockDepartmentFor(person) {
+  const d = String(person.designation || "").toLowerCase();
+  if (d.includes("hr")) return "HR";
+  if (d.includes("account")) return "Accounts";
+  if (d.includes("site") || d.includes("fire") || d.includes("technician")) return "Operations";
+  if (d.includes("software") || d.includes("project")) return "IT";
+  return "Admin";
+}
+
 function buildMockLine(person, runId, monthDays, revisionNo, idx) {
   const employeeMasterId = 9000 + idx;
+  const department = person.department || mockDepartmentFor(person);
   const personComps = resolvePersonComponentsForPayroll(employeeMasterId, {
     gross_monthly: person.gross,
     basic_monthly: person.basic,
@@ -245,6 +255,7 @@ function buildMockLine(person, runId, monthDays, revisionNo, idx) {
     employee_code: person.code,
     employee_name: person.name,
     designation: person.designation,
+    department,
     date_of_joining: person.doj,
     account_no: person.account,
     ifsc: person.ifsc,
@@ -269,6 +280,7 @@ function buildMockLine(person, runId, monthDays, revisionNo, idx) {
       ifsc: person.ifsc,
       confirmation_date: person.confirmation,
       designation: person.designation,
+      department,
       custom_earn_full: personComps.custom_earn_full,
       custom_ded_full: personComps.custom_ded_full,
       custom_components: personComps.items,
