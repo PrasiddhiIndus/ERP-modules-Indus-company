@@ -52,6 +52,7 @@ import {
 } from "./salaryProcessingMock";
 import { exportSalaryProcessingWorkbook } from "../../../lib/salaryProcessingExcel";
 import { SalaryBankImportModal } from "./SalaryBankImportModal";
+import SalaryGeneratePayslips from "./SalaryGeneratePayslips";
 import { toast } from "../../../lib/toast";
 
 const numIn =
@@ -210,10 +211,11 @@ function StatementAmt({ children, strong = false, className = "" }) {
   );
 }
 
-/** Overview list tabs — all staff / already processed / held. */
+/** Overview list tabs — all staff / already processed / held / payslips. */
 const VIEW_TABS = [
   { id: "all", label: "All Employees" },
   { id: "processed", label: "Processed" },
+  { id: "payslips", label: "Generate Payslip" },
   { id: "held", label: "Held" },
 ];
 
@@ -2662,6 +2664,8 @@ export default function SalaryProcessing() {
         On All Employees, click Process salary — those staff move to the Processed tab.
         On Processed, select employees and click Processed to lock them for this month
         (green rows). Locked staff stay on the day they were processed and cannot be changed.
+        On Generate Payslip, create payslips for processed staff, filter by department or
+        individual, revise amounts (new revision + history), and preview slips.
         Open a row to view the salary form — locked records are view only.
         P.Days count present and paid leave from Monday to Saturday only. Sundays are not
         counted. If attendance is higher than the month’s working days (26/27, or 24 in
@@ -2748,7 +2752,7 @@ export default function SalaryProcessing() {
               const count =
                 opt.id === "all"
                   ? rosterKpis.total
-                  : opt.id === "processed"
+                  : opt.id === "processed" || opt.id === "payslips"
                     ? rosterKpis.processed
                     : rosterKpis.held;
               return (
@@ -2778,6 +2782,15 @@ export default function SalaryProcessing() {
             })}
           </div>
 
+          {viewTab === "payslips" ? (
+            <SalaryGeneratePayslips
+              year={year}
+              month={month}
+              monthDays={monthDays}
+              onChanged={loadCandidates}
+            />
+          ) : (
+          <>
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-[10px] uppercase tracking-wide text-slate-500 space-y-0.5">
               <span className="block">Department</span>
@@ -3054,6 +3067,8 @@ export default function SalaryProcessing() {
               )}
             </div>
           </div>
+          </>
+          )}
         </div>
       </SectionCard>
 
