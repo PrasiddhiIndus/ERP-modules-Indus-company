@@ -23,7 +23,11 @@ import {
   mergeApprovedTourIntoRegisterView,
   normalizeRegisterMarkForDb,
   registerMarkCompositeDisplayParts,
+  registerMarkDisplayValue,
   registerSummaryLeaveCredit,
+  resolveRegisterCellDisplayMark,
+  REGISTER_CO_PUNCH_FIRST,
+  REGISTER_CO_PUNCH_SECOND,
 } from '../src/lib/attendanceDaily.js';
 import {
   leaveDayFraction,
@@ -323,6 +327,30 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
       { monthKey, punches }
     );
     expect(merged['101'][10]).toBe('P');
+  });
+
+  it('keeps approved CO when punch exists (CO+P display)', () => {
+    const punches = [{ empCode: '2661', punchDate: '2026-10-08' }];
+    const merged = mergeApprovedLeaveMarksIntoManualMarks(
+      { '2661': { 8: 'P' } },
+      { '2661': { 8: 'CO' } },
+      { monthKey: '2026-10', punches }
+    );
+    expect(merged['2661'][8]).toBe('CO');
+    expect(
+      resolveRegisterCellDisplayMark('CO', { punchIn: '09:00', punchOut: '18:00' })
+    ).toBe(REGISTER_CO_PUNCH_FIRST);
+    expect(
+      resolveRegisterCellDisplayMark('CO', { punchIn: '09:00', punchOut: '11:30' })
+    ).toBe(REGISTER_CO_PUNCH_SECOND);
+    expect(registerMarkDisplayValue(REGISTER_CO_PUNCH_FIRST)).toBe('CO | P');
+    expect(registerMarkCompositeDisplayParts(REGISTER_CO_PUNCH_FIRST)).toEqual({
+      present: 'CO',
+      leave: 'P',
+      combined: REGISTER_CO_PUNCH_FIRST,
+      diagonal: true,
+      coFirst: true,
+    });
   });
 
   it('approved leave replaces blank and auto weekoff cells', () => {
