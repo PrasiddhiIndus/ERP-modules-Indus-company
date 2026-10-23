@@ -73,6 +73,7 @@ export const ROUTE_MODULE_MAP = [
   ['/app/fire-tender-vehicle-management', 'Operations · Fire tender vehicle'],
   ['/app/fire-tender', 'IEV'],
   ['/app/operations', 'Operations'],
+  ['/app/projects/quotation', 'Projects · Quotation Maker'],
   ['/app/projects', 'Projects'],
   ['/app/amc', 'AMC management'],
   ['/app/procurement', 'Procurement'],
@@ -114,6 +115,9 @@ const ENTITY_LABELS = {
   profiles: 'user profile',
   marketing_enquiries: 'marketing enquiry',
   marketing_quotations: 'marketing quotation',
+  quotations: 'project quotation',
+  quotation_rows: 'quotation line',
+  quotation_maker_audit: 'quotation audit',
   marketing_clients: 'marketing client',
   marketing_leads: 'marketing lead',
   crm_outreach_clients: 'CRM outreach client',
@@ -309,6 +313,45 @@ function describeLeaveStatus(raw) {
 
 /** @type {Record<string, Partial<Record<'INSERT'|'UPDATE'|'DELETE'|'RPC', Function>>>} */
 export const ACTIVITY_DESCRIPTORS = {
+  quotations: {
+    INSERT: (req, res) => {
+      const row = mergeActivityRows(req, res)
+      const ref = str(pick(row, 'offer_no'), 48)
+      const client = str(pick(row, 'client_name'), 40)
+      const parts = ['created quotation']
+      if (ref) parts.push(ref)
+      if (client) parts.push(`for ${client}`)
+      return result(parts.join(' '), 'CREATED', ref)
+    },
+    UPDATE: (req, res) => {
+      const row = mergeActivityRows(req, res)
+      const ref = str(pick(row, 'offer_no'), 48)
+      const status = pick(req || {}, 'maker_status', 'offer_status')
+      if (status != null && status !== '') {
+        return result(`updated quotation ${ref || ''} status → ${str(status, 32)}`, 'UPDATED', ref)
+      }
+      return result(`updated quotation ${ref || ''}`.trim(), 'UPDATED', ref)
+    },
+    DELETE: (req, res) => {
+      const row = mergeActivityRows(req, res)
+      const ref = str(pick(row, 'offer_no'), 48)
+      return result(`deleted quotation ${ref || ''}`.trim(), 'DELETED', ref)
+    },
+  },
+
+  quotation_rows: {
+    INSERT: () => result('updated quotation line items', 'UPDATED'),
+    UPDATE: () => result('updated quotation line items', 'UPDATED'),
+    DELETE: () => result('cleared quotation line items', 'UPDATED'),
+  },
+
+  quotation_maker_audit: {
+    INSERT: (req) => {
+      const action = str(pick(req || {}, 'action'), 24)
+      return result(`quotation ${action || 'activity'} logged`, 'UPDATED')
+    },
+  },
+
   invoice: {
     INSERT: (req, res) => {
       const row = mergeActivityRows(req, res)

@@ -10,12 +10,22 @@ import jsPDF from "jspdf";
 // `data-pdf-nosplit` attribute when a natural break would cut them in half.
 
 async function nodeToCanvas(node) {
+  // Prefer full scroll size so wide tables / long terms are not clipped.
+  const width = Math.max(node.scrollWidth, node.offsetWidth, node.clientWidth);
+  const height = Math.max(node.scrollHeight, node.offsetHeight, node.clientHeight);
   return html2canvas(node, {
     scale: 2,
     useCORS: true,
     backgroundColor: "#ffffff",
     logging: false,
-    windowWidth: node.scrollWidth,
+    width,
+    height,
+    windowWidth: Math.max(width, document.documentElement.clientWidth),
+    windowHeight: Math.max(height, document.documentElement.clientHeight),
+    scrollX: 0,
+    scrollY: 0,
+    x: 0,
+    y: 0,
   });
 }
 

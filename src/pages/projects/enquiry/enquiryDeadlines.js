@@ -8,6 +8,9 @@ export const TARGET_WORKING_DAYS = 7;
 /** Target date is counted from this field. */
 export const TARGET_BASIS_KEY = 'assigned_on_date';
 
+/** Once saved, Enquiry Receipt Date cannot be changed. */
+export const RECEIPT_DATE_KEY = 'enquiry_receipt_date';
+
 /** Display order for the assignment fields (others keep their configured order). */
 const ASSIGNMENT_FIELD_ORDER = ['assigned_on_date', 'target_date', 'assigned_to_person'];
 
