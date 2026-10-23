@@ -272,6 +272,10 @@ export function inferOfficeHalfFromPunch(punchInfo = {}, times = {}) {
 export const REGISTER_POD_PUNCH_FIRST = "P(OD)/P";
 /** Display-only: machine Present first half + POD second half. Never persisted. */
 export const REGISTER_POD_PUNCH_SECOND = "P/P(OD)";
+/** Display-only: approved CO first half + machine Present second half. Never persisted. */
+export const REGISTER_CO_PUNCH_FIRST = "CO/P";
+/** Display-only: machine Present first half + approved CO second half. Never persisted. */
+export const REGISTER_CO_PUNCH_SECOND = "P/CO";
 
 export function isRegisterPodOrTourMark(mark) {
   const m = String(mark ?? "").trim();
@@ -281,6 +285,19 @@ export function isRegisterPodOrTourMark(mark) {
 export function isRegisterPodPunchCombinedMark(mark) {
   const m = String(mark ?? "").trim();
   return m === REGISTER_POD_PUNCH_FIRST || m === REGISTER_POD_PUNCH_SECOND;
+}
+
+export function isRegisterCoMark(mark) {
+  const m = String(mark ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+  return m === "CO" || m === "C/O" || m === "COMP OFF" || m === "COMPENSATORY OFF";
+}
+
+export function isRegisterCoPunchCombinedMark(mark) {
+  const m = String(mark ?? "").trim();
+  return m === REGISTER_CO_PUNCH_FIRST || m === REGISTER_CO_PUNCH_SECOND;
 }
 
 /**
@@ -298,6 +315,18 @@ export function resolvePodPunchCombinedDisplayMark(mark, punchInfo = {}, times =
 }
 
 /**
+ * When approved CO and biometric punches share a date, pick display order from punch window.
+ * Same half logic as POD+P. Never write these marks to the DB.
+ */
+export function resolveCoPunchCombinedDisplayMark(mark, punchInfo = {}, times = {}) {
+  if (!isRegisterCoMark(mark)) return null;
+  if (!String(punchInfo?.punchIn || "").trim()) return null;
+  const officeHalf = inferOfficeHalfFromPunch(punchInfo, times);
+  if (officeHalf === "first") return REGISTER_CO_PUNCH_SECOND;
+  return REGISTER_CO_PUNCH_FIRST;
+}
+
+/**
  * Half-day leave composites (P/CL …) — diagonal order from punch window.
  * Office first half → `P/CL`; office second half → display-only `CL/P`.
  * Never persists leave-first marks.
@@ -312,7 +341,7 @@ export function resolveHalfDayLeaveCombinedDisplayMark(mark, punchInfo = {}, tim
   return `P/${fromComposite}`;
 }
 
-/** Resolve cell display mark (POD+P or half-day leave+P). Stored mark unchanged. */
+/** Resolve cell display mark (POD+P, CO+P, or half-day leave+P). Stored mark unchanged. */
 export function resolveRegisterCellDisplayMark(
   storedMark,
   punchInfo,
@@ -321,12 +350,13 @@ export function resolveRegisterCellDisplayMark(
   const times = attendanceTimesFor({ employeeCode, department, onDate });
   return (
     resolvePodPunchCombinedDisplayMark(storedMark, punchInfo, times) ||
+    resolveCoPunchCombinedDisplayMark(storedMark, punchInfo, times) ||
     resolveHalfDayLeaveCombinedDisplayMark(storedMark, punchInfo, times) ||
     storedMark
   );
 }
 
-/** Dual register cell parts (P/CL → P+CL, CL/P → CL+P, P(OD)/P → POD+P). */
+/** Dual register cell parts (P/CL → P+CL, CL/P → CL+P, P(OD)/P → POD+P, CO/P → CO+P). */
 export function registerMarkCompositeDisplayParts(mark) {
   const m = String(mark ?? "").trim();
   if (m === REGISTER_POD_PUNCH_FIRST) {
@@ -345,6 +375,24 @@ export function registerMarkCompositeDisplayParts(mark) {
       combined: REGISTER_POD_PUNCH_SECOND,
       diagonal: true,
       podFirst: false,
+    };
+  }
+  if (m === REGISTER_CO_PUNCH_FIRST) {
+    return {
+      present: "CO",
+      leave: "P",
+      combined: REGISTER_CO_PUNCH_FIRST,
+      diagonal: true,
+      coFirst: true,
+    };
+  }
+  if (m === REGISTER_CO_PUNCH_SECOND) {
+    return {
+      present: "P",
+      leave: "CO",
+      combined: REGISTER_CO_PUNCH_SECOND,
+      diagonal: true,
+      coFirst: false,
     };
   }
   const leaveFirst = canonicalRegisterLeaveFirstCompositeMark(mark);
@@ -386,6 +434,8 @@ export function registerMarkDisplayValue(mark) {
   if (!m) return "-";
   if (m === REGISTER_POD_PUNCH_FIRST) return "P(OD) | P";
   if (m === REGISTER_POD_PUNCH_SECOND) return "P | P(OD)";
+  if (m === REGISTER_CO_PUNCH_FIRST) return "CO | P";
+  if (m === REGISTER_CO_PUNCH_SECOND) return "P | CO";
   if (isRegisterTourMark(m)) return "P(OD)";
   const leaveFirst = canonicalRegisterLeaveFirstCompositeMark(m);
   if (leaveFirst) {
@@ -404,6 +454,8 @@ export function registerMarkOptionLabel(value) {
   if (isRegisterLeftMark(value)) return "Left";
   if (value === REGISTER_POD_PUNCH_FIRST) return "P(OD) | P — POD + Present";
   if (value === REGISTER_POD_PUNCH_SECOND) return "P | P(OD) — Present + POD";
+  if (value === REGISTER_CO_PUNCH_FIRST) return "CO | P — Comp-off + Present";
+  if (value === REGISTER_CO_PUNCH_SECOND) return "P | CO — Present + Comp-off";
   const leaveFirst = canonicalRegisterLeaveFirstCompositeMark(value);
   if (leaveFirst) {
     const leaveType = leaveFirst.slice(0, leaveFirst.indexOf("/"));
@@ -490,8 +542,8 @@ export function registerPresentDayCredit(mark) {
   const raw = String(mark ?? "").trim();
   if (!raw) return 0;
   if (isRegisterNhphMark(raw)) return 1;
-  // Combined POD + punch is still one present day (display-only composite).
-  if (isRegisterPodPunchCombinedMark(raw)) return 1;
+  // Combined POD/CO + punch is still one present day (display-only composite).
+  if (isRegisterPodPunchCombinedMark(raw) || isRegisterCoPunchCombinedMark(raw)) return 1;
   if (raw === "P(OD)") return 1;
   if (REGISTER_PRESENT_CREDIT_MARKS.has(raw)) return 1;
   const canonical = normalizeRegisterMarkForDb(raw);
@@ -814,6 +866,23 @@ export const REGISTER_MARK_CELL_COLORS = {
     topLeft: "#1a7a1a",
     bottomRight: "#9a2a9a",
   },
+  /** Diagonal CO + Present (display-only). */
+  [REGISTER_CO_PUNCH_FIRST]: {
+    bg: "#1a7a1a",
+    border: "#1a7a1a",
+    text: "white",
+    diagonal: true,
+    topLeft: "#1a7a1a",
+    bottomRight: "#1a7a1a",
+  },
+  [REGISTER_CO_PUNCH_SECOND]: {
+    bg: "#1a7a1a",
+    border: "#1a7a1a",
+    text: "white",
+    diagonal: true,
+    topLeft: "#1a7a1a",
+    bottomRight: "#1a7a1a",
+  },
   WFH: { bg: TOKENS.info, border: TOKENS.info, text: "white" },
   [REGISTER_MARK_LEFT]: { bg: TOKENS.textMuted, border: TOKENS.textSecondary, text: "white" },
 };
@@ -821,7 +890,9 @@ export const REGISTER_MARK_CELL_COLORS = {
 export function resolveRegisterMarkCellColors(mark, { purplePresent = false } = {}) {
   const m = String(mark ?? "").trim();
   if (!m) return null;
-  if (isRegisterPodPunchCombinedMark(m)) return REGISTER_MARK_CELL_COLORS[m];
+  if (isRegisterPodPunchCombinedMark(m) || isRegisterCoPunchCombinedMark(m)) {
+    return REGISTER_MARK_CELL_COLORS[m];
+  }
   if (m === "P" && purplePresent) return REGISTER_MARK_CELL_COLORS.P_PURPLE;
   if (m === "T") return REGISTER_MARK_CELL_COLORS["P(OD)"];
   const leaveFirst = canonicalRegisterLeaveFirstCompositeMark(m);
@@ -1548,8 +1619,10 @@ function isLeaveRequestFullyApproved(row) {
  * Merges admin_leave_requests + LMS leave_requests (approved only).
  * Prefer per-day applied marks; fill any gaps from the leave date range + type.
  * Punch priority is applied later via mergeApprovedLeaveMarksIntoManualMarks.
+ * When `punches` is provided, approved C/O days that leave-apply skipped due to a
+ * biometric punch are still filled with CO so the register can show CO+P.
  */
-export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate) {
+export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate, { punches = [] } = {}) {
   const marks = {};
   if (!fromDate || !toDate) return marks;
 
@@ -1695,13 +1768,15 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
   if (!approvedById.size) return marks;
 
   // C/O consumes the comp-off ledger only on the days the DB applied (non-reverted)
-  // attendance marks. Those rows are authoritative for C/O; never infer extra C/O
-  // days from the request range (sandwich Sundays, punch days, reverted days).
+  // attendance marks. Those rows are authoritative for C/O; never infer sandwich
+  // Sundays or reverted days from the request range. Punch days are filled below
+  // when punches are supplied (leave-apply historically skipped writing CO there).
   const compOffRequestIds = [...approvedById.values()]
     .filter((req) => registerMarkFromApprovedLeaveType(req.leave_type_code) === "CO")
     .map((req) => req.id);
   const compOffIdSet = new Set(compOffRequestIds);
   let compOffMarksAuthoritative = false;
+  const revertedCompOffDayKeys = new Set();
   if (compOffRequestIds.length) {
     const compOffRows = [];
     let compOffFetchFailed = false;
@@ -1721,9 +1796,13 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
     if (!compOffFetchFailed) {
       compOffMarksAuthoritative = true;
       for (const row of compOffRows) {
-        if (row.reverted) continue;
         const date = normalizeDbDate(row.register_date);
-        if (!date || date < fromDate || date > toDate) continue;
+        if (!date) continue;
+        if (row.reverted) {
+          revertedCompOffDayKeys.add(`${row.leave_request_id}|${date}`);
+          continue;
+        }
+        if (date < fromDate || date > toDate) continue;
         const req = approvedById.get(row.leave_request_id);
         if (!req) continue;
         const empCode = normalizeAttendanceEmpCode(req.employee_code);
@@ -1782,6 +1861,36 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
       const day = dayOfMonthFromIsoDate(iso);
       if (day && marks[empCode]?.[day]) continue;
       addLeaveMark(marks, empCode, iso, mark);
+    }
+  }
+
+  // Leave-apply skips writing CO when a punch exists. Still surface CO on those
+  // request days so the register can show CO+P (reverted days stay excluded).
+  if (compOffMarksAuthoritative && punches?.length) {
+    const presentKeys = buildPresentKeysFromPunches(punches);
+    for (const req of approvedById.values()) {
+      if (!compOffIdSet.has(req?.id)) continue;
+      const empCode = normalizeAttendanceEmpCode(req.employee_code);
+      const reqFrom = normalizeDbDate(req.from_date);
+      const reqTo = normalizeDbDate(req.to_date);
+      if (!empCode || !reqFrom || !reqTo) continue;
+      const windowFrom = reqFrom < fromDate ? fromDate : reqFrom;
+      const windowTo = reqTo > toDate ? toDate : reqTo;
+      for (const iso of enumerateLeaveDatesWithSandwich(reqFrom, reqTo, {
+        halfDay: isHalfDayLeaveRequest(req),
+        days: req.days,
+      })) {
+        if (iso < windowFrom || iso > windowTo) continue;
+        if (revertedCompOffDayKeys.has(`${req.id}|${iso}`)) continue;
+        const day = dayOfMonthFromIsoDate(iso);
+        if (day && marks[empCode]?.[day]) continue;
+        const punchKey = `${normalizeAttendanceEmpCode(empCode)}|${iso}`;
+        if (!presentKeys.has(punchKey)) continue;
+        if (!attendanceTimesFor({ employeeCode: empCode, onDate: iso }).punchOverridesLeave) {
+          continue;
+        }
+        addLeaveMark(marks, empCode, iso, "CO");
+      }
     }
   }
 
@@ -1892,8 +2001,9 @@ function compositeHalfDayLeaveMark(mark) {
 /**
  * Merge approved Indus One leave into register marks for Daily Attendance Register display.
  * Indus One approved leave takes priority over existing register/manual marks (including HD).
- * Machine punch Present (P) still wins over full-day leave; half-day leave (P/CL, P/PL, P/SL)
- * replaces HD even when a punch exists. Overlay remains editable in Admin.
+ * Machine punch Present (P) still wins over full-day leave (except approved CO, kept for
+ * CO+P display); half-day leave (P/CL, P/PL, P/SL) replaces HD even when a punch exists.
+ * Overlay remains editable in Admin.
  */
 export function mergeApprovedLeaveMarksIntoManualMarks(
   manualMarks,
@@ -1954,9 +2064,14 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
 
       const leaveIsHalfDayComposite = isRegisterCompositeHalfDayMark(canonical);
 
-      // Full-day leave: biometric punch Present still wins.
+      // Full-day leave: biometric punch Present still wins — except approved CO,
+      // which is kept so the cell can show CO+P (same idea as POD+P).
       // Half-day composite / any leave: override saved Admin marks including HD.
       if (hasPunch) {
+        if (canonical === "CO") {
+          next[code][day] = "CO";
+          continue;
+        }
         if (!leaveIsHalfDayComposite) continue;
         if (existing === "P" || existing === "P(OD)") continue;
       }
@@ -3387,7 +3502,9 @@ export async function loadRegisterMarksForMonth(supabase, monthMeta, options = {
   try {
     if (!monthMeta?.fromDate || !monthMeta?.toDate) return data;
     const [approvedLeaveMarks, tourData] = await Promise.all([
-      fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
+      fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate, {
+        punches: punches || [],
+      }),
       fetchApprovedTourMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
     ]);
     const registerRows = data.rows || [];
@@ -3750,8 +3867,11 @@ export function registerExportDayCellTone(mark, punchInfo) {
   const m = String(mark || "").trim();
   if (!m) return "";
 
-  if (isRegisterPodPunchCombinedMark(m)) return "podPunchCombined";
+  if (isRegisterPodPunchCombinedMark(m) || isRegisterCoPunchCombinedMark(m)) {
+    return "podPunchCombined";
+  }
   if (isRegisterPodOrTourMark(m) && punchInfo?.punchIn) return "podPunchCombined";
+  if (isRegisterCoMark(m) && punchInfo?.punchIn) return "podPunchCombined";
   if (isRegisterCompositeHalfDayMark(m)) return "halfDayLeave";
   if (m === "T" || m === "P(OD)") return "tourOrPod";
 
@@ -3847,7 +3967,11 @@ function resolveRegisterExportDayCell(row, day, monthKey, punchByEmpDate, { incl
   });
   const exportMark = registerMarkDisplayValue(displayMark);
   if (exportMark === "-") return "";
-  if (isRegisterPodPunchCombinedMark(displayMark) || isRegisterCompositeHalfDayMark(displayMark)) {
+  if (
+    isRegisterPodPunchCombinedMark(displayMark) ||
+    isRegisterCoPunchCombinedMark(displayMark) ||
+    isRegisterCompositeHalfDayMark(displayMark)
+  ) {
     return exportMark;
   }
   if (!includePunchDetail || !punchByEmpDate || mark !== "P") return exportMark;

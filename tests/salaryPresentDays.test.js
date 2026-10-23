@@ -150,4 +150,14 @@ describe("approved comp-off (C/O) leave", () => {
     expect(row.dayMarks[7]).toBe("CO");
     expect(row.summary.leave).toBe(0);
   });
+
+  it("keeps approved CO when punch exists so register can show CO+P (2661 / 08-10)", () => {
+    const punches = [{ empCode: "2661", punchDate: "2026-10-08" }];
+    const merged = mergeApprovedLeaveMarksIntoManualMarks(
+      { 2661: { 8: "P" } },
+      { 2661: { 8: "CO" } },
+      { monthKey: "2026-10", punches }
+    );
+    expect(merged["2661"][8]).toBe("CO");
+  });
 });
