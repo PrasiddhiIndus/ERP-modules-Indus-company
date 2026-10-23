@@ -11,7 +11,6 @@ import {
   addTopLevelRow,
   applyRowAction,
   buildColumnKeys,
-  buildPumpHouseExample,
   columnLabel,
   columnTotal,
   computeTotals,
@@ -24,6 +23,7 @@ import {
   lineAmount,
   moveRowKeyboard,
   normalizeType,
+  nudgeMakeBefore,
   numberOf,
   rowTotal,
   validateForSent,
@@ -338,37 +338,6 @@ export default function QuotationMaker() {
           <button type="button" className="qm-btn" onClick={() => navigate(`${QUOTATION_BASE}/quotation-list`)}>
             Quotation list
           </button>
-          <button
-            type="button"
-            className="qm-btn"
-            disabled={readOnly}
-            onClick={() => {
-              setRows(buildPumpHouseExample());
-              handleTypeChange('supply_installation');
-              setDirty(true);
-            }}
-          >
-            Show me an example
-          </button>
-          <button
-            type="button"
-            className="qm-btn"
-            disabled={readOnly}
-            onClick={() => {
-              setForm(
-                emptyMakerForm({
-                  signatory_name: ownerDefault,
-                  signatory_designation: 'Asst. Manager - Projects',
-                })
-              );
-              setRows([]);
-              setSubjectTouched(false);
-              setDirty(false);
-              navigate(`${QUOTATION_BASE}/quotation-entry`, { replace: true });
-            }}
-          >
-            Start blank
-          </button>
           <span className={`qm-save ${saveState.kind === 'ok' ? 'ok' : saveState.kind === 'err' ? 'err' : ''}`}>
             {saving ? 'Saving…' : saveState.text || (dirty ? 'Unsaved changes' : form.id ? 'Saved' : '')}
           </span>
@@ -494,7 +463,7 @@ export default function QuotationMaker() {
         </div>
         <p className="qm-hint">
           Drag ⠿ to reorder rows (Alt+↑ / Alt+↓ also works). Press + to add a sub-row. When Make is
-          shown, drag the Make header onto another column header to move it.
+          shown, use ‹ › on the Make header to move it, or drag it onto another column.
         </p>
         <div className="qm-col-toggles qm-noprint">
           <label className="qm-check">
@@ -562,6 +531,14 @@ export default function QuotationMaker() {
                   setColDropKey(null);
                   setDraggingMakeCol(false);
                 }}
+                onNudgeMake={(dir) =>
+                  setField(
+                    'make_column_before',
+                    nudgeMakeBefore(type, form.make_column_before, dir, {
+                      showRemarks: form.show_remarks,
+                    })
+                  )
+                }
               />
             </thead>
             <tbody
@@ -721,6 +698,10 @@ export default function QuotationMaker() {
   );
 }
 
+function colClass(key) {
+  return `qm-col qm-col-${key}`;
+}
+
 function EditorHead({
   type,
   colKeys,
@@ -731,12 +712,29 @@ function EditorHead({
   onMakeColDragOver,
   onMakeColDrop,
   onMakeColDragEnd,
+  onNudgeMake,
 }) {
   return (
-    <tr>
+    <tr className={draggingMakeCol ? 'qm-head-dragging-make' : undefined}>
       {colKeys.map((key) => {
         if (key === 'actions') {
-          return <th key={key} aria-label="Row tools" />;
+          return (
+            <th
+              key={key}
+              aria-label="Row tools"
+              className={`${colClass(key)}${draggingMakeCol && colDropKey === 'actions' ? ' qm-col-drop' : ''}`}
+              onDragOver={(e) => {
+                if (!draggingMakeCol || readOnly) return;
+                e.preventDefault();
+                onMakeColDragOver?.('actions');
+              }}
+              onDrop={(e) => {
+                if (!draggingMakeCol || readOnly) return;
+                e.preventDefault();
+                onMakeColDrop?.('actions');
+              }}
+            />
+          );
         }
         const label = columnLabel(key, type);
         const isMake = key === 'make';
@@ -745,9 +743,15 @@ function EditorHead({
           <th
             key={key}
             data-col-key={key}
-            className={`${isMake ? 'qm-th-make' : ''} ${dropTarget ? 'qm-col-drop' : ''}`.trim()}
+            className={`${colClass(key)}${isMake ? ' qm-th-make' : ''}${dropTarget ? ' qm-col-drop' : ''}`}
             draggable={isMake && !readOnly}
-            title={isMake ? 'Drag Make onto another column header to reposition' : undefined}
+            title={
+              isMake
+                ? 'Use ‹ › to move Make, or drag onto another column'
+                : draggingMakeCol
+                  ? `Drop here to place Make before ${label}`
+                  : undefined
+            }
             onDragStart={
               isMake
                 ? (e) => {
@@ -769,7 +773,48 @@ function EditorHead({
             }}
             onDragEnd={() => onMakeColDragEnd?.()}
           >
-            {isMake ? <span className="qm-th-make-label">⠿ {label}</span> : label}
+            {isMake ? (
+              <span className="qm-th-make-inner">
+                <button
+                  type="button"
+                  className="qm-th-make-nudge"
+                  disabled={readOnly}
+                  title="Move Make left"
+                  aria-label="Move Make left"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNudgeMake?.(-1);
+                  }}
+                >
+                  ‹
+                </button>
+                <span className="qm-th-make-label">{label}</span>
+                <button
+                  type="button"
+                  className="qm-th-make-nudge"
+                  disabled={readOnly}
+                  title="Move Make right"
+                  aria-label="Move Make right"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNudgeMake?.(1);
+                  }}
+                >
+                  ›
+                </button>
+              </span>
+            ) : (
+              <>
+                {draggingMakeCol && key !== 'sr' ? (
+                  <span className="qm-col-slot" aria-hidden>
+                    ▏
+                  </span>
+                ) : null}
+                {label}
+              </>
+            )}
           </th>
         );
       })}
@@ -861,37 +906,37 @@ function EditorRow({
     return (
       <tr className="heading-total" data-heading-total={hid}>
         {colKeys.map((key) => {
-          if (key === 'sr') return <td key={key} className="qm-no" />;
+          if (key === 'sr') return <td key={key} className={`${colClass(key)} qm-no`} />;
           if (key === 'description') {
             return (
-              <td key={key} className="qm-heading-total-label">
+              <td key={key} className={`${colClass(key)} qm-heading-total-label`}>
                 <b>Total — {r.description || 'Section'}</b>
               </td>
             );
           }
           if (key === 'supply_total') {
             return (
-              <td key={key} className="qm-money">
+              <td key={key} className={`${colClass(key)} qm-money`}>
                 <b>{formatMoneyIn(headingColumnTotal(rows, hid, 'supply'))}</b>
               </td>
             );
           }
           if (key === 'install_total') {
             return (
-              <td key={key} className="qm-money">
+              <td key={key} className={`${colClass(key)} qm-money`}>
                 <b>{formatMoneyIn(headingColumnTotal(rows, hid, 'inst'))}</b>
               </td>
             );
           }
           if (key === 'total') {
             return (
-              <td key={key} className="qm-money">
+              <td key={key} className={`${colClass(key)} qm-money`}>
                 <b>{formatMoneyIn(rowTotal(rows, byIdSafe(rows, hid), mode))}</b>
               </td>
             );
           }
-          if (key === 'actions') return <td key={key} className="qm-opt" />;
-          return <td key={key} />;
+          if (key === 'actions') return <td key={key} className={`${colClass(key)} qm-opt`} />;
+          return <td key={key} className={colClass(key)} />;
         })}
       </tr>
     );
@@ -900,8 +945,8 @@ function EditorRow({
   if (r.row_type === 'heading') {
     return (
       <tr data-rid={r.id} className={`heading ${dropClass} ${dragClass}`.trim()}>
-        <td className="qm-no">{grip}</td>
-        <td colSpan={Math.max(1, colKeys.length - 2)}>
+        <td className={`${colClass('sr')} qm-no`}>{grip}</td>
+        <td className={colClass('description')} colSpan={Math.max(1, colKeys.length - 2)}>
           <input
             className="qm-cell"
             style={{ fontWeight: 700 }}
@@ -911,7 +956,7 @@ function EditorRow({
             onChange={(e) => onUpdate(r.id, { description: e.target.value })}
           />
         </td>
-        <td className="qm-opt">{actionMenu}</td>
+        <td className={`${colClass('actions')} qm-opt`}>{actionMenu}</td>
       </tr>
     );
   }
@@ -922,11 +967,11 @@ function EditorRow({
   if (isGroup(rows, r)) {
     return (
       <tr data-rid={r.id} className={`${dropClass} ${dragClass}`.trim()}>
-        <td className="qm-no">
+        <td className={`${colClass('sr')} qm-no`}>
           {grip}
-          {no}
+          <span className="qm-sr-label">{no}</span>
         </td>
-        <td>
+        <td className={colClass('description')}>
           <input
             className="qm-cell"
             value={r.description}
@@ -938,7 +983,7 @@ function EditorRow({
         <td colSpan={midSpan} className="qm-note">
           Priced through its parts below
         </td>
-        <td className="qm-opt">{actionMenu}</td>
+        <td className={`${colClass('actions')} qm-opt`}>{actionMenu}</td>
       </tr>
     );
   }
@@ -947,14 +992,14 @@ function EditorRow({
     switch (key) {
       case 'sr':
         return (
-          <td key={key} className="qm-no">
+          <td key={key} className={`${colClass(key)} qm-no`}>
             {grip}
-            {no}
+            <span className="qm-sr-label">{no}</span>
           </td>
         );
       case 'description':
         return (
-          <td key={key}>
+          <td key={key} className={colClass(key)}>
             <input
               className={`qm-cell ${r.parent_row_id ? 'ind' : ''}`}
               value={r.description}
@@ -966,7 +1011,7 @@ function EditorRow({
         );
       case 'unit':
         return (
-          <td key={key} className="qm-num2">
+          <td key={key} className={`${colClass(key)} qm-num2`}>
             <input
               className="qm-cell c"
               value={r.unit}
@@ -977,7 +1022,7 @@ function EditorRow({
         );
       case 'qty':
         return (
-          <td key={key} className="qm-num2">
+          <td key={key} className={`${colClass(key)} qm-num2`}>
             <input
               className="qm-cell c"
               type="number"
@@ -991,7 +1036,7 @@ function EditorRow({
         );
       case 'make':
         return (
-          <td key={key}>
+          <td key={key} className={colClass(key)}>
             <input
               className="qm-cell"
               value={r.make || ''}
@@ -1003,7 +1048,7 @@ function EditorRow({
         );
       case 'remarks':
         return (
-          <td key={key}>
+          <td key={key} className={colClass(key)}>
             <input
               className="qm-cell"
               value={r.remarks || ''}
@@ -1016,7 +1061,7 @@ function EditorRow({
       case 'price_unit': {
         const field = QUOTATION_TYPES[mode].rateField;
         return (
-          <td key={key} className="qm-num2">
+          <td key={key} className={`${colClass(key)} qm-num2`}>
             <input
               className="qm-cell r"
               type="number"
@@ -1031,7 +1076,7 @@ function EditorRow({
       }
       case 'supply_unit':
         return (
-          <td key={key} className="qm-num2">
+          <td key={key} className={`${colClass(key)} qm-num2`}>
             <input
               className="qm-cell r"
               type="number"
@@ -1045,7 +1090,7 @@ function EditorRow({
         );
       case 'install_unit':
         return (
-          <td key={key} className="qm-num2">
+          <td key={key} className={`${colClass(key)} qm-num2`}>
             <input
               className="qm-cell r"
               type="number"
@@ -1059,30 +1104,30 @@ function EditorRow({
         );
       case 'supply_total':
         return (
-          <td key={key} className="qm-money">
+          <td key={key} className={`${colClass(key)} qm-money`}>
             {formatMoneyIn(lineAmount(r, 'supply'))}
           </td>
         );
       case 'install_total':
         return (
-          <td key={key} className="qm-money">
+          <td key={key} className={`${colClass(key)} qm-money`}>
             {formatMoneyIn(lineAmount(r, 'inst'))}
           </td>
         );
       case 'total':
         return (
-          <td key={key} className="qm-money">
+          <td key={key} className={`${colClass(key)} qm-money`}>
             {formatMoneyIn(rowTotal(rows, r, mode))}
           </td>
         );
       case 'actions':
         return (
-          <td key={key} className="qm-opt">
+          <td key={key} className={`${colClass(key)} qm-opt`}>
             {actionMenu}
           </td>
         );
       default:
-        return <td key={key} />;
+        return <td key={key} className={colClass(key)} />;
     }
   };
 

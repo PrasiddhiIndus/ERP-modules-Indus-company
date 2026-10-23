@@ -4,6 +4,9 @@ import {
   applyRowAction,
   buildColumnKeys,
   buildPumpHouseExample,
+  makePlacementSlots,
+  nudgeMakeBefore,
+  resolveMakeBefore,
   columnTotal,
   computeTotals,
   createEmptyRow,
@@ -118,7 +121,7 @@ describe('quotationMakerModel pricing', () => {
     expect(item.install_rate).toBe(20);
   });
 
-  it('numbers items 1,2,3 under each heading; parts a,b,c; sub-parts a.1', () => {
+  it('numbers items 1,2,3 under each heading; parts as parent.letter', () => {
     const rows = buildPumpHouseExample();
     const heading = rows[0];
     const items = rows.filter((r) => r.parent_row_id === heading.id);
@@ -129,30 +132,32 @@ describe('quotationMakerModel pricing', () => {
     expect(numberOf(rows, items[3])).toBe('4');
     const pipe = rows.find((r) => r.description.startsWith('ERW'));
     const parts = rows.filter((r) => r.parent_row_id === pipe.id);
-    expect(numberOf(rows, parts[0])).toBe('a');
-    expect(numberOf(rows, parts[1])).toBe('b');
-    expect(numberOf(rows, parts[2])).toBe('c');
+    // Pipe is item 3 under the heading → 3.a, 3.b, 3.c
+    expect(numberOf(rows, pipe)).toBe('3');
+    expect(numberOf(rows, parts[0])).toBe('3.a');
+    expect(numberOf(rows, parts[1])).toBe('3.b');
+    expect(numberOf(rows, parts[2])).toBe('3.c');
   });
 
-  it('restarts Sr No. per heading and supports three nest levels', () => {
+  it('restarts Sr No. per heading; parts include parent label (1.a, 1.a.1)', () => {
     const f = buildNumberingFixture();
     const { rows } = f;
     expect(numberOf(rows, f.h1)).toBe('');
     expect(numberOf(rows, f.i1)).toBe('1');
-    expect(numberOf(rows, f.a)).toBe('a');
-    expect(numberOf(rows, f.a1)).toBe('a.1');
+    expect(numberOf(rows, f.a)).toBe('1.a');
+    expect(numberOf(rows, f.a1)).toBe('1.a.1');
     expect(numberOf(rows, f.i2)).toBe('2');
     expect(numberOf(rows, f.i3)).toBe('3');
-    expect(numberOf(rows, f.p3a)).toBe('a');
-    expect(numberOf(rows, f.p3b)).toBe('b');
-    expect(numberOf(rows, f.b1)).toBe('b.1');
-    expect(numberOf(rows, f.b2)).toBe('b.2');
+    expect(numberOf(rows, f.p3a)).toBe('3.a');
+    expect(numberOf(rows, f.p3b)).toBe('3.b');
+    expect(numberOf(rows, f.b1)).toBe('3.b.1');
+    expect(numberOf(rows, f.b2)).toBe('3.b.2');
     expect(numberOf(rows, f.h2)).toBe('');
     expect(numberOf(rows, f.j1)).toBe('1');
     expect(numberOf(rows, f.j2)).toBe('2');
     expect(numberOf(rows, f.j3)).toBe('3');
     expect(numberOf(rows, f.j4)).toBe('4');
-    expect(numberOf(rows, f.j4a)).toBe('a');
+    expect(numberOf(rows, f.j4a)).toBe('4.a');
   });
 
   it('counts top-level items separately from headings', () => {
@@ -173,33 +178,48 @@ describe('quotationMakerModel pricing', () => {
     expect(numberOf(next, next.find((r) => r.id === f.i3.id))).toBe('1');
     expect(numberOf(next, next.find((r) => r.id === f.i1.id))).toBe('2');
     expect(numberOf(next, next.find((r) => r.id === f.i2.id))).toBe('3');
-    expect(numberOf(next, next.find((r) => r.id === f.p3a.id))).toBe('a');
-    expect(numberOf(next, next.find((r) => r.id === f.p3b.id))).toBe('b');
-    expect(numberOf(next, next.find((r) => r.id === f.b1.id))).toBe('b.1');
-    expect(numberOf(next, next.find((r) => r.id === f.b2.id))).toBe('b.2');
+    expect(numberOf(next, next.find((r) => r.id === f.p3a.id))).toBe('1.a');
+    expect(numberOf(next, next.find((r) => r.id === f.p3b.id))).toBe('1.b');
+    expect(numberOf(next, next.find((r) => r.id === f.b1.id))).toBe('1.b.1');
+    expect(numberOf(next, next.find((r) => r.id === f.b2.id))).toBe('1.b.2');
 
-    // Swap parts a and b under item 3 → letters flip; sub-parts follow new parent label
+    // Swap parts a and b under former item 3 → letters flip; children follow new parent label
     next = dropRow(next, f.p3b.id, f.p3a.id, false);
-    expect(numberOf(next, next.find((r) => r.id === f.p3b.id))).toBe('a');
-    expect(numberOf(next, next.find((r) => r.id === f.p3a.id))).toBe('b');
-    expect(numberOf(next, next.find((r) => r.id === f.b1.id))).toBe('a.1');
-    expect(numberOf(next, next.find((r) => r.id === f.b2.id))).toBe('a.2');
+    expect(numberOf(next, next.find((r) => r.id === f.p3b.id))).toBe('1.a');
+    expect(numberOf(next, next.find((r) => r.id === f.p3a.id))).toBe('1.b');
+    expect(numberOf(next, next.find((r) => r.id === f.b1.id))).toBe('1.a.1');
+    expect(numberOf(next, next.find((r) => r.id === f.b2.id))).toBe('1.a.2');
 
     // Second heading numbering unchanged by first-heading reorder
     expect(numberOf(next, next.find((r) => r.id === f.j1.id))).toBe('1');
-    expect(numberOf(next, next.find((r) => r.id === f.j4a.id))).toBe('a');
+    expect(numberOf(next, next.find((r) => r.id === f.j4a.id))).toBe('4.a');
   });
 
-  it('addsub nests part under part as a.1 and deletes whole subtree', () => {
+  it('dragging a row to a new parent updates its label and children', () => {
+    const f = buildNumberingFixture();
+    // Drop part 3.b (with 3.b.1, 3.b.2) beside 1.a → becomes sibling under item 1
+    const next = dropRow(f.rows, f.p3b.id, f.a.id, true);
+    expect(next.find((r) => r.id === f.p3b.id).parent_row_id).toBe(f.i1.id);
+    expect(numberOf(next, next.find((r) => r.id === f.p3b.id))).toBe('1.b');
+    expect(numberOf(next, next.find((r) => r.id === f.b1.id))).toBe('1.b.1');
+    expect(numberOf(next, next.find((r) => r.id === f.b2.id))).toBe('1.b.2');
+    // Remaining part under item 3 renumbers to 3.a
+    expect(numberOf(next, next.find((r) => r.id === f.p3a.id))).toBe('3.a');
+    // Item 1's original part stays 1.a / 1.a.1
+    expect(numberOf(next, next.find((r) => r.id === f.a.id))).toBe('1.a');
+    expect(numberOf(next, next.find((r) => r.id === f.a1.id))).toBe('1.a.1');
+  });
+
+  it('addsub nests part under part as 1.a.1 and deletes whole subtree', () => {
     const h = createEmptyRow('heading');
     const item = createEmptyRow('item', h.id);
     let rows = [h, item];
     rows = applyRowAction(rows, item.id, 'addsub');
     const part = rows.find((r) => r.parent_row_id === item.id);
-    expect(numberOf(rows, part)).toBe('a');
+    expect(numberOf(rows, part)).toBe('1.a');
     rows = applyRowAction(rows, part.id, 'addsub');
     const sub = rows.find((r) => r.parent_row_id === part.id);
-    expect(numberOf(rows, sub)).toBe('a.1');
+    expect(numberOf(rows, sub)).toBe('1.a.1');
     rows = applyRowAction(rows, part.id, 'del');
     expect(rows.some((r) => r.id === part.id)).toBe(false);
     expect(rows.some((r) => r.id === sub.id)).toBe(false);
@@ -229,7 +249,7 @@ describe('quotationMakerModel pricing', () => {
     const after = computeTotals(next, 'supply_installation');
     expect(after.grand_total).toBe(before.grand_total);
     expect(next.find((r) => r.id === partA.id).parent_row_id).toBe(pipe.id);
-    expect(numberOf(next, next.find((r) => r.id === partA.id))).toMatch(/^[abc]$/);
+    expect(numberOf(next, next.find((r) => r.id === partA.id))).toMatch(/^3\.[abc]$/);
   });
 
   it('lineAmount rounds to 2 decimals', () => {
@@ -264,6 +284,15 @@ describe('quotationMakerModel pricing', () => {
       makeBefore: 'qty',
     });
     expect(moved[moved.indexOf('make') + 1]).toBe('qty');
+  });
+
+  it('nudgeMakeBefore moves Make one slot without needing drag targets', () => {
+    const slots = makePlacementSlots('supply_installation', { showRemarks: false });
+    expect(slots[0]).toBe('description');
+    expect(resolveMakeBefore('supply_installation', 'unit')).toBe('unit');
+    expect(nudgeMakeBefore('supply_installation', 'unit', -1)).toBe('description');
+    expect(nudgeMakeBefore('supply_installation', 'unit', 1)).toBe('qty');
+    expect(nudgeMakeBefore('supply_installation', 'description', -1)).toBe('description');
   });
 
   it('group item total equals sum of parts', () => {
