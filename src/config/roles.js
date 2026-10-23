@@ -953,7 +953,7 @@ export const NAV_MODULE_TREE = [
         // Page-wise access: ticking Enquiry Master grants every page; otherwise only the ticked pages.
         tabModules: PROJECTS_ENQUIRY_PAGES.map(({ value, label, optIn }) => ({ value, label, optIn: Boolean(optIn) })),
       },
-      { value: "projects.quotation-master",label: "Quotation Master",     pathPrefix: "/app/projects/quotation" },
+      { value: "projects.quotation-master",label: "Quotation Maker",      pathPrefix: "/app/projects/quotation" },
       { value: "projects.po",              label: "PO / WO Entry",        pathPrefix: "/app/projects/po" },
     ],
   },

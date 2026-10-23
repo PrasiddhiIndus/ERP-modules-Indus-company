@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Check, Pencil, Plus, Send, Users, X } from "lucide-react";
 import { Drawer } from "../components/AdminUi";
 import { toast } from "../../../lib/toast";
-import { ACTIVITY_TYPES, EMPLOYMENT_TYPES, REQUISITION_PRIORITIES, REQUISITION_STATUSES, requisitionStatusMeta } from "./recruitmentConfig";
+import { ACTIVITY_TYPES, REQUISITION_STATUSES, requisitionStatusMeta } from "./recruitmentConfig";
 import { decideRequisition, getRequisitionHistory, listRequisitions, saveRequisition, submitRequisition, transitionRequisition } from "./recruitmentService";
 import {
   ActionModal,
@@ -29,19 +29,24 @@ import {
 
 const ACTIVE = ["submitted", "pending_approval", "approved", "open"];
 
+/** Position detail ticks from Candidate Requisition Form (IFSPL/Admin/Form02/R4). */
+const POSITION_DETAIL_TYPES = ["Full Time", "Part Time", "Contract", "Intern"];
+const CANDIDATE_GENDERS = ["Male", "Female", "Any"];
+const HIRING_TYPE_LABEL = { new_recruitment: "New Recruitment", replacement: "Replacement" };
+
 const EMPTY_FORM = {
   designation: "",
+  hiringType: "new_recruitment",
+  replacementOf: "",
+  candidateGender: "",
   department: "",
-  openings: 1,
-  location: "",
-  employmentType: "Permanent",
-  experienceMin: "",
-  experienceMax: "",
-  skills: "",
+  ageLimit: "",
   qualification: "",
-  requiredBy: "",
-  reason: "",
-  otherRequirements: "",
+  workExperience: "",
+  skills: "",
+  employmentType: "Full Time",
+  location: "",
+  openings: 1,
   priority: "normal",
 };
 
@@ -52,18 +57,18 @@ function RequisitionForm({ open, requisition, onClose, onSaved }) {
     setForm(
       requisition
         ? {
-            designation: requisition.designation,
-            department: requisition.department,
-            openings: requisition.positions,
-            location: requisition.location,
-            employmentType: requisition.employmentType || "Permanent",
-            experienceMin: requisition.experienceMin ?? "",
-            experienceMax: requisition.experienceMax ?? "",
-            skills: requisition.skills,
-            qualification: requisition.qualification,
-            requiredBy: requisition.requiredBy || "",
-            reason: requisition.justification,
-            otherRequirements: requisition.otherRequirements,
+            designation: requisition.designation || "",
+            hiringType: requisition.hiringType || "new_recruitment",
+            replacementOf: requisition.replacementOf || "",
+            candidateGender: requisition.candidateGender || "",
+            department: requisition.department || "",
+            ageLimit: requisition.ageLimit || "",
+            qualification: requisition.qualification || "",
+            workExperience: requisition.workExperience || "",
+            skills: requisition.skills || "",
+            employmentType: requisition.employmentType || "Full Time",
+            location: requisition.location || "",
+            openings: requisition.positions || 1,
             priority: requisition.priority || "normal",
           }
         : EMPTY_FORM
@@ -80,57 +85,100 @@ function RequisitionForm({ open, requisition, onClose, onSaved }) {
       submitLabel="Save draft"
       canSubmit={form.designation.trim() && Number(form.openings) > 0}
       onSubmit={async () => {
-        const saved = await saveRequisition(requisition?.id, { ...form, openings: Number(form.openings) }, requisition?.version);
+        const saved = await saveRequisition(
+          requisition?.id,
+          {
+            ...form,
+            openings: Number(form.openings) || 1,
+            replacementOf: form.hiringType === "replacement" ? form.replacementOf : "",
+          },
+          requisition?.version
+        );
         toast.success("Requisition saved", "Submit it for approval when ready.");
         onSaved(saved);
       }}
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="Position *">
+        <Field label="Job title *" className="sm:col-span-2">
           <input className={inputClass} value={form.designation} onChange={set("designation")} autoFocus />
         </Field>
-        <Field label="Department">
-          <input className={inputClass} value={form.department} onChange={set("department")} />
+
+        <Field label="Please tick" className="sm:col-span-2">
+          <div className="flex flex-wrap gap-4 pt-1 text-sm text-ink">
+            <label className="inline-flex items-center gap-2">
+              <input
+                type="radio"
+                name="hiringType"
+                checked={form.hiringType === "new_recruitment"}
+                onChange={() => setForm((f) => ({ ...f, hiringType: "new_recruitment", replacementOf: "" }))}
+              />
+              New Recruitment
+            </label>
+            <label className="inline-flex items-center gap-2">
+              <input
+                type="radio"
+                name="hiringType"
+                checked={form.hiringType === "replacement"}
+                onChange={() => setForm((f) => ({ ...f, hiringType: "replacement" }))}
+              />
+              Replacement
+            </label>
+          </div>
         </Field>
-        <Field label="Openings *">
-          <input type="number" min={1} className={inputClass} value={form.openings} onChange={set("openings")} />
-        </Field>
-        <Field label="Location">
-          <input className={inputClass} value={form.location} onChange={set("location")} />
-        </Field>
-        <Field label="Employment type">
-          <select className={inputClass} value={form.employmentType} onChange={set("employmentType")}>
-            {EMPLOYMENT_TYPES.map((t) => (
-              <option key={t}>{t}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Priority">
-          <select className={inputClass} value={form.priority} onChange={set("priority")}>
-            {REQUISITION_PRIORITIES.map((p) => (
-              <option key={p.key} value={p.key}>
-                {p.label}
+
+        {form.hiringType === "replacement" ? (
+          <Field label="Replacement of person" className="sm:col-span-2">
+            <input className={inputClass} value={form.replacementOf} onChange={set("replacementOf")} />
+          </Field>
+        ) : null}
+
+        <Field label="Candidate gender">
+          <select className={inputClass} value={form.candidateGender} onChange={set("candidateGender")}>
+            <option value="">Select</option>
+            {CANDIDATE_GENDERS.map((g) => (
+              <option key={g} value={g}>
+                {g}
               </option>
             ))}
           </select>
         </Field>
-        <Field label="Experience from (years)">
-          <input type="number" min={0} step="0.5" className={inputClass} value={form.experienceMin} onChange={set("experienceMin")} />
+        <Field label="Position department">
+          <input className={inputClass} value={form.department} onChange={set("department")} />
         </Field>
-        <Field label="Experience to (years)">
-          <input type="number" min={0} step="0.5" className={inputClass} value={form.experienceMax} onChange={set("experienceMax")} />
+        <Field label="Age limit">
+          <input className={inputClass} value={form.ageLimit} onChange={set("ageLimit")} placeholder="e.g. 25–35" />
         </Field>
-        <Field label="Required by">
-          <input type="date" className={inputClass} value={form.requiredBy} onChange={set("requiredBy")} />
-        </Field>
-        <Field label="Qualification">
+        <Field label="Required education qualification">
           <input className={inputClass} value={form.qualification} onChange={set("qualification")} />
         </Field>
-        <Field label="Skills" className="sm:col-span-2">
-          <input className={inputClass} value={form.skills} onChange={set("skills")} />
+        <Field label="Work experience required" className="sm:col-span-2">
+          <input className={inputClass} value={form.workExperience} onChange={set("workExperience")} />
         </Field>
-        <Field label="Reason for hiring" className="sm:col-span-2">
-          <textarea className={textareaClass} value={form.reason} onChange={set("reason")} />
+        <Field label="Job description" className="sm:col-span-2">
+          <textarea className={textareaClass} value={form.skills} onChange={set("skills")} rows={3} />
+        </Field>
+
+        <Field label="Position detail" className="sm:col-span-2">
+          <div className="grid grid-cols-2 gap-2 pt-1 text-sm text-ink sm:grid-cols-4">
+            {(POSITION_DETAIL_TYPES.includes(form.employmentType) || !form.employmentType
+              ? POSITION_DETAIL_TYPES
+              : [...POSITION_DETAIL_TYPES, form.employmentType]
+            ).map((t) => (
+              <label key={t} className="inline-flex items-center gap-2 rounded-md border border-divider px-2 py-1.5">
+                <input
+                  type="radio"
+                  name="employmentType"
+                  checked={form.employmentType === t}
+                  onChange={() => setForm((f) => ({ ...f, employmentType: t }))}
+                />
+                {t}
+              </label>
+            ))}
+          </div>
+        </Field>
+
+        <Field label="Required locality" className="sm:col-span-2">
+          <input className={inputClass} value={form.location} onChange={set("location")} />
         </Field>
       </div>
     </ActionModal>
@@ -295,20 +343,23 @@ export default function RequisitionsPage() {
             ) : null}
             <DetailGrid
               items={[
-                ["Department", selected.department],
-                ["Location", selected.location],
-                ["Employment type", selected.employmentType],
+                ["Hiring", HIRING_TYPE_LABEL[selected.hiringType] || selected.hiringType || "—"],
+                selected.hiringType === "replacement" ? ["Replacement of", selected.replacementOf] : null,
+                ["Candidate gender", selected.candidateGender],
+                ["Position department", selected.department],
+                ["Age limit", selected.ageLimit],
+                ["Education qualification", selected.qualification],
+                ["Work experience", selected.workExperience],
+                ["Position detail", selected.employmentType],
+                ["Required locality", selected.location],
                 ["Positions", `${selected.filled} of ${selected.positions} filled`],
-                ["Experience", selected.experienceMin != null ? `${selected.experienceMin}${selected.experienceMax != null ? `–${selected.experienceMax}` : "+"} yrs` : ""],
-                ["Required by", fmtDate(selected.requiredBy)],
-                ["Priority", REQUISITION_PRIORITIES.find((p) => p.key === selected.priority)?.label],
                 ["Approvals", `${selected.approvalLevelDone} of ${selected.approvalLevelsRequired}`],
-              ]}
+              ].filter(Boolean)}
             />
-            {selected.justification ? (
+            {selected.skills ? (
               <div>
-                <p className="text-[11px] text-ink-muted">Reason for hiring</p>
-                <p className="mt-1 whitespace-pre-wrap text-xs text-ink">{selected.justification}</p>
+                <p className="text-[11px] text-ink-muted">Job description</p>
+                <p className="mt-1 whitespace-pre-wrap text-xs text-ink">{selected.skills}</p>
               </div>
             ) : null}
 

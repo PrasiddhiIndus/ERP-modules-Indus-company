@@ -26,18 +26,27 @@ import { useProjectsEnquiryDropdowns } from './useProjectsEnquiryDropdowns';
 import EnquiryFieldInput from './EnquiryFieldInput';
 import EnquiryEntry from './EnquiryEntry';
 import EnquiryDeletionRequests from './EnquiryDeletionRequests';
+import EnquiryEditRequests from './EnquiryEditRequests';
+import EnquiryChangeHistory from './EnquiryChangeHistory';
 import { deletionErrorMessage, listPendingDeletionRequests, requestEnquiryDeletion } from './enquiryDeletionApi';
+import {
+  diffEnquiryFields,
+  editErrorMessage,
+  listPendingEditRequests,
+  requestEnquiryEdit,
+} from './enquiryEditApi';
 import { isEnquiryApprover } from './enquiryRoles';
 import { useAuth } from '../../../contexts/AuthContext';
 import { Modal } from '../../adminOperations/components/AdminUi';
 import {
   daysLeftBadge,
   orderAssignmentFields,
+  RECEIPT_DATE_KEY,
   TARGET_BASIS_KEY,
   withAutoTargetDate,
   getDaysLeft,
   isClosedRow,
-  isCompletedStatus,
+  isClosedStatus,
   startOfToday,
   todayIso,
 } from './enquiryDeadlines';
@@ -69,8 +78,10 @@ export default function EnquiryDatabase() {
   const [addOpen, setAddOpen] = useState(Boolean(location.state?.openAddEnquiry));
   const [savedNotice, setSavedNotice] = useState('');
   const { userProfile } = useAuth();
-  const canDeleteDirectly = isEnquiryApprover(userProfile);
+  const canApproveEdits = isEnquiryApprover(userProfile);
+  const canDeleteDirectly = canApproveEdits;
   const [deletionRequests, setDeletionRequests] = useState([]);
+  const [editRequests, setEditRequests] = useState([]);
   const [deleteAsk, setDeleteAsk] = useState(null);
   const [deleteReason, setDeleteReason] = useState('');
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -116,13 +127,25 @@ export default function EnquiryDatabase() {
     setDeletionRequests(await listPendingDeletionRequests());
   }, []);
 
+  const fetchEditRequests = useCallback(async () => {
+    setEditRequests(await listPendingEditRequests());
+  }, []);
+
   useEffect(() => { fetchRows(); }, [fetchRows]);
   useEffect(() => { fetchDeletionRequests(); }, [fetchDeletionRequests]);
+  useEffect(() => { fetchEditRequests(); }, [fetchEditRequests]);
 
   const pendingDeletionIds = useMemo(
     () => new Set(deletionRequests.map((r) => r.enquiry_id).filter(Boolean)),
     [deletionRequests]
   );
+  const pendingEditByEnquiryId = useMemo(() => {
+    const map = new Map();
+    for (const req of editRequests) {
+      if (req.enquiry_id) map.set(req.enquiry_id, req);
+    }
+    return map;
+  }, [editRequests]);
   const serialById = useMemo(() => new Map(rows.map((r) => [r.id, r.serial_number])), [rows]);
 
   useEffect(() => {
@@ -230,21 +253,42 @@ export default function EnquiryDatabase() {
   const saveEdit = async () => {
     if (!editDraft?.id) return;
     setSaving(true);
+    setError('');
     try {
+      const original = rows.find((r) => r.id === editDraft.id);
       const { data } = packEnquiryUpdate(editDraft, databaseFields);
-      const lockedAssignedOn = getEnquiryFieldValue(rows.find((r) => r.id === editDraft.id), TARGET_BASIS_KEY);
+      const lockedAssignedOn = getEnquiryFieldValue(original, TARGET_BASIS_KEY);
       if (lockedAssignedOn) data[TARGET_BASIS_KEY] = lockedAssignedOn;
-      if (isCompletedStatus(data.current_status) && !data.completed_on) {
-        const original = rows.find((r) => r.id === editDraft.id);
-        const wasCompleted = isCompletedStatus(getRowStatusValue(original));
-        data.completed_on = (wasCompleted && original?.data?.completed_on) || todayIso();
+      const lockedReceipt = getEnquiryFieldValue(original, RECEIPT_DATE_KEY);
+      if (lockedReceipt) data[RECEIPT_DATE_KEY] = lockedReceipt;
+      if (isClosedStatus(data.current_status) && !data.completed_on) {
+        data.completed_on = todayIso();
       }
-      const { error: e } = await projectsTable('enquiries').update({ data }).eq('id', editDraft.id);
-      if (e) throw e;
-      await fetchRows();
+
+      const changes = diffEnquiryFields(original?.data || {}, data, databaseFields);
+      if (!changes.length) {
+        setSavedNotice('No changes to save.');
+        cancelEdit();
+        return;
+      }
+
+      if (canApproveEdits) {
+        const { error: e } = await projectsTable('enquiries').update({ data }).eq('id', editDraft.id);
+        if (e) throw e;
+        setSavedNotice(`Enquiry #${editDraft.serial_number} updated.`);
+        await Promise.all([fetchRows(), fetchEditRequests()]);
+        cancelEdit();
+        return;
+      }
+
+      await requestEnquiryEdit(editDraft.id, data, null);
+      setSavedNotice(
+        `Changes to enquiry #${editDraft.serial_number} sent for L1 approval.`
+      );
+      await fetchEditRequests();
       cancelEdit();
     } catch (err) {
-      setError(projectsErrorMsg(err, 'Update enquiry'));
+      setError(editErrorMessage(err, projectsErrorMsg(err, 'Update enquiry')));
     } finally {
       setSaving(false);
     }
@@ -287,6 +331,11 @@ export default function EnquiryDatabase() {
     await Promise.all([fetchRows(), fetchDeletionRequests()]);
   };
 
+  const handleEditDecided = async (message) => {
+    setSavedNotice(message);
+    await Promise.all([fetchRows(), fetchEditRequests()]);
+  };
+
   const handleExport = (selectedKeys) => {
     exportEnquiryDatabaseCsv(
       sortedFiltered,
@@ -298,9 +347,9 @@ export default function EnquiryDatabase() {
 
   const tableLoading = loading || fieldsLoading;
   const today = startOfToday();
-  const savedAssignedOn = editingId
-    ? getEnquiryFieldValue(rows.find((r) => r.id === editingId), TARGET_BASIS_KEY)
-    : '';
+  const editingRow = editingId ? rows.find((r) => r.id === editingId) : null;
+  const savedAssignedOn = editingRow ? getEnquiryFieldValue(editingRow, TARGET_BASIS_KEY) : '';
+  const savedReceiptDate = editingRow ? getEnquiryFieldValue(editingRow, RECEIPT_DATE_KEY) : '';
 
   if (addOpen) {
     return (
@@ -316,6 +365,14 @@ export default function EnquiryDatabase() {
         <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {error || fieldsError}
         </div>
+      )}
+
+      {canApproveEdits && (
+        <EnquiryEditRequests
+          requests={editRequests}
+          serialById={serialById}
+          onDecided={handleEditDecided}
+        />
       )}
 
       {canDeleteDirectly && (
@@ -516,14 +573,24 @@ export default function EnquiryDatabase() {
       {editingId && editDraft && (
         <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/50 p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-900">Editing serial #{editDraft.serial_number}</h3>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Editing serial #{editDraft.serial_number}</h3>
+              {!canApproveEdits && (
+                <p className="mt-0.5 text-[11px] text-amber-800">
+                  Changes are sent to your manager (L1) for approval before they apply
+                  {pendingEditByEnquiryId.has(editingId) ? ' (replaces the pending request)' : ''}.
+                </p>
+              )}
+            </div>
             <button type="button" onClick={cancelEdit} className="p-1 rounded hover:bg-white">
               <X className="h-4 w-4" />
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[40vh] overflow-y-auto pr-1">
             {editableFields.map((field) => {
-              const locked = field.field_key === TARGET_BASIS_KEY && Boolean(savedAssignedOn);
+              const locked =
+                (field.field_key === TARGET_BASIS_KEY && Boolean(savedAssignedOn)) ||
+                (field.field_key === RECEIPT_DATE_KEY && Boolean(savedReceiptDate));
               return (
                 <label key={field.id} className="text-xs">
                   <span className="font-medium text-gray-600">{field.label}</span>
@@ -534,6 +601,9 @@ export default function EnquiryDatabase() {
                       onChange={(v) =>
                         setEditDraft((prev) => {
                           const next = { ...prev, [field.field_key]: v };
+                          if (field.field_key === 'current_status' && isClosedStatus(v)) {
+                            next.completed_on = todayIso();
+                          }
                           return field.field_key === TARGET_BASIS_KEY ? withAutoTargetDate(next) : next;
                         })
                       }
@@ -556,7 +626,13 @@ export default function EnquiryDatabase() {
               disabled={saving}
               className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
             >
-              {saving ? 'Saving…' : 'Save changes'}
+              {saving
+                ? canApproveEdits
+                  ? 'Saving…'
+                  : 'Sending…'
+                : canApproveEdits
+                  ? 'Save changes'
+                  : 'Send for L1 approval'}
             </button>
             <button type="button" onClick={cancelEdit} className="px-4 py-2 text-sm border border-gray-200 rounded-lg">
               Cancel
@@ -631,7 +707,7 @@ export default function EnquiryDatabase() {
                         );
                       })}
                       <th
-                        style={{ width: 68, minWidth: 68, maxWidth: 68 }}
+                        style={{ width: 96, minWidth: 96, maxWidth: 96 }}
                         className="font-bold text-black border-b border-gray-200 bg-info-soft whitespace-normal leading-[1.15] break-words text-center px-1 py-2 align-middle"
                       >
                         Actions
@@ -642,6 +718,7 @@ export default function EnquiryDatabase() {
                     {sortedFiltered.map((row) => {
                       const bg = getStatusBg(getRowStatusValue(row));
                       const daysLeft = daysLeftBadge(row, today);
+                      const pendingEdit = pendingEditByEnquiryId.get(row.id);
                       return (
                         <tr
                           key={row.id}
@@ -707,14 +784,24 @@ export default function EnquiryDatabase() {
                           })}
                           <td
                             className="py-2 whitespace-nowrap text-center border-l border-black/5 px-1"
-                            style={{ backgroundColor: bg, width: 68 }}
+                            style={{ backgroundColor: bg, width: 96 }}
                           >
-                            <div className="inline-flex gap-0.5">
+                            <div className="inline-flex items-center justify-center gap-0.5">
+                              <EnquiryChangeHistory
+                                enquiryId={row.id}
+                                serialNumber={row.serial_number}
+                                pendingChanges={pendingEdit?.changes}
+                                hasHistoryHint={Boolean(pendingEdit)}
+                              />
                               <button
                                 type="button"
                                 onClick={() => startEdit(row)}
                                 className="p-1 rounded text-blue-700 hover:bg-blue-100"
-                                title="Edit"
+                                title={
+                                  pendingEdit && !canApproveEdits
+                                    ? 'Edit (pending request will be replaced)'
+                                    : 'Edit'
+                                }
                               >
                                 <Pencil className="h-3.5 w-3.5" />
                               </button>
