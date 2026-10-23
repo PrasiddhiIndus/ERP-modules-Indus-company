@@ -42,6 +42,7 @@ import {
   isPurplePresentPunch,
   resolveRegisterCellDisplayMark,
   isRegisterPodPunchCombinedMark,
+  isRegisterCoPunchCombinedMark,
   isRegisterCompositeHalfDayMark,
   sortRegisterEmployeeRows,
   formatAttendanceSupabaseError,
@@ -380,27 +381,28 @@ export function EmployeeAttendanceDailyPage() {
             return rows;
           });
 
-      const [
-        punchRows,
-        employees,
-        inactiveWithLeaving,
-        masterCodeMap,
-        monthRegisterRows,
-        approvedLeaveMarks,
-        approvedTourData,
-      ] = await Promise.all([
-        fetchAttendancePunchesInRange(supabase, {
-          fromDate: monthMeta.fromDate,
-          toDate: monthMeta.toDate,
+      const [punchRows, employees, inactiveWithLeaving, masterCodeMap, monthRegisterRows] =
+        await Promise.all([
+          fetchAttendancePunchesInRange(supabase, {
+            fromDate: monthMeta.fromDate,
+            toDate: monthMeta.toDate,
+          }),
+          employeesPromise,
+          inactivePromise,
+          codeMapPromise,
+          fetchRegisterMarkRowsInRange(supabase, {
+            fromDate: monthMeta.fromDate,
+            toDate: monthMeta.toDate,
+          }),
+        ]);
+
+      if (loadGeneration !== loadGenerationRef.current) return;
+
+      // Leave fetch needs punches so approved C/O on punch days can surface as CO+P.
+      const [approvedLeaveMarks, approvedTourData] = await Promise.all([
+        fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate, {
+          punches: punchRows,
         }),
-        employeesPromise,
-        inactivePromise,
-        codeMapPromise,
-        fetchRegisterMarkRowsInRange(supabase, {
-          fromDate: monthMeta.fromDate,
-          toDate: monthMeta.toDate,
-        }),
-        fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
         fetchApprovedTourMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
       ]);
 
@@ -687,7 +689,9 @@ export function EmployeeAttendanceDailyPage() {
         const punchRows = punchesRef.current || [];
 
         const [approvedLeaveMarks, monthRegisterRows] = await Promise.all([
-          fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
+          fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate, {
+            punches: punchRows,
+          }),
           fetchRegisterMarkRowsInRange(supabase, {
             fromDate: monthMeta.fromDate,
             toDate: monthMeta.toDate,
@@ -1676,10 +1680,11 @@ export function EmployeeAttendanceDailyPage() {
             onDate: cellDate,
           });
           const combinedPodPunch = isRegisterPodPunchCombinedMark(displayMark);
+          const combinedCoPunch = isRegisterCoPunchCombinedMark(displayMark);
           const combinedHalfDayLeave = isRegisterCompositeHalfDayMark(displayMark);
+          const combinedDualMark = combinedPodPunch || combinedCoPunch || combinedHalfDayLeave;
           const purplePresent =
-            !combinedPodPunch &&
-            !combinedHalfDayLeave &&
+            !combinedDualMark &&
             String(value || "").trim() === "P" &&
             isPurplePresentPunch(
               { punchIn: punchInfo?.punchIn, punchOut: punchInfo?.punchOut },
@@ -1695,7 +1700,7 @@ export function EmployeeAttendanceDailyPage() {
                 .join(" · ") || "Unusual punch window"
             : undefined;
           const combinedTitle =
-            combinedPodPunch || combinedHalfDayLeave
+            combinedDualMark
               ? [
                   registerMarkDisplayValue(displayMark),
                   punchInfo?.punchIn ? `In: ${punchInfo.punchIn}` : null,
