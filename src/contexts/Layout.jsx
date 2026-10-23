@@ -1342,7 +1342,7 @@ const Layout = () => {
                   </NavLink>
                   <NavLink to="projects/quotation" className={subNavClass}>
                     <ClipboardList className="w-4 h-4 shrink-0 text-orange-600" />
-                    <span className="type-meta type-truncate">Quotation Master</span>
+                    <span className="type-meta type-truncate">Quotation Maker</span>
                   </NavLink>
                   <NavLink to="projects/po" className={subNavClass}>
                     <FileCheck className="w-4 h-4 shrink-0 text-blue-600" />

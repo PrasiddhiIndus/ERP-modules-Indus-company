@@ -9,13 +9,14 @@ export const qSelect =
 export const QUOTATION_BASE = '/app/projects/quotation';
 
 export const TAB_IDS = [
-  'quotation-dashboard',
   'quotation-entry',
-  'quotation-summary',
   'quotation-list',
+  'quotation-dashboard',
   'quotation-board',
   'quotation-dropdown',
   'quotation-templates',
+  // Legacy paths still resolve to hub (redirect via path match)
+  'quotation-summary',
 ];
 
 export const LIST_COLUMNS = [

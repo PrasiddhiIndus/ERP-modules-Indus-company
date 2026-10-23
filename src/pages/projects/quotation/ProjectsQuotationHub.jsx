@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import QuotationMaker from './maker/QuotationMaker';
+import QuotationMakerList from './maker/QuotationMakerList';
 import QuotationDashboard from './QuotationDashboard';
-import QuotationEntry from './QuotationEntry';
-import QuotationSummary from './QuotationSummary';
-import QuotationList from './QuotationList';
 import QuotationBoard from './QuotationBoard';
 import QuotationDropdown from './QuotationDropdown';
 import QuotationTemplates from './QuotationTemplates';
@@ -14,28 +13,32 @@ const ProjectsQuotationHub = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const pathRest = location.pathname.startsWith(QUOTATION_BASE)
-    ? location.pathname.slice(QUOTATION_BASE.length).replace(/^\//, '') || 'quotation-dashboard'
-    : 'quotation-dashboard';
-  const [activeTab, setActiveTab] = useState(TAB_IDS.includes(pathRest) ? pathRest : 'quotation-dashboard');
+    ? location.pathname.slice(QUOTATION_BASE.length).replace(/^\//, '') || 'quotation-entry'
+    : 'quotation-entry';
+  const [activeTab, setActiveTab] = useState(TAB_IDS.includes(pathRest) ? pathRest : 'quotation-entry');
 
   useEffect(() => {
     const rest = location.pathname.startsWith(QUOTATION_BASE)
-      ? location.pathname.slice(QUOTATION_BASE.length).replace(/^\//, '') || 'quotation-dashboard'
-      : 'quotation-dashboard';
+      ? location.pathname.slice(QUOTATION_BASE.length).replace(/^\//, '') || 'quotation-entry'
+      : 'quotation-entry';
+    // Legacy Summary BOQ tab removed from Maker v1 — land on the editor.
+    if (rest === 'quotation-summary') {
+      navigate(`${QUOTATION_BASE}/quotation-entry`, { replace: true });
+      return;
+    }
     if (TAB_IDS.includes(rest)) setActiveTab(rest);
-  }, [location.pathname]);
+  }, [location.pathname, navigate]);
 
   const tabs = [
+    { id: 'quotation-entry', label: 'Make a Quotation', component: QuotationMaker },
+    { id: 'quotation-list', label: 'Quotation List', component: QuotationMakerList },
     { id: 'quotation-dashboard', label: 'Dashboard', component: QuotationDashboard },
-    { id: 'quotation-entry', label: 'New Quotation', component: QuotationEntry },
-    { id: 'quotation-summary', label: 'Summary', component: QuotationSummary },
-    { id: 'quotation-list', label: 'Quotation List', component: QuotationList },
     { id: 'quotation-board', label: 'Board', component: QuotationBoard },
     { id: 'quotation-dropdown', label: 'Masters', component: QuotationDropdown },
     { id: 'quotation-templates', label: 'Templates', component: QuotationTemplates },
   ];
 
-  const ActiveComponent = tabs.find((t) => t.id === activeTab)?.component || QuotationDashboard;
+  const ActiveComponent = tabs.find((t) => t.id === activeTab)?.component || QuotationMaker;
 
   const handleTabChange = (tabId) => {
     setActiveTab(tabId);
@@ -46,13 +49,13 @@ const ProjectsQuotationHub = () => {
     <QuotationDraftProvider>
       <div className="min-h-screen bg-gray-50">
         <div className="bg-white shadow-sm border-b border-gray-200">
-          <div className="px-6 py-4">
-            <h1 className="text-2xl font-bold text-gray-900">Projects — Quotation Master</h1>
+          <div className="px-4 sm:px-5 py-3">
+            <h1 className="text-2xl font-bold text-gray-900">Projects — Quotation Maker</h1>
             <p className="text-gray-600 mt-1">
-              Offer Format builder (pricing engine + PDF preview) and tracker — replaces the Excel macros workflow.
+              Simple guided quotations for fire-safety projects — headings, items, parts, live preview, and print.
             </p>
           </div>
-          <div className="px-6 flex gap-2 border-t border-gray-100 overflow-x-auto">
+          <div className="px-4 sm:px-5 flex gap-2 border-t border-gray-100 overflow-x-auto">
             {tabs.map((t) => (
               <button
                 key={t.id}

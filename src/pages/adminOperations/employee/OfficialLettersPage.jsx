@@ -420,17 +420,36 @@ export function OfficialLettersPage() {
       const created = Number(out.created || 0);
       const skipped = Number(out.skipped || 0);
       const failed = Number(out.failed || 0);
+      const waQueued = Number(out.whatsappQueued || 0);
+      const waSkipped = Number(out.whatsappSkipped || 0);
+      const waPeerQueued = Number(out.whatsappPeerQueued || 0);
       const matched =
         Number(out.birthdayCount || 0) + Number(out.anniversaryCount || 0);
+      const waParts = [];
+      if (waQueued > 0) waParts.push(`${waQueued} self wish${waQueued === 1 ? "" : "es"}`);
+      if (waPeerQueued > 0) {
+        waParts.push(`${waPeerQueued} team notice${waPeerQueued === 1 ? "" : "s"}`);
+      }
+      const waSuffix =
+        waParts.length > 0
+          ? ` WhatsApp queued: ${waParts.join(", ")}.`
+          : waSkipped > 0
+            ? ` WhatsApp not queued (${out.whatsappNote || "no mobile / already sent"}).`
+            : "";
       if (created) {
         toast.success(
-          `Generated ${created} personal letter${created === 1 ? "" : "s"} for ${out.occasionDate || "today"}.`
+          `Generated ${created} personal letter${created === 1 ? "" : "s"} for ${out.occasionDate || "today"}.${waSuffix}`
         );
       } else if (skipped) {
-        toast.info("Today’s birthday and anniversary cards are already generated.");
+        toast.info(
+          `Today’s birthday and anniversary cards are already generated.${waSuffix || " WhatsApp re-queue attempted."}`
+        );
       } else if (failed && matched) {
+        const detail = String(out.error || "").trim();
         toast.error(
-          `Found ${matched} occasion${matched === 1 ? "" : "s"} today but could not create cards. Check the API server logs.`
+          detail
+            ? `Found ${matched} occasion${matched === 1 ? "" : "s"} today but could not create cards: ${detail}`
+            : `Found ${matched} occasion${matched === 1 ? "" : "s"} today but could not create cards. Check the API server logs.`
         );
       } else {
         toast.info("No birthdays or wedding anniversaries fall today.");
@@ -1003,6 +1022,10 @@ export function OfficialLettersPage() {
                 <li>Each morning at 8:00 AM IST, cards are created for employees with a birthday or wedding anniversary that day.</li>
                 <li>Employee full name from Employee Master replaces the name placeholder on the Indus greeting template.</li>
                 <li>Cards appear here under Personal Letters and against the employee when you open their profile.</li>
+                <li>
+                  WhatsApp sends the greeting-card image to the celebrant, and a team notice with the same
+                  image to every other active employee who has a registered mobile.
+                </li>
                 <li>Use Generate today’s cards if the server was offline at 8:00 AM or you need to re-check today’s occasions.</li>
               </ul>
             ) : (

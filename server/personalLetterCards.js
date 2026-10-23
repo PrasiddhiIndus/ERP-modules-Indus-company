@@ -6,6 +6,10 @@
  * a random Indus 4K template (replacing the [Name] placeholder with full_name),
  * uploads to R2 when configured, and inserts admin_personal_letters.
  *
+ * WhatsApp (Indus One outbox → send-whatsapp-notification):
+ *  - celebration_self to the celebrant (card image header)
+ *  - celebration_peer to every other active employee with a mobile (same card image)
+ *
  * PERSONAL_LETTER_CARDS=off disables the job.
  */
 import fs from 'fs';
@@ -325,10 +329,250 @@ async function uploadCard(getR2Client, getR2Bucket, { kind, employeeId, occasion
   return { objectKey, fileName, contentType: 'image/jpeg', fileSize: buffer.length };
 }
 
+/** India default MSISDN for Meta WhatsApp Cloud API. */
+function normalizeWhatsAppMsisdn(raw, defaultCountryCode = '91') {
+  if (!raw) return null;
+  let digits = String(raw).replace(/\D+/g, '');
+  if (!digits) return null;
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  const cc = String(defaultCountryCode).replace(/\D+/g, '') || '91';
+  if (digits.length === 10) digits = `${cc}${digits}`;
+  else if (digits.length === 11 && digits.startsWith('0')) digits = `${cc}${digits.slice(1)}`;
+  if (digits.length < 10 || digits.length > 15) return null;
+  return digits;
+}
+
+async function resolveEmployeeWhatsAppPhone(svc, employee) {
+  const code = String(employee?.employee_code || '').trim();
+  // Prefer Indus One profile mobile (same source as leave/tour WhatsApp).
+  if (code) {
+    try {
+      const { data: ioRows } = await svc
+        .schema('indus_one')
+        .from('profiles')
+        .select('mobile_number')
+        .eq('employee_code', code)
+        .not('mobile_number', 'is', null)
+        .limit(5);
+      for (const row of ioRows || []) {
+        const fromIo = normalizeWhatsAppMsisdn(row?.mobile_number);
+        if (fromIo) return fromIo;
+      }
+    } catch (err) {
+      console.warn('[personal-letters] Indus One mobile lookup failed:', err?.message || err);
+    }
+  }
+  return normalizeWhatsAppMsisdn(employee?.personal_no);
+}
+
+function celebrationOccasionLabel(kind) {
+  return kind === 'anniversary' ? 'wedding anniversary' : 'birthday';
+}
+
+function safeCelebrationName(fullName, fallback) {
+  return (
+    String(fullName || fallback || 'Colleague')
+      .replace(/[\r\n\t]+/g, ' ')
+      .replace(/ {4,}/g, ' ')
+      .trim() || 'Colleague'
+  );
+}
+
+async function requestWhatsAppDrain(svc) {
+  try {
+    await svc.schema('indus_one').rpc('request_whatsapp_outbox_drain');
+  } catch {
+    /* cron still drains */
+  }
+}
+
+/** Map employee_code → WhatsApp MSISDN for every active employee who has a mobile. */
+export async function loadEmployeeWhatsAppPhoneMap(svc, employees) {
+  const profilePhone = new Map();
+  for (let page = 0; page < MAX_EMPLOYEE_PAGES; page += 1) {
+    const from = page * EMPLOYEE_PAGE_SIZE;
+    const { data, error } = await svc
+      .schema('indus_one')
+      .from('profiles')
+      .select('employee_code, mobile_number')
+      .not('mobile_number', 'is', null)
+      .range(from, from + EMPLOYEE_PAGE_SIZE - 1);
+    if (error) {
+      console.warn('[personal-letters] profile phone map failed:', error.message || error);
+      break;
+    }
+    for (const row of data || []) {
+      const code = String(row.employee_code || '').trim();
+      const phone = normalizeWhatsAppMsisdn(row.mobile_number);
+      if (code && phone) profilePhone.set(code, phone);
+    }
+    if (!data || data.length < EMPLOYEE_PAGE_SIZE) break;
+  }
+
+  const map = new Map();
+  for (const emp of employees || []) {
+    const code = String(emp?.employee_code || '').trim();
+    if (!code) continue;
+    const phone = profilePhone.get(code) || normalizeWhatsAppMsisdn(emp?.personal_no);
+    if (phone) map.set(code, phone);
+  }
+  return map;
+}
+
+/**
+ * Queue Meta WhatsApp self-wish (indus_celebration_self) with card image header.
+ * Body: Dear {{1}}, Warm wishes on your {{2}}!
+ */
+async function enqueueCelebrationSelf(
+  svc,
+  { letterId, employee, kind, fullName, occasionDate, objectKey, phoneByCode }
+) {
+  const code = String(employee?.employee_code || '').trim();
+  if (!letterId || !code) {
+    return { queued: false, reason: 'missing_letter_or_code' };
+  }
+  const phone =
+    (phoneByCode && phoneByCode.get(code)) || (await resolveEmployeeWhatsAppPhone(svc, employee));
+  if (!phone) {
+    console.warn('[personal-letters] WhatsApp self skipped — no mobile for', code);
+    return { queued: false, reason: 'no_mobile' };
+  }
+
+  const occasionLabel = celebrationOccasionLabel(kind);
+  const safeName = safeCelebrationName(fullName, code);
+  const object_key = String(objectKey || '').trim().replace(/^\/+/, '') || null;
+  const { data, error } = await svc
+    .schema('indus_one')
+    .from('approval_whatsapp_outbox')
+    .insert({
+      module_code: 'personal_letter',
+      entity_id: letterId,
+      event_type: 'celebration_self',
+      recipient_employee_code: code,
+      recipient_phone: phone,
+      template_key: 'celebration_self',
+      template_params: [safeName, occasionLabel],
+      language: process.env.WHATSAPP_TEMPLATE_LANGUAGE || 'en_US',
+      metadata: {
+        role: 'self',
+        letter_kind: kind,
+        occasion_date: occasionDate,
+        recipient_type: 'individual',
+        source: 'admin_personal_letters',
+        ...(object_key ? { object_key } : {}),
+      },
+    })
+    .select('id')
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === '23505' || /duplicate|unique/i.test(error.message || '')) {
+      return { queued: false, reason: 'already_queued' };
+    }
+    console.warn('[personal-letters] WhatsApp self enqueue failed', code, error.message || error);
+    return { queued: false, reason: error.message || 'enqueue_failed' };
+  }
+
+  return { queued: true, outboxId: data?.id || null, phone };
+}
+
+/**
+ * Queue Meta WhatsApp peer notices (indus_celebration_peer) to all employees with a mobile,
+ * except the celebrant. Template requires IMAGE header (greeting card) + body
+ * {{1}} name, {{2}} birthday | wedding anniversary.
+ */
+async function enqueueCelebrationPeers(
+  svc,
+  { letterId, celebrantCode, kind, fullName, occasionDate, objectKey, phoneByCode }
+) {
+  const celebrant = String(celebrantCode || '').trim();
+  if (!letterId || !celebrant || !phoneByCode?.size) {
+    return { queued: 0, skipped: 0, reason: 'missing_letter_or_recipients' };
+  }
+
+  const occasionLabel = celebrationOccasionLabel(kind);
+  const safeName = safeCelebrationName(fullName, celebrant);
+  const object_key = String(objectKey || '').trim().replace(/^\/+/, '') || null;
+  if (!object_key) {
+    console.warn('[personal-letters] WhatsApp peer skipped — no card image for', celebrant);
+    return { queued: 0, skipped: phoneByCode.size, reason: 'no_card_image' };
+  }
+
+  const language = process.env.WHATSAPP_TEMPLATE_LANGUAGE || 'en_US';
+  const rows = [];
+  for (const [code, phone] of phoneByCode) {
+    if (code === celebrant) continue;
+    rows.push({
+      module_code: 'personal_letter',
+      entity_id: letterId,
+      event_type: 'celebration_peer',
+      recipient_employee_code: code,
+      recipient_phone: phone,
+      template_key: 'celebration_peer',
+      template_params: [safeName, occasionLabel],
+      language,
+      metadata: {
+        role: 'peer',
+        letter_kind: kind,
+        occasion_date: occasionDate,
+        celebrant_code: celebrant,
+        recipient_type: 'individual',
+        object_key,
+        source: 'admin_personal_letters',
+      },
+    });
+  }
+
+  let queued = 0;
+  let skipped = 0;
+  const CHUNK = 100;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const { data, error } = await svc
+      .schema('indus_one')
+      .from('approval_whatsapp_outbox')
+      .upsert(chunk, {
+        onConflict: 'module_code,entity_id,event_type,recipient_employee_code,template_key',
+        ignoreDuplicates: true,
+      })
+      .select('id');
+
+    if (!error) {
+      queued += (data || []).length;
+      skipped += chunk.length - (data || []).length;
+      continue;
+    }
+
+    // Fallback: insert one-by-one so one duplicate does not block the batch.
+    for (const row of chunk) {
+      const { error: oneErr } = await svc
+        .schema('indus_one')
+        .from('approval_whatsapp_outbox')
+        .insert(row);
+      if (oneErr) {
+        if (oneErr.code === '23505' || /duplicate|unique/i.test(oneErr.message || '')) {
+          skipped += 1;
+        } else {
+          skipped += 1;
+          console.warn(
+            '[personal-letters] WhatsApp peer enqueue failed',
+            row.recipient_employee_code,
+            oneErr.message || oneErr
+          );
+        }
+      } else {
+        queued += 1;
+      }
+    }
+  }
+
+  return { queued, skipped, total: rows.length };
+}
+
 /** Load all active employees for occasion matching (paginated — PostgREST row cap). */
 export async function loadOccasionEmployees(svc) {
   const select =
-    'id, employee_code, full_name, status, date_of_birth, date_of_anniversary, birthday_reminder, anniversary_reminder';
+    'id, employee_code, full_name, status, date_of_birth, date_of_anniversary, birthday_reminder, anniversary_reminder, personal_no';
   const rows = [];
   for (let page = 0; page < MAX_EMPLOYEE_PAGES; page += 1) {
     const from = page * EMPLOYEE_PAGE_SIZE;
@@ -346,7 +590,7 @@ export async function loadOccasionEmployees(svc) {
   return rows.filter(isActiveEmployee);
 }
 
-async function createOneCard(svc, deps, { employee, kind, occasionDate }) {
+async function createOneCard(svc, deps, { employee, kind, occasionDate, phoneByCode }) {
   const fullName = String(employee.full_name || '').trim() || employee.employee_code || 'Colleague';
   const { file, absolutePath } = pickTemplate(kind);
   const buffer = await renderPersonalLetterCard({
@@ -383,13 +627,55 @@ async function createOneCard(svc, deps, { employee, kind, occasionDate }) {
 
   const { data, error } = await svc.from(TABLE).insert(row).select('*').single();
   if (error) {
-    // Unique violation = already generated today
+    // Unique violation = already generated today — still try WhatsApp (idempotent outbox).
     if (error.code === '23505' || /duplicate|unique/i.test(error.message || '')) {
-      return { skipped: true, reason: 'already exists' };
+      const { data: existing } = await svc
+        .from(TABLE)
+        .select('id, object_key')
+        .eq('employee_master_id', employee.id)
+        .eq('letter_kind', kind)
+        .eq('occasion_date', occasionDate)
+        .maybeSingle();
+      let whatsapp = { queued: false, reason: 'no_existing_letter' };
+      if (existing?.id) {
+        whatsapp = await enqueueCelebrationSelf(svc, {
+          letterId: existing.id,
+          employee,
+          kind,
+          fullName,
+          occasionDate,
+          objectKey: existing.object_key,
+          phoneByCode,
+        });
+      }
+      return {
+        skipped: true,
+        reason: 'already exists',
+        letter: existing || null,
+        fullName,
+        whatsapp,
+      };
     }
     throw error;
   }
-  return { created: data, buffer: uploaded ? null : buffer };
+
+  const objectKey = data.object_key || uploaded?.objectKey || null;
+  const whatsapp = await enqueueCelebrationSelf(svc, {
+    letterId: data.id,
+    employee,
+    kind,
+    fullName,
+    occasionDate,
+    objectKey,
+    phoneByCode,
+  });
+  return {
+    created: data,
+    letter: { id: data.id, object_key: objectKey },
+    fullName,
+    buffer: uploaded ? null : buffer,
+    whatsapp,
+  };
 }
 
 /**
@@ -409,10 +695,39 @@ export async function runPersonalLetterCards(svc, deps = {}, { now = new Date() 
   let created = 0;
   let skipped = 0;
   let failed = 0;
+  let whatsappQueued = 0;
+  let whatsappSkipped = 0;
+  let whatsappPeerQueued = 0;
+  let whatsappPeerSkipped = 0;
+  const failureReasons = [];
+  const whatsappSkipReasons = [];
   const jobs = [
     ...birthdays.map((employee) => ({ employee, kind: 'birthday' })),
     ...anniversaries.map((employee) => ({ employee, kind: 'anniversary' })),
   ];
+
+  // Fail fast with a clear message when sharp is missing (common after a fresh clone).
+  if (jobs.length) {
+    try {
+      await getSharp();
+    } catch (err) {
+      return {
+        created: 0,
+        skipped: 0,
+        failed: jobs.length,
+        whatsappQueued: 0,
+        whatsappSkipped: 0,
+        whatsappPeerQueued: 0,
+        whatsappPeerSkipped: 0,
+        occasionDate,
+        birthdayCount: birthdays.length,
+        anniversaryCount: anniversaries.length,
+        error: err?.message || String(err),
+      };
+    }
+  }
+
+  const phoneByCode = jobs.length ? await loadEmployeeWhatsAppPhoneMap(svc, employees) : new Map();
 
   for (const job of jobs) {
     try {
@@ -420,27 +735,77 @@ export async function runPersonalLetterCards(svc, deps = {}, { now = new Date() 
         employee: job.employee,
         kind: job.kind,
         occasionDate,
+        phoneByCode,
       });
       if (out?.skipped) skipped += 1;
       else created += 1;
+      if (out?.whatsapp?.queued) whatsappQueued += 1;
+      else if (out?.whatsapp) {
+        whatsappSkipped += 1;
+        const r = out.whatsapp.reason || 'skipped';
+        if (whatsappSkipReasons.length < 5 && !whatsappSkipReasons.includes(r)) {
+          whatsappSkipReasons.push(r);
+        }
+      }
+
+      const letterId = out?.letter?.id || out?.created?.id;
+      const objectKey = out?.letter?.object_key || out?.created?.object_key;
+      if (letterId && objectKey) {
+        const peers = await enqueueCelebrationPeers(svc, {
+          letterId,
+          celebrantCode: job.employee?.employee_code,
+          kind: job.kind,
+          fullName: out.fullName || job.employee?.full_name,
+          occasionDate,
+          objectKey,
+          phoneByCode,
+        });
+        whatsappPeerQueued += Number(peers.queued || 0);
+        whatsappPeerSkipped += Number(peers.skipped || 0);
+        if (peers.reason && whatsappSkipReasons.length < 5 && !whatsappSkipReasons.includes(peers.reason)) {
+          whatsappSkipReasons.push(peers.reason);
+        }
+      } else if (letterId && !objectKey) {
+        whatsappPeerSkipped += Math.max(phoneByCode.size - 1, 0);
+        if (!whatsappSkipReasons.includes('no_card_image')) {
+          whatsappSkipReasons.push('no_card_image');
+        }
+      }
     } catch (err) {
       failed += 1;
+      const reason = err?.message || String(err);
+      if (failureReasons.length < 3 && !failureReasons.includes(reason)) {
+        failureReasons.push(reason);
+      }
       console.warn(
         '[personal-letters] card failed',
         job.kind,
         job.employee?.employee_code,
-        err?.message || err
+        reason
       );
     }
+  }
+
+  if (whatsappQueued || whatsappPeerQueued) {
+    await requestWhatsAppDrain(svc);
   }
 
   return {
     created,
     skipped,
     failed,
+    whatsappQueued,
+    whatsappSkipped,
+    whatsappPeerQueued,
+    whatsappPeerSkipped,
+    whatsappRecipientsWithPhone: phoneByCode.size,
     occasionDate,
     birthdayCount: birthdays.length,
     anniversaryCount: anniversaries.length,
+    ...(failureReasons.length ? { error: failureReasons.join(' · ') } : {}),
+    ...(whatsappSkipReasons.length
+      ? { whatsappNote: whatsappSkipReasons.join(' · ') }
+      : {}),
   };
 }
 
