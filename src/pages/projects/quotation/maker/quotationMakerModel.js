@@ -108,6 +108,35 @@ export function buildColumnKeys(type, { showMake = false, showRemarks = false, m
   return cols;
 }
 
+/**
+ * Keys Make may sit immediately before (left → right), for the placement control.
+ * Excludes Sr No. (Make always stays after it).
+ */
+export function makePlacementSlots(type, { showRemarks = false } = {}) {
+  return buildColumnKeys(type, { showMake: false, showRemarks, makeBefore: 'unit' }).filter(
+    (k) => k !== 'sr'
+  );
+}
+
+/** Resolve a stored make_column_before to a valid slot key. */
+export function resolveMakeBefore(type, makeBefore, { showRemarks = false } = {}) {
+  const slots = makePlacementSlots(type, { showRemarks });
+  let before = makeBefore === 'row_total' ? 'actions' : makeBefore;
+  if (!slots.includes(before)) before = slots.includes('unit') ? 'unit' : slots[0];
+  return before || 'unit';
+}
+
+/** Move Make one slot left (−1) or right (+1). Returns the new makeBefore key. */
+export function nudgeMakeBefore(type, makeBefore, dir, { showRemarks = false } = {}) {
+  const slots = makePlacementSlots(type, { showRemarks });
+  if (!slots.length) return makeBefore || 'unit';
+  const current = resolveMakeBefore(type, makeBefore, { showRemarks });
+  const i = slots.indexOf(current);
+  const next = i + (dir < 0 ? -1 : 1);
+  if (next < 0 || next >= slots.length) return current;
+  return slots[next];
+}
+
 export function columnLabel(key, type) {
   if (key === 'price_unit') {
     const t = QUOTATION_TYPES[normalizeType(type)];
@@ -381,8 +410,8 @@ export function itemSiblings(rows, parentRowId) {
  * - Heading / heading total → ''
  * - Item under a heading, or top-level item → 1, 2, 3… (restarts per parent;
  *   top-level items are separate from each heading’s children)
- * - Part under an item → a, b, c… (restarts under each item)
- * - Part under a part → parentLabel + '.' + n (a.1, a.2, b.1…)
+ * - Part under an item → parentLabel + '.' + letter (1.a, 1.b…; letters restart per item)
+ * - Part under a part → parentLabel + '.' + n (1.a.1, 1.a.2…; numbers restart per part)
  */
 export function numberOf(rows, r) {
   if (!r || r.row_type === 'heading' || r.row_type === 'heading_total') return '';
@@ -399,15 +428,15 @@ export function numberOf(rows, r) {
   }
 
   if (parent.row_type === 'item') {
+    const parentLabel = numberOf(rows, parent);
+    if (!parentLabel) return '';
     const grand = parent.parent_row_id ? byId(rows, parent.parent_row_id) : null;
-    // Part under an item (item’s parent is heading or null) → a, b, c…
+    // Part under an item (item’s parent is heading or null) → 1.a, 1.b…
     if (!grand || grand.row_type === 'heading') {
-      return String.fromCharCode(97 + idx);
+      return `${parentLabel}.${String.fromCharCode(97 + idx)}`;
     }
-    // Part under a part → a.1, a.2, b.1…
+    // Part under a part → 1.a.1, 1.a.2…
     if (grand.row_type === 'item') {
-      const parentLabel = numberOf(rows, parent);
-      if (!parentLabel) return String(idx + 1);
       return `${parentLabel}.${idx + 1}`;
     }
   }
