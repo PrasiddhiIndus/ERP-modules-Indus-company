@@ -35,6 +35,8 @@ import {
   saveMakerQuotation,
 } from './quotationMakerApi';
 import QuotationMakerPreview from './QuotationMakerPreview';
+import BoqImportModal from './BoqImportModal';
+import { exportQuotationToExcelBlob } from './quotationMakerExcel';
 import './quotationMaker.css';
 
 function canEditQuotation(user, userProfile, form) {
@@ -72,6 +74,7 @@ export default function QuotationMaker() {
   const [colDropKey, setColDropKey] = useState(null);
   const [draggingMakeCol, setDraggingMakeCol] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [boqImportOpen, setBoqImportOpen] = useState(false);
   const autosaveTimer = useRef(null);
   const skipAutosave = useRef(true);
 
@@ -262,6 +265,30 @@ export default function QuotationMaker() {
     setDirty(true);
   };
 
+  const handleBoqImport = useCallback(
+    ({ rows: nextRows, showMake, showRemarks, importedCount, mode }) => {
+      if (readOnly) return;
+      if (autosaveTimer.current) {
+        clearTimeout(autosaveTimer.current);
+        autosaveTimer.current = null;
+      }
+      // One controlled state update — skip the immediate autosave tick, then mark dirty.
+      skipAutosave.current = true;
+      setRows(nextRows || []);
+      setForm((prev) => ({
+        ...prev,
+        show_make: prev.show_make || Boolean(showMake),
+        show_remarks: prev.show_remarks || Boolean(showRemarks),
+      }));
+      setDirty(true);
+      setMessage({
+        type: 'success',
+        text: `Imported ${importedCount || 0} BOQ row(s)${mode === 'append' ? ' (appended)' : ''}. Review rates and save when ready.`,
+      });
+    },
+    [readOnly]
+  );
+
   const handlePrint = async () => {
     try {
       await logMakerAudit({
@@ -275,6 +302,16 @@ export default function QuotationMaker() {
       /* ignore */
     }
     window.print();
+  };
+
+  const handleExcel = async () => {
+    try {
+      const blob = await exportQuotationToExcelBlob({ form, rows });
+      const safe = String(form.quotation_no || 'quotation').replace(/[^\w.-]+/g, '_').slice(0, 80);
+      downloadBlob(blob, `Quotation_${safe}.xlsx`);
+    } catch (e) {
+      setMessage({ type: 'error', text: e?.message || 'Excel export failed.' });
+    }
   };
 
   const handlePdf = async () => {
@@ -335,9 +372,6 @@ export default function QuotationMaker() {
           </p>
         </div>
         <div className="qm-btns">
-          <button type="button" className="qm-btn" onClick={() => navigate(`${QUOTATION_BASE}/quotation-list`)}>
-            Quotation list
-          </button>
           <span className={`qm-save ${saveState.kind === 'ok' ? 'ok' : saveState.kind === 'err' ? 'err' : ''}`}>
             {saving ? 'Saving…' : saveState.text || (dirty ? 'Unsaved changes' : form.id ? 'Saved' : '')}
           </span>
@@ -508,6 +542,14 @@ export default function QuotationMaker() {
           >
             + Add an item
           </button>
+          <button
+            type="button"
+            className="qm-btn good"
+            disabled={readOnly}
+            onClick={() => setBoqImportOpen(true)}
+          >
+            Import Client BOQ
+          </button>
         </div>
 
         <div className="qm-tw">
@@ -666,6 +708,9 @@ export default function QuotationMaker() {
           <button type="button" className="qm-btn" onClick={() => void handlePdf()}>
             Download PDF
           </button>
+          <button type="button" className="qm-btn" onClick={() => void handleExcel()}>
+            Export to Excel
+          </button>
         </div>
       </div>
 
@@ -694,6 +739,14 @@ export default function QuotationMaker() {
           </div>
         </div>
       ) : null}
+
+      <BoqImportModal
+        open={boqImportOpen}
+        onClose={() => setBoqImportOpen(false)}
+        existingRows={rows}
+        quotationType={type}
+        onImport={handleBoqImport}
+      />
     </div>
   );
 }
