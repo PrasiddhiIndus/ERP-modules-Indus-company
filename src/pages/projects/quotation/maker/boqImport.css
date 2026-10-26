@@ -1,0 +1,242 @@
+/* BOQ import modal — screen only */
+
+.boq-import-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.boq-import-modal {
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #c9ced6;
+  width: min(1120px, 100%);
+  max-height: min(92vh, 900px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+}
+
+.boq-import-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.boq-import-header h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.boq-import-body {
+  padding: 14px 18px;
+  overflow: auto;
+  flex: 1;
+  font-size: 13px;
+}
+
+.boq-import-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 18px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 0 0 12px 12px;
+}
+
+.boq-import-steps {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.boq-import-step-pill {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: #475569;
+}
+
+.boq-import-step-pill.on {
+  background: #1f5fbf;
+  color: #fff;
+}
+
+.boq-import-error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  color: #9f1239;
+}
+
+.boq-import-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin: 0 0 12px;
+  color: #334155;
+}
+
+.boq-import-summary strong {
+  color: #0f172a;
+}
+
+.boq-import-map {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px 12px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.boq-import-map label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.boq-import-map select,
+.boq-import-body select,
+.boq-import-body input[type='text'],
+.boq-import-body input[type='number'] {
+  font-size: 12px;
+  padding: 5px 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.boq-import-tw {
+  overflow: auto;
+  max-height: 420px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.boq-import-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.boq-import-table th,
+.boq-import-table td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 5px 6px;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.boq-import-table th {
+  position: sticky;
+  top: 0;
+  background: #f1f5f9;
+  z-index: 1;
+  font-weight: 600;
+  color: #334155;
+}
+
+.boq-import-table td.desc {
+  white-space: normal;
+  min-width: 220px;
+  max-width: 360px;
+}
+
+.boq-import-table tr.warn {
+  background: #fffbeb;
+}
+
+.boq-import-table tr.excluded {
+  background: #f8fafc;
+  opacity: 0.72;
+}
+
+.boq-import-table .warn-text {
+  color: #b45309;
+  font-size: 11px;
+  white-space: normal;
+  max-width: 200px;
+}
+
+.boq-import-drop {
+  border: 2px dashed #94a3b8;
+  border-radius: 10px;
+  padding: 28px 16px;
+  text-align: center;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.boq-import-drop.drag {
+  border-color: #1f5fbf;
+  background: #e8f0fd;
+}
+
+.boq-import-sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.boq-import-sheet-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.boq-import-sheet-list li:hover,
+.boq-import-sheet-list li.sel {
+  border-color: #1f5fbf;
+  background: #e8f0fd;
+}
+
+.boq-import-conflict {
+  padding: 12px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  color: #9a3412;
+  margin-bottom: 12px;
+}
+
+.boq-import-rate-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+}
