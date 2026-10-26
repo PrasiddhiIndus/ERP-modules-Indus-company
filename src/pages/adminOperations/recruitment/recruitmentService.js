@@ -444,7 +444,38 @@ export async function listRequisitions() {
     if (c.requisition_id) acc[c.requisition_id] = (acc[c.requisition_id] || 0) + 1;
     return acc;
   }, {});
-  return rows.map((r) => mapRequisition(r, counts[r.id] || 0));
+  const mapped = rows.map((r) => mapRequisition(r, counts[r.id] || 0));
+
+  // Fill missing L1 / approver names for approved Indus One rows (Status column + PDF).
+  const needApprover = mapped.filter(
+    (r) =>
+      !r.decidedBy &&
+      r.source === "indus_one" &&
+      ["approved", "open", "filled", "rejected"].includes(r.status)
+  );
+  if (needApprover.length) {
+    await Promise.all(
+      needApprover.map(async (r) => {
+        try {
+          const { data } = await supabase.rpc("admin_recruitment_requisition_approver_name", {
+            p_requisition_id: r.id,
+          });
+          const name = data ? String(data).trim() : "";
+          if (!name) return;
+          r.decidedBy = name;
+          // Persist so Status column stays filled without re-RPC
+          await supabase
+            .from(T.requisitions)
+            .update({ decided_by_name: name })
+            .eq("id", r.id)
+            .is("decided_by_name", null);
+        } catch {
+          /* ignore */
+        }
+      })
+    );
+  }
+  return mapped;
 }
 
 export async function getRequisitionHistory(requisitionId) {

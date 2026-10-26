@@ -37,7 +37,18 @@ function DashboardBody({ data, navigate }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
-        <StatTile label="Open requisitions" value={data.openRequisitions} sub={`${data.pendingRequisitions} awaiting review`} icon={ClipboardList} tone="info" onClick={() => navigate("requisitions")} />
+        <StatTile
+          label="Open requisitions"
+          value={data.openRequisitions}
+          sub={
+            data.pendingRequisitions > 0
+              ? `${data.pendingRequisitions} ERP draft awaiting approval`
+              : "L1-approved Indus One requests show as approved"
+          }
+          icon={ClipboardList}
+          tone="info"
+          onClick={() => navigate("requisitions")}
+        />
         <StatTile label="Candidates" value={data.totalCandidates} sub="In pipeline" icon={Users} onClick={() => navigate("candidates")} />
         <StatTile label="Interviews today" value={data.interviewsToday.length} sub="Scheduled" icon={CalendarClock} tone="accent" onClick={() => navigate("interviews")} />
         <StatTile label="Interviews attended" value={data.interviewsAttended} sub={`${data.interviewsNoShow} no-shows`} icon={CalendarClock} tone="success" onClick={() => navigate("interviews")} />
