@@ -447,7 +447,22 @@ export function resolveStructureForPayMonth(structure, year, month) {
   }
 
   const eligible = entries.filter((e) => e.start <= payYm && e.row?.declared !== false);
-  if (!eligible.length) return null;
+  if (!eligible.length) {
+    // Sole declared CTC whose W.E.F. is after this pay month (common when WEF defaults to
+    // "today" while Salary Processing opens on the previous month): still use it so the
+    // roster does not show everyone as "CTC missing" until the month dropdown is changed.
+    // When revision history exists, keep strict W.E.F. gating (null) so a future raise
+    // cannot rewrite an earlier month that has no covering version.
+    const revs = Array.isArray(structure.revisions) ? structure.revisions : [];
+    if (revs.length === 0) {
+      return {
+        ...stripStructureRevisions(structure),
+        declared: true,
+        employee_master_id: structure.employee_master_id,
+      };
+    }
+    return null;
+  }
   eligible.sort((a, b) => {
     if (a.start !== b.start) return a.start < b.start ? -1 : 1;
     return (a.rank || 0) - (b.rank || 0);

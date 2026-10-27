@@ -3,7 +3,7 @@ import { AlertTriangle, ChevronDown, ChevronUp, ChevronsUpDown, FileText, Inbox,
 import { Modal } from "../components/AdminUi";
 import { toast } from "../../../lib/toast";
 import { TONE_CLASSES, TONE_DOT } from "./recruitmentConfig";
-import { RECRUITMENT_DATA_EVENT, getCapabilities, getFileUrl } from "./recruitmentService";
+import { RECRUITMENT_DATA_EVENT, getCapabilities, getFileUrl, searchEmployees } from "./recruitmentService";
 
 /** Load async data, re-run when the recruitment store changes. */
 export function useRecruitmentData(loader, deps = []) {
@@ -646,6 +646,120 @@ export function ReasonModal({ open, title, label = "Reason", description, submit
         <textarea className={textareaClass} value={reason} onChange={(e) => setReason(e.target.value)} autoFocus />
       </Field>
     </ActionModal>
+  );
+}
+
+/**
+ * Typeahead for in-house Employee Master names.
+ * onChange(name) as the user types; onPick(employee) when a suggestion is chosen
+ * (employee includes name + email so callers can auto-fill an editable email field).
+ */
+export function EmployeeNameSuggest({
+  value,
+  onChange,
+  onPick,
+  placeholder = "Type employee name…",
+  "aria-label": ariaLabel = "Employee name",
+  className = "",
+  inputClassName = inputClass,
+}) {
+  const [results, setResults] = useState([]);
+  const [open, setOpen] = useState(false);
+  const timer = useRef(null);
+  const wrapRef = useRef(null);
+  const skipSearchRef = useRef(false);
+  const pickLockRef = useRef(false);
+
+  useEffect(() => {
+    clearTimeout(timer.current);
+    if (skipSearchRef.current) {
+      skipSearchRef.current = false;
+      setResults([]);
+      setOpen(false);
+      return undefined;
+    }
+    const term = String(value || "").trim();
+    if (term.length < 2) {
+      setResults([]);
+      setOpen(false);
+      return undefined;
+    }
+    timer.current = setTimeout(() => {
+      searchEmployees(term).then((rows) => {
+        if (skipSearchRef.current || pickLockRef.current) return;
+        setResults(rows || []);
+        setOpen(Boolean(rows?.length));
+      });
+    }, 220);
+    return () => clearTimeout(timer.current);
+  }, [value]);
+
+  useEffect(() => {
+    const onDoc = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  const pick = (emp) => {
+    if (pickLockRef.current) return;
+    pickLockRef.current = true;
+    skipSearchRef.current = true;
+    clearTimeout(timer.current);
+    setOpen(false);
+    setResults([]);
+    onPick?.(emp);
+    // Allow typing again after the pick settles
+    window.setTimeout(() => {
+      pickLockRef.current = false;
+    }, 300);
+  };
+
+  return (
+    <div ref={wrapRef} className={`relative min-w-[8rem] flex-1 ${className}`}>
+      <input
+        value={value}
+        onChange={(e) => {
+          pickLockRef.current = false;
+          onChange(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => {
+          if (results.length && !pickLockRef.current) setOpen(true);
+        }}
+        placeholder={placeholder}
+        className={inputClassName}
+        aria-label={ariaLabel}
+        autoComplete="off"
+      />
+      {open && results.length ? (
+        <ul
+          role="listbox"
+          className="absolute z-30 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-border bg-surface shadow-card"
+        >
+          {results.map((e) => (
+            <li key={e.id} role="option">
+              <button
+                type="button"
+                className="w-full px-2.5 py-1.5 text-left text-xs hover:bg-surface-sunken"
+                onMouseDown={(ev) => {
+                  // Select on mousedown so one press fills fields (avoids blur/re-search needing a 2nd click)
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  pick(e);
+                }}
+              >
+                <span className="font-medium text-ink">{e.name}</span>
+                <span className="block text-[10px] text-ink-muted">
+                  {[e.code, e.designation, e.email || "no email"].filter(Boolean).join(" · ")}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
