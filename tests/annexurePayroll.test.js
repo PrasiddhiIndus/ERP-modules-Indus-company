@@ -94,6 +94,14 @@ describe("Annexure-I record mapping", () => {
     expect(oct.structure_version).toBe(ANNEXURE_STRUCTURE_VERSION);
   });
 
+  it("sole CTC with WEF after the pay month is still declared (previous-month processing)", () => {
+    const only = { ...recordFor(STATUS_PROBATION, 34000), id: "cur", wef_date: "2026-10-27", declared: true, revisions: [] };
+    const sept = resolveStructureForPayMonth(only, 2026, 9);
+    expect(sept).not.toBeNull();
+    expect(sept.declared).toBe(true);
+    expect(sept.gross_monthly).toBe(only.gross_monthly);
+  });
+
   it("history sets Effective To to the day before the next record", () => {
     const current = { ...recordFor(STATUS_CONFIRMED, 40000), id: "cur", wef_date: "2026-10-01" };
     const older = { ...recordFor(STATUS_PROBATION, 34000), id: "r1", revision_no: 1, wef_date: "2026-04-01" };
