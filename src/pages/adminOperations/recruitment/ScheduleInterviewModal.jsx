@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, X } from "lucide-react";
 import { toast } from "../../../lib/toast";
 import { INTERVIEW_MODES, RECRUITMENT_BASE } from "./recruitmentConfig";
-import { getSettings, rescheduleInterview, scheduleInterview } from "./recruitmentService";
+import { getSettings, listRequisitions, rescheduleInterview, scheduleInterview, updateCandidate } from "./recruitmentService";
 import { ActionModal, EmployeeNameSuggest, Field, inputClass, textareaClass } from "./RecruitmentUi";
 
 function toLocalInput(date) {
@@ -30,6 +30,7 @@ function normalizePanel(list) {
 export default function ScheduleInterviewModal({ open, candidate, candidates = [], interview, onClose }) {
   const [form, setForm] = useState(null);
   const [panel, setPanel] = useState([]);
+  const [requisitions, setRequisitions] = useState([]);
   const [draftName, setDraftName] = useState("");
   const [draftEmail, setDraftEmail] = useState("");
 
@@ -39,6 +40,7 @@ export default function ScheduleInterviewModal({ open, candidate, candidates = [
     setDraftEmail("");
     setForm({
       candidateId: candidate?.id || interview?.candidateId || "",
+      requisitionId: candidate?.requisitionId || "",
       scheduledAt: interview ? toLocalInput(interview.scheduledAt) : defaultSlot(),
       mode: interview?.modeKey || "office",
       interviewers: interview?.interviewers?.map((i) => i.name).filter(Boolean) || [],
@@ -59,7 +61,19 @@ export default function ScheduleInterviewModal({ open, candidate, candidates = [
         setPanel([...byName.values()]);
       })
       .catch(() => setPanel(normalizePanel(interview?.interviewers)));
+    listRequisitions()
+      .then((reqs) => setRequisitions(reqs.filter((r) => ["approved", "open"].includes(r.status))))
+      .catch(() => setRequisitions([]));
   }, [open, candidate, interview]);
+
+  const eligible = useMemo(() => candidates.filter((c) => c.live && c.stage === "shortlisted"), [candidates]);
+  const isReschedule = Boolean(interview);
+  const selectedCandidate = useMemo(() => {
+    if (candidate?.id) return candidate;
+    if (!form?.candidateId) return null;
+    return eligible.find((c) => c.id === form.candidateId) || null;
+  }, [candidate, eligible, form?.candidateId]);
+  const needsRequisition = Boolean(form) && !isReschedule && Boolean(form.candidateId) && !selectedCandidate?.requisitionId;
 
   if (!open || !form) return null;
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
@@ -94,8 +108,6 @@ export default function ScheduleInterviewModal({ open, candidate, candidates = [
     setDraftEmail("");
   };
 
-  const eligible = candidates.filter((c) => c.live && c.stage === "shortlisted");
-  const isReschedule = Boolean(interview);
   const chosen = form.interviewers.map((name) => panel.find((p) => p.name === name) || { name, email: "" });
 
   return (
@@ -105,13 +117,28 @@ export default function ScheduleInterviewModal({ open, candidate, candidates = [
       onClose={onClose}
       widthClass="max-w-3xl"
       submitLabel={isReschedule ? "Reschedule" : "Schedule"}
-      canSubmit={Boolean(form.candidateId && form.scheduledAt && form.interviewers.length && (!isReschedule || form.reason.trim()))}
+      canSubmit={Boolean(
+        form.candidateId &&
+          form.scheduledAt &&
+          form.interviewers.length &&
+          (!needsRequisition || form.requisitionId) &&
+          (!isReschedule || form.reason.trim())
+      )}
       onSubmit={async () => {
         const scheduledAt = new Date(form.scheduledAt).toISOString();
         if (isReschedule) {
           await rescheduleInterview(interview.id, { scheduledAt, reason: form.reason.trim(), mode: form.mode, location: form.location, interviewers: chosen }, interview.version);
           toast.success("Interview rescheduled", "Send the updated invitation to the candidate.");
         } else {
+          // Link first when needed so scheduling works even before the DB migration that
+          // accepts requisitionId on the schedule RPC is applied.
+          if (needsRequisition && form.requisitionId) {
+            await updateCandidate(
+              form.candidateId,
+              { requisitionId: form.requisitionId },
+              selectedCandidate?.version ?? null
+            );
+          }
           await scheduleInterview(form.candidateId, {
             scheduledAt,
             mode: form.mode,
@@ -119,6 +146,7 @@ export default function ScheduleInterviewModal({ open, candidate, candidates = [
             roundName: form.roundName.trim() || undefined,
             durationMins: Number(form.durationMins) || 45,
             location: form.location,
+            ...(needsRequisition && form.requisitionId ? { requisitionId: form.requisitionId } : {}),
           });
           toast.success("Interview scheduled", "Send the invitation from the candidate's profile.");
         }
@@ -128,7 +156,18 @@ export default function ScheduleInterviewModal({ open, candidate, candidates = [
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {!candidate && !isReschedule ? (
           <Field label="Candidate *" className="sm:col-span-2">
-            <select value={form.candidateId} onChange={(e) => set("candidateId", e.target.value)} className={inputClass}>
+            <select
+              value={form.candidateId}
+              onChange={(e) => {
+                const next = eligible.find((c) => c.id === e.target.value);
+                setForm((f) => ({
+                  ...f,
+                  candidateId: e.target.value,
+                  requisitionId: next?.requisitionId || "",
+                }));
+              }}
+              className={inputClass}
+            >
               <option value="">Select a shortlisted candidate</option>
               {eligible.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -136,6 +175,29 @@ export default function ScheduleInterviewModal({ open, candidate, candidates = [
                 </option>
               ))}
             </select>
+          </Field>
+        ) : null}
+        {needsRequisition ? (
+          <Field label="Requisition *" className="sm:col-span-2">
+            <select value={form.requisitionId} onChange={(e) => set("requisitionId", e.target.value)} className={inputClass}>
+              <option value="">Select an approved requisition</option>
+              {requisitions.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.requisitionNo} · {r.designation}
+                </option>
+              ))}
+            </select>
+            {!requisitions.length ? (
+              <p className="mt-1.5 text-[11px] text-ink-muted">
+                No approved openings yet. Approve a requisition in{" "}
+                <Link to={`${RECRUITMENT_BASE}/requisitions`} className="font-medium text-accent-deep underline" onClick={onClose}>
+                  Requisitions
+                </Link>{" "}
+                first.
+              </p>
+            ) : (
+              <p className="mt-1.5 text-[11px] text-ink-muted">This candidate is not linked to an opening yet — pick one to continue.</p>
+            )}
           </Field>
         ) : null}
         <Field label="Date & time *">

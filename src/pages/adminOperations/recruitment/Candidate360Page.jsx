@@ -41,6 +41,7 @@ import {
   cancelAppointment,
   closeCandidate,
   getCandidateWorkspace,
+  listRequisitions,
   markJoiningNoShow,
   moveCandidateStage,
   prepareAppointmentLetter,
@@ -148,6 +149,8 @@ function StageTracker({ stage, outcome }) {
 
 function EditProfileModal({ open, candidate, onClose }) {
   const [form, setForm] = useState({});
+  const [requisitions, setRequisitions] = useState([]);
+  const canChangeRequisition = candidate && STAGE_INDEX[candidate.stage] < STAGE_INDEX.offer;
   useEffect(() => {
     if (!open || !candidate) return;
     setForm({
@@ -164,8 +167,16 @@ function EditProfileModal({ open, candidate, onClose }) {
       expectedCtc: candidate.expectedSalary ?? "",
       noticePeriodDays: candidate.noticePeriodDays ?? "",
       skills: candidate.skills,
+      requisitionId: candidate.requisitionId || "",
     });
-  }, [open, candidate]);
+    if (canChangeRequisition) {
+      listRequisitions()
+        .then((reqs) => setRequisitions(reqs.filter((r) => ["approved", "open"].includes(r.status))))
+        .catch(() => setRequisitions([]));
+    } else {
+      setRequisitions([]);
+    }
+  }, [open, candidate, canChangeRequisition]);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const fields = [
     ["fullName", "Full name"],
@@ -181,12 +192,14 @@ function EditProfileModal({ open, candidate, onClose }) {
     ["expectedCtc", "Expected salary (monthly)", "number"],
     ["noticePeriodDays", "Notice period (days)", "number"],
   ];
+  const mustKeepRequisition = canChangeRequisition && STAGE_INDEX[candidate.stage] >= STAGE_INDEX.interview;
   return (
     <ActionModal
       open={open}
       title="Edit profile"
       onClose={onClose}
       widthClass="max-w-2xl"
+      canSubmit={!mustKeepRequisition || Boolean(form.requisitionId)}
       onSubmit={async () => {
         await updateCandidate(candidate.id, form, candidate.version);
         toast.success("Profile updated");
@@ -194,6 +207,21 @@ function EditProfileModal({ open, candidate, onClose }) {
       }}
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {canChangeRequisition ? (
+          <Field label={mustKeepRequisition ? "Requisition *" : "Requisition"} className="sm:col-span-2">
+            <select className={inputClass} value={form.requisitionId ?? ""} onChange={set("requisitionId")}>
+              {!mustKeepRequisition ? <option value="">Not linked yet</option> : null}
+              {requisitions.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.requisitionNo} · {r.designation}
+                </option>
+              ))}
+            </select>
+            {!candidate.requisitionId ? (
+              <p className="mt-1.5 text-[11px] text-ink-muted">Link an approved opening before scheduling an interview.</p>
+            ) : null}
+          </Field>
+        ) : null}
         {fields.map(([k, label, type]) => (
           <Field key={k} label={label}>
             <input type={type || "text"} className={inputClass} value={form[k] ?? ""} onChange={set(k)} />
@@ -331,8 +359,9 @@ function NextStep({ data, caps, open }) {
         break;
       case "shortlisted":
         title = "Schedule the interview";
-        hint = c.requisitionId ? "" : "Link the candidate to an approved requisition before the interview.";
+        hint = c.requisitionId ? "" : "You will pick an approved requisition when scheduling.";
         add("interviews", "Schedule interview", () => open("schedule"), CalendarPlus, true);
+        if (!c.requisitionId) add("candidates", "Link requisition", () => open("edit"), Pencil);
         break;
       case "interview":
         if (scheduled) {

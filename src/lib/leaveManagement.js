@@ -1,4 +1,13 @@
-import { fetchActiveEmployees, fetchRegisterMarksForYear, fetchRegisterMarksForEmployeeYear, normalizeAttendanceEmpCode, attendanceEmpCodeLookupVariants, registerPlSlClLeaveDayWeight } from "./attendanceDaily";
+import {
+  fetchActiveEmployees,
+  fetchRegisterMarksForYear,
+  fetchRegisterMarksForEmployeeYear,
+  normalizeAttendanceEmpCode,
+  attendanceEmpCodeLookupVariants,
+  registerPlSlClLeaveDayWeight,
+  countLeaveDaysWithSandwich,
+} from "./attendanceDaily";
+import { fetchNationalPublicHolidayDatesInRange } from "./nationalPublicHolidays";
 import { supabase } from "./supabase";
 import { isSupabaseRealtimeEnabled } from "./supabaseConfig";
 
@@ -1222,8 +1231,20 @@ export async function validateLeaveRequestMonthlyBalance(supabase, requestRow) {
     normalizeAttendanceEmpCode(requestRow?.emp_code);
   const fromDate = String(requestRow?.from_date || "").slice(0, 10);
   const toDate = String(requestRow?.to_date || fromDate).slice(0, 10);
-  const totalDays = Number(requestRow?.days || 0);
+  let totalDays = Number(requestRow?.days || 0);
   if (!empCode || !fromDate || totalDays <= 0) return;
+
+  // Validate against sandwich-inclusive duration (WO + NH/PH between leave).
+  try {
+    const holidayDates = await fetchNationalPublicHolidayDatesInRange(supabase, fromDate, toDate);
+    const sandwiched = countLeaveDaysWithSandwich(fromDate, toDate, {
+      days: requestRow?.days,
+      holidayDates,
+    });
+    if (sandwiched > totalDays) totalDays = sandwiched;
+  } catch (err) {
+    console.warn("Leave sandwich day count for balance check failed:", err?.message || err);
+  }
 
   const monthKeys = Object.keys(allocateLeaveDaysByMonth(fromDate, toDate, totalDays));
   if (!monthKeys.length) return;

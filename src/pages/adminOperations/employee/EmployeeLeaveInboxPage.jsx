@@ -7,6 +7,8 @@ import {
   leaveTypeLabel,
   subscribeLeaveInboxRealtime,
 } from "../../../lib/adminLeaveRequests";
+import { countLeaveDaysWithSandwich } from "../../../lib/attendanceDaily";
+import { fetchNationalPublicHolidayDatesInRange } from "../../../lib/nationalPublicHolidays";
 import { fetchEmployeeMasterDepartments } from "../../../lib/employeeMasterDepartments";
 import { supabase } from "../../../lib/supabase";
 import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
@@ -104,6 +106,8 @@ export function EmployeeLeavesPage() {
   const monthOptions = useMemo(() => buildApprovalMonthOptions(), []);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  /** NH/PH dates for sandwich day counts on the Days column. */
+  const [holidayDates, setHolidayDates] = useState(() => new Set());
 
   const loadSeqRef = useRef(0);
 
@@ -126,6 +130,18 @@ export function EmployeeLeavesPage() {
         if (!cancelled) setDepartmentOptions(depts);
       } catch {
         if (!cancelled) setDepartmentOptions([]);
+      }
+      try {
+        // Wide window so open leave ranges (incl. next month) sandwich NH/PH correctly.
+        const y = new Date().getFullYear();
+        const dates = await fetchNationalPublicHolidayDatesInRange(
+          supabase,
+          `${y - 1}-01-01`,
+          `${y + 1}-12-31`
+        );
+        if (!cancelled) setHolidayDates(new Set(dates || []));
+      } catch {
+        if (!cancelled) setHolidayDates(new Set());
       }
     })();
     return () => {
@@ -238,6 +254,16 @@ export function EmployeeLeavesPage() {
       rows.map((r) => {
         const emp = r.employee || {};
         const status = String(r.status || "").toLowerCase();
+        const storedDays = Number(r.days ?? 0);
+        const sandwichDays = countLeaveDaysWithSandwich(r.from_date, r.to_date, {
+          days: r.days,
+          holidayDates,
+        });
+        // Prefer sandwich-inclusive count (WO + NH/PH between leave); keep stored if larger.
+        const days =
+          Number.isFinite(sandwichDays) && sandwichDays > 0
+            ? Math.max(storedDays, sandwichDays)
+            : storedDays;
         return {
           id: r.id,
           empDisplay: emp.full_name || emp.employee_code || r.employee_code || "—",
@@ -245,7 +271,7 @@ export function EmployeeLeavesPage() {
           department: emp.department || "—",
           leaveLabel: leaveTypeLabel(leaveTypes.byCode, r.leave_type_code),
           dateRange: formatLeaveDateRange(r.from_date, r.to_date),
-          days: r.days,
+          days,
           reason: r.reason,
           status,
           submitted_at: r.submitted_at,
@@ -253,7 +279,7 @@ export function EmployeeLeavesPage() {
           decisionBy: decisionByLabel(r),
         };
       }),
-    [rows, leaveTypes.byCode]
+    [rows, leaveTypes.byCode, holidayDates]
   );
 
   const showTable = !initialLoading || rows.length > 0;
