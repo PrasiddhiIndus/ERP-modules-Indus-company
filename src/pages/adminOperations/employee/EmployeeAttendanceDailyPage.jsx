@@ -61,6 +61,7 @@ import {
   finalizeRegisterMarksAndRemarks,
   refreshApprovedToursOnRegister,
   syncApprovedToursToRegister,
+  syncApprovedLeaveSandwichToRegister,
   monthDateRange,
   registerDateFromDay,
   registerDayTableLabel,
@@ -567,6 +568,21 @@ export function EmployeeAttendanceDailyPage() {
             respectManualMarks: true,
             masterCodeMap,
             existingRegisterRows: rowsAfterAutoMarks,
+          });
+
+          // After auto WO/NH·PH: convert sandwiched offs to leave so balance sync counts them.
+          const rowsAfterPunch = mergeManualRowsIntoRegisterCache(
+            await fetchRegisterMarkRowsInRange(supabase, {
+              fromDate: monthMeta.fromDate,
+              toDate: monthMeta.toDate,
+              monthKey: monthMeta.monthKey,
+            }),
+            monthRegisterRowsRef.current
+          );
+          await syncApprovedLeaveSandwichToRegister(supabase, monthMeta.fromDate, holidayRangeTo, {
+            masterCodeMap,
+            existingRegisterRows: rowsAfterPunch,
+            holidayDates: holidayDates || [],
           });
 
           if (loadGeneration !== loadGenerationRef.current) return;

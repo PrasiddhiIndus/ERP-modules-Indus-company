@@ -7,6 +7,9 @@ import { filterSitesByType } from "../../../lib/siteAttendance/siteTypes";
 import { useSiteAttendanceAccess, useSiteAttendanceType } from "./SiteAttendanceLayout";
 import { useAttendanceGrid } from "./useAttendanceGrid";
 import { siteIdsForQuery } from "../../../lib/siteAttendance/siteAttendanceAccess";
+import { canUseSiteAttendanceImport } from "../../../lib/siteAttendance/siteAttendancePageAccess";
+import { useAuth } from "../../../contexts/AuthContext";
+import AttendanceImportModal from "./import/AttendanceImportModal";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
@@ -39,6 +42,9 @@ export default function AttendanceEntryPage({ readOnly = false }) {
   const [pickerMode, setPickerMode] = useState("L");
   const [pickerQuery, setPickerQuery] = useState("");
   const [pickerSelected, setPickerSelected] = useState(() => new Set());
+  const [smartImportOpen, setSmartImportOpen] = useState(false);
+  const { userProfile } = useAuth();
+  const canSmartImport = !readOnly && canUseSiteAttendanceImport(userProfile);
   const typedSites = useMemo(() => filterSitesByType(g.sites, siteType), [g.sites, siteType]);
 
   useEffect(() => {
@@ -227,6 +233,11 @@ export default function AttendanceEntryPage({ readOnly = false }) {
             Import Excel
             <input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => importExcel(e.target.files?.[0])} />
           </label>
+        ) : null}
+        {g.site && canSmartImport && !g.locked && g.days.length > 0 ? (
+          <button type="button" className="erp-btn-secondary rounded-control px-3 py-1.5 text-xs" onClick={() => setSmartImportOpen(true)}>
+            Import with preview
+          </button>
         ) : null}
       </FilterBar>
 
@@ -447,6 +458,10 @@ export default function AttendanceEntryPage({ readOnly = false }) {
           </div>
         </div>
       </Modal>
+
+      {canSmartImport && g.site ? (
+        <AttendanceImportModal open={smartImportOpen} onClose={() => setSmartImportOpen(false)} onSaved={g.loadGrid} grid={g} />
+      ) : null}
     </div>
   );
 }

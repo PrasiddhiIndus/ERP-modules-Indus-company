@@ -1663,9 +1663,27 @@ function isLeaveRequestFullyApproved(row) {
  * When `punches` is provided, approved C/O days that leave-apply skipped due to a
  * biometric punch are still filled with CO so the register can show CO+P.
  */
-export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate, { punches = [] } = {}) {
+export async function fetchApprovedLeaveMarksForMonth(
+  supabase,
+  fromDate,
+  toDate,
+  { punches = [], holidayDates = null } = {}
+) {
   const marks = {};
   if (!fromDate || !toDate) return marks;
+  let holidaySet = holidayDates;
+  if (!holidaySet) {
+    try {
+      const { fetchNationalPublicHolidayDatesInRange } = await import("./nationalPublicHolidays");
+      const dates = await fetchNationalPublicHolidayDatesInRange(supabase, fromDate, toDate);
+      holidaySet = new Set(dates || []);
+    } catch (err) {
+      console.warn("Holiday dates for leave sandwich overlay unavailable:", err?.message || err);
+      holidaySet = new Set();
+    }
+  } else if (!(holidaySet instanceof Set)) {
+    holidaySet = new Set((holidayDates || []).map(normalizeDbDate).filter(Boolean));
+  }
 
   const codesMatch = (a, b) => {
     const left = normalizeAttendanceEmpCode(a);
@@ -1903,6 +1921,7 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
     for (const iso of enumerateLeaveDatesWithSandwich(reqFrom, reqTo, {
       halfDay: isHalfDayLeaveRequest(req),
       days: req.days,
+      holidayDates: holidaySet,
     })) {
       if (iso < windowFrom || iso > windowTo) continue;
       const day = dayOfMonthFromIsoDate(iso);
@@ -1928,6 +1947,7 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
       for (const iso of enumerateLeaveDatesWithSandwich(reqFrom, reqTo, {
         halfDay: isHalfDayLeaveRequest(req),
         days: req.days,
+        holidayDates: holidaySet,
       })) {
         if (iso < windowFrom || iso > windowTo) continue;
         if (revertedCompOffDayKeys.has(`${req.id}|${iso}`)) continue;
@@ -2762,6 +2782,204 @@ export async function syncApprovedToursToRegister(supabase, fromDate, toDate, op
     upserted: toUpsert.length,
     skipped,
     candidates: tourRows.length,
+  };
+}
+
+/**
+ * Whether leave sandwich sync may convert an existing cell to leave.
+ * Auto WO / auto NH·PH / blank always. Leave-sourced LWP may be replaced when
+ * restoring paid Taken Leave (PL/CL/SL) that was wrongly stamped LWP.
+ */
+export function canLeaveSandwichApplyToExisting(existing, { allowReplaceLwp = false } = {}) {
+  if (!existing?.mark) return true;
+  if (String(existing.mark_remark ?? "").trim()) return false;
+  if (isTourMarkSource(existing.mark_source, existing.tour_request_id)) return false;
+  if (isManualMarkSource(existing.mark_source)) return false;
+  if (isPunchMarkSource(existing.mark, existing.mark_source)) return false;
+  const mark = String(existing.mark ?? "").trim();
+  const src = String(existing.mark_source ?? "").trim().toLowerCase();
+  if (isLeaveMarkSource(existing.mark_source, existing.leave_request_id)) {
+    return Boolean(allowReplaceLwp && mark.toUpperCase() === "LWP");
+  }
+  if (mark === "WO") {
+    return src === REGISTER_MARK_SOURCE_AUTO_WO || src === "auto" || !src;
+  }
+  if (isRegisterNhphMark(mark)) {
+    return src === REGISTER_MARK_SOURCE_AUTO_HOLIDAY || src === "auto" || !src;
+  }
+  if (allowReplaceLwp && mark.toUpperCase() === "LWP") return true;
+  return false;
+}
+
+/**
+ * Persist approved leave onto sandwiched auto WO / NH·PH cells so the register
+ * (and leave-balance sync from register marks) counts those days — not display-only overlay.
+ * Call after auto WO / holiday sync.
+ */
+export async function syncApprovedLeaveSandwichToRegister(supabase, fromDate, toDate, options = {}) {
+  const masterCodeMap = options.masterCodeMap ?? null;
+  const holidayDates =
+    options.holidayDates instanceof Set
+      ? options.holidayDates
+      : new Set((options.holidayDates || []).map(normalizeDbDate).filter(Boolean));
+
+  if (!fromDate || !toDate) return { upserted: 0, skipped: 0, candidates: 0 };
+
+  const approvedById = new Map();
+  const ingest = (rows) => {
+    for (const req of rows || []) {
+      if (!isLeaveRequestFullyApproved(req)) continue;
+      if (!req.id) continue;
+      const prev = approvedById.get(req.id);
+      const code =
+        normalizeAttendanceEmpCode(req.employee_code) ||
+        normalizeAttendanceEmpCode(prev?.employee_code);
+      approvedById.set(req.id, {
+        ...(prev || {}),
+        ...req,
+        employee_code: code || normalizeAttendanceEmpCode(req.employee_code),
+        leave_type_code: leaveTypeCodeFromLeaveRow(req) || leaveTypeCodeFromLeaveRow(prev),
+      });
+    }
+  };
+
+  try {
+    const [adminRes, lmsRes] = await Promise.all([
+      supabase
+        .schema("indus_one")
+        .from("admin_leave_requests")
+        .select(
+          "id, employee_code, from_date, to_date, leave_type_code, status, overall_status, days, paid_leave_days, lwp_days, applied_day_marks"
+        )
+        .lte("from_date", toDate)
+        .gte("to_date", fromDate),
+      supabase
+        .schema("indus_one")
+        .from("leave_requests")
+        .select(
+          "id, employee_code, from_date, to_date, leave_type_code, leave_type, status, overall_status, days, paid_leave_days, lwp_days, applied_day_marks"
+        )
+        .lte("from_date", toDate)
+        .gte("to_date", fromDate),
+    ]);
+    if (!adminRes.error) ingest(adminRes.data);
+    if (!lmsRes.error) ingest(lmsRes.data);
+  } catch (err) {
+    console.warn("Leave sandwich sync: request fetch failed:", err?.message || err);
+    return { upserted: 0, skipped: 0, candidates: 0 };
+  }
+
+  if (!approvedById.size) return { upserted: 0, skipped: 0, candidates: 0 };
+
+  const spanFrom = fromDate;
+  const spanTo = toDate;
+  const existingRows = await resolveExistingRegisterRowsForDateSpan(
+    supabase,
+    { fromDate: spanFrom, toDate: spanTo },
+    options.existingRegisterRows
+  );
+  const existingByKey = new Map();
+  for (const row of existingRows || []) indexRegisterRowByEmpDate(existingByKey, row);
+
+  const toUpsert = [];
+  let skipped = 0;
+  let candidates = 0;
+
+  for (const req of approvedById.values()) {
+    const empCode = normalizeAttendanceEmpCode(req.employee_code);
+    const reqFrom = normalizeDbDate(req.from_date);
+    const reqTo = normalizeDbDate(req.to_date);
+    if (!empCode || !reqFrom || !reqTo) continue;
+    if (isHalfDayLeaveRequest(req)) continue;
+
+    const dates = enumerateLeaveDatesWithSandwich(reqFrom, reqTo, {
+      halfDay: false,
+      days: req.days,
+      holidayDates,
+    });
+
+    for (const iso of dates) {
+      if (iso < fromDate || iso > toDate) continue;
+      // Only touch sandwichable offs (WO / NH·PH), not ordinary working leave days.
+      if (!isLeaveSandwichableOffDate(iso, holidayDates)) continue;
+
+      const dbCode = toRegisterDbEmployeeCode(empCode, masterCodeMap) || empCode;
+      const existing = lookupRegisterRow(existingByKey, empCode, dbCode, iso);
+      const existingMark = String(existing?.mark ?? "").trim();
+      const isOffCell =
+        existingMark === "WO" ||
+        isRegisterNhphMark(existingMark) ||
+        existingMark.toUpperCase() === "LWP" ||
+        !existingMark;
+      if (!isOffCell) continue;
+
+      candidates += 1;
+      // Paid Taken Leave may replace wrongly stamped LWP on sandwich offs.
+      const allowReplaceLwp = !requestIsAllLwp(req);
+      if (!canLeaveSandwichApplyToExisting(existing, { allowReplaceLwp })) {
+        skipped += 1;
+        continue;
+      }
+
+      const mark = overlayMarkForLeaveRequestDay(req, iso, null);
+      if (!mark || mark === "CO" || mark === "LWP") {
+        // Never persist LWP from sandwich sync when restoring paid leave.
+        if (mark === "LWP" && allowReplaceLwp) {
+          const paidMark = registerMarkFromApprovedLeaveType(req.leave_type_code);
+          if (!paidMark || paidMark === "LWP") {
+            skipped += 1;
+            continue;
+          }
+          toUpsert.push({
+            employee_code: dbCode,
+            register_date: iso,
+            month_key: iso.slice(0, 7),
+            mark: paidMark,
+            mark_source: "leave",
+            leave_request_id: req.id,
+            tour_request_id: null,
+            updated_at: new Date().toISOString(),
+          });
+          continue;
+        }
+        skipped += 1;
+        continue;
+      }
+
+      toUpsert.push({
+        employee_code: dbCode,
+        register_date: iso,
+        month_key: iso.slice(0, 7),
+        mark,
+        mark_source: "leave",
+        leave_request_id: req.id,
+        tour_request_id: null,
+        updated_at: new Date().toISOString(),
+      });
+    }
+  }
+
+  // Prefer later leave if two requests claim the same cell (stable by sort).
+  const byKey = new Map();
+  for (const row of toUpsert) {
+    byKey.set(`${normalizeAttendanceEmpCode(row.employee_code)}|${row.register_date}`, row);
+  }
+  const uniqueUpserts = [...byKey.values()];
+
+  if (uniqueUpserts.length) {
+    await upsertRegisterMarksBatch(supabase, uniqueUpserts, { masterCodeMap });
+    try {
+      const { reconcileLeaveBalancesForRegisterMutations } = await import("./leaveManagement");
+      await reconcileLeaveBalancesForRegisterMutations(supabase, uniqueUpserts);
+    } catch (err) {
+      console.warn("Leave balance sync after sandwich persist failed:", err?.message || err);
+    }
+  }
+
+  return {
+    upserted: uniqueUpserts.length,
+    skipped,
+    candidates,
   };
 }
 
@@ -4349,30 +4567,55 @@ export function enumerateDates(fromDate, toDate) {
 }
 
 /**
+ * True when the date is a sandwichable off for leave gap-fill:
+ * Sunday / 3rd Saturday (default weekoff) or a configured NH/PH date.
+ * Matches DB admin_leave_date_is_sandwichable_off for within-request overlay.
+ */
+export function isLeaveSandwichableOffDate(isoDate, holidayDates = null) {
+  if (isDefaultWeekoffDate(isoDate)) return true;
+  if (!holidayDates) return false;
+  const iso = normalizeDbDate(isoDate);
+  if (!iso) return false;
+  if (holidayDates instanceof Set) return holidayDates.has(iso);
+  if (Array.isArray(holidayDates)) return holidayDates.map(normalizeDbDate).includes(iso);
+  return false;
+}
+
+/**
  * Leave attendance dates mirroring DB sandwich policy (within-request):
- * include all non-weekoff days, plus weekoffs strictly between the first and last
+ * include all non-off days, plus WO / NH·PH strictly between the first and last
  * leave working day — unless either side is a half-day leave (no sandwich).
  * Explicit Saturday WO conversion and adjacent blocks are handled in DB; this
- * fallback covers the common auto-WO Sunday case for full-day leave.
+ * fallback covers Sunday / 3rd Sat / calendar NH·PH for full-day leave.
  *
  * @param {string} fromDate
  * @param {string} toDate
- * @param {{ halfDay?: boolean }} [options] halfDay true when request.days === 0.5
+ * @param {{ halfDay?: boolean, days?: number, holidayDates?: Set<string>|string[] }} [options]
  */
 export function enumerateLeaveDatesWithSandwich(fromDate, toDate, options = {}) {
   const all = enumerateDates(fromDate, toDate);
   if (!all.length) return [];
   const halfDay = Boolean(options?.halfDay) || Number(options?.days) === 0.5;
-  const anchors = all.filter((iso) => !isDefaultWeekoffDate(iso));
+  const holidayDates = options?.holidayDates ?? null;
+  const isOff = (iso) => isLeaveSandwichableOffDate(iso, holidayDates);
+  const anchors = all.filter((iso) => !isOff(iso));
   if (!anchors.length) return [];
-  // Half-day leave never sandwiches a week-off (matches admin_leave_working_dates).
+  // Half-day leave never sandwiches a week-off / holiday (matches admin_leave_working_dates).
   if (halfDay) return anchors;
   const amin = anchors[0];
   const amax = anchors[anchors.length - 1];
   return all.filter((iso) => {
-    if (!isDefaultWeekoffDate(iso)) return true;
+    if (!isOff(iso)) return true;
     return iso > amin && iso < amax;
   });
+}
+
+/** Count of leave days including sandwiched WO / NH·PH (full-day requests). */
+export function countLeaveDaysWithSandwich(fromDate, toDate, options = {}) {
+  if (Boolean(options?.halfDay) || Number(options?.days) === 0.5) {
+    return 0.5;
+  }
+  return enumerateLeaveDatesWithSandwich(fromDate, toDate, options).length;
 }
 
 /** True when an approved leave request is half-day (days = 0.5). */
