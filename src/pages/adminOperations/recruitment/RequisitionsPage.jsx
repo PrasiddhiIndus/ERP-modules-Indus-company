@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, Pencil, Plus, Send, Users, X } from "lucide-react";
+import { Check, Download, Pencil, Plus, Send, Users, X } from "lucide-react";
 import { Drawer } from "../components/AdminUi";
 import { toast } from "../../../lib/toast";
 import { ACTIVITY_TYPES, REQUISITION_STATUSES, requisitionStatusMeta } from "./recruitmentConfig";
 import { decideRequisition, getRequisitionHistory, listRequisitions, saveRequisition, submitRequisition, transitionRequisition } from "./recruitmentService";
+import { downloadRequisitionFormPdf } from "./requisitionFormPdf";
 import {
   ActionModal,
   AsyncBoundary,
@@ -273,6 +274,12 @@ export default function RequisitionsPage() {
       render: (r) => (
         <span className="inline-flex flex-col gap-0.5">
           <StatusPill meta={requisitionStatusMeta(r.status)} />
+          {r.decidedBy && ["approved", "open", "filled"].includes(r.status) ? (
+            <span className="text-[10px] text-ink-secondary">Approved by {r.decidedBy}</span>
+          ) : null}
+          {r.decidedBy && r.status === "rejected" ? (
+            <span className="text-[10px] text-ink-secondary">Rejected by {r.decidedBy}</span>
+          ) : null}
           {r.status === "pending_approval" && r.approvalLevelsRequired > 1 ? (
             <span className="text-[10px] text-ink-muted">Level {r.approvalLevelDone + 1} of {r.approvalLevelsRequired}</span>
           ) : null}
@@ -290,6 +297,8 @@ export default function RequisitionsPage() {
   const canManage = caps.requisitions;
   const s = selected?.status;
   const isErpRecord = selected?.source !== "indus_one";
+  /** Indus One requests are L1-approved already — no HR approve/reject step. */
+  const needsHrApproval = isErpRecord && s === "pending_approval";
 
   const REASON_ACTIONS = {
     reject: { title: "Reject requisition", label: "Reason for rejection", submitLabel: "Reject", run: (r, reason) => decideRequisition(r.id, "reject", reason, r.version), done: "Requisition rejected" },
@@ -338,6 +347,12 @@ export default function RequisitionsPage() {
                 {selected.source === "indus_one" ? " · from Indus One" : ""}
               </span>
             </div>
+            {selected.decidedBy && ["approved", "open", "filled"].includes(selected.status) ? (
+              <p className="text-xs text-ink">
+                Approved by <span className="font-medium">{selected.decidedBy}</span>
+                {selected.decidedAt ? ` · ${fmtDate(selected.decidedAt)}` : ""}
+              </p>
+            ) : null}
             {selected.statusReason && ["rejected", "cancelled"].includes(selected.status) ? (
               <p className="rounded-md border border-critical-border bg-critical-soft px-3 py-2 text-[11px] text-critical">{selected.statusReason}</p>
             ) : null}
@@ -364,6 +379,21 @@ export default function RequisitionsPage() {
             ) : null}
 
             <div className="flex flex-wrap gap-2 border-t border-divider pt-4">
+              <button
+                type="button"
+                className={btn.secondary}
+                onClick={async () => {
+                  try {
+                    await downloadRequisitionFormPdf(selected);
+                    toast.success("Download started", "Candidate Requisition Form (Form02/R4)");
+                    if (!selected.decidedBy) reload({ silent: true });
+                  } catch (err) {
+                    toast.error("Download failed", err?.message || "Could not generate PDF");
+                  }
+                }}
+              >
+                <Download className="h-3.5 w-3.5" /> Download form
+              </button>
               <button type="button" className={btn.secondary} onClick={() => navigate(`../candidates?requisition=${selected.id}`)}>
                 <Users className="h-3.5 w-3.5" /> Candidates ({selected.candidateCount})
               </button>
@@ -381,7 +411,7 @@ export default function RequisitionsPage() {
                   </button>
                 </>
               ) : null}
-              {caps.approve && s === "pending_approval" ? (
+              {caps.approve && needsHrApproval ? (
                 <>
                   <button
                     type="button"
@@ -419,8 +449,10 @@ export default function RequisitionsPage() {
                 </button>
               ) : null}
             </div>
-            {selected.source === "indus_one" && ["submitted", "pending_approval"].includes(s) ? (
-              <p className="text-[11px] text-ink-muted">This request was raised in Indus One; changes to its details are made there.</p>
+            {selected.source === "indus_one" ? (
+              <p className="text-[11px] text-ink-muted">
+                Raised in Indus One and approved by L1 — ready for recruitment (no HR approval). Details are edited in Indus One.
+              </p>
             ) : null}
 
             <div className="border-t border-divider pt-4">
