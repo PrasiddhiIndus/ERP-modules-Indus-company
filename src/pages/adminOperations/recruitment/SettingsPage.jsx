@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Loader2, Play, Plus, Trash2 } from "lucide-react";
 import { toast } from "../../../lib/toast";
 import { getSettings, runRemindersNow, saveDocumentType, saveSettings } from "./recruitmentService";
-import { AsyncBoundary, Card, Field, IconButton, btn, inputClass, runAction, useRecruitmentData } from "./RecruitmentUi";
+import { AsyncBoundary, Card, EmployeeNameSuggest, Field, IconButton, btn, inputClass, runAction, useRecruitmentData } from "./RecruitmentUi";
 
 function ListEditor({ items, onChange, placeholder, label }) {
   const [draft, setDraft] = useState("");
@@ -53,32 +53,64 @@ function ListEditor({ items, onChange, placeholder, label }) {
 function InterviewerEditor({ items, onChange }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const list = Array.isArray(items) ? items : [];
   const add = () => {
     const n = name.trim();
     if (!n) return;
-    if (items.some((i) => i.name.toLowerCase() === n.toLowerCase())) {
+    if (list.some((i) => String(i.name || "").toLowerCase() === n.toLowerCase())) {
       toast.error(`${n} already exists.`);
       return;
     }
-    onChange([...items, { name: n, email: email.trim() }]);
+    onChange([...list, { name: n, email: email.trim() }]);
     setName("");
     setEmail("");
   };
   return (
     <div className="space-y-2">
-      <ul className="divide-y divide-divider rounded-md border border-border">
-        {items.map((item, idx) => (
-          <li key={item.name} className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs text-ink">
-            <span>
-              {item.name} {item.email ? <span className="text-ink-muted">· {item.email}</span> : null}
-            </span>
-            <IconButton icon={Trash2} label={`Remove ${item.name}`} tone="danger" onClick={() => onChange(items.filter((_, i) => i !== idx))} />
-          </li>
-        ))}
-      </ul>
+      <p className="text-[11px] text-ink-muted">
+        Build the reusable interview panel here. Type an in-house employee name for suggestions; selecting one fills email (you can still edit it). These people appear when scheduling interviews.
+      </p>
+      {list.length ? (
+        <ul className="divide-y divide-divider rounded-md border border-border">
+          {list.map((item, idx) => (
+            <li key={`${item.name}-${idx}`} className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs text-ink">
+              <span>
+                {item.name} {item.email ? <span className="text-ink-muted">· {item.email}</span> : null}
+              </span>
+              <IconButton icon={Trash2} label={`Remove ${item.name}`} tone="danger" onClick={() => onChange(list.filter((_, i) => i !== idx))} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="rounded-md border border-dashed border-border bg-surface-sunken px-3 py-4 text-center text-[11px] text-ink-muted">
+          No interviewers yet. Search an employee name below, confirm email, then Add — and Save settings.
+        </div>
+      )}
       <div className="flex flex-wrap gap-2">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className={`${inputClass} flex-1`} aria-label="Interviewer name" />
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (optional)" className={`${inputClass} flex-1`} aria-label="Interviewer email" />
+        <EmployeeNameSuggest
+          value={name}
+          onChange={setName}
+          onPick={(emp) => {
+            setName(emp.name || "");
+            setEmail(emp.email || "");
+          }}
+          placeholder="Type employee name…"
+          aria-label="Interviewer name"
+        />
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder="Email (auto-filled, editable)"
+          className={`${inputClass} flex-1`}
+          aria-label="Interviewer email"
+        />
         <button type="button" className={btn.secondary} disabled={!name.trim()} onClick={add}>
           <Plus className="h-3.5 w-3.5" /> Add
         </button>
@@ -197,7 +229,10 @@ export default function SettingsPage() {
                 <DocumentTypes types={data.documentTypes} />
               </Card>
               <Card title="Interview panel">
-                <InterviewerEditor items={form.interviewers} onChange={(interviewers) => setForm({ ...form, interviewers })} />
+                <InterviewerEditor
+                  items={form.interviewers || []}
+                  onChange={(interviewers) => setForm({ ...form, interviewers })}
+                />
               </Card>
               <Card title="Evaluation criteria">
                 <ListEditor label="criterion" items={form.evaluationCriteria} onChange={(evaluationCriteria) => setForm({ ...form, evaluationCriteria })} placeholder="e.g. Safety awareness" />

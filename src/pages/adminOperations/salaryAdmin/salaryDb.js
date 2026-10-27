@@ -389,19 +389,32 @@ function structureSnapshotForRevision(row) {
 }
 
 export async function dbFetchSalaryStructureMap({ withRevisions = false } = {}) {
-  const { data, error } = await salaryTable("structures").select("*").eq("declared", true);
-  if (error) throw error;
+  // Page structures the same way as revisions/employees (PostgREST default row cap).
+  const pageSize = 1000;
+  const data = [];
+  let from = 0;
+  for (;;) {
+    const { data: chunk, error } = await salaryTable("structures")
+      .select("*")
+      .eq("declared", true)
+      .order("employee_master_id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const rows = chunk || [];
+    data.push(...rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
 
   const revsByEmp = new Map();
   if (withRevisions) {
     try {
-      const pageSize = 1000;
-      let from = 0;
+      let revFrom = 0;
       for (;;) {
         const { data: revs, error: revErr } = await salaryTable("structure_revisions")
           .select("*")
           .order("employee_master_id", { ascending: true })
-          .range(from, from + pageSize - 1);
+          .range(revFrom, revFrom + pageSize - 1);
         if (revErr) throw revErr;
         const chunk = revs || [];
         for (const row of chunk) {
@@ -410,7 +423,7 @@ export async function dbFetchSalaryStructureMap({ withRevisions = false } = {}) 
           revsByEmp.get(key).push(row);
         }
         if (chunk.length < pageSize) break;
-        from += pageSize;
+        revFrom += pageSize;
       }
     } catch (err) {
       console.warn("Salary Admin: CTC history unavailable", err);

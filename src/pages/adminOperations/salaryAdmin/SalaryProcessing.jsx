@@ -1362,6 +1362,18 @@ export default function SalaryProcessing() {
     const gen = ++loadGenRef.current;
     const payKey = monthKey(year, month);
     setCandidatesLoading(true);
+    // Drop prior-month roster immediately so CTC KPIs cannot stick on a stale month.
+    setCandidates((prev) =>
+      prev?.monthKey && prev.monthKey !== payKey
+        ? {
+            employees: [],
+            departments: [],
+            departmentStats: {},
+            existingRun: null,
+            monthKey: payKey,
+          }
+        : prev
+    );
     try {
       const data = await api.fetchCandidates({ year, month });
       if (gen !== loadGenRef.current) return;

@@ -231,6 +231,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const [createdFilter, setCreatedFilter] = useState('All');
   const [departmentFilter, setDepartmentFilter] = useState(readStoredDepartmentFilter);
   const [designationFilter, setDesignationFilter] = useState('All');
+  const [employmentTypeFilter, setEmploymentTypeFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('Active');
   const [sortField, setSortField] = useState('employee_id');
   const [sortDirection, setSortDirection] = useState('asc');
@@ -1548,14 +1549,18 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
     const matchesDepartment = departmentFilter === 'All' || employee.department === departmentFilter;
     const matchesDesignation = designationFilter === 'All' || employee.designation === designationFilter;
+    const matchesEmploymentType =
+      employmentTypeFilter === 'All' ||
+      normalizeEmploymentType(employee.employment_type || employee.employee_id) === employmentTypeFilter;
 
-    return matchesSearch && matchesDepartment && matchesDesignation;
+    return matchesSearch && matchesDepartment && matchesDesignation && matchesEmploymentType;
   }), [
     employees,
     searchTerm,
     createdFilter,
     departmentFilter,
     designationFilter,
+    employmentTypeFilter,
     statusFilter,
   ]);
 
@@ -1683,7 +1688,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           <p className="text-sm font-semibold text-gray-900">Filters</p>
         </div>
         <div className="p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 items-center">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3 items-center">
             <div className="relative sm:col-span-2">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4 pointer-events-none" />
               <input
@@ -1698,8 +1703,25 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
               />
             </div>
             <select
+              value={employmentTypeFilter}
+              onChange={(e) => {
+                setEmploymentTypeFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className={filterInputClass}
+              aria-label="Employment type"
+            >
+              <option value="All">All employment types</option>
+              {EMPLOYMENT_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <select
               value={departmentFilter}
-              onChange={(e) => setDepartmentFilter(e.target.value)}
+              onChange={(e) => {
+                setDepartmentFilter(e.target.value);
+                setCurrentPage(1);
+              }}
               className={filterInputClass}
             >
               <option value="All">All Departments</option>
@@ -1709,7 +1731,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             </select>
             <select
               value={designationFilter}
-              onChange={(e) => setDesignationFilter(e.target.value)}
+              onChange={(e) => {
+                setDesignationFilter(e.target.value);
+                setCurrentPage(1);
+              }}
               className={filterInputClass}
             >
               <option value="All">All Designations</option>
@@ -1750,6 +1775,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                 setCreatedFilter('All');
                 setDepartmentFilter('All');
                 setDesignationFilter('All');
+                setEmploymentTypeFilter('All');
                 setStatusFilter('Active');
                 setCurrentPage(1);
               }}
