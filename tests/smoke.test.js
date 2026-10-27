@@ -283,6 +283,24 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
     expect(merged['101'][10]).toBe('PL');
   });
 
+  it('keeps register LWP when leave overlay would paint PL (FTC-13 sandwich)', () => {
+    const registerRows = [
+      {
+        employee_code: 'FTC-13',
+        register_date: '2026-10-20',
+        mark: 'LWP',
+        mark_source: 'leave',
+        leave_request_id: 'req-lwp',
+      },
+    ];
+    const merged = mergeApprovedLeaveMarksIntoManualMarks(
+      { 'FTC-13': { 20: 'LWP' } },
+      { 'FTC-13': { 20: 'PL' } },
+      { monthKey: '2026-10', registerRows }
+    );
+    expect(merged['FTC-13'][20]).toBe('LWP');
+  });
+
   it('restores non-leave marks from fresh register rows after rejection', () => {
     const registerRows = [
       {

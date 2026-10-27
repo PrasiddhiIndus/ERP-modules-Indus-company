@@ -1588,6 +1588,47 @@ function registerMarkFromApprovedLeaveType(leaveTypeCode) {
   return normalizeRegisterMarkForDb(upper) || "L";
 }
 
+/** True when mark is full or composite LWP (unpaid). */
+function isRegisterLwpDisplayMark(mark) {
+  const m = normalizeRegisterMarkForDb(mark) || String(mark ?? "").trim();
+  return m === "LWP" || REGISTER_LWP_COMPOSITE_MARKS.has(m);
+}
+
+/** Paid leave types that must not overwrite a stored LWP (sandwich / partial LWP). */
+function isPaidLeaveOverlayMark(mark) {
+  const m = normalizeRegisterMarkForDb(mark) || String(mark ?? "").trim();
+  return m === "PL" || m === "CL" || m === "SL" || m === "P/PL" || m === "P/CL" || m === "P/SL";
+}
+
+/** When approval recorded all unpaid days, overlay must use LWP — not leave_type (PL). */
+function requestIsAllLwp(req) {
+  const lwp = Number(req?.lwp_days);
+  const paid = Number(req?.paid_leave_days);
+  return Number.isFinite(lwp) && lwp > 0 && (!Number.isFinite(paid) || paid <= 0);
+}
+
+/** Per-date mark from applied_day_marks jsonb, if present. */
+function markFromAppliedDayMarks(req, isoDate) {
+  const rows = req?.applied_day_marks;
+  if (!Array.isArray(rows) || !isoDate) return null;
+  const hit = rows.find((r) => normalizeDbDate(r?.date) === isoDate);
+  if (!hit) return null;
+  return normalizeRegisterMarkForDb(hit.mark) || null;
+}
+
+function overlayMarkForLeaveRequestDay(req, isoDate, appliedMark = null) {
+  const fromAppliedJson = markFromAppliedDayMarks(req, isoDate);
+  if (fromAppliedJson) return fromAppliedJson;
+  const fromRow = normalizeRegisterMarkForDb(appliedMark);
+  if (fromRow) {
+    // Stale applied_mark=PL on an all-LWP request → still show LWP
+    if (requestIsAllLwp(req) && isPaidLeaveOverlayMark(fromRow)) return "LWP";
+    return fromRow;
+  }
+  if (requestIsAllLwp(req)) return "LWP";
+  return registerMarkFromApprovedLeaveType(req?.leave_type_code);
+}
+
 function addLeaveMark(marks, employeeCode, registerDate, mark) {
   const code = normalizeAttendanceEmpCode(employeeCode);
   const day = dayOfMonthFromIsoDate(registerDate);
@@ -1654,6 +1695,10 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
         user_id: req.user_id || existing?.user_id || null,
         employee_master_id: req.employee_master_id ?? existing?.employee_master_id ?? null,
         reason: String(req.reason || existing?.reason || "").trim(),
+        days: req.days ?? existing?.days ?? null,
+        paid_leave_days: req.paid_leave_days ?? existing?.paid_leave_days ?? null,
+        lwp_days: req.lwp_days ?? existing?.lwp_days ?? null,
+        applied_day_marks: req.applied_day_marks ?? existing?.applied_day_marks ?? null,
       });
     }
   };
@@ -1688,7 +1733,7 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
         .schema("indus_one")
         .from("admin_leave_requests")
         .select(
-          "id, employee_code, employee_master_id, user_id, leave_type_code, from_date, to_date, status, overall_status, reason"
+          "id, employee_code, employee_master_id, user_id, leave_type_code, from_date, to_date, days, status, overall_status, reason, paid_leave_days, lwp_days, applied_day_marks"
         )
         .lte("from_date", toDate)
         .gte("to_date", fromDate),
@@ -1696,7 +1741,7 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
         .schema("indus_one")
         .from("leave_requests")
         .select(
-          "id, employee_code, employee_master_id, user_id, leave_type_code, leave_type, from_date, to_date, status, overall_status, reason"
+          "id, employee_code, employee_master_id, user_id, leave_type_code, leave_type, from_date, to_date, days, status, overall_status, reason, paid_leave_days, lwp_days, applied_day_marks"
         )
         .lte("from_date", toDate)
         .gte("to_date", fromDate),
@@ -1835,22 +1880,24 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
       const empCode = normalizeAttendanceEmpCode(req.employee_code);
       if (!empCode) continue;
       if (row.employee_code && !codesMatch(empCode, row.employee_code)) continue;
-      const mark = row.applied_mark || registerMarkFromApprovedLeaveType(req.leave_type_code);
+      const iso = normalizeDbDate(row.register_date);
+      const mark = overlayMarkForLeaveRequestDay(req, iso, row.applied_mark);
       addLeaveMark(marks, empCode, row.register_date, mark);
     }
   }
 
   // Fill any days still missing from the approved leave date range (partial applied marks,
   // invalid applied_mark, or attendance-marks not yet written after approval).
+  // Prefer applied_day_marks / all-LWP allocation — never paint PL solely from leave_type
+  // when the request was approved as unpaid.
   // Half-day requests store the base leave type (CL/PL/SL); merge promotes to P/CL when
   // the Admin cell is HD or a machine punch exists that day.
   for (const req of approvedById.values()) {
     if (skipCompOffRequest(req)) continue;
     const empCode = normalizeAttendanceEmpCode(req.employee_code);
-    const mark = registerMarkFromApprovedLeaveType(req.leave_type_code);
     const reqFrom = normalizeDbDate(req.from_date);
     const reqTo = normalizeDbDate(req.to_date);
-    if (!empCode || !mark || !reqFrom || !reqTo) continue;
+    if (!empCode || !reqFrom || !reqTo) continue;
     const windowFrom = reqFrom < fromDate ? fromDate : reqFrom;
     const windowTo = reqTo > toDate ? toDate : reqTo;
     for (const iso of enumerateLeaveDatesWithSandwich(reqFrom, reqTo, {
@@ -1860,6 +1907,8 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
       if (iso < windowFrom || iso > windowTo) continue;
       const day = dayOfMonthFromIsoDate(iso);
       if (day && marks[empCode]?.[day]) continue;
+      const mark = overlayMarkForLeaveRequestDay(req, iso, null);
+      if (!mark) continue;
       addLeaveMark(marks, empCode, iso, mark);
     }
   }
@@ -2001,6 +2050,9 @@ function compositeHalfDayLeaveMark(mark) {
 /**
  * Merge approved Indus One leave into register marks for Daily Attendance Register display.
  * Indus One approved leave takes priority over existing register/manual marks (including HD).
+ * Exception: stored LWP is kept when the overlay would paint PL/CL/SL — otherwise a SQL/DB
+ * LWP fix (e.g. NH/PH sandwiched between LWP) is immediately overwritten on refresh because
+ * leave gap-fill uses leave_type_code (PL) and admin_leave_attendance_marks may still say PL.
  * Machine punch Present (P) still wins over full-day leave (except approved CO, kept for
  * CO+P display); half-day leave (P/CL, P/PL, P/SL) replaces HD even when a punch exists.
  * Overlay remains editable in Admin.
@@ -2074,6 +2126,12 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
         }
         if (!leaveIsHalfDayComposite) continue;
         if (existing === "P" || existing === "P(OD)") continue;
+      }
+
+      // Stored LWP (register / partial-LWP / sandwich repair) must not be painted
+      // back to PL/CL/SL by leave_type gap-fill or stale applied_mark rows.
+      if (isRegisterLwpDisplayMark(existing) && isPaidLeaveOverlayMark(canonical)) {
+        continue;
       }
 
       // Saved Admin mark (HD, manual P, WO, …) is always overridable by approved leave here.

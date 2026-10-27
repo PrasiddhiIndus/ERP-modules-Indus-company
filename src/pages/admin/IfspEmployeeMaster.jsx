@@ -58,10 +58,22 @@ import {
   Heart,
   Gift,
   Clock,
+  Upload,
+  FileDown,
   X
 } from 'lucide-react';
 import { toast } from '../../lib/toast';
 import EmployeeMasterPersonalForm from './employeeMaster/EmployeeMasterPersonalForm';
+import EmployeeMasterHistoryDrawer from './employeeMaster/EmployeeMasterHistoryDrawer';
+import EmployeeMasterImportModal from './employeeMaster/EmployeeMasterImportModal';
+import {
+  downloadEmployeeMasterSampleSheet,
+  buildEmployeeMasterImportPreview,
+  collectEmployeeMasterHeaderFields,
+  isFullEmployeeMasterSheet,
+  EMPLOYEE_MASTER_SHEET_FIELDS,
+} from './employeeMaster/employeeMasterSheetImport';
+import { Modal } from '../adminOperations/components/AdminUi';
 
 function isInHouseEmployeeType(row) {
   const value = String(row?.employee_type ?? "").trim().toLowerCase();
@@ -227,6 +239,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const [importBusy, setImportBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [showAllTableColumns, setShowAllTableColumns] = useState(false);
+  const [historyEmployee, setHistoryEmployee] = useState(null);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importConfirmBusy, setImportConfirmBusy] = useState(false);
+  const [showImportMenu, setShowImportMenu] = useState(false);
   const fileInputRef = useRef(null);
   const bankFileInputRef = useRef(null);
   const tableScrollRef = useRef(null);
@@ -400,49 +416,8 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const maritalStatuses = ['Single', 'Married', 'Widowed', 'Divorced', 'Other'];
   const statusOptions = ['Active', 'Inactive'];
 
-  /** snake_case columns — matches import template and table headers */
-  const EMPLOYEE_EXPORT_FIELDS = [
-    'employee_id',
-    'employment_type',
-    'employee_code',
-    'age',
-    'full_name',
-    'gender',
-    'date_of_joining',
-    'confirmation_date',
-    'designation',
-    'department',
-    'location',
-    'date_of_birth',
-    'date_of_anniversary',
-    'blood_group',
-    'aadhar_no',
-    'pan_card_no',
-    'religion',
-    'father_name',
-    'mother_name',
-    'spouse_name',
-    'son_details',
-    'daughter_details',
-    'address',
-    'full_address',
-    'personal_no',
-    'emergency_no',
-    'identification_mark',
-    'educational_qualification',
-    'other_experience',
-    'ifspl_experience',
-    'years_of_experience',
-    'date_of_leaving',
-    'status',
-    'uan_no',
-    'esic_no',
-    'bank_name',
-    'bank_account_no',
-    'ifsc_code',
-    'email_id',
-    'marital_status',
-  ];
+  /** Same columns as Import sample / Export Excel (shared constant). */
+  const EMPLOYEE_EXPORT_FIELDS = EMPLOYEE_MASTER_SHEET_FIELDS;
 
   const openAddForm = () => {
     setEditingEmployee(null);
@@ -577,12 +552,16 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       son_details: 'son_details',
       daughter_details: 'daughter_details',
       present_address: 'address',
+      address: 'address',
       permanent_address: 'full_address',
+      full_address: 'full_address',
+      location: 'location',
       personal_no: 'personal_no',
       emergency_no: 'emergency_no',
       identification_mark: 'identification_mark',
       years_of_experience: 'years_of_experience',
       educational_qualification: 'educational_qualification',
+      qualification: 'educational_qualification',
       attachments: 'attachments',
       other_experience: 'other_experience',
       ifspl_experience: 'ifspl_experience',
@@ -590,6 +569,9 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       activeinactive: 'status',
       active_inactive: 'status',
       status: 'status',
+      email_id: 'email_id',
+      email: 'email_id',
+      marital_status: 'marital_status',
       // Salary account sheet columns
       uan_number: 'uan_no',
       uan_no: 'uan_no',
@@ -929,38 +911,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Session expired. Please log in again.');
 
-      // 1) Bank / UAN / ESIC sheet — scan for header row (title rows above OK)
-      const bankParsed = await parseSalaryBankImportFile(file, {
-        employees: employees || [],
-      });
-      const bankRowCount =
-        (bankParsed.rows?.length || 0) + (bankParsed.unmatched?.length || 0);
-      const headerMissing = (bankParsed.errors || []).some((e) =>
-        /could not find a header/i.test(String(e))
-      );
-      const anyAccountValue = [...(bankParsed.rows || []), ...(bankParsed.unmatched || [])].some(
-        (r) => r.accountNo || r.ifsc || r.uanNo || r.esicNo
-      );
-
-      if (!headerMissing && bankRowCount > 0 && anyAccountValue) {
-        const result = await applySalaryBankImportToMaster(bankParsed, {
-          employees: employees || [],
-          user,
-        });
-        await fetchEmployees();
-        setCurrentPage(1);
-        if (!result.updated && !result.created && result.failures?.length) {
-          toast.error(result.message);
-        } else if (!result.updated && !result.created && !result.unchanged) {
-          toast.error(result.message || 'No account details were saved.');
-        } else {
-          toast.success(
-            `${result.message}. Open any employee → Personal details to see Account / IFSC / UAN / ESIC.`
-          );
-        }
-        return;
-      }
-
+      // Read sheet once — decide full master vs bank/salary before applying anything
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
@@ -970,187 +921,175 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
       if (!Array.isArray(raw) || raw.length === 0) throw new Error('Excel is empty.');
 
-      const headerFields = new Set();
-      Object.keys(raw[0] || {}).forEach((k) => {
-        const field = mapImportHeaderToField(k);
-        if (field) headerFields.add(field);
-      });
+      const headerFields = collectEmployeeMasterHeaderFields(raw[0] || {});
+      const fullMaster = isFullEmployeeMasterSheet(headerFields);
 
-      if (isSalaryAccountsSheet(headerFields)) {
-        await importSalaryAccountDetails(raw, user);
+      // Bank / UAN / ESIC-only sheets — never hijack a full Employee Master export/sample
+      if (!fullMaster) {
+        const bankParsed = await parseSalaryBankImportFile(file, {
+          employees: employees || [],
+        });
+        const bankRowCount =
+          (bankParsed.rows?.length || 0) + (bankParsed.unmatched?.length || 0);
+        const headerMissing = (bankParsed.errors || []).some((e) =>
+          /could not find a header/i.test(String(e))
+        );
+        const anyAccountValue = [...(bankParsed.rows || []), ...(bankParsed.unmatched || [])].some(
+          (r) => r.accountNo || r.ifsc || r.uanNo || r.esicNo
+        );
+
+        if (!headerMissing && bankRowCount > 0 && anyAccountValue) {
+          const result = await applySalaryBankImportToMaster(bankParsed, {
+            employees: employees || [],
+            user,
+          });
+          await fetchEmployees();
+          setCurrentPage(1);
+          if (!result.updated && !result.created && result.failures?.length) {
+            toast.error(result.message);
+          } else if (!result.updated && !result.created && !result.unchanged) {
+            toast.error(result.message || 'No account details were saved.');
+          } else {
+            toast.success(
+              `${result.message}. Open any employee → Personal details to see Account / IFSC / UAN / ESIC.`
+            );
+          }
+          return;
+        }
+
+        if (isSalaryAccountsSheet(headerFields)) {
+          await importSalaryAccountDetails(raw, user);
+          return;
+        }
+      }
+
+      // Full Employee Master sheet → preview + selective updates (no blind overwrite)
+      const preview = buildEmployeeMasterImportPreview(raw, employees || []);
+      if (
+        !preview.newEmployees.length &&
+        !preview.updates.length &&
+        !(preview.errors || []).length
+      ) {
+        toast.warning(
+          preview.skippedBlank
+            ? 'No data rows found in the sheet.'
+            : 'Nothing to import — all values already match, or the sheet has no mapped columns.'
+        );
         return;
       }
-
-      // Map headers -> fields (full employee master import)
-      const mapKeyToField = mapImportHeaderToField;
-
-      const todayYmd = new Date().toISOString().slice(0, 10);
-      const importRows = [...(employees || [])];
-
-      const rows = raw.map((r, idx) => {
-        const out = {};
-        Object.entries(r || {}).forEach(([k, v]) => {
-          const field = mapKeyToField(k);
-          if (!field) return;
-          out[field] = v;
-        });
-
-        // Default missing required DB fields (so we never block import)
-        const fullName = String(out.full_name || '').trim() || `Unknown ${idx + 1}`;
-        const designation = String(out.designation || '').trim() || 'Other';
-        const department = String(out.department || '').trim() || 'Other';
-        const doj = parseExcelDate(out.date_of_joining) || todayYmd;
-
-        const prevExp = out.other_experience === '' || out.other_experience == null ? null : Number(out.other_experience);
-        const ifsplExp = computeIfsplExperienceYears(doj);
-        const totalExp = computeTotalExperienceYears(doj, prevExp);
-
-        const employment_type = normalizeEmploymentType(out.employment_type || out.employee_id);
-
-        const empCode = out.employee_code ? String(out.employee_code).trim() : '';
-        const rawSysId = String(out.employee_id || '').trim();
-        let sysId = rawSysId && rawSysId !== empCode ? rawSysId : '';
-
-        // Existing code → update account / identity fields instead of failing
-        const existingEmp = empCode ? findEmployeeByCode(importRows, empCode) : null;
-        if (existingEmp) {
-          const accountPatch = {};
-          const maybeSet = (key, nextRaw, { upper = false } = {}) => {
-            const nextVal = normAccountField(nextRaw, { upper });
-            if (!nextVal) return;
-            const curVal =
-              key === 'bank_account_no' || key === 'ifsc_code'
-                ? normAccountField(existingEmp[key], { upper }).replace(/\s+/g, '')
-                : normAccountField(existingEmp[key], { upper });
-            const cmpNext =
-              key === 'bank_account_no' || key === 'ifsc_code'
-                ? nextVal.replace(/\s+/g, '')
-                : nextVal;
-            if (!curVal || curVal !== cmpNext) accountPatch[key] = nextVal;
-          };
-          maybeSet('uan_no', out.uan_no);
-          maybeSet('esic_no', out.esic_no);
-          maybeSet('bank_account_no', out.bank_account_no);
-          maybeSet('ifsc_code', out.ifsc_code, { upper: true });
-          return {
-            __updateExistingId: existingEmp.id,
-            ...accountPatch,
-            updated_by: user.email || '',
-            updated_at: new Date().toISOString(),
-          };
-        }
-
-        if (sysId && isEmployeeIdTaken(sysId, importRows)) {
-          throw new Error(`Row ${idx + 2}: employee_id "${sysId}" is already in use.`);
-        }
-        if (!sysId) {
-          sysId = nextEmployeeSystemId(importRows, employment_type);
-        }
-        importRows.push({ employee_id: sysId, employment_type, employee_code: empCode || null });
-
-        const statusRaw = String(out.status || '').trim().toLowerCase();
-        const normalizedStatus =
-          statusRaw === 'inactive' || statusRaw === 'i' || statusRaw === '0' || statusRaw === 'false' ? 'Inactive' : 'Active';
-        const dateOfLeavingParsed = parseExcelDate(out.date_of_leaving);
-        if (normalizedStatus === 'Inactive' && !dateOfLeavingParsed) {
-          throw new Error(`Row ${idx + 2}: Date of Leaving is required when status is Inactive.`);
-        }
-
-        return {
-          employee_id: sysId,
-          employment_type,
-          employee_code: out.employee_code ? String(out.employee_code).trim() : null,
-          timestamp: out.timestamp ? String(out.timestamp).trim() : null,
-          full_name: fullName,
-          gender: out.gender ? String(out.gender).trim() : null,
-          father_name: out.father_name ? String(out.father_name).trim() : null,
-          mother_name: out.mother_name ? String(out.mother_name).trim() : null,
-          spouse_name: out.spouse_name ? String(out.spouse_name).trim() : null,
-          religion: out.religion ? String(out.religion).trim() : null,
-          identification_mark: out.identification_mark ? String(out.identification_mark).trim() : null,
-          date_of_birth: parseExcelDate(out.date_of_birth),
-          date_of_joining: doj,
-          confirmation_date: parseExcelDate(out.confirmation_date),
-          designation,
-          department,
-          location: out.location ? String(out.location).trim() : null,
-          aadhar_no: out.aadhar_no ? String(out.aadhar_no).trim() : null,
-          pan_card_no: out.pan_card_no ? String(out.pan_card_no).trim() : null,
-          uan_no: out.uan_no ? String(out.uan_no).trim() : null,
-          esic_no: out.esic_no ? String(out.esic_no).trim() : null,
-          bank_name: out.bank_name ? String(out.bank_name).trim() : null,
-          bank_account_no: out.bank_account_no ? String(out.bank_account_no).trim() : null,
-          ifsc_code: out.ifsc_code ? String(out.ifsc_code).trim().toUpperCase() : null,
-          personal_no: out.personal_no ? String(out.personal_no).trim() : null,
-          email_id: out.email_id ? String(out.email_id).trim() : null,
-          address: out.address ? String(out.address).trim() : null,
-          full_address: out.full_address ? String(out.full_address).trim() : null,
-          emergency_no: out.emergency_no ? String(out.emergency_no).trim() : null,
-          blood_group: out.blood_group ? String(out.blood_group).trim() : null,
-          marital_status: out.marital_status ? String(out.marital_status).trim() : null,
-          date_of_anniversary: parseExcelDate(out.date_of_anniversary),
-          son_details: out.son_details ? String(out.son_details).trim() : null,
-          daughter_details: out.daughter_details ? String(out.daughter_details).trim() : null,
-          educational_qualification: out.educational_qualification ? String(out.educational_qualification).trim() : null,
-          qualification: out.educational_qualification ? String(out.educational_qualification).trim() : null,
-          date_of_leaving: dateOfLeavingParsed,
-          other_experience: Number.isFinite(prevExp) ? prevExp : null,
-          years_of_experience: totalExp,
-          ifspl_experience: ifsplExp,
-          status: normalizedStatus,
-          created_by: user.email || '',
-          updated_by: user.email || '',
-          updated_at: new Date().toISOString(),
-        };
-      });
-
-      const toInsert = rows.filter((r) => !r.__updateExistingId);
-      const toUpdate = rows.filter((r) => r.__updateExistingId);
-
-      for (const row of toUpdate) {
-        const { __updateExistingId: id, ...payload } = row;
-        const hasAccountChange = ['uan_no', 'esic_no', 'bank_account_no', 'ifsc_code'].some(
-          (k) => payload[k] != null && String(payload[k]).trim() !== ''
-        );
-        if (!id || !hasAccountChange) continue;
-        const { data: saved, error } = await supabase
-          .from('admin_ifsp_employee_master')
-          .update(payload)
-          .eq('id', id)
-          .select('id, bank_account_no, ifsc_code')
-          .maybeSingle();
-        if (error) throw error;
-        if (!saved) {
-          console.warn('Import account update returned no row (check access)', id);
-          continue;
-        }
-        syncScopeDraftBankFromMaster(id, {
-          account_no: payload.bank_account_no ?? saved.bank_account_no,
-          ifsc: payload.ifsc_code ?? saved.ifsc_code,
-        });
-      }
-
-      const chunkSize = 200;
-      for (let i = 0; i < toInsert.length; i += chunkSize) {
-        const chunk = toInsert.slice(i, i + chunkSize);
-        const { error } = await supabase
-          .from('admin_ifsp_employee_master')
-          .upsert(chunk, { onConflict: 'user_id,employee_id' });
-        if (error) throw error;
-      }
-
-      await fetchEmployees();
-      setCurrentPage(1);
-      const bits = [];
-      if (toInsert.length) bits.push(`${toInsert.length} added`);
-      if (toUpdate.length) bits.push(`${toUpdate.length} account row(s) merged`);
-      toast.success(bits.join(' · ') || 'Import finished.');
+      setImportPreview(preview);
     } catch (e) {
       console.error('Import failed:', e);
       toast.error(e?.message || 'Import failed. Please check the file and try again.');
     } finally {
       setImportBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const applyEmployeeMasterImportConfirm = async ({ newEmployees = [], selectedUpdates = [] }) => {
+    setImportConfirmBusy(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error('Session expired. Please log in again.');
+
+      const stamp = new Date().toISOString();
+      const actor = user.email || '';
+
+      let inserted = 0;
+      if (newEmployees.length) {
+        const rows = newEmployees.map((n) => ({
+          ...n.payload,
+          created_by: actor,
+          updated_by: actor,
+          updated_at: stamp,
+        }));
+        const chunkSize = 200;
+        for (let i = 0; i < rows.length; i += chunkSize) {
+          const chunk = rows.slice(i, i + chunkSize);
+          const { error } = await supabase
+            .from('admin_ifsp_employee_master')
+            .upsert(chunk, { onConflict: 'user_id,employee_id' });
+          if (error) throw error;
+        }
+        inserted = rows.length;
+      }
+
+      let updated = 0;
+      for (const u of selectedUpdates) {
+        if (!u?.employeeId || !u.patch || !Object.keys(u.patch).length) continue;
+        const existing = (employees || []).find((e) => e.id === u.employeeId);
+        const patch = { ...u.patch };
+
+        if (patch.educational_qualification != null) {
+          patch.qualification = patch.educational_qualification;
+        }
+
+        const nextDoj = patch.date_of_joining ?? existing?.date_of_joining;
+        const nextOther =
+          patch.other_experience !== undefined
+            ? patch.other_experience
+            : existing?.other_experience;
+        if (patch.date_of_joining != null || patch.other_experience !== undefined) {
+          patch.ifspl_experience = computeIfsplExperienceYears(nextDoj);
+          patch.years_of_experience = computeTotalExperienceYears(nextDoj, nextOther);
+        }
+
+        if (patch.status === 'Inactive') {
+          const dol = patch.date_of_leaving ?? existing?.date_of_leaving;
+          if (!dol) {
+            throw new Error(
+              `${u.employeeCode || 'Employee'}: Date of Leaving is required when status is Inactive.`
+            );
+          }
+        }
+
+        patch.updated_by = actor;
+        patch.updated_at = stamp;
+
+        const { data: saved, error } = await supabase
+          .from('admin_ifsp_employee_master')
+          .update(patch)
+          .eq('id', u.employeeId)
+          .select('id, bank_account_no, ifsc_code')
+          .maybeSingle();
+        if (error) throw error;
+        if (!saved) {
+          console.warn('Import update returned no row (check access)', u.employeeId);
+          continue;
+        }
+        updated += 1;
+
+        if (
+          patch.bank_account_no != null ||
+          patch.ifsc_code != null
+        ) {
+          syncScopeDraftBankFromMaster(u.employeeId, {
+            account_no: patch.bank_account_no ?? saved.bank_account_no,
+            ifsc: patch.ifsc_code ?? saved.ifsc_code,
+          });
+        }
+      }
+
+      setImportPreview(null);
+      await fetchEmployees();
+      setCurrentPage(1);
+
+      const bits = [];
+      if (inserted) bits.push(`${inserted} added`);
+      if (updated) bits.push(`${updated} updated`);
+      toast.success(
+        bits.length
+          ? `${bits.join(' · ')}. Changes appear under Change history for each employee.`
+          : 'Import finished — no changes applied.'
+      );
+    } catch (e) {
+      console.error('Import confirm failed:', e);
+      toast.error(e?.message || 'Import failed. Please try again.');
+    } finally {
+      setImportConfirmBusy(false);
     }
   };
 
@@ -1704,6 +1643,29 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             </button>
             <button
               type="button"
+              onClick={() => setShowImportMenu(true)}
+              disabled={importBusy || importConfirmBusy}
+              className="h-10 bg-indigo-600 text-white px-4 rounded-lg hover:bg-indigo-700 disabled:opacity-60 flex items-center justify-center gap-2 whitespace-nowrap text-sm"
+              title="Import Employee Master Excel"
+            >
+              <Upload className="h-4 w-4" />
+              <span>{importBusy ? 'Reading…' : 'Import'}</span>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) {
+                  setShowImportMenu(false);
+                  handleImportExcel(f);
+                }
+              }}
+            />
+            <button
+              type="button"
               onClick={handleExportExcel}
               disabled={exportBusy || !sortedFilteredEmployees.length}
               className="h-10 bg-green-600 text-white px-4 rounded-lg hover:bg-green-700 disabled:opacity-60 flex items-center justify-center gap-2 whitespace-nowrap text-sm"
@@ -1965,6 +1927,15 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                         </button>
                         <button
                           type="button"
+                          onClick={() => setHistoryEmployee(employee)}
+                          className="text-slate-600 hover:text-slate-900"
+                          title="Change history"
+                          aria-label={`Change history for ${employee.full_name || employee.employee_code || 'employee'}`}
+                        >
+                          <History className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleStatusChange(employee.id, employee.status === 'Active' ? 'Inactive' : 'Active', 'Status changed')}
                           className={employee.status === 'Active' ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900'}
                           title={employee.status === 'Active' ? 'Deactivate' : 'Activate'}
@@ -1991,6 +1962,66 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           )}
         </div>
       </div>
+
+      <EmployeeMasterHistoryDrawer
+        open={Boolean(historyEmployee)}
+        employee={historyEmployee}
+        onClose={() => setHistoryEmployee(null)}
+      />
+
+      <Modal
+        open={showImportMenu}
+        onClose={() => {
+          if (!importBusy) setShowImportMenu(false);
+        }}
+        title="Import employees"
+        widthClass="max-w-sm"
+        footer={
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className="h-9 px-3 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              onClick={() => setShowImportMenu(false)}
+              disabled={importBusy}
+            >
+              Cancel
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-xs text-gray-500">
+            Sample sheet matches Export Excel columns. Employee code is required. Age and experience totals are calculated — leave those blank or keep exported values.
+          </p>
+          <button
+            type="button"
+            onClick={() => downloadEmployeeMasterSampleSheet()}
+            className="w-full h-10 bg-white text-gray-800 border border-gray-300 px-4 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2 text-sm"
+          >
+            <FileDown className="h-4 w-4" />
+            Download sample sheet
+          </button>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importBusy || importConfirmBusy}
+            className="w-full h-10 bg-indigo-600 text-white px-4 rounded-lg hover:bg-indigo-700 disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
+          >
+            <Upload className="h-4 w-4" />
+            {importBusy ? 'Reading…' : 'Import file'}
+          </button>
+        </div>
+      </Modal>
+
+      <EmployeeMasterImportModal
+        open={Boolean(importPreview)}
+        preview={importPreview}
+        busy={importConfirmBusy}
+        onClose={() => {
+          if (!importConfirmBusy) setImportPreview(null);
+        }}
+        onConfirm={applyEmployeeMasterImportConfirm}
+      />
 
       {/* Add Employee modal — edit opens the employee profile page */}
       {showForm && (
