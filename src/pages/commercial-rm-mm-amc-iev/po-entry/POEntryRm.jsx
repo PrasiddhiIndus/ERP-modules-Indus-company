@@ -14,7 +14,7 @@ import {
 } from '../../../constants/commercialModuleType';
 import { buildCommercialClientProfiles } from '../../../utils/commercialClientProfiles';
 import ClientLegalNameAutocomplete from '../../../components/commercial/ClientLegalNameAutocomplete';
-import PoClientPincodeFields from '../../../components/PoClientPincodeFields';;
+import PoClientPincodeFields from '../../../components/PoClientPincodeFields';
 import FormDateInput from "../../../components/FormDateInput";
 
 import {
@@ -36,6 +36,12 @@ import {
 } from '../../../constants/poBasis';
 
 import { toast } from "../../../lib/toast";
+
+/** Client Identity sits on a 2-column grid. Spans must not exceed 2 or the row collapses and fields overlap. */
+const PO_FIELD_LABEL = 'block text-sm font-medium text-gray-700 mb-1';
+const PO_FIELD_INPUT = 'w-full min-w-0 border border-gray-300 rounded-lg px-3 py-2 bg-white';
+const PO_FIELD_HINT = 'text-[11px] text-gray-500 mt-1 leading-snug';
+
 const VERTICALS = ['R&M', 'AMC', 'IEV'];
 const BILLING_TYPES = ['Supply', 'Service'];
 const ALLOWED_RM_PO_TYPES = new Set(BILLING_TYPES);
@@ -382,6 +388,7 @@ const POEntry = ({
   const [contactError, setContactError] = useState('');
   const [gstTypeError, setGstTypeError] = useState('');
   const [saveError, setSaveError] = useState('');
+  const [savingPo, setSavingPo] = useState(false);
   const canApproveCommercialPOs = userCanApproveInModules(userProfile, accessibleModules, approverModuleKeys);
   const currentActorName = getCommercialPoActorDisplayName(userProfile, user);
   const highlightedPoId = useMemo(
@@ -909,7 +916,8 @@ const POEntry = ({
     );
   };
 
-  const savePO = () => {
+  const savePO = async () => {
+    if (savingPo) return;
     if (formData.gstin && !validateGSTIN(formData.gstin)) { setGstinError('Fix GSTIN before saving'); return; }
     if (formData.contactNumber && normalizeContactNumber(formData.contactNumber).length !== 10) {
       setContactError('Contact Number must be exactly 10 digits.');
@@ -922,6 +930,22 @@ const POEntry = ({
       return;
     }
     setGstTypeError('');
+    if (!String(formData.legalName || '').trim()) {
+      setSaveError('Enter the client legal name.');
+      return;
+    }
+    const billPin = String(formData.pincode || '').trim();
+    if (billPin && billPin.length !== 6) {
+      setSaveError('Bill-to pincode must be 6 digits.');
+      return;
+    }
+    if (formData.billToShipToPinSame === false) {
+      const shipPin = String(formData.shipToPincode || '').trim();
+      if (shipPin && shipPin.length !== 6) {
+        setSaveError('Ship-to pincode must be 6 digits.');
+        return;
+      }
+    }
     const isWithoutPo = formData.poBasis === PO_BASIS_WITHOUT_PO;
     const vertForDummy = fixedVertical || formData.vertical || INITIAL_FORM_RM.vertical;
     const dummies = buildWithoutPoDummyIds({
@@ -969,7 +993,7 @@ const POEntry = ({
       return;
     }
     if (!isWithoutPo && !trimmedPoWoNumber) {
-      setSaveError('Enter PO/WO number in New PO Number (renewal).');
+      setSaveError(editId ? 'Enter the renewal PO/WO number.' : 'Enter the PO/WO number.');
       return;
     }
     if (isWithoutPo && !trimmedPoWoNumber) {
@@ -1101,11 +1125,22 @@ const POEntry = ({
         }),
       ];
     }
-    if (editId) setCommercialPOs((prev) => prev.map((p) => (p.id === editId ? po : p)));
-    else setCommercialPOs((prev) => [...prev, po]);
-    setSaveError('');
-    setShowForm(false);
-    setFormData(freshEmptyForm());
+    setSavingPo(true);
+    try {
+      if (editId) await setCommercialPOs((prev) => prev.map((p) => (p.id === editId ? po : p)));
+      else await setCommercialPOs((prev) => [...prev, po]);
+      setSaveError('');
+      setShowForm(false);
+      setEditId(null);
+      setFormData(freshEmptyForm());
+      toast.success(editId ? 'PO/WO updated.' : 'PO/WO saved.');
+    } catch (err) {
+      const msg = err?.message || 'Could not save PO/WO. Check the details and try again.';
+      setSaveError(msg);
+      toast.warning(msg);
+    } finally {
+      setSavingPo(false);
+    }
   };
 
   const deletePO = (id) => { if (window.confirm('Delete this PO? Billing may be affected.')) setCommercialPOs((prev) => prev.filter((p) => p.id !== id)); };
@@ -1492,7 +1527,7 @@ const POEntry = ({
       )}
       {showForm && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-start justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-5xl w-full my-8 max-h-[90vh] overflow-y-auto border border-gray-200">
+          <div className="bg-white rounded-2xl shadow-xl max-w-6xl w-full my-8 max-h-[90vh] overflow-y-auto border border-gray-200">
             <div className="px-6 py-4 border-b border-gray-200 sticky top-0 bg-white/95 backdrop-blur flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 leading-tight">{editId ? 'Edit PO/WO' : 'Add PO/WO'}</h3>
@@ -1547,9 +1582,9 @@ const POEntry = ({
                 <div className="flex items-center justify-between gap-3 mb-4">
                   <h4 className="text-sm font-semibold text-gray-900">1. Client Identity</h4>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="rm-po-legal-name">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-4">
+                  <div className="min-w-0">
+                    <label className={PO_FIELD_LABEL} htmlFor="rm-po-legal-name">
                       Legal Name (for GST)
                     </label>
                     <ClientLegalNameAutocomplete
@@ -1561,38 +1596,109 @@ const POEntry = ({
                       placeholder="Type name or pick a saved client"
                     />
                   </div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Address (with State)</label><input type="text" value={formData.billingAddress} onChange={(e) => { const v = e.target.value; setFormData((p) => ({ ...p, billingAddress: v })); const msg = validateGstSupplyTypeForState(formData.placeOfSupply, v, formData.gstSupplyType); setGstTypeError(msg); }} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full address including State" /></div>
+                  <div className="min-w-0">
+                    <label className={PO_FIELD_LABEL} htmlFor="rm-po-billing-address">
+                      Billing Address (with State)
+                    </label>
+                    <input
+                      id="rm-po-billing-address"
+                      type="text"
+                      value={formData.billingAddress}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setFormData((p) => ({ ...p, billingAddress: v }));
+                        const msg = validateGstSupplyTypeForState(formData.placeOfSupply, v, formData.gstSupplyType);
+                        setGstTypeError(msg);
+                      }}
+                      className={PO_FIELD_INPUT}
+                      placeholder="Full address including State"
+                    />
+                  </div>
                   <PoClientPincodeFields
                     formData={formData}
                     setFormData={setFormData}
                     billToInputId="rm-po-pincode-bill"
                     shipToInputId="rm-po-pincode-ship"
                     sameCheckboxId="rm-po-pincode-same"
-                    {...(fixedVertical
-                      ? { pinSpanClass: '', checkboxSpanClass: 'md:self-end md:min-h-[42px]' }
-                      : {})}
+                    pinSpanClass="min-w-0"
+                    checkboxSpanClass="min-w-0 md:self-end md:pb-2"
+                    shipAddressSpanClass="min-w-0 md:col-span-2"
                   />
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Consignee / Ship-to address</label>
-                    <textarea value={formData.shippingAddress} onChange={(e) => setFormData((p) => ({ ...p, shippingAddress: e.target.value }))} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Leave blank if same as billing address" />
-                    <p className="text-[11px] text-gray-500 mt-1">
+                  <div className="min-w-0 md:col-span-2">
+                    <label className={PO_FIELD_LABEL} htmlFor="rm-po-ship-address">
+                      Consignee / Ship-to address
+                    </label>
+                    <textarea
+                      id="rm-po-ship-address"
+                      value={formData.shippingAddress}
+                      onChange={(e) => setFormData((p) => ({ ...p, shippingAddress: e.target.value }))}
+                      rows={3}
+                      className={`${PO_FIELD_INPUT} min-h-[5.5rem]`}
+                      placeholder="Leave blank if same as billing address"
+                    />
+                    <p className={PO_FIELD_HINT}>
                       If different from billing, invoice will show separate BILL TO and SHIP TO blocks.
                     </p>
                   </div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">GSTIN (15-digit)</label><input type="text" value={formData.gstin} onChange={(e) => { setFormData((p) => ({ ...p, gstin: e.target.value.toUpperCase() })); setGstinError(''); }} onBlur={handleGstinBlur} maxLength={15} className={`w-full border rounded-lg px-3 py-2 ${gstinError ? 'border-red-500' : 'border-gray-300'}`} placeholder="e.g. 27AABCU9603R1ZM" />{gstinError && <p className="text-red-600 text-xs mt-1">{gstinError}</p>}</div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">PAN Number</label><input type="text" value={formData.panNumber} onChange={(e) => setFormData((p) => ({ ...p, panNumber: e.target.value.toUpperCase() }))} maxLength={10} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. AABCU9603R" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Location Name</label><input type="text" value={formData.locationName} onChange={(e) => setFormData((p) => ({ ...p, locationName: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Site / Location ID</label><input type="text" value={formData.siteId} onChange={(e) => setFormData((p) => ({ ...p, siteId: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. SITE-001" /></div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Place of supply (invoice)</label>
+                  <div className="min-w-0">
+                    <label className={PO_FIELD_LABEL} htmlFor="rm-po-gstin">GSTIN (15-digit)</label>
+                    <input
+                      id="rm-po-gstin"
+                      type="text"
+                      value={formData.gstin}
+                      onChange={(e) => {
+                        setFormData((p) => ({ ...p, gstin: e.target.value.toUpperCase() }));
+                        setGstinError('');
+                      }}
+                      onBlur={handleGstinBlur}
+                      maxLength={15}
+                      className={`${PO_FIELD_INPUT} ${gstinError ? 'border-red-500' : 'border-gray-300'}`}
+                      placeholder="e.g. 27AABCU9603R1ZM"
+                    />
+                    {gstinError ? <p className="text-red-600 text-xs mt-1">{gstinError}</p> : null}
+                  </div>
+                  <div className="min-w-0">
+                    <label className={PO_FIELD_LABEL} htmlFor="rm-po-pan">PAN Number</label>
+                    <input
+                      id="rm-po-pan"
+                      type="text"
+                      value={formData.panNumber}
+                      onChange={(e) => setFormData((p) => ({ ...p, panNumber: e.target.value.toUpperCase() }))}
+                      maxLength={10}
+                      className={PO_FIELD_INPUT}
+                      placeholder="e.g. AABCU9603R"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <label className={PO_FIELD_LABEL} htmlFor="rm-po-location">Location Name</label>
+                    <input
+                      id="rm-po-location"
+                      type="text"
+                      value={formData.locationName}
+                      onChange={(e) => setFormData((p) => ({ ...p, locationName: e.target.value }))}
+                      className={PO_FIELD_INPUT}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <label className={PO_FIELD_LABEL} htmlFor="rm-po-site">Site / Location ID</label>
+                    <input
+                      id="rm-po-site"
+                      type="text"
+                      value={formData.siteId}
+                      onChange={(e) => setFormData((p) => ({ ...p, siteId: e.target.value }))}
+                      className={PO_FIELD_INPUT}
+                      placeholder="e.g. SITE-001"
+                    />
+                  </div>
+                  <div className="min-w-0 md:col-span-2">
+                    <label className={PO_FIELD_LABEL} htmlFor="rm-po-place-of-supply">Place of supply (invoice)</label>
                     <select
+                      id="rm-po-place-of-supply"
                       value={formData.placeOfSupply}
                       onChange={(e) => {
                         const nextState = e.target.value;
                         setFormData((p) => {
                           const next = { ...p, placeOfSupply: nextState };
-                          // Auto-define tax slab based on state selection:
-                          // Gujarat => intra (CGST+SGST), else => inter (IGST)
                           if (next.gstSupplyType !== 'sez_zero') {
                             next.gstSupplyType = nextState === 'Gujarat' ? 'intra' : 'inter';
                           }
@@ -1602,14 +1708,14 @@ const POEntry = ({
                         setGstTypeError(msg);
                         if (msg) toast.success(msg);
                       }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                      className={`${PO_FIELD_INPUT} max-w-md`}
                     >
                       <option value="">Select state/UT…</option>
                       {INDIA_STATES_UT.map((s) => (
                         <option key={s} value={s}>{s}</option>
                       ))}
                     </select>
-                    <p className="text-[11px] text-gray-500 mt-1">
+                    <p className={PO_FIELD_HINT}>
                       Tax type auto-sets to CGST+SGST for Gujarat; IGST for other states (SEZ 0% remains as selected).
                     </p>
                   </div>
@@ -1792,37 +1898,72 @@ const POEntry = ({
                       </div>
                     </>
                   )}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">
-                      PO Number (OLD){' '}
-                      <span className="text-gray-400 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
-                    </label>
-                    <input
-                      type="text"
-                      readOnly
-                      tabIndex={-1}
-                      value={formData.poWoNumber}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-600 cursor-not-allowed"
-                    />
-                    <p className="text-[11px] text-gray-400 mt-1">Read-only snapshot of the current PO on file.</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">
-                      Total contract value (OLD) (₹){' '}
-                      <span className="text-gray-400 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
-                    </label>
-                    <input
-                      type="number"
-                      readOnly
-                      tabIndex={-1}
-                      value={formData.totalContractValue}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-600 cursor-not-allowed"
-                      min="0"
-                    />
-                    <p className="text-[11px] text-gray-400 mt-1">Read-only snapshot of the current value on file.</p>
-                  </div>
+                  {editId ? (
+                    <>
+                      <div className="min-w-0">
+                        <label className="block text-sm font-medium text-gray-500 mb-1">
+                          PO Number (current){' '}
+                          <span className="text-gray-400 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
+                        </label>
+                        <input
+                          type="text"
+                          readOnly
+                          tabIndex={-1}
+                          value={formData.poWoNumber}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-600 cursor-not-allowed"
+                        />
+                        <p className="text-[11px] text-gray-400 mt-1">Current PO on file. Enter a renewal number below.</p>
+                      </div>
+                      <div className="min-w-0">
+                        <label className="block text-sm font-medium text-gray-500 mb-1">
+                          Total contract value (current) (₹){' '}
+                          <span className="text-gray-400 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
+                        </label>
+                        <input
+                          type="number"
+                          readOnly
+                          tabIndex={-1}
+                          value={formData.totalContractValue}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-600 cursor-not-allowed"
+                          min="0"
+                        />
+                        <p className="text-[11px] text-gray-400 mt-1">Current value on file.</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="min-w-0">
+                        <label className={PO_FIELD_LABEL} htmlFor="rm-po-number">
+                          PO / WO number
+                        </label>
+                        <input
+                          id="rm-po-number"
+                          type="text"
+                          value={formData.poWoNumber}
+                          onChange={(e) => setFormData((p) => ({ ...p, poWoNumber: e.target.value }))}
+                          className={PO_FIELD_INPUT}
+                          placeholder="Enter PO/WO number"
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <label className={PO_FIELD_LABEL} htmlFor="rm-po-contract-value">
+                          Total contract value (₹)
+                        </label>
+                        <input
+                          id="rm-po-contract-value"
+                          type="number"
+                          value={formData.totalContractValue}
+                          onChange={(e) => setFormData((p) => ({ ...p, totalContractValue: e.target.value }))}
+                          className={PO_FIELD_INPUT}
+                          min="0"
+                          placeholder="Enter total contract value"
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
 
+                {editId ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1861,13 +2002,14 @@ const POEntry = ({
                     <p className="text-[11px] text-gray-500 mt-1">
                       After Commercial approves renewal, buffer-period tax invoices (and any legacy supplementary PO rows) are aligned to this new PO/WO number and contract dates.
                     </p>
-                    {editId && !isAfterContractEnd(formData.endDate) ? (
+                    {!isAfterContractEnd(formData.endDate) ? (
                       <p className="text-[11px] text-amber-700 mt-1">
-                        Adding a renewal cycle is allowed only after the contract end date; use these fields for the initial PO when creating a new record.
+                        A renewal can be saved only after the contract end date.
                       </p>
                     ) : null}
                   </div>
                 </div>
+                ) : null}
 
                 {Array.isArray(formData.renewalCycles) && formData.renewalCycles.length > 0 ? (
                   <div className="mt-3">
@@ -2131,9 +2273,10 @@ const POEntry = ({
               <button
                 type="button"
                 onClick={savePO}
+                disabled={savingPo}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {editId ? 'Update' : 'Save'} PO/WO
+                {savingPo ? 'Saving…' : editId ? 'Update PO/WO' : 'Save PO/WO'}
               </button>
             </div>
           </div>
