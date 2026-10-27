@@ -16,6 +16,7 @@ export const SITE_ATTENDANCE_PAGES = [
   { tab: "attendance", label: "Attendance" },
   { tab: "admin-view", label: "Admin view" },
   { tab: "summary", label: "Summary" },
+  { tab: "import", label: "Attendance import" },
 ].map((page) => ({ ...page, value: `site-attendance-page.${page.tab}` }));
 
 /** Tabs (route segments) the user may open in Site Attendance. */
@@ -26,4 +27,10 @@ export function getAllowedSiteAttendanceTabs(userProfile) {
   const subs = parseAllowedSubModules(userProfile?.allowed_sub_modules);
   const picked = SITE_ATTENDANCE_PAGES.filter((page) => subs.includes(page.value)).map((page) => page.tab);
   return picked.length ? picked : all;
+}
+
+/** Smart import lives on the Attendance page and needs both page keys. */
+export function canUseSiteAttendanceImport(userProfile) {
+  const tabs = getAllowedSiteAttendanceTabs(userProfile);
+  return tabs.includes("attendance") && tabs.includes("import");
 }
