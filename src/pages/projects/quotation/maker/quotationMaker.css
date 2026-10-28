@@ -308,8 +308,8 @@
 .qm-table td {
   padding: 4px 6px;
   border-bottom: 1px solid var(--qm-line);
-  vertical-align: middle;
-  overflow: hidden;
+  vertical-align: top;
+  overflow: visible;
 }
 
 /* Header alignment matches cell content under each column */
@@ -509,6 +509,24 @@
   padding: 6px 8px !important;
   font-size: 12px;
   line-height: 1.25;
+}
+
+.qm-cell-grow {
+  display: block;
+  resize: none;
+  overflow: hidden;
+  min-height: 28px;
+  field-sizing: content;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.qm-blank {
+  background: #f8fafc !important;
+  border-style: dashed !important;
+  color: transparent !important;
+  pointer-events: none;
+  min-height: 28px;
 }
 
 .qm-cell.c {
@@ -714,9 +732,10 @@
 .qm-ptable td {
   border: 1px solid #9aa3b2;
   padding: 5px 4px;
-  vertical-align: middle;
+  vertical-align: top;
   word-break: normal;
   overflow-wrap: break-word;
+  white-space: pre-wrap;
 }
 
 .qm-ptable .qm-num-cell {

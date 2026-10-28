@@ -261,7 +261,8 @@ export function emptyMakerForm(defaults = {}) {
     version: 1,
     branch_code: defaults.branch_code || 'SRE',
     show_make: Boolean(defaults.show_make),
-    show_remarks: Boolean(defaults.show_remarks),
+    // Remarks is on by default so the table header always has that column for new quotes.
+    show_remarks: defaults.show_remarks != null ? Boolean(defaults.show_remarks) : true,
     make_column_before: defaults.make_column_before || 'unit',
   };
 }

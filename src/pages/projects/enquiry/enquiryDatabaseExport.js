@@ -20,7 +20,8 @@ export const DEFAULT_EXPORT_COLUMN_KEYS = [
 ];
 
 const COMPACT_COLUMN_WIDTHS = {
-  serial_number: 88,
+  // Wide enough for "Serial Number" + sort arrows on one line (no mid-word wrap).
+  serial_number: 128,
   enquiry_receipt_date: 108,
 };
 
@@ -67,7 +68,7 @@ export function isWrapContentTableColumn(field) {
   return WRAP_CONTENT_COLUMN_WIDTHS[field?.field_key] != null;
 }
 
-/** Fixed px layout for table columns — compact cols use exact width so headers wrap. */
+/** Fixed px layout for table columns — compact cols use exact width. */
 export function getTableColumnLayout(field) {
   const px = columnWidth(field);
   const compact = isCompactTableColumn(field);
@@ -85,13 +86,18 @@ export function getTableColumnLayout(field) {
   }
 
   if (compact) {
+    const serial = field?.field_key === 'serial_number';
     return {
       px,
       compact: true,
       wrapContent: false,
       style: { width: px, maxWidth: px, minWidth: px },
-      headerClass: 'whitespace-normal leading-[1.15] break-words text-center px-2 py-2.5 align-middle',
+      // Serial Number must stay on one line; other compact headers may wrap at spaces only.
+      headerClass: serial
+        ? 'whitespace-nowrap leading-[1.15] text-center px-1.5 py-2.5 align-middle'
+        : 'whitespace-normal leading-[1.15] break-words text-center px-2 py-2.5 align-middle',
       cellClass: 'overflow-hidden px-2',
+      nowrapHeader: serial,
     };
   }
   return {

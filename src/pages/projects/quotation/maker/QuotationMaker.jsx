@@ -49,6 +49,43 @@ function canEditQuotation(user, userProfile, form) {
   return form.created_by === user?.id;
 }
 
+/** Text cell that grows with content so the table row height follows the text. */
+function AutoGrowCell({
+  value,
+  onChange,
+  disabled,
+  placeholder,
+  className = '',
+  style,
+  minRows = 1,
+}) {
+  const ref = useRef(null);
+  const resize = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.max(el.scrollHeight, 28)}px`;
+  }, []);
+  useEffect(() => {
+    resize();
+  }, [value, resize]);
+  return (
+    <textarea
+      ref={ref}
+      rows={minRows}
+      className={`qm-cell qm-cell-grow ${className}`.trim()}
+      style={style}
+      value={value ?? ''}
+      disabled={disabled}
+      placeholder={placeholder}
+      onChange={(e) => {
+        onChange?.(e);
+        requestAnimationFrame(resize);
+      }}
+    />
+  );
+}
+
 export default function QuotationMaker() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -995,48 +1032,59 @@ function EditorRow({
     );
   }
 
+  const no = numberOf(rows, r);
+  const group = isGroup(rows, r);
+  const blankBox = (key, extraClass = '') => (
+    <td key={key} className={`${colClass(key)} ${extraClass}`.trim()}>
+      <input className="qm-cell c qm-blank" value="" disabled readOnly tabIndex={-1} aria-hidden />
+    </td>
+  );
+
   if (r.row_type === 'heading') {
     return (
       <tr data-rid={r.id} className={`heading ${dropClass} ${dragClass}`.trim()}>
-        <td className={`${colClass('sr')} qm-no`}>{grip}</td>
-        <td className={colClass('description')} colSpan={Math.max(1, colKeys.length - 2)}>
-          <input
-            className="qm-cell"
-            style={{ fontWeight: 700 }}
-            value={r.description}
-            disabled={readOnly}
-            placeholder="Heading name"
-            onChange={(e) => onUpdate(r.id, { description: e.target.value })}
-          />
-        </td>
-        <td className={`${colClass('actions')} qm-opt`}>{actionMenu}</td>
-      </tr>
-    );
-  }
-
-  const no = numberOf(rows, r);
-  const midSpan = Math.max(1, colKeys.filter((k) => !['sr', 'description', 'actions'].includes(k)).length);
-
-  if (isGroup(rows, r)) {
-    return (
-      <tr data-rid={r.id} className={`${dropClass} ${dragClass}`.trim()}>
-        <td className={`${colClass('sr')} qm-no`}>
-          {grip}
-          <span className="qm-sr-label">{no}</span>
-        </td>
-        <td className={colClass('description')}>
-          <input
-            className="qm-cell"
-            value={r.description}
-            disabled={readOnly}
-            placeholder="Item description"
-            onChange={(e) => onUpdate(r.id, { description: e.target.value })}
-          />
-        </td>
-        <td colSpan={midSpan} className="qm-note">
-          Priced through its parts below
-        </td>
-        <td className={`${colClass('actions')} qm-opt`}>{actionMenu}</td>
+        {colKeys.map((key) => {
+          if (key === 'sr') {
+            return (
+              <td key={key} className={`${colClass(key)} qm-no`}>
+                {grip}
+              </td>
+            );
+          }
+          if (key === 'description') {
+            return (
+              <td key={key} className={colClass(key)}>
+                <AutoGrowCell
+                  style={{ fontWeight: 700 }}
+                  value={r.description}
+                  disabled={readOnly}
+                  placeholder="Heading name"
+                  onChange={(e) => onUpdate(r.id, { description: e.target.value })}
+                />
+              </td>
+            );
+          }
+          if (key === 'remarks') {
+            return (
+              <td key={key} className={colClass(key)}>
+                <AutoGrowCell
+                  value={r.remarks || ''}
+                  disabled={readOnly}
+                  placeholder="Remarks"
+                  onChange={(e) => onUpdate(r.id, { remarks: e.target.value })}
+                />
+              </td>
+            );
+          }
+          if (key === 'actions') {
+            return (
+              <td key={key} className={`${colClass(key)} qm-opt`}>
+                {actionMenu}
+              </td>
+            );
+          }
+          return blankBox(key);
+        })}
       </tr>
     );
   }
@@ -1053,8 +1101,8 @@ function EditorRow({
       case 'description':
         return (
           <td key={key} className={colClass(key)}>
-            <input
-              className={`qm-cell ${r.parent_row_id ? 'ind' : ''}`}
+            <AutoGrowCell
+              className={r.parent_row_id ? 'ind' : ''}
               value={r.description}
               disabled={readOnly}
               placeholder={r.parent_row_id ? 'Part description' : 'Item description'}
@@ -1063,6 +1111,7 @@ function EditorRow({
           </td>
         );
       case 'unit':
+        if (group) return blankBox(key, 'qm-num2');
         return (
           <td key={key} className={`${colClass(key)} qm-num2`}>
             <input
@@ -1074,6 +1123,7 @@ function EditorRow({
           </td>
         );
       case 'qty':
+        if (group) return blankBox(key, 'qm-num2');
         return (
           <td key={key} className={`${colClass(key)} qm-num2`}>
             <input
@@ -1090,8 +1140,7 @@ function EditorRow({
       case 'make':
         return (
           <td key={key} className={colClass(key)}>
-            <input
-              className="qm-cell"
+            <AutoGrowCell
               value={r.make || ''}
               disabled={readOnly}
               placeholder="Make"
@@ -1102,8 +1151,7 @@ function EditorRow({
       case 'remarks':
         return (
           <td key={key} className={colClass(key)}>
-            <input
-              className="qm-cell"
+            <AutoGrowCell
               value={r.remarks || ''}
               disabled={readOnly}
               placeholder="Remarks"
@@ -1112,6 +1160,7 @@ function EditorRow({
           </td>
         );
       case 'price_unit': {
+        if (group) return blankBox(key, 'qm-num2');
         const field = QUOTATION_TYPES[mode].rateField;
         return (
           <td key={key} className={`${colClass(key)} qm-num2`}>
@@ -1128,6 +1177,7 @@ function EditorRow({
         );
       }
       case 'supply_unit':
+        if (group) return blankBox(key, 'qm-num2');
         return (
           <td key={key} className={`${colClass(key)} qm-num2`}>
             <input
@@ -1142,6 +1192,7 @@ function EditorRow({
           </td>
         );
       case 'install_unit':
+        if (group) return blankBox(key, 'qm-num2');
         return (
           <td key={key} className={`${colClass(key)} qm-num2`}>
             <input
@@ -1156,18 +1207,21 @@ function EditorRow({
           </td>
         );
       case 'supply_total':
+        if (group) return blankBox(key);
         return (
           <td key={key} className={`${colClass(key)} qm-money`}>
             {formatMoneyIn(lineAmount(r, 'supply'))}
           </td>
         );
       case 'install_total':
+        if (group) return blankBox(key);
         return (
           <td key={key} className={`${colClass(key)} qm-money`}>
             {formatMoneyIn(lineAmount(r, 'inst'))}
           </td>
         );
       case 'total':
+        if (group) return blankBox(key);
         return (
           <td key={key} className={`${colClass(key)} qm-money`}>
             {formatMoneyIn(rowTotal(rows, r, mode))}
