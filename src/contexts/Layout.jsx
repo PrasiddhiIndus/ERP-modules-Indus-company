@@ -19,6 +19,7 @@ import PoApprovalBell from "../components/PoApprovalBell";
 
 const EnquiryDueSoonPopup = lazy(() => import("../pages/projects/enquiry/EnquiryDueSoonPopup"));
 const EnquiryOverduePopup = lazy(() => import("../pages/projects/enquiry/EnquiryOverduePopup"));
+const EnquiryCompletedPopup = lazy(() => import("../pages/projects/enquiry/EnquiryCompletedPopup"));
 import {
   LogOut,
   User,
@@ -1660,6 +1661,7 @@ const Layout = () => {
       {pathname.startsWith("/app/projects") && enquiryTabs.includes("enquiry-database") ? (
         <div className="fixed bottom-4 right-4 z-[900] flex w-[340px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] flex-col gap-3 overflow-y-auto">
           <Suspense fallback={null}>
+            <EnquiryCompletedPopup />
             <EnquiryOverduePopup />
             <EnquiryDueSoonPopup />
           </Suspense>

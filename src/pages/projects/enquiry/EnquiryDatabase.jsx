@@ -30,8 +30,11 @@ import EnquiryEditRequests from './EnquiryEditRequests';
 import EnquiryChangeHistory from './EnquiryChangeHistory';
 import { deletionErrorMessage, listPendingDeletionRequests, requestEnquiryDeletion } from './enquiryDeletionApi';
 import {
+  applyEnquiryCompleted,
   diffEnquiryFields,
   editErrorMessage,
+  isCompletedOnlyChange,
+  isRegretStatusChange,
   listPendingEditRequests,
   requestEnquiryEdit,
 } from './enquiryEditApi';
@@ -47,6 +50,8 @@ import {
   getDaysLeft,
   isClosedRow,
   isClosedStatus,
+  isCompletedStatus,
+  isRegretStatus,
   startOfToday,
   todayIso,
 } from './enquiryDeadlines';
@@ -197,26 +202,31 @@ export default function EnquiryDatabase() {
 
     const dir = sortConfig.dir === 'asc' ? 1 : -1;
     const rankOf = (row) => getStatusRank(getRowStatusValue(row));
+    const serialNum = (row) => {
+      const n = Number(row?.serial_number);
+      return Number.isFinite(n) ? n : 0;
+    };
     if (sortConfig.key === 'current_status') {
       // First click (desc) keeps Not Started on top; the other direction puts Completed first.
-      return [...list].sort((a, b) => (rankOf(a) - rankOf(b)) * -dir || (b.serial_number ?? 0) - (a.serial_number ?? 0));
+      return [...list].sort((a, b) => (rankOf(a) - rankOf(b)) * -dir || serialNum(b) - serialNum(a));
+    }
+    // Serial Number: pure numeric order (do not group by status first).
+    if (sortConfig.key === 'serial_number') {
+      return [...list].sort((a, b) => (serialNum(a) - serialNum(b)) * dir);
+    }
+    if (sortConfig.key === DAYS_LEFT_KEY) {
+      const today = startOfToday();
+      return [...list].sort((a, b) => {
+        const da = isClosedRow(a) ? null : getDaysLeft(a, today);
+        const db = isClosedRow(b) ? null : getDaysLeft(b, today);
+        if (da == null && db == null) return serialNum(b) - serialNum(a);
+        if (da == null) return 1;
+        if (db == null) return -1;
+        return (da - db) * dir || serialNum(b) - serialNum(a);
+      });
     }
     const compare = (a, b) => {
       let av, bv;
-      if (sortConfig.key === 'serial_number') {
-        av = a.serial_number ?? 0;
-        bv = b.serial_number ?? 0;
-        return (av - bv) * dir;
-      }
-      if (sortConfig.key === DAYS_LEFT_KEY) {
-        const today = startOfToday();
-        const da = isClosedRow(a) ? null : getDaysLeft(a, today);
-        const db = isClosedRow(b) ? null : getDaysLeft(b, today);
-        if (da == null && db == null) return 0;
-        if (da == null) return 1;
-        if (db == null) return -1;
-        return (da - db) * dir;
-      }
       if (sortConfig.key === 'created_at') {
         av = a.created_at ?? '';
         bv = b.created_at ?? '';
@@ -234,7 +244,7 @@ export default function EnquiryDatabase() {
       }
       return av < bv ? -dir : av > bv ? dir : 0;
     };
-    return [...list].sort((a, b) => rankOf(a) - rankOf(b) || compare(a, b));
+    return [...list].sort((a, b) => rankOf(a) - rankOf(b) || compare(a, b) || serialNum(b) - serialNum(a));
   }, [rows, search, statusFilter, sortConfig, databaseFields, dashboardIds]);
 
   const startEdit = (row) => {
@@ -275,15 +285,35 @@ export default function EnquiryDatabase() {
       if (canApproveEdits) {
         const { error: e } = await projectsTable('enquiries').update({ data }).eq('id', editDraft.id);
         if (e) throw e;
-        setSavedNotice(`Enquiry #${editDraft.serial_number} updated.`);
+        setSavedNotice(
+          isCompletedStatus(data.current_status)
+            ? `Enquiry #${editDraft.serial_number} marked Completed.`
+            : isRegretStatus(data.current_status)
+              ? `Enquiry #${editDraft.serial_number} marked Regret.`
+              : `Enquiry #${editDraft.serial_number} updated.`
+        );
         await Promise.all([fetchRows(), fetchEditRequests()]);
+        cancelEdit();
+        return;
+      }
+
+      // Non-managers: Completed (status-only) applies now + Projects notification.
+      // Regret (and any other edits) go to L1 approval.
+      if (isCompletedOnlyChange(changes) && isCompletedStatus(data.current_status)) {
+        await applyEnquiryCompleted(editDraft.id, data);
+        setSavedNotice(
+          `Enquiry #${editDraft.serial_number} marked Completed. Projects team will see a notification.`
+        );
+        await fetchRows();
         cancelEdit();
         return;
       }
 
       await requestEnquiryEdit(editDraft.id, data, null);
       setSavedNotice(
-        `Changes to enquiry #${editDraft.serial_number} sent for L1 approval.`
+        isRegretStatusChange(changes) || isRegretStatus(data.current_status)
+          ? `Regret for enquiry #${editDraft.serial_number} sent for L1 approval.`
+          : `Changes to enquiry #${editDraft.serial_number} sent for L1 approval.`
       );
       await fetchEditRequests();
       cancelEdit();
@@ -350,6 +380,21 @@ export default function EnquiryDatabase() {
   const editingRow = editingId ? rows.find((r) => r.id === editingId) : null;
   const savedAssignedOn = editingRow ? getEnquiryFieldValue(editingRow, TARGET_BASIS_KEY) : '';
   const savedReceiptDate = editingRow ? getEnquiryFieldValue(editingRow, RECEIPT_DATE_KEY) : '';
+  /** How a non-manager save will be treated for the current draft. */
+  const draftSaveMode = useMemo(() => {
+    if (!editDraft || !editingRow || canApproveEdits) return 'direct';
+    const { data } = packEnquiryUpdate(editDraft, databaseFields);
+    const lockedAssignedOn = getEnquiryFieldValue(editingRow, TARGET_BASIS_KEY);
+    if (lockedAssignedOn) data[TARGET_BASIS_KEY] = lockedAssignedOn;
+    const lockedReceipt = getEnquiryFieldValue(editingRow, RECEIPT_DATE_KEY);
+    if (lockedReceipt) data[RECEIPT_DATE_KEY] = lockedReceipt;
+    if (isClosedStatus(data.current_status) && !data.completed_on) data.completed_on = todayIso();
+    const changes = diffEnquiryFields(editingRow.data || {}, data, databaseFields);
+    if (!changes.length) return 'none';
+    if (isCompletedOnlyChange(changes)) return 'completed';
+    if (isRegretStatusChange(changes)) return 'regret';
+    return 'l1';
+  }, [editDraft, editingRow, databaseFields, canApproveEdits]);
 
   if (addOpen) {
     return (
@@ -575,10 +620,18 @@ export default function EnquiryDatabase() {
           <div className="flex items-center justify-between mb-3">
             <div>
               <h3 className="text-sm font-semibold text-gray-900">Editing serial #{editDraft.serial_number}</h3>
-              {!canApproveEdits && (
+              {!canApproveEdits && draftSaveMode !== 'none' && (
                 <p className="mt-0.5 text-[11px] text-amber-800">
-                  Changes are sent to your manager (L1) for approval before they apply
-                  {pendingEditByEnquiryId.has(editingId) ? ' (replaces the pending request)' : ''}.
+                  {draftSaveMode === 'completed'
+                    ? 'Marking Completed applies immediately and notifies the Projects module.'
+                    : draftSaveMode === 'regret'
+                      ? 'Regret is sent to your manager (L1) for approval before it applies.'
+                      : 'Changes are sent to your manager (L1) for approval before they apply'}
+                  {draftSaveMode !== 'completed' && pendingEditByEnquiryId.has(editingId)
+                    ? ' (replaces the pending request)'
+                    : draftSaveMode === 'l1'
+                      ? '.'
+                      : ''}
                 </p>
               )}
             </div>
@@ -627,12 +680,16 @@ export default function EnquiryDatabase() {
               className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
             >
               {saving
-                ? canApproveEdits
+                ? canApproveEdits || draftSaveMode === 'completed'
                   ? 'Saving…'
                   : 'Sending…'
                 : canApproveEdits
                   ? 'Save changes'
-                  : 'Send for L1 approval'}
+                  : draftSaveMode === 'completed'
+                    ? 'Mark Completed'
+                    : draftSaveMode === 'regret'
+                      ? 'Send Regret for L1 approval'
+                      : 'Send for L1 approval'}
             </button>
             <button type="button" onClick={cancelEdit} className="px-4 py-2 text-sm border border-gray-200 rounded-lg">
               Cancel
@@ -664,6 +721,7 @@ export default function EnquiryDatabase() {
                       {databaseFields.map((col) => {
                         const layout = getTableColumnLayout(col);
                         const leftHeader = isTableColumnLeftAligned(col) && !layout.compact && !layout.wrapContent;
+                        const nowrapHeader = Boolean(layout.nowrapHeader);
                         return (
                           <React.Fragment key={col.id}>
                             <th
@@ -675,11 +733,11 @@ export default function EnquiryDatabase() {
                               <button
                                 type="button"
                                 onClick={() => toggleSort(col.field_key)}
-                                className={`w-full font-bold text-black text-[11px] leading-[1.2] flex items-center gap-1 whitespace-normal break-words ${
-                                  leftHeader ? 'justify-start text-left' : 'justify-center text-center'
-                                }`}
+                                className={`w-full font-bold text-black text-[11px] leading-[1.2] flex items-center gap-1 ${
+                                  nowrapHeader ? 'whitespace-nowrap' : 'whitespace-normal break-words'
+                                } ${leftHeader ? 'justify-start text-left' : 'justify-center text-center'}`}
                               >
-                                <span>{col.label}</span>
+                                <span className={nowrapHeader ? 'shrink-0' : undefined}>{col.label}</span>
                                 <SortIndicator fieldKey={col.field_key} sortConfig={sortConfig} />
                               </button>
                             </th>
