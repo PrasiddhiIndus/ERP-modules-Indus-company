@@ -94,7 +94,7 @@ export function getRecordedCompletionDate(row) {
   return toLocalDate(row?.data?.completed_on ?? getEnquiryFieldValue(row, 'completed_on'));
 }
 
-function isRegretStatus(status) {
+export function isRegretStatus(status) {
   return String(status || '').trim().toLowerCase() === 'regret';
 }
 

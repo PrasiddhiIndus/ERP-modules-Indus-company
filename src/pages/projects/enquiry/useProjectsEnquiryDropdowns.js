@@ -5,25 +5,24 @@ import { PROJECTS_SCHEMA, projectsErrorMsg, projectsTable } from '../../../servi
 export const ASSIGNEE_KIND_KEY = 'assigned_to_person';
 
 /** Active Projects-department employees from Employee Master; null when unavailable. */
-async function fetchAssigneeOptions() {
+async function fetchAssigneeCandidates() {
   try {
     const { data, error } = await supabase.schema(PROJECTS_SCHEMA).rpc('enquiry_assignee_names');
     if (error) throw error;
-    if (!data?.length) return null;
-    return data.map((row, i) => ({
-      id: `employee:${row.employee_code || row.full_name}`,
-      value: row.full_name,
-      employee_code: row.employee_code,
-      sort_order: i + 1,
-    }));
+    if (!data?.length) return [];
+    return data.map((row) => ({
+      full_name: String(row.full_name || '').trim(),
+      employee_code: row.employee_code || '',
+    })).filter((r) => r.full_name);
   } catch (err) {
-    console.warn('Assigned To Person: Employee Master list unavailable, using the dropdown list.', err);
+    console.warn('Assigned To Person: Employee Master list unavailable.', err);
     return null;
   }
 }
 
 export function useProjectsEnquiryDropdowns() {
   const [kinds, setKinds] = useState([]);
+  const [assigneeCandidates, setAssigneeCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -42,7 +41,8 @@ export function useProjectsEnquiryDropdowns() {
         .order('value', { ascending: true });
       if (optionsErr) throw optionsErr;
 
-      const assigneeOptions = await fetchAssigneeOptions();
+      const candidates = await fetchAssigneeCandidates();
+      if (candidates) setAssigneeCandidates(candidates);
 
       const optionsByKindId = {};
       for (const opt of optionsData || []) {
@@ -50,13 +50,13 @@ export function useProjectsEnquiryDropdowns() {
         optionsByKindId[opt.kind_id].push(opt);
       }
 
-      const enriched = (kindsData || []).map((k) =>
-        k.kind_key === ASSIGNEE_KIND_KEY && assigneeOptions
-          ? { ...k, options: assigneeOptions, fromEmployeeMaster: true }
-          : { ...k, options: optionsByKindId[k.id] || [] }
+      // Forms use only checked (saved) options — not the full Employee Master list.
+      setKinds(
+        (kindsData || []).map((k) => ({
+          ...k,
+          options: optionsByKindId[k.id] || [],
+        }))
       );
-
-      setKinds(enriched);
     } catch (err) {
       setError(projectsErrorMsg(err, 'Load enquiry dropdowns'));
       setKinds([]);
@@ -69,13 +69,23 @@ export function useProjectsEnquiryDropdowns() {
     fetchDropdowns();
   }, [fetchDropdowns]);
 
+  const assigneeNameSet = useMemo(
+    () => new Set((assigneeCandidates || []).map((e) => String(e.full_name || '').trim().toLowerCase())),
+    [assigneeCandidates]
+  );
+
   const optionsByKindKey = useMemo(() => {
     const map = {};
     for (const k of kinds) {
-      map[k.kind_key] = k.options || [];
+      let opts = k.options || [];
+      // Assigned to Person: only Projects-department employees (drop any manual leftovers).
+      if (k.kind_key === ASSIGNEE_KIND_KEY && assigneeNameSet.size) {
+        opts = opts.filter((o) => assigneeNameSet.has(String(o.value || '').trim().toLowerCase()));
+      }
+      map[k.kind_key] = opts;
     }
     return map;
-  }, [kinds]);
+  }, [kinds, assigneeNameSet]);
 
   const valuesForKindKey = useCallback(
     (kindKey) => (optionsByKindKey[kindKey] || []).map((o) => o.value),
@@ -85,13 +95,16 @@ export function useProjectsEnquiryDropdowns() {
   const valuesForKindId = useCallback(
     (kindId) => {
       const k = kinds.find((x) => x.id === kindId);
-      return (k?.options || []).map((o) => o.value);
+      if (!k) return [];
+      return (optionsByKindKey[k.kind_key] || []).map((o) => o.value);
     },
-    [kinds]
+    [kinds, optionsByKindKey]
   );
 
   return {
     kinds,
+    setKinds,
+    assigneeCandidates,
     optionsByKindKey,
     valuesForKindKey,
     valuesForKindId,

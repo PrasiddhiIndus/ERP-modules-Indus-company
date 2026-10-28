@@ -39,10 +39,10 @@ export function diffEnquiryFields(before, after, fields = []) {
 export function editErrorMessage(err, fallback = 'Something went wrong. Please try again.') {
   const msg = String(err?.message || err || '');
   console.error('Enquiry edit', err);
-  if (/enquiry_edit_requests|request_enquiry_edit|decide_enquiry_edit|schema cache|does not exist/i.test(msg)) {
+  if (/enquiry_edit_requests|request_enquiry_edit|decide_enquiry_edit|apply_enquiry_completed|enquiry_notifications|schema cache|does not exist/i.test(msg)) {
     return 'Edit approval is not set up yet. Ask your administrator to apply the latest update.';
   }
-  if (/only a manager|no longer exists|already (approved|rejected)|do not have access|no field changes|managers can save/i.test(msg)) {
+  if (/only a manager|no longer exists|already (approved|rejected)|do not have access|no field changes|managers can save|Regret must be sent|Only Completed status/i.test(msg)) {
     return msg;
   }
   if (/row-level security|42501/i.test(msg)) {
@@ -73,6 +73,36 @@ export async function requestEnquiryEdit(enquiryId, proposedData, reason) {
   });
   if (error) throw error;
   return data;
+}
+
+/** Non-manager path: apply Completed immediately (fires projects notification). Not for Regret. */
+export async function applyEnquiryCompleted(enquiryId, proposedData) {
+  const { data, error } = await rpc('apply_enquiry_completed', {
+    p_enquiry_id: enquiryId,
+    p_proposed_data: proposedData || {},
+  });
+  if (error) throw error;
+  return data;
+}
+
+function statusFromChanges(changes = []) {
+  const row = (changes || []).find((c) => c.field_key === 'current_status');
+  return String(row?.new_value || '').trim().toLowerCase();
+}
+
+/** True when the only edits are marking status Completed (+ optional completed_on). */
+export function isCompletedOnlyChange(changes = []) {
+  const keys = new Set((changes || []).map((c) => c.field_key));
+  if (!keys.size) return false;
+  for (const key of keys) {
+    if (key !== 'current_status' && key !== 'completed_on') return false;
+  }
+  return statusFromChanges(changes) === 'completed';
+}
+
+/** True when status is being set to Regret (needs L1 for non-managers). */
+export function isRegretStatusChange(changes = []) {
+  return statusFromChanges(changes) === 'regret';
 }
 
 export async function decideEnquiryEdit(requestId, approve, note) {

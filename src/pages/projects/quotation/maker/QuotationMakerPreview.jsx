@@ -105,29 +105,30 @@ function PreviewRow({ rows, r, type, colKeys }) {
   if (r.row_type === 'heading') {
     return (
       <tr className="qm-heading" data-pdf-nosplit>
-        <td className="qm-num-cell" />
-        <td className="qm-desc-cell" colSpan={Math.max(1, colKeys.length - 1)}>
-          <b>{r.description}</b>
-        </td>
+        {colKeys.map((key) => {
+          if (key === 'sr') return <td key={key} className="qm-num-cell" />;
+          if (key === 'description') {
+            return (
+              <td key={key} className="qm-desc-cell">
+                <b>{r.description}</b>
+              </td>
+            );
+          }
+          if (key === 'remarks') {
+            return (
+              <td key={key} className="qm-desc-cell">
+                {r.remarks || ''}
+              </td>
+            );
+          }
+          return <td key={key} />;
+        })}
       </tr>
     );
   }
 
   const no = numberOf(rows, r);
-  if (isGroup(rows, r)) {
-    return (
-      <tr data-pdf-nosplit>
-        <td className="qm-num-cell">{no}</td>
-        <td className="qm-desc-cell">
-          <b>{r.description}</b>
-        </td>
-        <td className="qm-desc-cell" colSpan={Math.max(1, colKeys.length - 2)}>
-          <i>Priced through parts</i>
-        </td>
-      </tr>
-    );
-  }
-
+  const group = isGroup(rows, r);
   const q = Number(r.qty) || 0;
   const cells = colKeys.map((key) => {
     switch (key) {
@@ -140,34 +141,41 @@ function PreviewRow({ rows, r, type, colKeys }) {
       case 'description':
         return (
           <td key={key} className={`qm-desc-cell${r.parent_row_id ? ' qm-part' : ''}`}>
-            {r.parent_row_id ? <span className="qm-indent">{r.description}</span> : r.description}
+            {r.parent_row_id ? (
+              <span className="qm-indent">{r.description}</span>
+            ) : group ? (
+              <b>{r.description}</b>
+            ) : (
+              r.description
+            )}
           </td>
         );
       case 'unit':
         return (
           <td key={key} className="qm-unit-cell">
-            {r.unit || '—'}
+            {group ? '' : r.unit || '—'}
           </td>
         );
       case 'qty':
         return (
           <td key={key} className="qm-qty-cell">
-            {q}
+            {group ? '' : q}
           </td>
         );
       case 'make':
         return (
           <td key={key} className="qm-desc-cell">
-            {r.make || '—'}
+            {r.make || (group ? '' : '—')}
           </td>
         );
       case 'remarks':
         return (
           <td key={key} className="qm-desc-cell">
-            {r.remarks || '—'}
+            {r.remarks || (group ? '' : '—')}
           </td>
         );
       case 'price_unit': {
+        if (group) return <td key={key} className="qm-amt-cell" />;
         const rate =
           mode === 'normal' ? r.rate : mode === 'supply' ? r.supply_rate : r.install_rate;
         return (
@@ -179,31 +187,31 @@ function PreviewRow({ rows, r, type, colKeys }) {
       case 'supply_unit':
         return (
           <td key={key} className="qm-amt-cell">
-            {formatMoneyIn(r.supply_rate)}
+            {group ? '' : formatMoneyIn(r.supply_rate)}
           </td>
         );
       case 'install_unit':
         return (
           <td key={key} className="qm-amt-cell">
-            {formatMoneyIn(r.install_rate)}
+            {group ? '' : formatMoneyIn(r.install_rate)}
           </td>
         );
       case 'supply_total':
         return (
           <td key={key} className="qm-amt-cell">
-            {formatMoneyIn(lineAmount(r, 'supply'))}
+            {group ? '' : formatMoneyIn(lineAmount(r, 'supply'))}
           </td>
         );
       case 'install_total':
         return (
           <td key={key} className="qm-amt-cell">
-            {formatMoneyIn(lineAmount(r, 'inst'))}
+            {group ? '' : formatMoneyIn(lineAmount(r, 'inst'))}
           </td>
         );
       case 'total':
         return (
           <td key={key} className="qm-amt-cell">
-            <b>{formatMoneyIn(rowTotal(rows, r, mode))}</b>
+            {group ? '' : <b>{formatMoneyIn(rowTotal(rows, r, mode))}</b>}
           </td>
         );
       default:
