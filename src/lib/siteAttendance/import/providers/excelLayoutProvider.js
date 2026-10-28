@@ -22,7 +22,7 @@ const isCodeHeader = (t) => /^(emp(loyee)?\.?\s*)?(code|no\.?|id)$|^e\.?\s*code$
 const isNameHeader = (t) => /^(emp(loyee)?\.?\s*)?name$/.test(t);
 const isDesigHeader = (t) => /^desig/.test(t);
 const isOtLabel = (t) => /^o\.?t\.?(\s*hours?|\s*hrs?)?$/.test(t);
-const isTotalLabel = (t) => /total|cumulative|grand|^sum$/.test(t);
+const isTotalLabel = (t) => /total|cumulative|grand|^sum$|^shift\s*[abcg]$/.test(t);
 
 const TOTAL_HEADERS = [
   ["present", (t) => /^(present|duty|duty done|duty performed|p|days present|total present days)$/.test(t)],
@@ -192,7 +192,10 @@ function detectHeader(grid, r, cycleDays) {
     else break;
   }
 
-  return { headerRow: r, dataStart, nameCol, codeCol, desigCol, dayCols: run.cols, dates, totalCols, warnings, error };
+  // A stray day header right after the run (e.g. a second "31") is not read.
+  const extraDayCol = [r, dayRow].some((k) => parseDayHeader((grid[k] || [])[lastDayCol + 1])) ? lastDayCol + 1 : -1;
+
+  return { headerRow: r, dataStart, nameCol, codeCol, desigCol, dayCols: run.cols, dates, totalCols, extraDayCol, warnings, error };
 }
 
 function detectPhNotes(grid) {
@@ -281,6 +284,13 @@ export function parseAttendanceGrids(sheets, { cycleDays = [] } = {}) {
       const rawCode = layout.codeCol >= 0 ? String(row[layout.codeCol] || "").trim() : "";
       const rawName = String(row[layout.nameCol] || "").trim();
       if (!rawName && !rawCode) continue;
+      // Merged label rows repeat the first cell's text across Sr/Code/Name.
+      const firstCell = String(row[0] || "").trim();
+      if (!rawCode && firstCell && !/^\d+$/.test(firstCell) && firstCell === rawName && layout.nameCol > 0) continue;
+
+      if (layout.extraDayCol >= 0 && String(row[layout.extraDayCol] || "").trim()) {
+        warnings.push(`${sheetName}: an extra day column after the last date (column ${layout.extraDayCol + 1}) has marks — they were not imported.`);
+      }
       if (!hasDayData && !Object.values(layout.totalCols).some((c) => String(row[c] || "").trim())) continue;
 
       const cellsByDate = {};

@@ -84,11 +84,11 @@ async function readXlsxGrids(buffer) {
       for (let c = 1; c <= colCount; c += 1) {
         const cell = row.getCell(c);
         let value = cell.value;
-        // Merged cells: copy the master value only for narrow merges (header
-        // cells spanning two rows); wide title merges stay blank.
+        // Merged cells: copy the master value down vertical merges only
+        // (header cells spanning two rows, code/name spanning the OT row).
+        // Horizontal merges (titles, "LEFT" across days) stay in their first cell.
         if (cell.isMerged && cell.master && cell.master !== cell) {
-          const span = Math.abs(cell.col - cell.master.col);
-          value = span <= 2 ? cell.master.value : null;
+          value = cell.col === cell.master.col ? cell.master.value : null;
         }
         out.push(cellValueToString(value).replace(/ /g, " ").trim());
       }

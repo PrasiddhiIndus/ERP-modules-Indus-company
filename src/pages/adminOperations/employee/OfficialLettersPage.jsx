@@ -1,5 +1,5 @@
 /** Official Letters — issue HR letters and track probation reviews (2 / 4 / 5.5 months).
- *  Personal Letters tab — birthday & wedding-anniversary greeting cards (8:00 IST). */
+ *  Personal Letters tab — birthday & wedding-anniversary greeting cards (5:00 IST). */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
@@ -979,7 +979,7 @@ export function OfficialLettersPage() {
             title="Official Letters"
             subtitle={
               pageTab === PERSONAL_TAB
-                ? "Birthday and wedding-anniversary greeting cards are created automatically at 8:00 AM IST for employees whose occasion falls that day."
+                ? "Birthday and wedding-anniversary greeting cards are created automatically at 5:00 AM IST for employees whose occasion falls that day."
                 : "Issue warning, show-cause, appointment, experience, confirmation, promotion and other letters. Track probation reviews at 2, 4 and 5.5 months."
             }
           >
@@ -1019,14 +1019,14 @@ export function OfficialLettersPage() {
           <CollapsibleHelp label="how this works">
             {pageTab === PERSONAL_TAB ? (
               <ul className="list-disc pl-4 space-y-1">
-                <li>Each morning at 8:00 AM IST, cards are created for employees with a birthday or wedding anniversary that day.</li>
+                <li>Each morning at 5:00 AM IST, cards are created for employees with a birthday or wedding anniversary that day.</li>
                 <li>Employee full name from Employee Master replaces the name placeholder on the Indus greeting template.</li>
                 <li>Cards appear here under Personal Letters and against the employee when you open their profile.</li>
                 <li>
                   WhatsApp sends the greeting-card image to the celebrant, and a team notice with the same
                   image to every other active employee who has a registered mobile.
                 </li>
-                <li>Use Generate today’s cards if the server was offline at 8:00 AM or you need to re-check today’s occasions.</li>
+                <li>Use Generate today’s cards if the server was offline at 5:00 AM or you need to re-check today’s occasions.</li>
               </ul>
             ) : (
               <ul className="list-disc pl-4 space-y-1">
@@ -1127,7 +1127,7 @@ export function OfficialLettersPage() {
             <p className="text-sm text-ink-secondary py-6 text-center">Loading personal letters…</p>
           ) : filteredPersonalLetters.length === 0 ? (
             <p className="text-xs text-gray-500 py-8 text-center border border-gray-200 rounded-lg">
-              No personal letters yet. Cards are created at 8:00 AM IST on each birthday or wedding anniversary, or use Generate today’s cards.
+              No personal letters yet. Cards are created at 5:00 AM IST on each birthday or wedding anniversary, or use Generate today’s cards.
             </p>
           ) : (
             <DenseTable

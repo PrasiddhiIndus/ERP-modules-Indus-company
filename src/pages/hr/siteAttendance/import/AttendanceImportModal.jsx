@@ -155,7 +155,7 @@ export default function AttendanceImportModal({ open, onClose, onSaved, grid }) 
     if (!onlyIssues) return preview.rows;
     return preview.rows.filter(
       (row) =>
-        row.status !== "ok" ||
+        (row.status !== "ok" && row.status !== "merged") ||
         row.notes.length ||
         row.totalIssues?.length ||
         row.cells.some((c) => [CELL_STATUS.CONFLICT, CELL_STATUS.INVALID, CELL_STATUS.UNKNOWN].includes(c.status))
@@ -321,7 +321,7 @@ export default function AttendanceImportModal({ open, onClose, onSaved, grid }) 
                     const st = row.sheetTotals || {};
                     const ft = row.fileTotals || {};
                     const mismatch = (a, b) => (a != null && b != null && Math.abs(a - b) > 0.01 ? "text-red-700 font-semibold" : "");
-                    const rowTone = row.status === "ignored" ? "opacity-50" : row.status === "ok" ? "" : "bg-red-50";
+                    const rowTone = row.status === "ignored" || row.status === "merged" ? "opacity-50" : row.status === "ok" ? "" : "bg-red-50";
                     const editable = row.status === "ok";
                     return (
                       <React.Fragment key={row.rowKey}>
