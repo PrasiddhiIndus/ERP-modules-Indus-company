@@ -1,6 +1,6 @@
 # Personal letter templates (birthday / anniversary)
 
-Used by the API server (`server/personalLetterCards.js`) to generate greeting cards at 08:00 IST and to regenerate previews when R2 is unavailable.
+Used by the API server (`server/personalLetterCards.js`) to generate greeting cards at 05:00 IST and to regenerate previews when R2 is unavailable.
 
 ## Paths (must be committed so production git deploy has them)
 

@@ -1,7 +1,7 @@
 /**
  * Personal letters — birthday & wedding-anniversary greeting cards.
  *
- * At 08:00 IST (and later the same day if the server was down), finds active
+ * At 05:00 IST (and later the same day if the server was down), finds active
  * employees whose date_of_birth / date_of_anniversary falls today, personalizes
  * a random Indus 4K template (replacing the [Name] placeholder with full_name),
  * uploads to R2 when configured, and inserts admin_personal_letters.
@@ -25,7 +25,9 @@ async function getSharp() {
   } catch (err) {
     const detail = err?.message || String(err);
     const e = new Error(
-      `Greeting-card image library is not available (${detail}). Run npm install in the project root, then restart the API server.`
+      `Greeting-card image library is not available (${detail}). ` +
+        `On production, Node.js 18.17+ is required with sharp ~0.34 (Node 20+ if using sharp 0.35+). ` +
+        `Run npm install in the project root, then restart the API server.`
     );
     e.status = 503;
     throw e;
@@ -33,7 +35,11 @@ async function getSharp() {
 }
 
 const CHECK_EVERY_MS = 15 * 60 * 1000;
-const RUN_AT_IST_HOUR = 8;
+/** IST hour when the daily job may first run (override with PERSONAL_LETTER_CARDS_HOUR). */
+const RUN_AT_IST_HOUR = (() => {
+  const raw = Number(process.env.PERSONAL_LETTER_CARDS_HOUR);
+  return Number.isFinite(raw) && raw >= 0 && raw <= 23 ? Math.floor(raw) : 5;
+})();
 const TABLE = 'admin_personal_letters';
 const R2_PREFIX = 'admin-personal-letters/';
 const IMAGE_W = 3840;
@@ -848,7 +854,7 @@ export function startPersonalLetterCards({
   const bdayCount = listTemplates(bdayDir).length;
   const annCount = listTemplates(annDir).length;
   console.log(
-    `[personal-letters] latest templates: birthday=${bdayCount} (${bdayDir}), anniversary=${annCount} (${annDir})`
+    `[personal-letters] daily job from ${String(RUN_AT_IST_HOUR).padStart(2, '0')}:00 IST; latest templates: birthday=${bdayCount} (${bdayDir}), anniversary=${annCount} (${annDir})`
   );
   if (!bdayCount || !annCount) {
     console.warn(

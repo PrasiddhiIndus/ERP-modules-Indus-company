@@ -55,16 +55,18 @@ function resolveDesignation(row, person, placements, multi) {
   };
 }
 
+/** Totals of the marks as written in the file (before any sandwich conversion). */
 function fileTotalsFor(cells) {
   const t = { present: 0, leave: 0, weekoff: 0, otDays: 0, otHours: 0 };
   cells.forEach((c) => {
-    if (DUTY.has(c.proposedCode) || c.proposedCode === "CO") t.present += 1;
-    if (c.proposedCode === "HD") {
+    const code = c.mappedCode ?? c.proposedCode;
+    if (DUTY.has(code) || code === "CO") t.present += 1;
+    if (code === "HD") {
       t.present += 0.5;
       t.leave += 0.5;
     }
-    if (c.proposedCode === "L") t.leave += 1;
-    if (c.proposedCode === "WO") t.weekoff += 1;
+    if (code === "L") t.leave += 1;
+    if (code === "WO") t.weekoff += 1;
     if (c.proposedOt > 0) {
       t.otDays += 1;
       t.otHours += c.proposedOt;
@@ -143,18 +145,54 @@ export function buildImportPreview(extracted, ctx, overrides = {}) {
     row.designation = designation;
     if (note) notes.push(note);
     const dupKey = `${person.id}|${designation}`;
-    if (seen.has(dupKey)) {
-      row.status = "duplicate";
-      notes.push(`Same person as ${seen.get(dupKey)} — ignore one of the rows`);
-    } else {
-      seen.set(dupKey, `${raw.sheet} row ${raw.sourceRow}`);
+    const first = seen.get(dupKey);
+    if (!first) {
+      seen.set(dupKey, row);
+      return row;
     }
+    const where = `${first.sheet} row ${first.sourceRow}`;
+    const firstByDate = new Map(first.sourceCells.map((c) => [c.date, c]));
+    const overlap = row.sourceCells.filter((c) => {
+      const f = firstByDate.get(c.date);
+      return f && ((c.rawMark && f.rawMark) || (c.rawOt && f.rawOt));
+    });
+    if (multi || overlap.length) {
+      row.status = "duplicate";
+      notes.push(
+        overlap.length
+          ? `Same person as ${where}, and both rows fill ${overlap.map((c) => c.date.slice(8)).join(", ")} — ignore one row or clear those days`
+          : `Same person as ${where} — ignore one of the rows`
+      );
+      return row;
+    }
+    // Single-designation site: one person split over two rows (e.g. listed under
+    // two designation blocks) is combined, since no day is filled twice.
+    first.sourceCells = first.sourceCells.map((c) => {
+      const extra = row.sourceCells.find((x) => x.date === c.date);
+      if (!extra) return c;
+      return {
+        ...c,
+        rawMark: c.rawMark || extra.rawMark,
+        rawOt: c.rawOt || extra.rawOt,
+        col: c.rawMark ? c.col : extra.col,
+        fromRow: extra.rawMark || extra.rawOt ? row.sourceRow : c.fromRow,
+      };
+    });
+    first.hasData = first.hasData || row.hasData;
+    const totals = { ...(first.sheetTotals || {}) };
+    Object.entries(row.sheetTotals || {}).forEach(([k, v]) => {
+      totals[k] = (totals[k] || 0) + v;
+    });
+    first.sheetTotals = totals;
+    first.notes.push(`Includes marks from ${row.sheet} row ${row.sourceRow} (same person)`);
+    row.status = "merged";
+    row.notes = [`Combined into ${where}`];
     return row;
   });
 
   // Pass 1: cell-level mapping, validation and diff.
   rows.forEach((row) => {
-    if (!row.person || row.ignored) return;
+    if (!row.person || row.ignored || row.status === "merged") return;
     const person = row.person;
     const assignment = assignments[person.id] || null;
     row.cells = row.sourceCells.map((src) => {
@@ -168,12 +206,14 @@ export function buildImportPreview(extracted, ctx, overrides = {}) {
         ? { kind: Number(edit.ot) > 0 ? "hours" : "blank", hours: Math.max(0, Math.round(Number(edit.ot) || 0)) }
         : mapOtValue(src.rawOt, site?.duty_hours);
       if (markMap.note) messages.push(markMap.note);
+      if (markMap.left && !row.notes.some((n) => n.startsWith("Marked \""))) row.notes.push(`Marked "${src.rawMark}" on ${src.date} — no attendance imported for it; check the leaving date in People Master`);
       if (otMap.note) messages.push(otMap.note);
 
       const cell = {
         key,
         date: src.date,
         col: src.col,
+        fromRow: src.fromRow,
         rawMark: src.rawMark,
         rawOt: src.rawOt,
         confidence: src.confidence ?? 1,
@@ -300,6 +340,7 @@ export function buildImportPreview(extracted, ctx, overrides = {}) {
         if (record.__import) {
           const target = record.__import.cell;
           if (target.proposedCode !== "L") {
+            target.mappedCode = target.proposedCode;
             target.proposedCode = "L";
             target.messages.push("Sandwich rule: converted to L");
           }
@@ -351,20 +392,21 @@ export function buildImportPreview(extracted, ctx, overrides = {}) {
 
   rows.forEach((row) => {
     row.fileTotals = fileTotalsFor(row.cells);
-    row.totalIssues = row.person ? reconcileTotals(row.sheetTotals || {}, row.fileTotals) : [];
+    row.totalIssues = row.person && row.status !== "merged" ? reconcileTotals(row.sheetTotals || {}, row.fileTotals) : [];
     row.afterTotals = row.person
       ? computeEmployeeTotals({ ...row.person, grid_designation: row.designation || undefined }, days, getAfter, site)
       : null;
   });
 
   // Summary + what Save would send.
-  const summary = { rows: rows.length, matched: 0, unmatched: 0, ignored: 0, duplicate: 0, new: 0, same: 0, conflict: 0, invalid: 0, unknown: 0, sandwich: sandwich.length, totalsMismatch: 0 };
+  const summary = { rows: rows.length, matched: 0, unmatched: 0, ignored: 0, duplicate: 0, merged: 0, new: 0, same: 0, conflict: 0, invalid: 0, unknown: 0, sandwich: sandwich.length, totalsMismatch: 0 };
   const blocking = [];
   const cellsToSave = [];
   rows.forEach((row) => {
     if (row.status === "ignored") summary.ignored += 1;
     else if (row.status === "unmatched") summary.unmatched += 1;
     else if (row.status === "duplicate") summary.duplicate += 1;
+    else if (row.status === "merged") summary.merged += 1;
     else summary.matched += 1;
     if (row.totalIssues?.length) summary.totalsMismatch += 1;
 
@@ -384,7 +426,7 @@ export function buildImportPreview(extracted, ctx, overrides = {}) {
         designation: row.designation || "",
         raw_mark: cell.rawMark || null,
         raw_ot: cell.rawOt || null,
-        source_ref: { sheet: row.sheet, row: row.sourceRow, otRow: row.otRow, col: cell.col, edited: cell.edited },
+        source_ref: { sheet: row.sheet, row: cell.fromRow || row.sourceRow, otRow: row.otRow, col: cell.col, edited: cell.edited },
         confidence: cell.confidence,
         proposed_code: cell.proposedCode,
         proposed_ot: cell.proposedOt,

@@ -25,10 +25,15 @@ const GENERAL_ONLY = {
   PH: "NH-PH", NH: "NH-PH", "NH-PH": "NH-PH", "NH/PH": "NH-PH", NHPH: "NH-PH", HOL: "NH-PH", HOLIDAY: "NH-PH",
 };
 
-const ABCG_ONLY = { A: "A", B: "B", C: "C", G: "G" };
+// On ABCG sites a P (general-shift day) is recorded as G; the site's codes are unchanged.
+const ABCG_ONLY = { A: "A", B: "B", C: "C", G: "G", P: "G", PR: "G", PRESENT: "G" };
 
-/** Marks in a separate OT row that mean "worked OT this day" without a number. */
-const OT_DAY_MARKS = new Set(["OT", "P", "Y", "YES", "✓", "✔", "√", "*"]);
+/** Marks meaning the person has left — recorded as blank, flagged for review. */
+const LEFT_MARKS = new Set(["LEFT", "LFT", "RESIGNED", "RESIGN", "ABSCOND", "ABSCONDED"]);
+
+/** Marks in a separate OT row that mean "worked OT this day" without a number.
+ *  Shift letters (A/B/C/G) say which shift the OT was worked in. */
+const OT_DAY_MARKS = new Set(["OT", "P", "Y", "YES", "✓", "✔", "√", "*", "A", "B", "C", "G"]);
 
 export function normalizeMarkToken(raw) {
   return String(raw ?? "")
@@ -44,11 +49,16 @@ export function normalizeMarkToken(raw) {
 export function mapAttendanceMark(raw, shiftType) {
   const token = normalizeMarkToken(raw);
   if (BLANK_MARKS.has(token)) return { kind: "blank", code: "", raw: String(raw ?? "") };
+  if (LEFT_MARKS.has(token)) {
+    return { kind: "blank", code: "", raw: String(raw), left: true, note: `Marked ${String(raw).trim()} — check the leaving date in People Master` };
+  }
   const table = shiftType === "ABCG" ? { ...COMMON_MARKS, ...ABCG_ONLY } : { ...COMMON_MARKS, ...GENERAL_ONLY };
   const code = table[token];
   const allowed = codesForShiftType(shiftType);
   if (code && allowed.includes(code)) {
-    const note = code === "L" && token !== "L" && !["LV", "LEAVE"].includes(token) ? "Absent mapped to L" : undefined;
+    let note;
+    if (code === "L" && token !== "L" && !["LV", "LEAVE"].includes(token)) note = "Absent mapped to L";
+    if (code === "G" && token !== "G") note = "P (general shift) recorded as G";
     return { kind: "mapped", code, raw: String(raw), note };
   }
   return { kind: "unknown", code: "", raw: String(raw), note: `Unrecognised mark "${String(raw).trim()}"` };
@@ -72,7 +82,8 @@ export function mapOtValue(raw, dutyHours = 8) {
   }
   if (OT_DAY_MARKS.has(token)) {
     const hours = Number(dutyHours) === 12 ? 12 : 8;
-    return { kind: "hours", hours, raw: String(raw), note: `OT mark = ${hours} h duty` };
+    const shift = ["A", "B", "C", "G"].includes(token) ? ` (shift ${token})` : "";
+    return { kind: "hours", hours, raw: String(raw), note: `OT mark${shift} = ${hours} h duty` };
   }
   return { kind: "unknown", hours: 0, raw: String(raw), note: `Unrecognised OT value "${String(raw).trim()}"` };
 }

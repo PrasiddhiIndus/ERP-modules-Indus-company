@@ -89,6 +89,35 @@ function layoutC() {
   }];
 }
 
+// Layout D — ABCG site sheet: shift letters, OT row with shift letters, merged
+// "SHIFT A" summary rows, a stray second "31" column, one person in two blocks.
+function layoutD() {
+  const oct = generateDays(2026, 10, 1, 31).days;
+  const days = oct.map((d) => String(d.day));
+  const wds = oct.map((d) => WD[d.date.getDay()].toUpperCase());
+  const row = (sr, code, name, desig, m) => [sr, code, name, desig, ...m, ""];
+  return [{
+    name: " 01.10.2026 to 31.10.2026",
+    grid: [
+      ["Indus Fire & Safety Pvt. Ltd. Fire Manpower Attendance Sheet From 01-10-2026 to 31-10-2026"],
+      ["Sr. No", "Emp. Code", "Emp.Name", "Designation", ...days, "31", "Duty Done", "OT", "W/O", "LEAVE", "TOTAL DUTY", "SIGN"],
+      ["", "", "", "", ...wds, "THU"],
+      [...row("1", "5487", "Shift Person One", "F.Sup", blanks(31, { 1: "W/O", 2: "C", 3: "B", 4: "P", 5: "A" })), "4", "2", "1", "0", "6"],
+      ["1", "5487", "Shift Person One", "OT", ...blanks(31, { 3: "C", 5: "B" })],
+      [...row("2", "6543", "Split Person", "F.Sup( DCPO)", blanks(31, { 10: "A", 11: "A" })), "2", "0", "0", "0", "2"],
+      ["2", "6543", "Split Person", "OT"],
+      [...row("3", "10181", "Leaver Person", "F.Sup", blanks(31, { 1: "B", 2: "B", 3: "LEFT" })), "2", "0", "0", "0", "2"],
+      ["3", "10181", "Leaver Person", "OT"],
+      ["FIRE SUPERVISOR TOTAL DUTIES", "FIRE SUPERVISOR TOTAL DUTIES", "FIRE SUPERVISOR TOTAL DUTIES", "", ...Array(31).fill("3")],
+      [...row("", "6543", "Split Person", "F.Sup( DCPO)", blanks(31, { 16: "C" })), "1", "1", "0", "0", "2"],
+      ["", "6543", "Split Person", "OT", ...blanks(31, { 16: "A" })],
+      ["SHIFT A", "SHIFT A", "SHIFT A", "", ...Array(31).fill("6"), "", "96"],
+      ["SHIFT G", "SHIFT G", "SHIFT G", "", ...Array(31).fill("0")],
+      ["TOTAL", "TOTAL", "TOTAL", "", ...Array(31).fill("18")],
+    ],
+  }];
+}
+
 describe("mark dictionary", () => {
   it("maps known marks and keeps blank as blank", () => {
     expect(mapAttendanceMark("P", "GENERAL").code).toBe("P");
@@ -101,7 +130,20 @@ describe("mark dictionary", () => {
     expect(mapAttendanceMark("A", "GENERAL")).toMatchObject({ code: "L", note: "Absent mapped to L" });
     expect(mapAttendanceMark("ABSENT", "GENERAL").code).toBe("L");
     expect(mapAttendanceMark("A", "ABCG").code).toBe("A");
-    expect(mapAttendanceMark("P", "ABCG").kind).toBe("unknown");
+  });
+
+  it("records P as G on ABCG sites without changing the site's codes", () => {
+    expect(mapAttendanceMark("P", "ABCG")).toMatchObject({ code: "G", note: "P (general shift) recorded as G" });
+    expect(mapAttendanceMark("G", "GENERAL").kind).toBe("unknown");
+  });
+
+  it("reads LEFT as blank with a review note", () => {
+    expect(mapAttendanceMark("LEFT", "ABCG")).toMatchObject({ kind: "blank", code: "", left: true });
+  });
+
+  it("reads shift letters in the OT row as one OT duty", () => {
+    expect(mapOtValue("C", 12)).toMatchObject({ kind: "hours", hours: 12, note: "OT mark (shift C) = 12 h duty" });
+    expect(mapOtValue("B", 8).hours).toBe(8);
   });
 
   it("reads OT numbers as hours and OT marks as one duty", () => {
@@ -156,6 +198,27 @@ describe("layout parser", () => {
     const out = parseAttendanceGrids(layoutC(), { cycleDays: julyDays });
     expect(out.rows).toHaveLength(0);
     expect(out.errors[0]).toMatch(/do not match this site's salary cycle/);
+  });
+
+  it("parses an ABCG sheet and skips SHIFT A/G and total label rows", () => {
+    const oct = generateDays(2026, 10, 1, 31).days;
+    const out = parseAttendanceGrids(layoutD(), { cycleDays: oct });
+    expect(out.errors).toEqual([]);
+    expect(out.rows.map((r) => r.rawCode)).toEqual(["5487", "6543", "10181", "6543"]);
+    const one = out.rows[0];
+    expect(one.cells).toHaveLength(31); // the stray second "31" column is not read
+    expect(one.cells.find((c) => c.date === "2026-10-03")).toMatchObject({ rawMark: "B", rawOt: "C" });
+    expect(one.sheetTotals).toMatchObject({ present: 4, ot: 2, weekoff: 1, leave: 0, total: 6 });
+    expect(out.rows[3].cells.find((c) => c.date === "2026-10-16").rawOt).toBe("A");
+    expect(out.warnings).toEqual([]);
+  });
+
+  it("warns when the stray extra day column holds marks", () => {
+    const oct = generateDays(2026, 10, 1, 31).days;
+    const sheets = layoutD();
+    sheets[0].grid[3][4 + 31] = "A";
+    const out = parseAttendanceGrids(sheets, { cycleDays: oct });
+    expect(out.warnings.some((w) => w.includes("extra day column"))).toBe(true);
   });
 
   it("reports sheets without an attendance table", () => {
@@ -276,6 +339,51 @@ describe("import preview", () => {
     const p = buildImportPreview(ex, { ...base, records: [], locked: true });
     expect(p.canSave).toBe(false);
     expect(p.blocking[0]).toMatch(/locked/);
+  });
+
+  describe("ABCG sheet end to end", () => {
+    const oct = generateDays(2026, 10, 1, 31).days;
+    const abcgSite = { id: 10, shift_type: "ABCG", duty_hours: 12, sandwich_rule: true, nh_ph_dates: [] };
+    const roster = [
+      { id: 11, unique_code: "5487", full_name: "Shift Person One", joining_date: "2024-01-01", is_active: true, designation: "F.Sup" },
+      { id: 12, unique_code: "6543", full_name: "Split Person", joining_date: "2024-01-01", is_active: true, designation: "DCPO" },
+      { id: 13, unique_code: "10181", full_name: "Leaver Person", joining_date: "2024-01-01", is_active: true, designation: "F.Sup" },
+    ];
+    const assign = Object.fromEntries(roster.map((p) => [p.id, { from_date: "2024-01-01", to_date: null }]));
+    const ctx = { site: abcgSite, days: oct, employees: roster, assignments: assign, placements: [], multi: false, locked: false, year: 2026, records: [] };
+    const parsed = parseAttendanceGrids(layoutD(), { cycleDays: oct });
+
+    it("saves shift codes, P as G, and OT from shift letters", () => {
+      const p = buildImportPreview(parsed, ctx);
+      expect(p.blocking).toEqual([]);
+      const one = p.rows[0].cells;
+      expect(one.find((c) => c.date === "2026-10-04")).toMatchObject({ proposedCode: "G", status: CELL_STATUS.NEW });
+      expect(one.find((c) => c.date === "2026-10-03")).toMatchObject({ proposedCode: "B", proposedOt: 12 });
+      expect(p.rows[0].totalIssues).toEqual([]);
+    });
+
+    it("combines one person split across two blocks on a single-designation site", () => {
+      const p = buildImportPreview(parsed, ctx);
+      expect(p.rows[3].status).toBe("merged");
+      const split = p.cellsToSave.filter((c) => c.person_id === 12).map((c) => [c.att_date, c.proposed_code, c.proposed_ot]);
+      expect(split).toEqual([["2026-10-10", "A", 0], ["2026-10-11", "A", 0], ["2026-10-16", "C", 12]]);
+      expect(p.rows[1].notes.some((n) => n.includes("Includes marks from"))).toBe(true);
+    });
+
+    it("keeps two rows as duplicates when both fill the same day", () => {
+      const sheets = layoutD();
+      sheets[0].grid[10][4 + 9] = "B"; // second block also fills 10 Oct
+      const p = buildImportPreview(parseAttendanceGrids(sheets, { cycleDays: oct }), ctx);
+      expect(p.rows[3].status).toBe("duplicate");
+      expect(p.canSave).toBe(false);
+    });
+
+    it("treats LEFT as no attendance and asks to check the leaving date", () => {
+      const p = buildImportPreview(parsed, ctx);
+      const leaver = p.rows[2];
+      expect(leaver.cells.find((c) => c.date === "2026-10-03").status).toBe(CELL_STATUS.EMPTY);
+      expect(leaver.notes.some((n) => n.includes("leaving date"))).toBe(true);
+    });
   });
 
   it("flags rows whose sheet totals disagree with the marks", () => {
