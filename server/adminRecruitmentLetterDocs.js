@@ -296,11 +296,71 @@ export async function buildAppointmentLetterDocx(appt, offer, candidate, company
   return fillDocxTemplate(APPOINTMENT_TEMPLATE, appointmentPlaceholders(appt, offer, candidate, companyName));
 }
 
-/**
- * Convert a .docx buffer to PDF via Word (Windows). Returns null when unavailable.
- * Used for email so Gmail/Outlook preview cannot reflow the Word layout.
- */
-export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
+async function findLibreOfficeBinary() {
+  const known = [
+    'soffice',
+    'libreoffice',
+    '/usr/bin/soffice',
+    '/usr/bin/libreoffice',
+    '/usr/lib/libreoffice/program/soffice',
+    'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
+  ];
+  for (const c of known) {
+    if (c.includes('/') || c.includes('\\')) {
+      if (fs.existsSync(c)) return c;
+      continue;
+    }
+    try {
+      const { stdout } = await execFileAsync(process.platform === 'win32' ? 'where' : 'which', [c], {
+        windowsHide: true,
+        timeout: 5000,
+      });
+      const hit = String(stdout || '')
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .find(Boolean);
+      if (hit && fs.existsSync(hit)) return hit;
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
+async function convertDocxViaLibreOffice(docxBuffer, baseName = 'letter') {
+  const soffice = await findLibreOfficeBinary();
+  if (!soffice) return null;
+  const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
+  if (buf.length < 100) return null;
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ifspl-lo-pdf-'));
+  const docxPath = path.join(tmpDir, `${baseName}.docx`);
+  const pdfPath = path.join(tmpDir, `${baseName}.pdf`);
+  fs.writeFileSync(docxPath, buf);
+  try {
+    await execFileAsync(
+      soffice,
+      ['--headless', '--nologo', '--nofirststartwizard', '--norestore', '--convert-to', 'pdf', '--outdir', tmpDir, docxPath],
+      { windowsHide: true, timeout: 120000, maxBuffer: 10 * 1024 * 1024 }
+    );
+    if (!fs.existsSync(pdfPath)) return null;
+    const pdf = fs.readFileSync(pdfPath);
+    if (pdf.length < 100 || String(pdf.slice(0, 4)) !== '%PDF') return null;
+    return pdf;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[admin-recruitment] LibreOffice PDF convert unavailable:', err?.message || err);
+    return null;
+  } finally {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function convertDocxViaWord(docxBuffer, baseName = 'letter') {
   if (process.platform !== 'win32') return null;
   const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
   if (buf.length < 100) return null;
@@ -353,4 +413,203 @@ if (-not (Test-Path $out)) { throw 'Word did not write the PDF.' }
       /* ignore */
     }
   }
+}
+
+/**
+ * Convert a filled .docx buffer to PDF.
+ * Order: Microsoft Word (Windows) → LibreOffice (Linux/prod) → null.
+ */
+export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
+  const viaWord = await convertDocxViaWord(docxBuffer, baseName);
+  if (viaWord) return viaWord;
+  const viaLo = await convertDocxViaLibreOffice(docxBuffer, baseName);
+  if (viaLo) return viaLo;
+  return null;
+}
+
+function pdfSafe(text) {
+  return String(text ?? '')
+    .replace(/₹/g, 'Rs.')
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—]/g, '-')
+    .replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]/g, '?');
+}
+
+/**
+ * Production-safe PDF of the IFSPL offer letter (no Word/LibreOffice required).
+ * Uses the same letterhead + CTC signature assets as the Word template.
+ */
+export async function buildOfferLetterPdf(offer, candidate, companyName) {
+  const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
+  const p = offerPlaceholders(offer, candidate, companyName);
+  const pdf = await PDFDocument.create();
+  const page = pdf.addPage([595.28, 841.89]);
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const margin = 54;
+  let y = 841.89 - 40;
+
+  const letterheadPath = path.join(TEMPLATE_DIR, 'offer-assets', 'letterhead.png');
+  const signaturePath = path.join(TEMPLATE_DIR, 'offer-assets', 'signature.png');
+  const annexureSig = path.join(__dirname, '../src/assets/annexure-signature.png');
+
+  try {
+    if (fs.existsSync(letterheadPath)) {
+      const img = await pdf.embedPng(fs.readFileSync(letterheadPath));
+      const w = 220;
+      const h = (img.height / img.width) * w;
+      page.drawImage(img, { x: (595.28 - w) / 2, y: y - h, width: w, height: h });
+      y -= h + 18;
+    }
+  } catch {
+    /* continue without letterhead */
+  }
+
+  const draw = (text, { f = font, size = 10.5, gap = 4, color = rgb(0.12, 0.12, 0.12) } = {}) => {
+    const line = pdfSafe(text);
+    const width = 595.28 - margin * 2;
+    const words = line.split(/\s+/).filter(Boolean);
+    let cur = '';
+    const lines = [];
+    for (const word of words.length ? words : ['']) {
+      const next = cur ? `${cur} ${word}` : word;
+      if (f.widthOfTextAtSize(next, size) > width && cur) {
+        lines.push(cur);
+        cur = word;
+      } else cur = next;
+    }
+    if (cur || !words.length) lines.push(cur);
+    for (const l of lines) {
+      page.drawText(l, { x: margin, y: y - size, size, font: f, color });
+      y -= size + gap;
+    }
+  };
+
+  draw(`Date: ${p['{{OFFER_DATE}}']}`, { size: 10.5 });
+  y -= 6;
+  draw('Subject: Offer of Employment', { f: bold, size: 11 });
+  y -= 8;
+  draw(`Dear ${p['{{CANDIDATE_NAME}}']},`);
+  y -= 6;
+  draw(
+    `We are pleased to offer you the position of ${String(p['{{DESIGNATION}}'] || '').trim()}${p['{{DEPARTMENT_CLAUSE}}'] || ''} at ${p['{{COMPANY_NAME}}']}. Based on your interview and credentials, we believe you will be a valuable addition to our organization.`
+  );
+  y -= 8;
+
+  const facts = [
+    ['Designation', String(offer?.designation || '').trim() || '—'],
+    ['Date of Joining', p['{{JOINING_DATE_LONG}}'] || '—'],
+    ['Work Location', p['{{LOCATION}}'] || '—'],
+  ];
+  for (const [label, value] of facts) {
+    page.drawText(pdfSafe(label), { x: margin, y: y - 10.5, size: 10.5, font: bold });
+    page.drawText(pdfSafe(value), { x: margin + 150, y: y - 10.5, size: 10.5, font });
+    y -= 16;
+  }
+  y -= 6;
+  draw('This offer is subject to verification of your educational and employment documents, and satisfactory reference checks.');
+  y -= 4;
+  draw(
+    'Your detailed terms and conditions of employment will be shared in the Appointment Letter, which will be issued to you on the date of joining.'
+  );
+  y -= 4;
+  draw(
+    `Please confirm your acceptance by signing and returning a copy of this letter on or before ${p['{{VALID_UNTIL}}']}. This offer will lapse if your acceptance is not received on or before ${p['{{VALID_UNTIL}}']}, or if you fail to join on the agreed date (${p['{{JOINING_DATE_SHORT}}']}).`
+  );
+  y -= 4;
+  draw('We look forward to having you with us.');
+  y -= 10;
+  draw('Yours sincerely,');
+  y -= 6;
+
+  try {
+    const sigFile = fs.existsSync(signaturePath) ? signaturePath : annexureSig;
+    if (fs.existsSync(sigFile)) {
+      const sig = await pdf.embedPng(fs.readFileSync(sigFile));
+      const sh = 42;
+      const sw = (sig.width / sig.height) * sh;
+      page.drawImage(sig, { x: margin, y: y - sh, width: sw, height: sh });
+      y -= sh + 6;
+    } else {
+      y -= 36;
+    }
+  } catch {
+    y -= 36;
+  }
+
+  draw('Shilpa Thakur', { f: bold, size: 10.5 });
+  draw('Manager - Human Resources', { size: 10 });
+  draw(p['{{COMPANY_NAME}}'], { size: 10 });
+  y -= 16;
+  draw('I accept the above offer and confirm that I will join on [DD/MM/YYYY]', { f: bold, size: 10 });
+  y -= 10;
+  draw('Name: ____________________');
+  y -= 8;
+  draw('Signature: ____________________');
+  y -= 8;
+  draw('Date: ____________');
+
+  return Buffer.from(await pdf.save());
+}
+
+/** Appointment PDF fallback for Linux/production (no Word required). */
+export async function buildAppointmentLetterPdf(appt, offer, candidate, companyName) {
+  const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
+  const p = appointmentPlaceholders(appt, offer, candidate, companyName);
+  const pdf = await PDFDocument.create();
+  const page = pdf.addPage([595.28, 841.89]);
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const margin = 54;
+  let y = 841.89 - 54;
+  const draw = (text, { f = font, size = 10.5, gap = 3.5 } = {}) => {
+    const line = pdfSafe(text);
+    page.drawText(line.slice(0, 110), { x: margin, y: y - size, size, font: f, color: rgb(0.12, 0.12, 0.12) });
+    y -= size + gap;
+  };
+  draw(p['{{APPOINTMENT_REF}}'], { f: bold });
+  draw(p['{{LETTER_DATE}}']);
+  y -= 8;
+  draw('To,');
+  draw(p['{{CANDIDATE_FULL}}'], { f: bold });
+  if (p['{{ADDRESS_LINE1}}']) draw(p['{{ADDRESS_LINE1}}'], { size: 10 });
+  if (p['{{ADDRESS_LINE2}}']) draw(p['{{ADDRESS_LINE2}}'], { size: 10 });
+  if (p['{{ADDRESS_LINE3}}']) draw(p['{{ADDRESS_LINE3}}'], { size: 10 });
+  y -= 10;
+  draw('Appointment Letter', { f: bold, size: 13 });
+  y -= 8;
+  draw(`Dear ${p['{{FIRST_NAME}}']},`);
+  y -= 4;
+  draw('Welcome on board!');
+  y -= 6;
+  draw(
+    `We are pleased to appoint you as "${p['{{DESIGNATION}}']}" with ${p['{{COMPANY_NAME}}']}, with effect from ${p['{{JOINING_DATE_LONG}}']}. You will be posted at ${p['{{LOCATION}}']}, and your reporting head will be the ${p['{{REPORTING_TO}}']}.`
+  );
+  y -= 8;
+  draw('Compensation', { f: bold, size: 11 });
+  draw(
+    `Your total Cost to Company (CTC) will be INR ${p['{{ANNUAL_CTC}}']}/- per annum, payable as per the company's payroll cycle and structure. A detailed break-up of the remuneration is set out in Annexure II of this letter.`
+  );
+  y -= 12;
+  draw(String(p['{{COMPANY_NAME}}'] || '').toUpperCase(), { f: bold });
+  y -= 8;
+  try {
+    const sigFile = path.join(__dirname, '../src/assets/annexure-signature.png');
+    if (fs.existsSync(sigFile)) {
+      const sig = await pdf.embedPng(fs.readFileSync(sigFile));
+      const sh = 42;
+      const sw = (sig.width / sig.height) * sh;
+      page.drawImage(sig, { x: margin, y: y - sh, width: sw, height: sh });
+      y -= sh + 6;
+    }
+  } catch {
+    y -= 36;
+  }
+  draw('CEO', { f: bold });
+  y -= 16;
+  draw('I hereby acknowledge and accept the appointment on the terms and conditions set forth in this letter.');
+  y -= 20;
+  draw(p['{{CANDIDATE_NAME}}'], { f: bold });
+  return Buffer.from(await pdf.save());
 }
