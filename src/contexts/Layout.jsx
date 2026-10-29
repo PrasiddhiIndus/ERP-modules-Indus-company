@@ -4,7 +4,10 @@ import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
 import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, isAdminRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath, getOpenableIevCostingTabs, getOpenableProjectsEnquiryTabs } from "../config/roles";
-import { canAccessSalaryAdmin } from "../pages/adminOperations/salaryAdmin/salaryAccess";
+import {
+  canAccessSalaryAdmin,
+  EMPLOYEE_MASTER_SUBMODULE_KEY,
+} from "../pages/adminOperations/salaryAdmin/salaryAccess";
 import { canAccessRulesConsole } from "../pages/adminOperations/rulesConsole/rulesConsoleAccess";
 import { syncSalaryFiguresHidden } from "../pages/adminOperations/salaryAdmin/salaryPrivacy";
 import { canAccessCompliance } from "../pages/compliance/payroll/complianceAccess";
@@ -699,12 +702,15 @@ const Layout = () => {
                   </NavLink>
                   )}
 
-                  {canSub("admin.employee") && (
-                  <>
+                  {canSub(EMPLOYEE_MASTER_SUBMODULE_KEY) && (
                       <NavLink to="admin/employee/master" className={subNavClass}>
                         <Users className="h-4 w-4 shrink-0 text-accent" />
                         <span className="type-meta type-truncate">Employee Master</span>
                       </NavLink>
+                  )}
+
+                  {canSub("admin.employee") && (
+                  <>
                       <NavLink to="admin/employee/onboarding" className={subNavClass}>
                         <UserPlus className="h-4 w-4 shrink-0 text-indigo-600" />
                         <span className="type-meta type-truncate">Onboarding</span>
