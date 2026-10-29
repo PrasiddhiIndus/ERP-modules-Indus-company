@@ -120,6 +120,7 @@ export const OFFER_STATUSES = [
 ];
 
 export const APPOINTMENT_STATUSES = [
+  { key: "ready", label: "Ready to generate", tone: "success" },
   { key: "generated", label: "Generated", tone: "info" },
   { key: "sent", label: "Sent", tone: "accent" },
   { key: "viewed", label: "Viewed", tone: "warning" },

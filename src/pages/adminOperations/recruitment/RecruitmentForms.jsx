@@ -410,7 +410,7 @@ export function OfferModal({ open, candidate, offer, onClose }) {
   );
 }
 
-export function OfferResponseModal({ open, offer, onClose }) {
+export function OfferResponseModal({ open, offer, onClose, onRecorded }) {
   const [response, setResponse] = useState("accepted");
   const [note, setNote] = useState("");
   const [joiningDate, setJoiningDate] = useState("");
@@ -434,6 +434,7 @@ export function OfferResponseModal({ open, offer, onClose }) {
         await recordOfferResponse(offer.id, response, note.trim(), response === "accepted" ? joiningDate : null, offer.version);
         toast.success(response === "accepted" ? "Offer accepted" : "Offer declined");
         onClose();
+        onRecorded?.(response, { joiningDate: response === "accepted" ? joiningDate : null });
       }}
     >
       <Field label="Response">
@@ -457,7 +458,7 @@ export function OfferResponseModal({ open, offer, onClose }) {
 // ---------------------------------------------------------------------------
 // Appointment letter
 // ---------------------------------------------------------------------------
-export function AppointmentModal({ open, candidate, onClose }) {
+export function AppointmentModal({ open, candidate, onClose, onGenerated }) {
   const [joiningDate, setJoiningDate] = useState("");
   const [reportingTo, setReportingTo] = useState("");
   const [terms, setTerms] = useState("");
@@ -472,14 +473,15 @@ export function AppointmentModal({ open, candidate, onClose }) {
     <ActionModal
       open={open}
       title={`Appointment letter · ${candidate?.name || ""}`}
-      description="Salary, position and location are taken from the accepted offer."
+      description="Salary, position and location are taken from the accepted offer. After generate you can email the PDF the same way as an offer letter."
       onClose={onClose}
       submitLabel="Generate letter"
       canSubmit={Boolean(joiningDate)}
       onSubmit={async () => {
-        await generateAppointment(candidate.id, { joiningDate, reportingTo, terms });
-        toast.success("Appointment letter generated", "Send it to the candidate for signature.");
+        const appt = await generateAppointment(candidate.id, { joiningDate, reportingTo, terms });
+        toast.success("Appointment letter generated", "Choose From and send the PDF by email.");
         onClose();
+        onGenerated?.(appt);
       }}
     >
       <Field label="Joining date *">

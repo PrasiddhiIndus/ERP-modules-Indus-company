@@ -764,7 +764,14 @@ function Workspace({ data }) {
       {is("interview") ? <InterviewDetailDrawer interview={interviews.find((i) => i.id === modal.payload?.id) || modal.payload} candidate={c} onClose={close} /> : null}
       <OfferModal open={is("offer")} candidate={c} offer={modal?.payload} onClose={close} />
       <OfferResponseModal open={is("offerResponse")} offer={modal?.payload} onClose={close} />
-      <AppointmentModal open={is("appointment")} candidate={c} onClose={close} />
+      <AppointmentModal
+        open={is("appointment")}
+        candidate={c}
+        onClose={close}
+        onGenerated={(appt) => {
+          if (appt?.id) open("email", { templateKey: "appointment_letter", relatedId: appt.id });
+        }}
+      />
       <UploadModal open={is("upload")} kind={modal?.payload?.kind} offer={modal?.payload?.offer} appointment={modal?.payload?.appointment} candidateId={c.id} onClose={close} />
       <JoiningDateModal open={is("joiningDate")} candidate={c} onClose={close} />
       <MarkJoinedModal open={is("joined")} candidate={c} onClose={close} />
