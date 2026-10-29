@@ -15,6 +15,8 @@ import {
   canAccessSalaryAdmin,
   isSalaryAdminPath,
   SALARY_ADMIN_SUBMODULE_KEY,
+  EMPLOYEE_MASTER_SUBMODULE_KEY,
+  EMPLOYEE_MASTER_PATH_PREFIX,
 } from '../pages/adminOperations/salaryAdmin/salaryAccess';
 import {
   canAccessComplianceSection,
@@ -292,7 +294,10 @@ export function canSeeSubModule(profile, accessibleModules, subModuleKey, userMe
   }
 
   if (subModuleKey !== RULES_CONSOLE_SUBMODULE_KEY && hasFullModuleAccess(accessibleModules, moduleKey)) return true;
-  return getEffectiveAllowedSubModules(profile, userMetadata).includes(subModuleKey);
+  const granted = getEffectiveAllowedSubModules(profile, userMetadata);
+  // Employee Administration already includes Employee Master.
+  if (subModuleKey === EMPLOYEE_MASTER_SUBMODULE_KEY && granted.includes("admin.employee")) return true;
+  return granted.includes(subModuleKey);
 }
 
 export function getPartialAccessModuleKeys(profile, userMetadata = null) {
@@ -845,6 +850,7 @@ export const NAV_MODULE_TREE = [
           optIn: Boolean(t.optIn),
         })),
       },
+      { value: EMPLOYEE_MASTER_SUBMODULE_KEY, label: "Employee Master",        pathPrefix: EMPLOYEE_MASTER_PATH_PREFIX },
       { value: "admin.employee",         label: "Employee Administration",     pathPrefix: "/app/admin/employee" },
       { value: "admin.salary-admin",     label: "Salary Admin",               pathPrefix: "/app/admin/salary-admin" },
       { value: RULES_CONSOLE_SUBMODULE_KEY, label: "Rules Console",          pathPrefix: "/app/admin/rules-console", optIn: true },

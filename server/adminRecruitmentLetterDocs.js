@@ -290,8 +290,86 @@ function appointmentPlaceholders(appt, offer, candidate, companyName) {
   };
 }
 
+/**
+ * LibreOffice PDF reflows the IFSPL offer details table when label columns are too
+ * narrow / auto-sized (e.g. "Designatio|n"). Pin column widths and keep the
+ * acceptance block together — content and placeholders are unchanged.
+ */
+function normalizeOfferLetterDocxLayout(docxBuffer) {
+  const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
+  if (buf.length < 100) return buf;
+  try {
+    const zip = new PizZip(buf);
+    const docFile = zip.file('word/document.xml');
+    if (!docFile) return buf;
+    let xml = docFile.asText();
+    if (!xml.includes('Designation') || !xml.includes('Date of Joining') || !xml.includes('Work Location')) {
+      return buf;
+    }
+    if (xml.includes('w:gridCol w:w="2400"') && xml.includes('w:keepNext') && xml.includes('w:wordWrap')) {
+      return buf;
+    }
+
+    const LABEL_W = 2400;
+    const VALUE_W = 3200;
+    const TABLE_W = LABEL_W + VALUE_W;
+
+    xml = xml.replace(
+      /<w:tblPr><w:tblW w:w="0" w:type="auto"\/>/,
+      `<w:tblPr><w:tblW w:w="${TABLE_W}" w:type="dxa"/>`
+    );
+    xml = xml.replace(
+      /<w:tblGrid><w:gridCol w:w="\d+"\/><w:gridCol w:w="\d+"\/><\/w:tblGrid>/,
+      `<w:tblGrid><w:gridCol w:w="${LABEL_W}"/><w:gridCol w:w="${VALUE_W}"/></w:tblGrid>`
+    );
+
+    let tcIdx = 0;
+    xml = xml.replace(/<w:tcW w:w="0" w:type="auto"\/>/g, () => {
+      const w = tcIdx % 2 === 0 ? LABEL_W : VALUE_W;
+      tcIdx += 1;
+      return `<w:tcW w:w="${w}" w:type="dxa"/>`;
+    });
+    // Already-fixed cells from a prior pass / template
+    xml = xml.replace(/<w:tcW w:w="(?:1437|2317)" w:type="dxa"\/>/g, () => {
+      const w = tcIdx % 2 === 0 ? LABEL_W : VALUE_W;
+      tcIdx += 1;
+      return `<w:tcW w:w="${w}" w:type="dxa"/>`;
+    });
+
+    for (const label of ['Designation', 'Date of Joining', 'Work Location']) {
+      const needle = `<w:spacing w:after="160" w:line="278" w:lineRule="auto"/></w:pPr><w:r w:rsidRPr="00404325"><w:rPr><w:b/><w:bCs/></w:rPr><w:t>${label}</w:t>`;
+      const repl = `<w:keepLines/><w:wordWrap w:val="0"/><w:spacing w:after="80" w:line="240" w:lineRule="auto"/></w:pPr><w:r w:rsidRPr="00404325"><w:rPr><w:b/><w:bCs/></w:rPr><w:t>${label}</w:t>`;
+      if (xml.includes(needle)) xml = xml.replace(needle, repl);
+    }
+
+    if (!xml.includes('w:keepNext') && xml.includes('I accept the above offer')) {
+      xml = xml.replace(
+        /(<w:p[^>]*>)(\s*<w:r[^>]*>\s*(?:<w:rPr>[\s\S]*?<\/w:rPr>\s*)?<w:t>I accept the above offer)/,
+        '$1<w:pPr><w:keepNext/><w:keepLines/></w:pPr>$2'
+      );
+    }
+    if (
+      xml.includes('Name: ____________________') &&
+      !/<w:t>Name: ____________________<\/w:t>[\s\S]{0,40}<\/w:r>[\s\S]{0,80}<w:keepLines\/>/.test(xml)
+    ) {
+      xml = xml.replace(
+        /(<w:p[^>]*>)(\s*<w:r[^>]*>\s*(?:<w:rPr>[\s\S]*?<\/w:rPr>\s*)?<w:t>Name: ____________________)/,
+        (full, pOpen, rest) => (full.includes('w:keepLines') ? full : `${pOpen}<w:pPr><w:keepLines/></w:pPr>${rest}`)
+      );
+    }
+
+    zip.file('word/document.xml', xml);
+    return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[admin-recruitment] offer layout normalize skipped:', err?.message || err);
+    return buf;
+  }
+}
+
 export async function buildOfferLetterDocx(offer, candidate, companyName) {
-  return fillDocxTemplate(OFFER_TEMPLATE, offerPlaceholders(offer, candidate, companyName));
+  const filled = await fillDocxTemplate(OFFER_TEMPLATE, offerPlaceholders(offer, candidate, companyName));
+  return normalizeOfferLetterDocxLayout(filled);
 }
 
 export async function buildAppointmentLetterDocx(appt, offer, candidate, companyName) {
@@ -522,14 +600,17 @@ if (-not (Test-Path $out)) { throw 'Word did not write the PDF.' }
  * Never rebuilds layout with pdf-lib. Email always attaches PDF (same as CTC details mail).
  */
 export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
+  // Pin offer-letter table/acceptance layout before print (helps LibreOffice match Word).
+  const normalized = normalizeOfferLetterDocxLayout(docxBuffer);
+
   if (process.platform === 'win32') {
-    const viaWord = await convertDocxViaWord(docxBuffer, baseName);
+    const viaWord = await convertDocxViaWord(normalized, baseName);
     if (viaWord) return viaWord;
   }
 
   try {
     const { convertDocxToPdfViaGraph } = await import('./mail/index.js');
-    const viaGraph = await convertDocxToPdfViaGraph(docxBuffer, baseName);
+    const viaGraph = await convertDocxToPdfViaGraph(normalized, baseName);
     if (viaGraph) return viaGraph;
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -537,7 +618,7 @@ export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
   }
 
   // Linux/production: LibreOffice prints the filled .docx (same path used when Graph Word Online is unavailable).
-  const viaLo = await convertDocxViaLibreOffice(docxBuffer, baseName);
+  const viaLo = await convertDocxViaLibreOffice(normalized, baseName);
   if (viaLo) return viaLo;
   return null;
 }

@@ -23,6 +23,10 @@ export const EMPLOYEE_MASTER_BASIC_TAB_IDS = Object.freeze([
 export const SALARY_ADMIN_PATH_PREFIX = "/app/admin/salary-admin";
 export const SALARY_ADMIN_SUBMODULE_KEY = "admin.salary-admin";
 
+/** Admin → Employee Master only (not the rest of Employee Administration). */
+export const EMPLOYEE_MASTER_SUBMODULE_KEY = "admin.employee-master";
+export const EMPLOYEE_MASTER_PATH_PREFIX = "/app/admin/employee/master";
+
 export function normalizeAccessEmail(email) {
   return String(email || "")
     .trim()
