@@ -276,3 +276,135 @@ export function isConfigured() {
 
 /** @deprecated Use isConfigured */
 export const isGraphMailConfigured = isConfigured;
+
+/**
+ * Convert a .docx to PDF using Microsoft 365 (Word Online engine).
+ * Matches desktop Word layout far more closely than LibreOffice.
+ * Requires application permission Files.ReadWrite.All (admin consent) so the
+ * app can upload a temp file to the notification mailbox OneDrive.
+ * Graph format conversion limit: 2 MB source file.
+ */
+export async function convertDocxToPdf({ docxBuffer, baseName = 'letter' } = {}) {
+  const config = getMicrosoftGraphMailConfig();
+  if (!config) return null;
+
+  const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
+  if (buf.length < 100) return null;
+  if (buf.length > 2 * 1024 * 1024) {
+    logMailError('graph.docx_pdf.too_large', { bytes: buf.length });
+    return null;
+  }
+
+  const safeBase = String(baseName || 'letter')
+    .replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'letter';
+  const remoteName = `${Date.now()}-${safeBase}.docx`;
+  const remotePath = `IndusERP/letter-pdf-convert/${remoteName}`;
+  const mailbox = config.notificationEmail;
+  const driveRoot = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailbox)}/drive`;
+
+  let accessToken;
+  try {
+    accessToken = await fetchAccessToken(config);
+  } catch (err) {
+    logMailError('graph.docx_pdf.token_failed', { message: err?.message || String(err) });
+    return null;
+  }
+
+  let itemId = null;
+  try {
+    const putRes = await withTimeout(
+      fetch(`${driveRoot}/root:/${remotePath}:/content`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type':
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        },
+        body: buf,
+      }),
+      Math.max(config.timeoutMs, 60000),
+      'Graph docx upload'
+    );
+    if (!putRes.ok) {
+      const detail = await putRes.text().catch(() => '');
+      logMailError('graph.docx_pdf.upload_failed', {
+        status: putRes.status,
+        detail: String(detail || '').slice(0, 400),
+      });
+      return null;
+    }
+    const item = await putRes.json().catch(() => ({}));
+    itemId = String(item?.id || '').trim() || null;
+    if (!itemId) {
+      logMailError('graph.docx_pdf.upload_missing_id', {});
+      return null;
+    }
+
+    // format=pdf returns 302 to a short-lived download URL (Word Online conversion).
+    const convRes = await withTimeout(
+      fetch(`${driveRoot}/items/${encodeURIComponent(itemId)}/content?format=pdf`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        redirect: 'manual',
+      }),
+      Math.max(config.timeoutMs, 90000),
+      'Graph docx→pdf convert'
+    );
+
+    let pdfBuf = null;
+    if (convRes.status === 301 || convRes.status === 302 || convRes.status === 303 || convRes.status === 307) {
+      const location = convRes.headers.get('location') || convRes.headers.get('Location');
+      if (!location) {
+        logMailError('graph.docx_pdf.redirect_missing', { status: convRes.status });
+        return null;
+      }
+      const pdfRes = await withTimeout(
+        fetch(location, { method: 'GET', redirect: 'follow' }),
+        Math.max(config.timeoutMs, 90000),
+        'Graph pdf download'
+      );
+      if (!pdfRes.ok) {
+        logMailError('graph.docx_pdf.download_failed', { status: pdfRes.status });
+        return null;
+      }
+      pdfBuf = Buffer.from(await pdfRes.arrayBuffer());
+    } else if (convRes.ok) {
+      pdfBuf = Buffer.from(await convRes.arrayBuffer());
+    } else {
+      const detail = await convRes.text().catch(() => '');
+      logMailError('graph.docx_pdf.convert_failed', {
+        status: convRes.status,
+        detail: String(detail || '').slice(0, 400),
+      });
+      return null;
+    }
+
+    if (!pdfBuf || pdfBuf.length < 100 || String(pdfBuf.slice(0, 4)) !== '%PDF') {
+      logMailError('graph.docx_pdf.invalid_pdf', { bytes: pdfBuf?.length || 0 });
+      return null;
+    }
+
+    logMailInfo('graph.docx_pdf.success', {
+      mailbox,
+      docxBytes: buf.length,
+      pdfBytes: pdfBuf.length,
+    });
+    return pdfBuf;
+  } catch (err) {
+    logMailError('graph.docx_pdf.error', { message: err?.message || String(err) });
+    return null;
+  } finally {
+    if (itemId) {
+      try {
+        await fetch(`${driveRoot}/items/${encodeURIComponent(itemId)}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+      } catch {
+        /* best-effort cleanup */
+      }
+    }
+  }
+}

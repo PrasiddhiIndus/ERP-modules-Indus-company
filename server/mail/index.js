@@ -44,3 +44,8 @@ export async function sendOutboundMail({
 
 export { MAIL_NOT_CONFIGURED_MESSAGE, isMicrosoftGraphMailConfigured, getMicrosoftGraphMailConfig } from './mailConfig.js';
 export { graphMailProvider as microsoftGraphMailProvider };
+
+/** Word Online (Graph) docx→pdf — preferred on Linux/production for layout fidelity. */
+export async function convertDocxToPdfViaGraph(docxBuffer, baseName = 'letter') {
+  return graphMailProvider.convertDocxToPdf({ docxBuffer, baseName });
+}
