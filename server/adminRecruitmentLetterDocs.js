@@ -327,23 +327,68 @@ async function findLibreOfficeBinary() {
   return null;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * True print of the Word file via LibreOffice (Linux/production).
+ * This keeps letterhead, tables and spacing identical to the .docx.
+ */
 async function convertDocxViaLibreOffice(docxBuffer, baseName = 'letter') {
   const soffice = await findLibreOfficeBinary();
   if (!soffice) return null;
   const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
   if (buf.length < 100) return null;
 
+  const safeBase = String(baseName || 'letter')
+    .replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'letter';
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ifspl-lo-pdf-'));
-  const docxPath = path.join(tmpDir, `${baseName}.docx`);
-  const pdfPath = path.join(tmpDir, `${baseName}.pdf`);
+  const profileDir = path.join(tmpDir, 'lo-profile');
+  fs.mkdirSync(profileDir, { recursive: true });
+  const docxPath = path.join(tmpDir, `${safeBase}.docx`);
+  const pdfPath = path.join(tmpDir, `${safeBase}.pdf`);
   fs.writeFileSync(docxPath, buf);
+
+  // LibreOffice needs a writable UserInstallation on servers (no shared profile locks).
+  const profileUri = `file://${profileDir.replace(/\\/g, '/')}`;
+
   try {
     await execFileAsync(
       soffice,
-      ['--headless', '--nologo', '--nofirststartwizard', '--norestore', '--convert-to', 'pdf', '--outdir', tmpDir, docxPath],
-      { windowsHide: true, timeout: 120000, maxBuffer: 10 * 1024 * 1024 }
+      [
+        '--headless',
+        '--nologo',
+        '--nofirststartwizard',
+        '--norestore',
+        `--env:UserInstallation=${profileUri}`,
+        '--convert-to',
+        'pdf:writer_pdf_Export',
+        '--outdir',
+        tmpDir,
+        docxPath,
+      ],
+      {
+        windowsHide: true,
+        timeout: 180000,
+        maxBuffer: 20 * 1024 * 1024,
+        env: { ...process.env, HOME: tmpDir, TMPDIR: tmpDir },
+      }
     );
-    if (!fs.existsSync(pdfPath)) return null;
+
+    // soffice can return before the PDF flush completes
+    for (let i = 0; i < 20 && !fs.existsSync(pdfPath); i += 1) {
+      await sleep(150);
+    }
+    if (!fs.existsSync(pdfPath)) {
+      const found = fs.readdirSync(tmpDir).find((n) => n.toLowerCase().endsWith('.pdf'));
+      if (!found) return null;
+      const pdf = fs.readFileSync(path.join(tmpDir, found));
+      if (pdf.length < 100 || String(pdf.slice(0, 4)) !== '%PDF') return null;
+      return pdf;
+    }
     const pdf = fs.readFileSync(pdfPath);
     if (pdf.length < 100 || String(pdf.slice(0, 4)) !== '%PDF') return null;
     return pdf;
@@ -416,15 +461,28 @@ if (-not (Test-Path $out)) { throw 'Word did not write the PDF.' }
 }
 
 /**
- * Convert a filled .docx buffer to PDF.
- * Order: Microsoft Word (Windows) → LibreOffice (Linux/prod) → null.
+ * Convert a filled .docx buffer to PDF by printing the real Word file.
+ * Windows: Microsoft Word. Linux/production: LibreOffice.
+ * Never rebuilds layout — output must match the .docx.
  */
 export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
-  const viaWord = await convertDocxViaWord(docxBuffer, baseName);
-  if (viaWord) return viaWord;
+  if (process.platform === 'win32') {
+    const viaWord = await convertDocxViaWord(docxBuffer, baseName);
+    if (viaWord) return viaWord;
+  }
   const viaLo = await convertDocxViaLibreOffice(docxBuffer, baseName);
   if (viaLo) return viaLo;
+  if (process.platform === 'win32') {
+    // Last resort on Windows if Word failed but LibreOffice exists.
+    return null;
+  }
   return null;
+}
+
+/** True when a real Word→PDF printer is available (Word or LibreOffice). */
+export async function isExactDocxPdfConversionAvailable() {
+  if (process.platform === 'win32') return true;
+  return Boolean(await findLibreOfficeBinary());
 }
 
 function pdfSafe(text) {
