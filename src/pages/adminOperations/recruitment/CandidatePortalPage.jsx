@@ -166,7 +166,7 @@ function OfferSection({ token, offer, closed, letterHref, onChange }) {
         />
         {offer.hasLetter ? (
             <a className={btn.secondary} href={letterHref} download>
-              <FileText className="h-3.5 w-3.5" /> Download offer letter
+              <FileText className="h-3.5 w-3.5" /> Download offer letter (PDF)
           </a>
         ) : null}
 
@@ -222,7 +222,7 @@ function AppointmentSection({ token, appointment, closed, letterHref, onChange }
         <div className="flex flex-wrap gap-2">
           {appointment.hasLetter ? (
             <a className={btn.secondary} href={letterHref} download>
-              <FileText className="h-3.5 w-3.5" /> Download appointment letter
+              <FileText className="h-3.5 w-3.5" /> Download appointment letter (PDF)
             </a>
           ) : null}
           {canSign ? <UploadButton label="Upload signed letter" busy={!!busy} onFile={(f) => upload("appointment_signed", f)} /> : null}
