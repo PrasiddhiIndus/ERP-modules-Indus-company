@@ -7,7 +7,7 @@ import { execFile } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { promisify } from 'util';
 import PizZip from 'pizzip';
 
@@ -297,13 +297,14 @@ export async function buildAppointmentLetterDocx(appt, offer, candidate, company
 }
 
 async function findLibreOfficeBinary() {
+  // Prefer absolute paths first — PM2 often has a minimal PATH.
   const known = [
-    'soffice',
-    'libreoffice',
+    '/usr/lib/libreoffice/program/soffice',
     '/usr/bin/soffice',
     '/usr/bin/libreoffice',
-    '/usr/lib/libreoffice/program/soffice',
     'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
+    'soffice',
+    'libreoffice',
   ];
   for (const c of known) {
     if (c.includes('/') || c.includes('\\')) {
@@ -331,15 +332,46 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function readConvertedPdf(tmpDir, preferredPdfPath) {
+  const candidates = [];
+  if (preferredPdfPath && fs.existsSync(preferredPdfPath)) candidates.push(preferredPdfPath);
+  try {
+    for (const name of fs.readdirSync(tmpDir)) {
+      if (!name.toLowerCase().endsWith('.pdf')) continue;
+      const full = path.join(tmpDir, name);
+      if (!candidates.includes(full)) candidates.push(full);
+    }
+  } catch {
+    /* ignore */
+  }
+  for (const pdfPath of candidates) {
+    try {
+      const pdf = fs.readFileSync(pdfPath);
+      if (pdf.length >= 100 && String(pdf.slice(0, 4)) === '%PDF') return pdf;
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
 /**
  * True print of the Word file via LibreOffice (Linux/production).
  * This keeps letterhead, tables and spacing identical to the .docx.
  */
 async function convertDocxViaLibreOffice(docxBuffer, baseName = 'letter') {
   const soffice = await findLibreOfficeBinary();
-  if (!soffice) return null;
+  if (!soffice) {
+    // eslint-disable-next-line no-console
+    console.warn('[admin-recruitment] LibreOffice binary not found (soffice/libreoffice)');
+    return null;
+  }
   const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
-  if (buf.length < 100) return null;
+  if (buf.length < 100) {
+    // eslint-disable-next-line no-console
+    console.warn('[admin-recruitment] LibreOffice convert skipped: empty/invalid docx buffer');
+    return null;
+  }
 
   const safeBase = String(baseName || 'letter')
     .replace(/[^A-Za-z0-9_-]+/g, '-')
@@ -352,46 +384,68 @@ async function convertDocxViaLibreOffice(docxBuffer, baseName = 'letter') {
   const pdfPath = path.join(tmpDir, `${safeBase}.pdf`);
   fs.writeFileSync(docxPath, buf);
 
-  // LibreOffice needs a writable UserInstallation on servers (no shared profile locks).
-  const profileUri = `file://${profileDir.replace(/\\/g, '/')}`;
+  // Must be a real file:// URI. LibreOffice flag is `-env:` (one dash), not `--env:`.
+  // Without a private UserInstallation, headless soffice often fails under PM2 (profile lock).
+  const profileUri = pathToFileURL(profileDir).href;
+
+  const loArgs = [
+    '-env:UserInstallation=' + profileUri,
+    '--headless',
+    '--nologo',
+    '--nofirststartwizard',
+    '--norestore',
+    '--nodefault',
+    '--nolockcheck',
+    '--convert-to',
+    'pdf:writer_pdf_Export',
+    '--outdir',
+    tmpDir,
+    docxPath,
+  ];
 
   try {
-    await execFileAsync(
-      soffice,
-      [
-        '--headless',
-        '--nologo',
-        '--nofirststartwizard',
-        '--norestore',
-        `--env:UserInstallation=${profileUri}`,
-        '--convert-to',
-        'pdf:writer_pdf_Export',
-        '--outdir',
-        tmpDir,
-        docxPath,
-      ],
-      {
+    let execErr = null;
+    try {
+      await execFileAsync(soffice, loArgs, {
         windowsHide: true,
         timeout: 180000,
         maxBuffer: 20 * 1024 * 1024,
-        env: { ...process.env, HOME: tmpDir, TMPDIR: tmpDir },
-      }
-    );
+        env: {
+          ...process.env,
+          HOME: tmpDir,
+          TMPDIR: tmpDir,
+          TMP: tmpDir,
+          TEMP: tmpDir,
+          // Headless / no X11 on servers
+          SAL_USE_VCLPLUGIN: 'svp',
+          LANG: process.env.LANG || 'en_US.UTF-8',
+        },
+      });
+    } catch (err) {
+      // soffice often exits non-zero even when the PDF was written — check disk before failing.
+      execErr = err;
+    }
 
     // soffice can return before the PDF flush completes
-    for (let i = 0; i < 20 && !fs.existsSync(pdfPath); i += 1) {
+    let pdf = null;
+    for (let i = 0; i < 40 && !pdf; i += 1) {
+      pdf = readConvertedPdf(tmpDir, pdfPath);
+      if (pdf) break;
       await sleep(150);
     }
-    if (!fs.existsSync(pdfPath)) {
-      const found = fs.readdirSync(tmpDir).find((n) => n.toLowerCase().endsWith('.pdf'));
-      if (!found) return null;
-      const pdf = fs.readFileSync(path.join(tmpDir, found));
-      if (pdf.length < 100 || String(pdf.slice(0, 4)) !== '%PDF') return null;
-      return pdf;
-    }
-    const pdf = fs.readFileSync(pdfPath);
-    if (pdf.length < 100 || String(pdf.slice(0, 4)) !== '%PDF') return null;
-    return pdf;
+
+    if (pdf) return pdf;
+
+    const stderr = String(execErr?.stderr || execErr?.message || '').slice(0, 800);
+    // eslint-disable-next-line no-console
+    console.warn('[admin-recruitment] LibreOffice PDF convert failed:', {
+      soffice,
+      profileUri,
+      docxBytes: buf.length,
+      tmpFiles: fs.existsSync(tmpDir) ? fs.readdirSync(tmpDir) : [],
+      stderr: stderr || '(none)',
+    });
+    return null;
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn('[admin-recruitment] LibreOffice PDF convert unavailable:', err?.message || err);
