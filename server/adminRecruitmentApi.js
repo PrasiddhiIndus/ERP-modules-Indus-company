@@ -15,9 +15,7 @@ import { emailHtmlForSending, escapeTokenValues, looksLikeHtmlEmail } from '../s
 import { canUseSenderMailbox } from './mail/senderAccess.js';
 import {
   buildAppointmentLetterDocx,
-  buildAppointmentLetterPdf,
   buildOfferLetterDocx,
-  buildOfferLetterPdf,
   convertDocxBufferToPdf,
 } from './adminRecruitmentLetterDocs.js';
 import { resolvePortalTokenParam, sealPortalToken } from './portalLinkCrypto.js';
@@ -374,52 +372,17 @@ export function registerAdminRecruitmentRoutes(app, deps) {
           String(prepared.letter.contentType || '').includes('wordprocessingml') ||
           !/\.pdf$/i.test(rawName);
 
-        // Email must carry PDF (never .docx). Prefer Word/LibreOffice print of the
-        // filled letter; on Linux production fall back to the IFSPL PDF renderer.
-        let pdfContent = null;
-        let pdfSource = 'stored-pdf';
+        // Email PDF must be a true print of the Word letter (same layout). Never rebuild.
         if (isDocx && !/\.pdf$/i.test(rawName)) {
-          pdfContent = await convertDocxBufferToPdf(buf, baseName);
-          pdfSource = pdfContent ? 'docx-convert' : null;
+          const pdfContent = await convertDocxBufferToPdf(buf, baseName);
           if (!pdfContent) {
-            const [{ data: candRow }, { data: settingsRow }] = await Promise.all([
-              svc
-                .from('admin_recruitment_candidates')
-                .select('id, full_name, current_location, home_town, email')
-                .eq('id', input.candidateId)
-                .maybeSingle(),
-              svc.from('admin_recruitment_settings').select('company_name').maybeSingle(),
-            ]);
-            const company = settingsRow?.company_name || 'INDUS FIRE SAFETY PVT LTD';
-            if (String(input.templateKey || '').includes('appointment') || prepared.letter?.kind === 'appointment') {
-              const { data: appt } = await svc
-                .from('admin_recruitment_appointments')
-                .select('*')
-                .eq('id', input.relatedId || prepared.portalRefId)
-                .maybeSingle();
-              const { data: offerRow } = appt?.offer_id
-                ? await svc
-                    .from('admin_recruitment_offers')
-                    .select('offer_ref, annual_ctc, monthly_gross, designation, department')
-                    .eq('id', appt.offer_id)
-                    .maybeSingle()
-                : { data: null };
-              pdfContent = await buildAppointmentLetterPdf(appt || {}, offerRow, candRow || {}, company);
-            } else {
-              const { data: offerRow } = await svc
-                .from('admin_recruitment_offers')
-                .select('*')
-                .eq('id', input.relatedId || prepared.portalRefId)
-                .maybeSingle();
-              pdfContent = await buildOfferLetterPdf(offerRow || {}, candRow || {}, company);
-            }
-            pdfSource = 'pdf-fallback';
-          }
-          if (!pdfContent) {
-            throw httpError(503, 'Could not create the PDF letter for email. Please try again shortly.');
+            throw httpError(
+              503,
+              'Could not create the PDF letter from the Word file. On the server install LibreOffice (sudo apt-get install -y libreoffice-writer) and restart the API, then try again.'
+            );
           }
           attachments.push({ filename: `${baseName}.pdf`, contentType: CONTENT_TYPES.pdf, content: pdfContent });
-          attachmentMeta.push({ fileName: `${baseName}.pdf`, objectKey: prepared.letter.objectKey, source: pdfSource });
+          attachmentMeta.push({ fileName: `${baseName}.pdf`, objectKey: prepared.letter.objectKey, source: 'docx-exact-pdf' });
         } else {
           attachments.push({
             filename: /\.pdf$/i.test(rawName) ? rawName : `${baseName}.pdf`,
@@ -773,42 +736,14 @@ export function registerAdminRecruitmentRoutes(app, deps) {
 
       let pdfBuf = alreadyPdf ? buf : null;
       if (!pdfBuf) {
+        // Exact print of the stored Word letter only (Word / LibreOffice) — no layout rebuild.
         pdfBuf = await convertDocxBufferToPdf(buf, baseName);
       }
       if (!pdfBuf) {
-        // Linux/production fallback: rebuild IFSPL PDF from the portal offer/appointment data.
-        const info = await rpc(serviceClient(), 'admin_recruitment_portal_resolve', { p_token_hash: hash });
-        const company = info?.companyName || 'INDUS FIRE SAFETY PVT LTD';
-        const cand = { full_name: info?.candidateName, current_location: info?.offer?.location || info?.appointment?.location };
-        if (info?.offer) {
-          pdfBuf = await buildOfferLetterPdf(
-            {
-              designation: info.offer.designation,
-              department: info.offer.department,
-              location: info.offer.location,
-              joining_date: info.offer.joiningDate,
-              valid_until: info.offer.validUntil,
-            },
-            cand,
-            company
-          );
-        } else if (info?.appointment) {
-          pdfBuf = await buildAppointmentLetterPdf(
-            {
-              appointment_ref: info.appointment.ref,
-              designation: info.appointment.designation,
-              location: info.appointment.location,
-              joining_date: info.appointment.joiningDate,
-              reporting_to: info.appointment.reportingTo,
-            },
-            { annual_ctc: info.appointment.annualCtc },
-            cand,
-            company
-          );
-        }
-      }
-      if (!pdfBuf) {
-        throw httpError(503, 'Could not prepare the PDF letter. Please try again shortly.');
+        throw httpError(
+          503,
+          'Could not prepare the PDF letter from the Word file. Install LibreOffice on the server and try again.'
+        );
       }
 
       const downloadName = sanitizeFileName(`${baseName}.pdf`);
