@@ -518,11 +518,8 @@ if (-not (Test-Path $out)) { throw 'Word did not write the PDF.' }
 
 /**
  * Convert a filled .docx buffer to PDF by printing the real Word file.
- * Priority:
- * 1) Microsoft Word COM (Windows)
- * 2) Microsoft Graph / Word Online (production Linux — same engine as Word)
- * 3) LibreOffice (approximate only; last resort)
- * Never rebuilds layout with pdf-lib.
+ * Priority: Word COM (Windows) → Graph Word Online → LibreOffice (Linux/production).
+ * Never rebuilds layout with pdf-lib. Email always attaches PDF (same as CTC details mail).
  */
 export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
   if (process.platform === 'win32') {
@@ -539,20 +536,9 @@ export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
     console.warn('[admin-recruitment] Graph Word→PDF unavailable:', err?.message || err);
   }
 
-  // LibreOffice reflows tables/letterhead (often 2 pages vs Word's 1). Only use when explicitly allowed.
-  const allowLo =
-    String(process.env.RECRUITMENT_ALLOW_LIBREOFFICE_PDF || '').trim().toLowerCase() === '1' ||
-    String(process.env.RECRUITMENT_ALLOW_LIBREOFFICE_PDF || '').trim().toLowerCase() === 'true';
-  if (allowLo) {
-    const viaLo = await convertDocxViaLibreOffice(docxBuffer, baseName);
-    if (viaLo) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        '[admin-recruitment] Using LibreOffice PDF (layout may differ from Word). Grant Graph Files.ReadWrite.All for exact Word PDF.'
-      );
-      return viaLo;
-    }
-  }
+  // Linux/production: LibreOffice prints the filled .docx (same path used when Graph Word Online is unavailable).
+  const viaLo = await convertDocxViaLibreOffice(docxBuffer, baseName);
+  if (viaLo) return viaLo;
   return null;
 }
 

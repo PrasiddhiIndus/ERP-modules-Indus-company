@@ -372,33 +372,25 @@ export function registerAdminRecruitmentRoutes(app, deps) {
           String(prepared.letter.contentType || '').includes('wordprocessingml') ||
           !/\.pdf$/i.test(rawName);
 
-        // Prefer Word-engine PDF (desktop Word or Microsoft Graph). Never rebuild layout.
-        // If PDF conversion is unavailable, attach the filled .docx (byte-identical to Word).
+        // Email attachment must be PDF (same as CTC details mail). Convert filled Word → PDF; never rebuild layout.
         if (isDocx && !/\.pdf$/i.test(rawName)) {
           const pdfContent = await convertDocxBufferToPdf(buf, baseName);
-          if (pdfContent) {
-            attachments.push({
-              filename: `${baseName}.pdf`,
-              contentType: CONTENT_TYPES.pdf,
-              content: pdfContent,
-            });
-            attachmentMeta.push({
-              fileName: `${baseName}.pdf`,
-              objectKey: prepared.letter.objectKey,
-              source: 'docx-exact-pdf',
-            });
-          } else {
-            attachments.push({
-              filename: `${baseName}.docx`,
-              contentType: CONTENT_TYPES.docx,
-              content: buf,
-            });
-            attachmentMeta.push({
-              fileName: `${baseName}.docx`,
-              objectKey: prepared.letter.objectKey,
-              source: 'docx-exact',
-            });
+          if (!pdfContent) {
+            throw httpError(
+              503,
+              'Could not create the PDF letter from the Word file. On the server install LibreOffice (sudo apt-get install -y libreoffice-writer) and restart the API, then try again.'
+            );
           }
+          attachments.push({
+            filename: `${baseName}.pdf`,
+            contentType: CONTENT_TYPES.pdf,
+            content: pdfContent,
+          });
+          attachmentMeta.push({
+            fileName: `${baseName}.pdf`,
+            objectKey: prepared.letter.objectKey,
+            source: 'docx-exact-pdf',
+          });
         } else {
           attachments.push({
             filename: /\.pdf$/i.test(rawName) ? rawName : `${baseName}.pdf`,
@@ -752,25 +744,22 @@ export function registerAdminRecruitmentRoutes(app, deps) {
 
       let pdfBuf = alreadyPdf ? buf : null;
       if (!pdfBuf) {
-        // Word COM / Microsoft Graph Word Online — same layout as Word. No LibreOffice by default.
+        // Exact print of the stored Word letter (Word / Graph / LibreOffice) — no layout rebuild.
         pdfBuf = await convertDocxBufferToPdf(buf, baseName);
       }
-      if (pdfBuf) {
-        const downloadName = sanitizeFileName(`${baseName}.pdf`);
-        res.setHeader('Content-Type', CONTENT_TYPES.pdf);
-        res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
-        res.setHeader('Content-Length', String(pdfBuf.length));
-        res.setHeader('Cache-Control', 'private, no-store');
-        return res.status(200).end(pdfBuf);
+      if (!pdfBuf) {
+        throw httpError(
+          503,
+          'Could not prepare the PDF letter from the Word file. Install LibreOffice on the server and try again.'
+        );
       }
 
-      // Exact Word file when PDF engine is unavailable (no layout drift).
-      const docxName = sanitizeFileName(`${baseName}.docx`);
-      res.setHeader('Content-Type', CONTENT_TYPES.docx);
-      res.setHeader('Content-Disposition', `attachment; filename="${docxName}"`);
-      res.setHeader('Content-Length', String(buf.length));
+      const downloadName = sanitizeFileName(`${baseName}.pdf`);
+      res.setHeader('Content-Type', CONTENT_TYPES.pdf);
+      res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+      res.setHeader('Content-Length', String(pdfBuf.length));
       res.setHeader('Cache-Control', 'private, no-store');
-      return res.status(200).end(buf);
+      res.status(200).end(pdfBuf);
     } catch (err) {
       portalError(res, err, 'The letter could not be opened.');
     }
