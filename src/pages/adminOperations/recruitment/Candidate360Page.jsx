@@ -393,11 +393,17 @@ function NextStep({ data, caps, open }) {
           title = `Send offer ${offer.offerNo}`;
           hint = `Valid until ${fmtDate(offer.validUntil)}.`;
           add("offers", "Send offer", () => open("email", { templateKey: "offer_letter", relatedId: offer.id }), Send, true);
+          if (offer.generatedDoc) {
+            add("offers", "Regenerate letter", () => runAction(() => prepareOfferLetter(offer.id), "Offer letter regenerated"), FileSignature);
+          }
         } else if (offer) {
           title = `Awaiting response · ${offerStatusMeta(offer.status).label}`;
           hint = `Valid until ${fmtDate(offer.validUntil)}. The candidate can respond from the secure link.`;
           add("offers", "Record response", () => open("offerResponse", offer), FileSignature, true);
           add("offers", "Resend offer", () => open("email", { templateKey: "offer_letter", relatedId: offer.id }), Send);
+          if (offer.generatedDoc) {
+            add("offers", "Regenerate letter", () => runAction(() => prepareOfferLetter(offer.id), "Offer letter regenerated"), FileSignature);
+          }
         }
         if (offer) add("offers", "Withdraw offer", () => open("withdrawOffer", offer), XCircle);
         break;

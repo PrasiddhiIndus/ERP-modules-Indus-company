@@ -1,6 +1,5 @@
 /**
- * Offer of Employment Engagement letter — fills dynamic placeholders in the
- * Word template while keeping fixed clauses (3–14) identical to the sample.
+ * IFSPL Offer of Employment letter — fills the Word template (letterhead + HR signature).
  */
 import PizZip from "pizzip";
 import { saveAs } from "file-saver";
@@ -11,6 +10,7 @@ export { amountInWords } from "./amountInWords";
 
 export const OFFER_LETTER_TEMPLATE_PATH = "/templates/hr-calling/offer-of-employment.docx";
 
+const MONTH_NAMES_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_NAMES = [
   "January",
   "February",
@@ -62,6 +62,21 @@ export function formatOfferDateLong(iso) {
   return `${p.day}${ordinalSuffix(p.day)} ${MONTH_NAMES[p.month - 1]} ${p.year}`;
 }
 
+/** e.g. 21st Oct 2026 (double space after day, matching IFSPL sample) */
+export function formatOfferDateShortMonth(iso, { doubleSpace = true } = {}) {
+  const p = parseIsoParts(iso);
+  if (!p) return "";
+  const gap = doubleSpace ? "  " : " ";
+  return `${p.day}${ordinalSuffix(p.day)}${gap}${MONTH_NAMES_SHORT[p.month - 1]} ${p.year}`;
+}
+
+/** e.g. 21st Nov 2026 */
+export function formatOfferDateAbbrev(iso) {
+  const p = parseIsoParts(iso);
+  if (!p) return "";
+  return `${p.day}${ordinalSuffix(p.day)} ${MONTH_NAMES_SHORT[p.month - 1]} ${p.year}`;
+}
+
 /** e.g. 21-01-2026 */
 export function formatOfferDateDdMmYyyy(iso) {
   const p = parseIsoParts(iso);
@@ -88,7 +103,6 @@ export function sanitizeOfferFileNamePart(value) {
 export function deriveSiteCodeFromName(siteName) {
   const raw = String(siteName || "").trim();
   if (!raw) return "";
-  // Prefer leading acronym-like token (letters/digits before space or punctuation).
   const first = raw.split(/[\s,/(-]+/)[0] || "";
   const cleaned = first.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
   if (cleaned.length >= 2 && cleaned.length <= 12) return cleaned;
@@ -102,44 +116,54 @@ export function deriveSiteCodeFromName(siteName) {
   return (initials || cleaned).slice(0, 12);
 }
 
+/** Phrase after designation, without a leading space (space is kept on designation). */
+function departmentClause(department) {
+  const raw = String(department || "").trim();
+  if (!raw) return "";
+  if (/department$/i.test(raw)) return `in the ${raw}`;
+  return `in the ${raw} Department`;
+}
+
 /**
- * Build placeholder map for the offer letter template.
+ * Build placeholder map for the IFSPL offer letter template.
  * @param {object} offer
  */
 export function buildOfferLetterPlaceholders(offer) {
   const offerDateIso = normalizeToIsoDate(offer?.offerDate) || normalizeToIsoDate(new Date());
   const joiningIso = normalizeToIsoDate(offer?.joiningDate) || "";
-  const dutyDays = String(offer?.dutyPattern || "").trim() === "27" ? "27" : "26";
-  const salutation = String(offer?.salutation || "Mr.").trim() || "Mr.";
-  const salaryNum = formatSalaryNumber(offer?.salaryGross);
-  const salaryWords = amountInWords(offer?.salaryGross);
+  const validIso = normalizeToIsoDate(offer?.validUntil) || offerDateIso;
+  const designation = String(offer?.designation || "").trim();
+  const deptClause = departmentClause(offer?.department || offer?.departmentName);
 
   return {
-    "{{REF_NO}}": String(offer?.referenceNo || "").trim(),
-    "{{OFFER_DATE}}": formatOfferDateLong(offerDateIso),
-    "{{SALUTATION}}": salutation,
+    "{{OFFER_DATE}}": formatOfferDateShortMonth(offerDateIso),
     "{{CANDIDATE_NAME}}": String(offer?.candidateName || "").trim(),
-    "{{FATHER_NAME}}": String(offer?.fatherName || "").trim(),
-    "{{EMP_CODE}}": String(offer?.employeeCode || "").trim(),
-    "{{ADDRESS_LINE}}": String(offer?.addressLine || "").trim(),
-    "{{DISTRICT}}": String(offer?.addressDistrict || "").trim(),
-    "{{STATE}}": String(offer?.addressState || "").trim(),
-    "{{PINCODE}}": String(offer?.addressPincode || "").trim(),
-    "{{DESIGNATION}}": String(offer?.designation || "").trim(),
-    "{{JOINING_DATE}}": formatOfferDateDdMmYyyy(joiningIso),
-    "{{SITE_FULL}}": String(offer?.siteFullName || "").trim(),
-    "{{SALARY_NUM}}": salaryNum,
-    "{{SALARY_WORDS}}": salaryWords,
-    "{{DUTY_DAYS}}": dutyDays,
+    // Trailing space kept via xml:space=preserve so Word shows "Executive in the …"
+    "{{DESIGNATION}}": deptClause ? `${designation} ` : designation,
+    "{{DEPARTMENT_CLAUSE}}": deptClause,
+    "{{COMPANY_NAME}}": String(offer?.companyName || "INDUS FIRE SAFETY PVT LTD").trim(),
+    "{{JOINING_DATE_LONG}}": formatOfferDateLong(joiningIso),
+    "{{LOCATION}}": String(offer?.siteFullName || offer?.location || "").trim(),
+    "{{VALID_UNTIL}}": formatOfferDateShortMonth(validIso, { doubleSpace: false }),
+    "{{JOINING_DATE_SHORT}}": formatOfferDateAbbrev(joiningIso),
   };
 }
 
+/** Word drops leading/trailing spaces in <w:t> unless xml:space="preserve". */
 function applyPlaceholdersToXml(xml, placeholders) {
   let out = String(xml || "");
   for (const [token, value] of Object.entries(placeholders)) {
-    const escaped = escapeXmlText(value);
-    // Placeholders may appear multiple times (name, salutation).
-    out = out.split(token).join(escaped);
+    const raw = String(value ?? "");
+    if (/^\s|\s$/.test(raw)) {
+      out = out.replace(/<w:t([^>]*)>((?:(?!<\/w:t>)[\s\S])*?)<\/w:t>/g, (match, attrs, text) => {
+        if (!text.includes(token)) return match;
+        const nextAttrs = /\bxml:space=/.test(attrs)
+          ? attrs.replace(/\bxml:space="[^"]*"/, 'xml:space="preserve"')
+          : `${attrs} xml:space="preserve"`;
+        return `<w:t${nextAttrs}>${text}</w:t>`;
+      });
+    }
+    out = out.split(token).join(escapeXmlText(raw));
   }
   return out;
 }
@@ -164,8 +188,7 @@ export async function buildOfferLetterBlob(offer) {
   }
 
   const placeholders = buildOfferLetterPlaceholders(offer);
-  const updatedXml = applyPlaceholdersToXml(documentXml, placeholders);
-  zip.file("word/document.xml", updatedXml);
+  zip.file("word/document.xml", applyPlaceholdersToXml(documentXml, placeholders));
 
   return zip.generate({
     type: "blob",
@@ -198,44 +221,43 @@ export function openOfferLetterPrintPreview(offer) {
   <title>Offer Letter — ${escapeXmlText(p["{{CANDIDATE_NAME}}"])}</title>
   <style>
     body { font-family: "Times New Roman", Times, serif; font-size: 12pt; line-height: 1.45; color: #111; max-width: 720px; margin: 24px auto; padding: 0 16px; }
-    h1 { font-size: 14pt; text-align: center; margin: 18px 0; }
-    .meta { margin-bottom: 12px; }
-    .clause { margin: 10px 0; }
-    .muted { color: #444; }
+    h1 { font-size: 13pt; margin: 14px 0; }
+    .meta { margin-bottom: 8px; }
+    table { border-collapse: collapse; margin: 12px 0; width: 100%; max-width: 420px; }
+    td { border: 1px solid #333; padding: 6px 10px; vertical-align: top; }
+    td:first-child { font-weight: bold; width: 40%; }
+    .accept { margin-top: 28px; }
     @media print { body { margin: 0; max-width: none; } }
   </style>
 </head>
 <body>
-  <div class="meta"><strong>Ref No:</strong> ${escapeXmlText(p["{{REF_NO}}"])}</div>
   <div class="meta"><strong>Date:</strong> ${escapeXmlText(p["{{OFFER_DATE}}"])}</div>
-  <p>To,<br/>
-  ${escapeXmlText(p["{{SALUTATION}}"])} ${escapeXmlText(p["{{CANDIDATE_NAME}}"])}<br/>
-  S/O. ${escapeXmlText(p["{{FATHER_NAME}}"])}<br/>
-  Emp Code: ${escapeXmlText(p["{{EMP_CODE}}"])}<br/>
-  Address: ${escapeXmlText(p["{{ADDRESS_LINE}}"])}<br/>
-  Dist: ${escapeXmlText(p["{{DISTRICT}}"])}, ${escapeXmlText(p["{{STATE}}"])}-${escapeXmlText(p["{{PINCODE}}"])}
-  </p>
-  <h1>Sub: Appointment Letter</h1>
-  <p>Dear ${escapeXmlText(p["{{SALUTATION}}"])} ${escapeXmlText(p["{{CANDIDATE_NAME}}"])},</p>
-  <p>With reference to your application and subsequent interview with us, we are pleased to appoint you as
-  <strong>${escapeXmlText(p["{{DESIGNATION}}"])}</strong> on a purely contractual basis under IFSPL for specified period.
-  You will not have any right or lien on the job held by you.</p>
-  <p class="clause"><strong>1. Nature of Appointment</strong><br/>
-  Date of Joining: ${escapeXmlText(p["{{JOINING_DATE}}"])}<br/>
-  Site Name and Location: ${escapeXmlText(p["{{SITE_FULL}}"])}<br/>
-  Your employment with IFSPL shall commence from the date you report for duty at the site.</p>
-  <p class="clause"><strong>2. Salary and Benefits:</strong> Gross salary: Rs. ${escapeXmlText(p["{{SALARY_NUM}}"])}/-
-  (Rs. ${escapeXmlText(p["{{SALARY_WORDS}}"])} Only) per month.
-  (Basic salary, HRA, Leave wages, Fire Risk Allowance and Other allowances)<br/>
-  Statutory Deduction: Provident Fund (12% of Basic and DA – employee share) and other applicable deduction will be made as per law.<br/>
-  Duty Pattern: 8-hour shift for ${escapeXmlText(p["{{DUTY_DAYS}}"])} days a month.</p>
-  <p class="muted">Clauses 3–14 match the standard Offer of Employment Engagement letter (duties, discipline, benefits, leave, separation, etc.). Download the Word document for the full formatted letter.</p>
-  <p>We welcome you to our organization and look forward to your valuable contribution to the company’s success.</p>
-  <p><br/>Authorized Signature:</p>
-  <p>Please sign and return a copy of this letter as a token of your acceptance of the terms and conditions stated herein.</p>
-  <p>Signature: __________________________<br/>
-  Name: ${escapeXmlText(p["{{SALUTATION}}"])} ${escapeXmlText(p["{{CANDIDATE_NAME}}"])}<br/>
-  Date: ______________________________</p>
+  <h1>Subject: Offer of Employment</h1>
+  <p>Dear ${escapeXmlText(p["{{CANDIDATE_NAME}}"])},</p>
+  <p>We are pleased to offer you the position of <strong>${escapeXmlText(p["{{DESIGNATION}}"])}</strong>${escapeXmlText(
+    p["{{DEPARTMENT_CLAUSE}}"]
+  )} at ${escapeXmlText(p["{{COMPANY_NAME}}"])}. Based on your interview and credentials, we believe you will be a valuable addition to our organization.</p>
+  <table>
+    <tr><td>Designation</td><td>${escapeXmlText(p["{{DESIGNATION}}"])}</td></tr>
+    <tr><td>Date of Joining</td><td>${escapeXmlText(p["{{JOINING_DATE_LONG}}"])}</td></tr>
+    <tr><td>Work Location</td><td>${escapeXmlText(p["{{LOCATION}}"])}</td></tr>
+  </table>
+  <p>This offer is subject to verification of your educational and employment documents, and satisfactory reference checks.</p>
+  <p>Your detailed terms and conditions of employment will be shared in the Appointment Letter, which will be issued to you on the date of joining.</p>
+  <p>Please confirm your acceptance by signing and returning a copy of this letter on or before ${escapeXmlText(
+    p["{{VALID_UNTIL}}"]
+  )}. This offer will lapse if your acceptance is not received on or before ${escapeXmlText(
+    p["{{VALID_UNTIL}}"]
+  )}, or if you fail to join on the agreed date (${escapeXmlText(p["{{JOINING_DATE_SHORT}}"])}).</p>
+  <p>We look forward to having you with us.</p>
+  <p>Yours sincerely,</p>
+  <p><strong>Shilpa Thakur</strong><br/>Manager - Human Resources<br/>${escapeXmlText(p["{{COMPANY_NAME}}"])}</p>
+  <div class="accept">
+    <p><strong>I accept the above offer and confirm that I will join on [DD/MM/YYYY]</strong></p>
+    <p>Name: ____________________</p>
+    <p>Signature: ____________________</p>
+    <p>Date: ____________</p>
+  </div>
   <script>window.onload = function () { window.print(); };</script>
 </body>
 </html>`;

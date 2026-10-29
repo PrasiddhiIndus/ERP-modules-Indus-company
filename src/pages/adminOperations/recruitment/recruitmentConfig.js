@@ -155,6 +155,18 @@ export const REQUISITION_PRIORITIES = [
 
 export const EMPLOYMENT_TYPES = ["Permanent", "Probation", "Contract", "Consultant", "Voucher"];
 
+/** Interview evaluation parameters (Parameter · Rating 1–5 · Comments). */
+export const EVALUATION_CRITERIA = [
+  "Technical / Functional Knowledge",
+  "Relevant Work Experience",
+  "Problem-Solving & Analytical Ability",
+  "Communication Skills",
+  "Confidence & Body Language",
+  "Cultural / Team Fit",
+  "Leadership Potential (if applicable)",
+  "Career Stability & Growth Trajectory",
+];
+
 export const DELIVERY_STATUSES = [
   { key: "queued", label: "Queued", tone: "neutral" },
   { key: "sending", label: "Sending", tone: "info" },

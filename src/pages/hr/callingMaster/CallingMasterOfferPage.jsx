@@ -78,10 +78,13 @@ function toOfferLetterPayload(row) {
     addressState: row.addressState,
     addressPincode: row.addressPincode,
     designation: row.designation,
+    department: row.department || row.departmentName || "",
     joiningDate: row.joiningDate,
+    validUntil: row.offerValidUntil || row.validUntil || "",
     siteFullName: row.siteFullName,
     salaryGross: row.salaryGross,
     dutyPattern: row.dutyPattern,
+    companyName: "INDUS FIRE SAFETY PVT LTD",
   };
 }
 
