@@ -653,12 +653,39 @@ describe('validatePlClSlConsecutiveMark', () => {
     }
   });
 
-  it('allows SL continuation and CO after SL bridged through WO', () => {
+  it('allows SL continuation; legacy dates still allow CO after SL', () => {
     expect(
       validatePlClSlConsecutiveMark(rows, '2026-08-08', 'SL', { employeeCode: emp }).ok
     ).toBe(true);
+    // Before CO_PL_MERGE_ONLY_FROM — existing CO mixes with CL/SL stay valid
     expect(
       validatePlClSlConsecutiveMark(rows, '2026-08-08', 'CO', { employeeCode: emp }).ok
+    ).toBe(true);
+  });
+
+  it('from 2026-10-29 allows PL after CO / CO after PL; blocks CL/SL after CO', () => {
+    const coRows = [
+      { employee_code: emp, register_date: '2026-10-28', mark: 'CO' },
+    ];
+    expect(
+      validatePlClSlConsecutiveMark(coRows, '2026-10-29', 'PL', { employeeCode: emp }).ok
+    ).toBe(true);
+    expect(
+      validatePlClSlConsecutiveMark(coRows, '2026-10-29', 'P/PL', { employeeCode: emp }).ok
+    ).toBe(true);
+    expect(
+      validatePlClSlConsecutiveMark(coRows, '2026-10-29', 'CL', { employeeCode: emp }).ok
+    ).toBe(false);
+    expect(
+      validatePlClSlConsecutiveMark(coRows, '2026-10-29', 'SL', { employeeCode: emp }).ok
+    ).toBe(false);
+    expect(
+      validatePlClSlConsecutiveMark(
+        [{ employee_code: emp, register_date: '2026-10-28', mark: 'PL' }],
+        '2026-10-29',
+        'CO',
+        { employeeCode: emp }
+      ).ok
     ).toBe(true);
   });
 
@@ -678,6 +705,17 @@ describe('validatePlClSlConsecutiveMark', () => {
         { employeeCode: emp }
       ).ok
     ).toBe(false);
+    expect(
+      validatePlClSlConsecutiveMark(
+        [
+          { employee_code: emp, register_date: '2026-08-04', mark: 'CO' },
+          { employee_code: emp, register_date: '2026-08-05', mark: 'WO' },
+        ],
+        '2026-08-06',
+        'PL',
+        { employeeCode: emp }
+      ).ok
+    ).toBe(true);
   });
 
   it('validates bulk upserts in staged date order', () => {

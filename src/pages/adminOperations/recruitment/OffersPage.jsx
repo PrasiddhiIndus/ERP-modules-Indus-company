@@ -155,9 +155,18 @@ export default function OffersPage() {
               <div className="flex flex-wrap gap-2 border-t border-divider pt-4">
                 {kindKey === "offer" ? (
                   <>
-                    {open.status !== "draft" && !open.generatedDoc && ["generated", "sent", "viewed"].includes(open.status) ? (
+                    {open.status !== "draft" && !open.generatedDoc && ["generated", "sent", "viewed", "accepted"].includes(open.status) ? (
                       <button type="button" className={btn.primary} onClick={() => runAction(() => prepareOfferLetter(open.id), "Offer letter ready")}>
                         <FileSignature className="h-3.5 w-3.5" /> Prepare letter
+                      </button>
+                    ) : null}
+                    {open.generatedDoc && ["generated", "sent", "viewed", "accepted"].includes(open.status) ? (
+                      <button
+                        type="button"
+                        className={btn.secondary}
+                        onClick={() => runAction(() => prepareOfferLetter(open.id), "Offer letter regenerated")}
+                      >
+                        <FileSignature className="h-3.5 w-3.5" /> Regenerate letter
                       </button>
                     ) : null}
                     {["generated", "sent", "viewed"].includes(open.status) && open.generatedDoc ? (
@@ -183,9 +192,18 @@ export default function OffersPage() {
                   </>
                 ) : (
                   <>
-                    {!open.generatedDoc && ["generated", "sent", "viewed"].includes(open.status) ? (
+                    {!open.generatedDoc && ["generated", "sent", "viewed", "signed"].includes(open.status) ? (
                       <button type="button" className={btn.primary} onClick={() => runAction(() => prepareAppointmentLetter(open.id), "Appointment letter ready")}>
                         <FileSignature className="h-3.5 w-3.5" /> Prepare letter
+                      </button>
+                    ) : null}
+                    {open.generatedDoc && ["generated", "sent", "viewed", "signed"].includes(open.status) ? (
+                      <button
+                        type="button"
+                        className={btn.secondary}
+                        onClick={() => runAction(() => prepareAppointmentLetter(open.id), "Appointment letter regenerated")}
+                      >
+                        <FileSignature className="h-3.5 w-3.5" /> Regenerate letter
                       </button>
                     ) : null}
                     {["generated", "sent", "viewed"].includes(open.status) && open.generatedDoc ? (

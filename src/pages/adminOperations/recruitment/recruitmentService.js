@@ -76,6 +76,12 @@ async function api(path, body, fallback) {
   return res.data;
 }
 
+async function apiGet(path, fallback) {
+  const res = await fetchApiWithAuth(path, { method: "GET" });
+  if (!res.ok) throw new Error(res.error || fallback);
+  return res.data;
+}
+
 const requestKey = () =>
   typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -584,99 +590,49 @@ export async function getSettings() {
 export async function searchEmployees(term) {
   const q = String(term || "").trim();
   if (q.length < 2) return [];
+
+  // SECURITY DEFINER RPC: Admin role can resolve login emails for the interview panel.
+  // (Direct profiles SELECT is own-row + super_admin* only.)
+  const { data, error } = await supabase.rpc("admin_recruitment_search_employees", { p_term: q });
+  if (!error && Array.isArray(data)) {
+    return data
+      .map((r) => ({
+        id: r.id,
+        name: String(r.name || "").trim(),
+        code: String(r.code || "").trim(),
+        designation: String(r.designation || "").trim(),
+        email: String(r.email || "").trim(),
+      }))
+      .filter((r) => r.name)
+      .slice(0, 15);
+  }
+
+  // Fallback if migration not applied yet — master only (no cross-user profile emails for Admin).
   const safe = q.replace(/[%,()]/g, " ");
+  const masterRes = await supabase
+    .from("admin_ifsp_employee_master")
+    .select("id, full_name, employee_code, designation, email_id, employee_type, status")
+    .eq("status", "Active")
+    .or(`full_name.ilike.%${safe}%,employee_code.ilike.%${safe}%`)
+    .order("full_name", { ascending: true })
+    .limit(20);
 
-  const [masterRes, profileRes] = await Promise.all([
-    supabase
-      .from("admin_ifsp_employee_master")
-      .select("id, full_name, employee_code, designation, email_id, employee_type, status")
-      .eq("status", "Active")
-      .or(`full_name.ilike.%${safe}%,employee_code.ilike.%${safe}%`)
-      .order("full_name", { ascending: true })
-      .limit(20),
-    supabase
-      .from("profiles")
-      .select("id, email, username, employee_code")
-      .or(`username.ilike.%${safe}%,email.ilike.%${safe}%,employee_code.ilike.%${safe}%`)
-      .limit(20),
-  ]);
+  if (masterRes.error) return [];
 
-  if (masterRes.error && profileRes.error) return [];
-
-  // Prefer in-house (blank employee_type is treated as in-house in Employee Master)
-  const masterRows = (masterRes.data || []).filter((e) => {
-    const t = String(e.employee_type ?? "").trim().toLowerCase();
-    return !t || t === "in_house";
-  });
-
-  const codes = [
-    ...new Set(
-      masterRows
-        .map((e) => String(e.employee_code || "").trim())
-        .filter(Boolean)
-    ),
-  ];
-
-  // Extra profile emails by emp code (covers master rows with blank email_id)
-  let profileByCode = new Map();
-  const profileHits = profileRes.data || [];
-  for (const p of profileHits) {
-    const code = String(p.employee_code || "").trim();
-    if (code) profileByCode.set(code.toLowerCase(), p);
-  }
-  if (codes.length) {
-    const missing = codes.filter((c) => !profileByCode.has(c.toLowerCase()));
-    if (missing.length) {
-      const { data: more } = await supabase
-        .from("profiles")
-        .select("id, email, username, employee_code")
-        .in("employee_code", missing);
-      for (const p of more || []) {
-        const code = String(p.employee_code || "").trim();
-        if (code) profileByCode.set(code.toLowerCase(), p);
-      }
-    }
-  }
-
-  const byKey = new Map();
-  for (const e of masterRows) {
-    const code = String(e.employee_code || "").trim();
-    const profile = code ? profileByCode.get(code.toLowerCase()) : null;
-    const email =
-      String(e.email_id || "").trim() ||
-      String(profile?.email || "").trim();
-    const key = code ? `code:${code.toLowerCase()}` : `master:${e.id}`;
-    byKey.set(key, {
+  return (masterRes.data || [])
+    .filter((e) => {
+      const t = String(e.employee_type ?? "").trim().toLowerCase();
+      return !t || t === "in_house";
+    })
+    .map((e) => ({
       id: e.id,
-      name: e.full_name || profile?.username || "",
-      code,
-      designation: e.designation || "",
-      email,
-    });
-  }
-
-  // Profiles that matched search but weren't already covered via master
-  for (const p of profileHits) {
-    const code = String(p.employee_code || "").trim();
-    const key = code ? `code:${code.toLowerCase()}` : `profile:${p.id}`;
-    if (byKey.has(key)) {
-      const cur = byKey.get(key);
-      if (!cur.email && p.email) cur.email = String(p.email).trim();
-      if (!cur.name && p.username) cur.name = String(p.username).trim();
-      continue;
-    }
-    const name = String(p.username || "").trim() || String(p.email || "").split("@")[0];
-    if (!name) continue;
-    byKey.set(key, {
-      id: `profile-${p.id}`,
-      name,
-      code,
-      designation: "",
-      email: String(p.email || "").trim(),
-    });
-  }
-
-  return [...byKey.values()].filter((r) => r.name).slice(0, 15);
+      name: String(e.full_name || "").trim(),
+      code: String(e.employee_code || "").trim(),
+      designation: String(e.designation || "").trim(),
+      email: String(e.email_id || "").trim(),
+    }))
+    .filter((r) => r.name)
+    .slice(0, 15);
 }
 
 export async function getDashboardSummary() {
@@ -936,10 +892,35 @@ export function convertToEmployee(candidateId, { employeeCode, linkEmployeeId } 
 // ---------------------------------------------------------------------------
 // Communication
 // ---------------------------------------------------------------------------
-export async function sendCommunication({ candidateId, templateKey, relatedType, relatedId, subject, body, idempotencyKey }) {
+export async function listCommunicationSenders() {
+  const out = await apiGet("/api/admin-recruitment/communications/senders", "Could not load sender mailboxes.");
+  return out?.senders || [];
+}
+
+export async function sendCommunication({
+  candidateId,
+  templateKey,
+  relatedType,
+  relatedId,
+  subject,
+  body,
+  to,
+  senderMail,
+  idempotencyKey,
+}) {
   const out = await api(
     "/api/admin-recruitment/communications/send",
-    { candidateId, templateKey, relatedType, relatedId, subject, body, idempotencyKey: idempotencyKey || `manual:${requestKey()}` },
+    {
+      candidateId,
+      templateKey,
+      relatedType,
+      relatedId,
+      subject,
+      body,
+      to,
+      senderMail,
+      idempotencyKey: idempotencyKey || `manual:${requestKey()}`,
+    },
     "Could not send the email."
   );
   notify();
