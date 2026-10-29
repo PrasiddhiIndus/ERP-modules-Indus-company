@@ -83,16 +83,28 @@ export function normalizeAttachment(attachment) {
 
   if (!contentBytes) return null;
 
+  // Ensure Office files keep a real extension so clients do not "convert" / reflow them.
+  let finalName = name || 'attachment';
+  const lowerType = contentType.toLowerCase();
+  if (lowerType.includes('wordprocessingml') && !/\.docx$/i.test(finalName)) {
+    finalName = `${finalName.replace(/\.(doc|docx)?$/i, '')}.docx`;
+  }
+  if (lowerType === 'application/pdf' && !/\.pdf$/i.test(finalName)) {
+    finalName = `${finalName.replace(/\.pdf$/i, '')}.pdf`;
+  }
+
   return {
     '@odata.type': '#microsoft.graph.fileAttachment',
-    name,
+    name: finalName,
     contentType,
     contentBytes: String(contentBytes),
+    isInline: false,
   };
 }
 
 export function buildGraphMessagePayload({
   to,
+  cc,
   bcc,
   subject,
   text,
@@ -126,6 +138,13 @@ export function buildGraphMessagePayload({
       },
     ],
   };
+
+  const ccList = (Array.isArray(cc) ? cc : [])
+    .map((addr) => String(addr || '').trim())
+    .filter(Boolean);
+  if (ccList.length) {
+    message.ccRecipients = ccList.map((address) => ({ emailAddress: { address } }));
+  }
 
   const bccList = (Array.isArray(bcc) ? bcc : [])
     .map((addr) => String(addr || '').trim())

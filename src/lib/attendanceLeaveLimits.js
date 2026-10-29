@@ -197,17 +197,46 @@ function addCalendarDays(isoDate, delta) {
   return d.toISOString().slice(0, 10);
 }
 
-/** PL / CL / SL family for consecutive-leave rule (includes P/ and LWP/ composites). */
+/** PL / CL / SL / CO family for consecutive-leave rule (includes P/ and LWP/ composites). */
 export function registerMarkPlClSlType(mark) {
   const m = normalizeRegisterMarkForDb(mark);
   if (!m) return null;
   if (m === "PL" || m === "P/PL" || m === "LWP/PL") return "PL";
   if (m === "CL" || m === "P/CL" || m === "LWP/CL") return "CL";
   if (m === "SL" || m === "P/SL" || m === "LWP/SL") return "SL";
+  if (m === "CO") return "CO";
   return null;
 }
 
-/** WO and NH/PH marks bridge PL/CL/SL sequences without breaking them. */
+/**
+ * From this date (inclusive), only PL↔CO may merge. Earlier dates keep the old
+ * behaviour for CO (CO did not participate in mix checks), so already-saved
+ * CO+CL / CO+SL rows are left alone and can still be re-touched.
+ * PL/CL/SL mutual no-mixing is unchanged for all dates.
+ */
+export const CO_PL_MERGE_ONLY_FROM = "2026-10-29";
+
+/**
+ * Consecutive leave merge rule: same type always OK; PL↔CO always OK.
+ * From CO_PL_MERGE_ONLY_FROM, CO may not sit next to CL/SL.
+ * Before that date, CO is treated as compatible with any leave type (legacy).
+ */
+export function leaveTypesCanMerge(a, b, onDate = null) {
+  if (!a || !b) return true;
+  if (a === b) return true;
+  if ((a === "PL" && b === "CO") || (a === "CO" && b === "PL")) return true;
+
+  const involvesCo = a === "CO" || b === "CO";
+  if (involvesCo) {
+    const d = String(onDate || "").slice(0, 10);
+    if (!d || d < CO_PL_MERGE_ONLY_FROM) return true;
+    return false;
+  }
+
+  return false;
+}
+
+/** WO and NH/PH marks bridge PL/CL/SL/CO sequences without breaking them. */
 export function registerMarkIsLeaveBridge(mark) {
   const m = normalizeRegisterMarkForDb(mark);
   if (!m) return false;
@@ -250,22 +279,22 @@ function validatePlClSlOnMarksByDate(marksByDate, registerDate, mark) {
   if (!newType || !date) return { ok: true };
 
   const prevType = neighborPlClSlType(marksByDate, date, -1);
-  if (prevType && prevType !== newType) {
+  if (prevType && !leaveTypesCanMerge(newType, prevType, date)) {
     return {
       ok: false,
       message:
         `Cannot combine different leave types on consecutive days: ${newType} next to existing ${prevType}. ` +
-        "Use the same leave type or leave a gap.",
+        "Only PL and CO may be combined; otherwise use the same leave type or leave a gap.",
     };
   }
 
   const nextType = neighborPlClSlType(marksByDate, date, 1);
-  if (nextType && nextType !== newType) {
+  if (nextType && !leaveTypesCanMerge(newType, nextType, date)) {
     return {
       ok: false,
       message:
         `Cannot combine different leave types on consecutive days: ${newType} next to existing ${nextType}. ` +
-        "Use the same leave type or leave a gap.",
+        "Only PL and CO may be combined; otherwise use the same leave type or leave a gap.",
     };
   }
 
@@ -273,8 +302,8 @@ function validatePlClSlOnMarksByDate(marksByDate, registerDate, mark) {
 }
 
 /**
- * Block mixing PL / CL / SL across calendar-adjacent days (WO / NH/PH bridge only).
- * Mirrors public.admin_attendance_neighbor_pl_cl_sl_type on the server.
+ * Block mixing leave types across calendar-adjacent days (WO / NH/PH bridge only).
+ * Same type OK; only PL↔CO may merge. Mirrors server register/leave enforce rules.
  */
 export function validatePlClSlConsecutiveMark(
   yearRowsForEmp,

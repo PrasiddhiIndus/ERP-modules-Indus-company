@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Plus, X } from "lucide-react";
 import { toast } from "../../../lib/toast";
 import { INTERVIEW_MODES, RECRUITMENT_BASE } from "./recruitmentConfig";
-import { getSettings, listRequisitions, rescheduleInterview, scheduleInterview, updateCandidate } from "./recruitmentService";
+import { getSettings, listRequisitions, rescheduleInterview, scheduleInterview } from "./recruitmentService";
 import { ActionModal, EmployeeNameSuggest, Field, inputClass, textareaClass } from "./RecruitmentUi";
 
 function toLocalInput(date) {
@@ -130,15 +130,9 @@ export default function ScheduleInterviewModal({ open, candidate, candidates = [
           await rescheduleInterview(interview.id, { scheduledAt, reason: form.reason.trim(), mode: form.mode, location: form.location, interviewers: chosen }, interview.version);
           toast.success("Interview rescheduled", "Send the updated invitation to the candidate.");
         } else {
-          // Link first when needed so scheduling works even before the DB migration that
-          // accepts requisitionId on the schedule RPC is applied.
-          if (needsRequisition && form.requisitionId) {
-            await updateCandidate(
-              form.candidateId,
-              { requisitionId: form.requisitionId },
-              selectedCandidate?.version ?? null
-            );
-          }
+          // Link unassigned candidates via the schedule RPC (requisitionId) — do not
+          // call candidate_update here; that needs the candidates capability and was
+          // failing Schedule with "Could not update the candidate."
           await scheduleInterview(form.candidateId, {
             scheduledAt,
             mode: form.mode,

@@ -22,6 +22,7 @@ import {
   reviewDocument,
   saveOfferDraft,
   searchEmployees,
+  listCommunicationSenders,
   sendCommunication,
   setCandidateResume,
   submitDocument,
@@ -755,20 +756,47 @@ export function ConvertModal({ open, candidate, onClose, onConverted }) {
  */
 export function SendEmailModal({ open, candidate, candidates, templateKey, relatedId, onClose }) {
   const [templates, setTemplates] = useState([]);
+  const [senders, setSenders] = useState([]);
+  const [sendersError, setSendersError] = useState("");
   const [key, setKey] = useState(templateKey || "general");
   const [candidateId, setCandidateId] = useState(candidate?.id || "");
+  const [toEmail, setToEmail] = useState("");
+  const [senderMail, setSenderMail] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const idemRef = useRef(newKey());
+
+  const modalTitle =
+    templateKey === "offer_letter"
+      ? "Send offer"
+      : templateKey === "appointment_letter"
+        ? "Send appointment letter"
+        : "Send email";
 
   useEffect(() => {
     if (!open) return;
     idemRef.current = newKey();
     setKey(templateKey || "general");
     setCandidateId(candidate?.id || "");
+    setToEmail(candidate?.email || "");
+    setSenderMail("");
+    setSendersError("");
     listTemplates()
       .then((rows) => setTemplates(rows.filter((t) => t.active)))
       .catch(() => setTemplates([]));
+    listCommunicationSenders()
+      .then((rows) => {
+        setSenders(rows);
+        setSenderMail(rows[0]?.mail || "");
+        if (!rows.length) {
+          setSendersError("No verified sender mailboxes found. Add and verify one under Mail Outreach → Sender Mailboxes.");
+        }
+      })
+      .catch((err) => {
+        setSenders([]);
+        setSenderMail("");
+        setSendersError(err?.message || "Could not load sender mailboxes.");
+      });
   }, [open, templateKey, candidate]);
 
   const tpl = useMemo(() => templates.find((t) => t.key === key), [templates, key]);
@@ -778,14 +806,24 @@ export function SendEmailModal({ open, candidate, candidates, templateKey, relat
   }, [tpl]);
 
   const recipient = candidate || candidates?.find((c) => c.id === candidateId);
+  useEffect(() => {
+    if (!open || candidate) return;
+    setToEmail(recipient?.email || "");
+  }, [open, candidate, recipient?.email, recipient?.id]);
+
+  const toTrimmed = toEmail.trim();
+  const canSend = Boolean(
+    recipient?.id && tpl && subject.trim() && body.trim() && toTrimmed.includes("@") && senderMail
+  );
+
   return (
     <ActionModal
       open={open}
-      title="Send email"
+      title={modalTitle}
       onClose={onClose}
       widthClass="max-w-2xl"
       submitLabel="Send"
-      canSubmit={Boolean(recipient?.id && tpl && subject.trim() && body.trim())}
+      canSubmit={canSend}
       onSubmit={async () => {
         const out = await sendCommunication({
           candidateId: recipient.id,
@@ -793,33 +831,73 @@ export function SendEmailModal({ open, candidate, candidates, templateKey, relat
           relatedId: key === templateKey ? relatedId : undefined,
           subject: subject === tpl.subject ? null : subject,
           body: body === tpl.body ? null : body,
+          to: toTrimmed,
+          senderMail,
           idempotencyKey: `manual:${idemRef.current}`,
         });
         if (out?.delivered === false || out?.communication?.status === "failed") {
           throw new Error(out?.communication?.error || "The email could not be delivered. It is saved in history and can be retried.");
         }
-        toast.success(out?.alreadyHandled ? "Email already sent" : "Email sent", recipient.email);
+        const ccNote = out?.cc?.length ? ` · CC ${out.cc.join(", ")}` : "";
+        toast.success(
+          out?.alreadyHandled ? "Email already sent" : "Email sent",
+          `${toTrimmed}${out?.from ? ` from ${out.from}` : ""}${ccNote}`
+        );
         onClose();
       }}
     >
-      {candidate ? (
-        <p className="text-xs text-ink-secondary">
-          To: <span className="font-medium text-ink">{candidate.name}</span> {candidate.email ? `<${candidate.email}>` : "(no email on file)"}
-        </p>
-      ) : (
+      {!candidate ? (
         <Field label="Candidate *">
           <select className={inputClass} value={candidateId} onChange={(e) => setCandidateId(e.target.value)}>
             <option value="">Select candidate</option>
-            {(candidates || [])
-              .filter((c) => c.email)
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} · {c.email}
-                </option>
-              ))}
+            {(candidates || []).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+                {c.email ? ` · ${c.email}` : ""}
+              </option>
+            ))}
           </select>
         </Field>
+      ) : (
+        <p className="text-xs text-ink-secondary">
+          Candidate: <span className="font-medium text-ink">{candidate.name}</span>
+        </p>
       )}
+
+      <div className="rounded-lg border border-divider bg-surface-muted/40 p-3 space-y-3">
+        <p className="text-[11px] font-medium text-ink">Choose mailboxes before sending</p>
+        <Field label="From email (Mail Outreach) *">
+          {senders.length ? (
+            <select className={inputClass} value={senderMail} onChange={(e) => setSenderMail(e.target.value)} required>
+              <option value="" disabled>
+                Select From email
+              </option>
+              {senders.map((s) => (
+                <option key={s.mail} value={s.mail}>
+                  {s.label || s.mail}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="rounded-md border border-warning-border bg-warning-soft px-2 py-1.5 text-[11px] text-warning">
+              {sendersError || "No verified sender mailboxes found. Add one under Mail Outreach → Sender Mailboxes."}
+            </p>
+          )}
+        </Field>
+        <Field label="To email *">
+          <input
+            type="email"
+            className={inputClass}
+            value={toEmail}
+            onChange={(e) => setToEmail(e.target.value)}
+            placeholder="candidate@example.com"
+            autoComplete="email"
+            required
+          />
+        </Field>
+        <p className="text-[10px] text-ink-muted">The From address is also added in CC on the same email.</p>
+      </div>
+
       <Field label="Template">
         <select className={inputClass} value={key} onChange={(e) => setKey(e.target.value)}>
           {templates.map((t) => (

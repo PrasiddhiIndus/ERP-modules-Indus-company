@@ -360,6 +360,8 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/candidate-portal/:token" element={<CandidatePortal />} />
+          {/* Opaque sealed offer/appointment link used in emails (hides /candidate-portal path). */}
+          <Route path="/r/:token" element={<CandidatePortal />} />
 
           {/* Protected with Layout */}
           <Route

@@ -540,18 +540,47 @@ export function useCapabilities() {
   return caps;
 }
 
+function isBrowserPreviewableFile(file) {
+  const name = String(file?.fileName || file?.objectKey || "").toLowerCase();
+  const type = String(file?.contentType || "").toLowerCase();
+  if (type.includes("pdf") || /\.pdf$/i.test(name)) return true;
+  if (type.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(name)) return true;
+  return false;
+}
+
+function triggerBrowserDownload(url, fileName) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.rel = "noopener";
+  a.download = String(fileName || "download").replace(/[<>:"/\\|?*]+/g, "-");
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 /** Opens a stored candidate file through a short-lived secure link. */
 export function FileButton({ candidateId, category, file, label, download = false, className }) {
   const [busy, setBusy] = useState(false);
   if (!file?.objectKey) return <span className="text-ink-muted">—</span>;
   const open = async (e) => {
     e.stopPropagation();
-    const win = window.open("", "_blank");
+    const forceDownload = download || !isBrowserPreviewableFile(file);
     setBusy(true);
+    let win = null;
     try {
-      const url = await getFileUrl(candidateId, category, file, { download });
-      if (win) win.location.href = url;
-      else window.location.assign(url);
+      // Only open a tab for files the browser can preview (PDF/images).
+      // Word (.docx) would otherwise show a blank page.
+      if (!forceDownload) {
+        win = window.open("", "_blank");
+      }
+      const url = await getFileUrl(candidateId, category, file, { download: forceDownload });
+      if (forceDownload) {
+        triggerBrowserDownload(url, file.fileName);
+      } else if (win) {
+        win.location.href = url;
+      } else {
+        window.location.assign(url);
+      }
     } catch (err) {
       win?.close();
       toast.error("Could not open file", err.message);

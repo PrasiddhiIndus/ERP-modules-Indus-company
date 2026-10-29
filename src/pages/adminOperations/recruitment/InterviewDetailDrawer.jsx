@@ -2,69 +2,134 @@ import React, { useEffect, useState } from "react";
 import { CalendarCheck, CalendarClock, CalendarX, Mail, Star, XCircle } from "lucide-react";
 import { Drawer } from "../components/AdminUi";
 import { toast } from "../../../lib/toast";
-import { INTERVIEW_RECOMMENDATIONS, interviewStatusMeta, recommendationMeta } from "./recruitmentConfig";
-import { evaluateInterview, getSettings, setInterviewStatus } from "./recruitmentService";
-import { ActionModal, DetailGrid, Field, ReasonModal, StatusPill, btn, fmtDateTime, runAction, textareaClass, useCapabilities } from "./RecruitmentUi";
+import { EVALUATION_CRITERIA, INTERVIEW_RECOMMENDATIONS, interviewStatusMeta, recommendationMeta } from "./recruitmentConfig";
+import { evaluateInterview, setInterviewStatus } from "./recruitmentService";
+import { ActionModal, DetailGrid, Field, ReasonModal, StatusPill, btn, fmtDateTime, inputClass, runAction, textareaClass, useCapabilities } from "./RecruitmentUi";
 import ScheduleInterviewModal from "./ScheduleInterviewModal";
 import { SendEmailModal } from "./RecruitmentForms";
 
-function RatingInput({ label, value, onChange }) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-1">
-      <span className="text-xs text-ink">{label}</span>
-      <div role="radiogroup" aria-label={`${label} rating`} className="flex gap-0.5">
-        {[1, 2, 3, 4, 5].map((n) => (
-          <button
-            key={n}
-            type="button"
-            role="radio"
-            aria-checked={value === n}
-            aria-label={`${n} of 5`}
-            onClick={() => onChange(n)}
-            className="rounded p-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-border"
-          >
-            <Star className={`h-4 w-4 ${n <= (value || 0) ? "fill-warning text-warning" : "text-ink-muted"}`} />
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+function scoreEntries(ratings) {
+  const raw = ratings && typeof ratings === "object" ? ratings : {};
+  const scored = Object.entries(raw).filter(([k, v]) => k !== "__remarks" && (typeof v === "number" || (typeof v === "string" && /^[1-5]$/.test(String(v)))));
+  // Prefer standard parameter order when present
+  const order = new Map(EVALUATION_CRITERIA.map((k, i) => [k, i]));
+  return scored.sort((a, b) => (order.has(a[0]) ? order.get(a[0]) : 999) - (order.has(b[0]) ? order.get(b[0]) : 999));
+}
+
+function averageOf(ratings, keys) {
+  const vals = keys.map((k) => Number(ratings[k])).filter((n) => n >= 1 && n <= 5);
+  if (!vals.length) return null;
+  return Math.round((vals.reduce((s, n) => s + n, 0) / vals.length) * 10) / 10;
 }
 
 function EvaluationModal({ open, interview, onClose }) {
-  const [criteria, setCriteria] = useState([]);
+  const keys = EVALUATION_CRITERIA;
   const [ratings, setRatings] = useState({});
+  const [rowRemarks, setRowRemarks] = useState({});
   const [recommendation, setRecommendation] = useState("");
   const [remarks, setRemarks] = useState("");
   useEffect(() => {
     if (!open) return;
-    setRatings(interview?.ratings || {});
+    const raw = interview?.ratings && typeof interview.ratings === "object" ? interview.ratings : {};
+    const { __remarks: savedRowRemarks, ...scores } = raw;
+    setRatings(scores);
+    setRowRemarks(savedRowRemarks && typeof savedRowRemarks === "object" ? savedRowRemarks : {});
     setRecommendation(interview?.recommendation || "");
     setRemarks(interview?.remarks || "");
-    getSettings()
-      .then((s) => setCriteria(s.evaluationCriteria || []))
-      .catch(() => setCriteria([]));
   }, [open, interview]);
-  const keys = criteria.length ? criteria : Object.keys(ratings);
-  const ratedAll = keys.length > 0 && keys.every((k) => ratings[k] > 0);
+  const avg = averageOf(ratings, keys);
   return (
     <ActionModal
       open={open}
       title={`Evaluation · ${interview?.candidateName || ""}`}
       onClose={onClose}
+      widthClass="max-w-3xl"
       submitLabel="Save evaluation"
-      canSubmit={ratedAll && Boolean(recommendation)}
+      canSubmit={Boolean(recommendation)}
       onSubmit={async () => {
-        const payload = Object.fromEntries(keys.map((k) => [k, ratings[k]]));
+        const notes = {};
+        keys.forEach((k) => {
+          const t = String(rowRemarks[k] || "").trim();
+          if (t) notes[k] = t;
+        });
+        const scores = {};
+        keys.forEach((k) => {
+          const n = Number(ratings[k]);
+          if (n >= 1 && n <= 5) scores[k] = n;
+        });
+        const payload = {
+          ...scores,
+          ...(Object.keys(notes).length ? { __remarks: notes } : {}),
+        };
         await evaluateInterview(interview.id, { ratings: payload, recommendation, remarks: remarks.trim() }, interview.version);
         toast.success("Evaluation saved");
         onClose();
       }}
     >
-      <div className="divide-y divide-divider rounded-md border border-border px-3">
-        {keys.map((k) => (
-          <RatingInput key={k} label={k} value={ratings[k]} onChange={(n) => setRatings((r) => ({ ...r, [k]: n }))} />
-        ))}
+      <div className="overflow-x-auto rounded-md border border-border">
+        <table className="w-full min-w-[36rem] border-collapse text-left text-xs">
+          <thead>
+            <tr className="border-b border-divider bg-surface-sunken text-[11px] font-semibold text-ink-secondary">
+              <th scope="col" className="px-2.5 py-2 font-semibold">
+                Parameter
+              </th>
+              <th scope="col" className="w-36 px-2.5 py-2 font-semibold">
+                Rating (1-5)
+              </th>
+              <th scope="col" className="px-2.5 py-2 font-semibold">
+                Comments
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {keys.map((k) => (
+              <tr key={k} className="border-b border-divider align-middle">
+                <td className="px-2.5 py-1.5 text-ink">{k}</td>
+                <td className="px-2.5 py-1.5">
+                  <div role="radiogroup" aria-label={`${k} rating`} className="flex gap-0.5">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        role="radio"
+                        aria-checked={Number(ratings[k]) === n}
+                        aria-label={`${n} of 5`}
+                        onClick={() =>
+                          setRatings((r) => {
+                            if (Number(r[k]) === n) {
+                              const next = { ...r };
+                              delete next[k];
+                              return next;
+                            }
+                            return { ...r, [k]: n };
+                          })
+                        }
+                        className="rounded p-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-border"
+                      >
+                        <Star className={`h-4 w-4 ${n <= (Number(ratings[k]) || 0) ? "fill-warning text-warning" : "text-ink-muted"}`} />
+                      </button>
+                    ))}
+                  </div>
+                </td>
+                <td className="px-2.5 py-1.5">
+                  <input
+                    type="text"
+                    value={rowRemarks[k] || ""}
+                    onChange={(e) => setRowRemarks((r) => ({ ...r, [k]: e.target.value }))}
+                    placeholder="Comments"
+                    aria-label={`${k} comments`}
+                    className={inputClass}
+                  />
+                </td>
+              </tr>
+            ))}
+            <tr className="bg-surface-sunken">
+              <td className="px-2.5 py-2 font-semibold text-ink">Average Rating</td>
+              <td className="px-2.5 py-2 tabular-nums font-semibold text-ink">{avg != null ? `${avg} / 5` : "—"}</td>
+              <td className="px-2.5 py-2 text-ink-muted">—</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
       <Field label="Recommendation *">
         <div role="radiogroup" aria-label="Recommendation" className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
@@ -98,6 +163,7 @@ export default function InterviewDetailDrawer({ interview, candidate, onClose })
   const canAct = caps.interviews && interview.candidateLive;
   const started = new Date(interview.scheduledAt).getTime() <= Date.now();
   const ratings = interview.ratings || {};
+  const rowNotes = ratings.__remarks && typeof ratings.__remarks === "object" ? ratings.__remarks : {};
 
   return (
     <Drawer open title={`Interview · ${interview.candidateName}`} onClose={onClose} widthClass="max-w-xl">
@@ -125,16 +191,39 @@ export default function InterviewDetailDrawer({ interview, candidate, onClose })
         {interview.overallRating != null ? (
           <section>
             <h3 className="mb-2 text-xs font-semibold text-ink">
-              Evaluation · {interview.overallRating} / 5 <span className="font-normal text-ink-muted">by {interview.evaluatedBy || "—"}</span>
+              Evaluation <span className="font-normal text-ink-muted">by {interview.evaluatedBy || "—"}</span>
             </h3>
-            <ul className="space-y-1">
-              {Object.entries(ratings).map(([k, v]) => (
-                <li key={k} className="flex justify-between text-xs">
-                  <span className="text-ink-secondary">{k}</span>
-                  <span className="tabular-nums">{v} / 5</span>
-                </li>
-              ))}
-            </ul>
+            <div className="overflow-x-auto rounded-md border border-border">
+              <table className="w-full border-collapse text-left text-xs">
+                <thead>
+                  <tr className="border-b border-divider bg-surface-sunken text-[11px] font-semibold text-ink-secondary">
+                    <th scope="col" className="px-2.5 py-1.5">
+                      Parameter
+                    </th>
+                    <th scope="col" className="w-24 px-2.5 py-1.5">
+                      Rating (1-5)
+                    </th>
+                    <th scope="col" className="px-2.5 py-1.5">
+                      Comments
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scoreEntries(ratings).map(([k, v]) => (
+                    <tr key={k} className="border-b border-divider align-top">
+                      <td className="px-2.5 py-1.5 text-ink-secondary">{k}</td>
+                      <td className="px-2.5 py-1.5 tabular-nums">{v} / 5</td>
+                      <td className="px-2.5 py-1.5 text-[11px] text-ink-muted">{rowNotes[k] || "—"}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-surface-sunken">
+                    <td className="px-2.5 py-1.5 font-semibold text-ink">Average Rating</td>
+                    <td className="px-2.5 py-1.5 tabular-nums font-semibold">{interview.overallRating} / 5</td>
+                    <td className="px-2.5 py-1.5 text-ink-muted">—</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             {interview.remarks ? <p className="mt-2 whitespace-pre-wrap rounded-md bg-surface-sunken px-2 py-1.5 text-[11px]">{interview.remarks}</p> : null}
           </section>
         ) : null}

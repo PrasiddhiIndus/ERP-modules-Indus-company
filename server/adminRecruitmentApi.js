@@ -2,7 +2,7 @@
  * Admin In-house Recruitment API.
  *
  * Workflow rules live in the database workflow functions; this module adds what the
- * database cannot do on its own: file storage (R2), letter PDFs, email delivery through
+ * database cannot do on its own: file storage (R2), letter Word docs, email delivery through
  * the existing mail infrastructure, the candidate secure-link portal and reminders.
  */
 import crypto from 'crypto';
@@ -10,9 +10,15 @@ import rateLimit from 'express-rate-limit';
 import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createClient } from '@supabase/supabase-js';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { isMailDispatchConfigured, sendOutboundMail, MAIL_NOT_CONFIGURED_MESSAGE } from './mail/index.js';
 import { emailHtmlForSending, escapeTokenValues, looksLikeHtmlEmail } from '../shared/emailHtml.mjs';
+import { canUseSenderMailbox } from './mail/senderAccess.js';
+import {
+  buildAppointmentLetterDocx,
+  buildOfferLetterDocx,
+  convertDocxBufferToPdf,
+} from './adminRecruitmentLetterDocs.js';
+import { resolvePortalTokenParam, sealPortalToken } from './portalLinkCrypto.js';
 
 const KEY_PREFIX = 'admin-recruitment/';
 const FILE_CATEGORIES = new Set(['resume', 'offer', 'appointment', 'document']);
@@ -97,182 +103,6 @@ function renderTokens(text, values) {
   );
 }
 
-function money(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '-';
-  return `Rs. ${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
-}
-
-function longDate(value) {
-  if (!value) return '-';
-  const d = new Date(`${String(value).slice(0, 10)}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
-}
-
-function todayLong() {
-  return new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Asia/Kolkata' });
-}
-
-/** Standard PDF fonts only cover Latin-1; keep letters readable instead of failing. */
-function pdfSafe(text) {
-  return String(text ?? '')
-    .replace(/₹/g, 'Rs.')
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[–—]/g, '-')
-    .replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]/g, '?');
-}
-
-// ---------------------------------------------------------------------------
-// Letter PDFs
-// ---------------------------------------------------------------------------
-async function buildLetterPdf({ title, companyName, reference, candidateName, paragraphs, facts, terms, closing }) {
-  const pdf = await PDFDocument.create();
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const pageSize = [595.28, 841.89];
-  const margin = 56;
-  const width = pageSize[0] - margin * 2;
-  let page = pdf.addPage(pageSize);
-  let y = pageSize[1] - margin;
-
-  const ensure = (needed) => {
-    if (y - needed < margin) {
-      page = pdf.addPage(pageSize);
-      y = pageSize[1] - margin;
-    }
-  };
-  const wrap = (text, f, size) => {
-    const lines = [];
-    for (const para of pdfSafe(text).split(/\r?\n/)) {
-      let line = '';
-      for (const word of para.split(/\s+/).filter(Boolean)) {
-        const next = line ? `${line} ${word}` : word;
-        if (f.widthOfTextAtSize(next, size) > width && line) {
-          lines.push(line);
-          line = word;
-        } else {
-          line = next;
-        }
-      }
-      lines.push(line);
-    }
-    return lines;
-  };
-  const write = (text, { f = font, size = 10.5, gap = 4, color = rgb(0.12, 0.12, 0.12) } = {}) => {
-    for (const line of wrap(text, f, size)) {
-      ensure(size + gap);
-      page.drawText(line, { x: margin, y: y - size, size, font: f, color });
-      y -= size + gap;
-    }
-  };
-  const space = (h) => {
-    y -= h;
-  };
-
-  page.drawRectangle({ x: 0, y: pageSize[1] - 6, width: pageSize[0], height: 6, color: rgb(0.72, 0.11, 0.11) });
-  write(companyName, { f: bold, size: 15, color: rgb(0.72, 0.11, 0.11) });
-  space(10);
-  write(title, { f: bold, size: 13 });
-  space(6);
-  write(`Ref: ${reference}`, { size: 9.5, color: rgb(0.35, 0.35, 0.35) });
-  write(`Date: ${todayLong()}`, { size: 9.5, color: rgb(0.35, 0.35, 0.35) });
-  space(12);
-  write(`Dear ${candidateName},`);
-  space(6);
-  for (const p of paragraphs) {
-    write(p);
-    space(6);
-  }
-  if (facts.length) {
-    space(2);
-    for (const [label, value] of facts) {
-      ensure(16);
-      page.drawText(pdfSafe(label), { x: margin, y: y - 10.5, size: 10.5, font: bold });
-      page.drawText(pdfSafe(value), { x: margin + 170, y: y - 10.5, size: 10.5, font });
-      y -= 16;
-    }
-    space(8);
-  }
-  if (terms) {
-    write('Terms and conditions', { f: bold });
-    space(2);
-    write(terms, { size: 10 });
-    space(8);
-  }
-  for (const p of closing) {
-    write(p);
-    space(4);
-  }
-  space(18);
-  write(`For ${companyName}`, { f: bold });
-  space(28);
-  write('Authorised Signatory');
-  space(30);
-  ensure(60);
-  write('Candidate acceptance', { f: bold });
-  write('I have read and accept the terms set out in this letter.');
-  space(18);
-  write('Signature: ______________________          Date: ______________');
-
-  return Buffer.from(await pdf.save());
-}
-
-function offerLetterContent(offer, candidate, companyName) {
-  return {
-    title: 'OFFER OF EMPLOYMENT',
-    companyName,
-    reference: offer.offer_ref,
-    candidateName: candidate.full_name,
-    paragraphs: [
-      `We are pleased to offer you the position of ${offer.designation}${offer.department ? ` in the ${offer.department} department` : ''} at ${companyName}. The key details of this offer are set out below.`,
-    ],
-    facts: [
-      ['Designation', offer.designation || '-'],
-      ['Department', offer.department || '-'],
-      ['Location', offer.location || '-'],
-      ['Employment type', offer.employment_type || '-'],
-      ['Monthly gross salary', money(offer.monthly_gross)],
-      ['Annual CTC', money(offer.annual_ctc)],
-      ['Proposed joining date', longDate(offer.joining_date)],
-      ['Offer valid until', longDate(offer.valid_until)],
-    ],
-    terms: offer.terms || '',
-    closing: [
-      'Please confirm your acceptance before the validity date using the secure link sent to you by email. A detailed appointment letter will follow once you accept this offer.',
-      'We look forward to welcoming you to the team.',
-    ],
-  };
-}
-
-function appointmentLetterContent(appt, offer, candidate, companyName) {
-  return {
-    title: 'LETTER OF APPOINTMENT',
-    companyName,
-    reference: appt.appointment_ref,
-    candidateName: candidate.full_name,
-    paragraphs: [
-      `With reference to your acceptance of our offer${offer?.offer_ref ? ` ${offer.offer_ref}` : ''}, we are pleased to appoint you as ${appt.designation} with ${companyName} with effect from ${longDate(appt.joining_date)}.`,
-      appt.reporting_to ? `You will report to ${appt.reporting_to}.` : '',
-    ].filter(Boolean),
-    facts: [
-      ['Designation', appt.designation || '-'],
-      ['Department', appt.department || '-'],
-      ['Location', appt.location || '-'],
-      ['Employment type', appt.employment_type || '-'],
-      ['Monthly gross salary', money(appt.monthly_gross)],
-      ['Date of joining', longDate(appt.joining_date)],
-    ],
-    terms:
-      appt.terms ||
-      'Your employment is governed by the company policies in force from time to time. Please carry original copies of your identity, address, education and previous employment documents on the date of joining.',
-    closing: [
-      'Please sign this letter and upload the signed copy using the secure link sent to you by email.',
-    ],
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Module
 // ---------------------------------------------------------------------------
@@ -317,10 +147,19 @@ export function registerAdminRecruitmentRoutes(app, deps) {
   };
 
   const presign = async (objectKey, fileName, download) => {
+    const safeName = sanitizeFileName(fileName || objectKey.split('/').pop());
+    const ext = fileExt(safeName);
+    // Word/Office files are not previewable in-browser; always force download to avoid a blank tab.
+    const forceAttachment = Boolean(download) || ['doc', 'docx', 'xls', 'xlsx'].includes(ext);
     const cmd = new GetObjectCommand({
       Bucket: getR2Bucket(),
       Key: objectKey,
-      ...(download ? { ResponseContentDisposition: `attachment; filename="${sanitizeFileName(fileName || objectKey.split('/').pop())}"` } : {}),
+      ...(forceAttachment
+        ? {
+            ResponseContentDisposition: `attachment; filename="${safeName}"`,
+            ResponseContentType: CONTENT_TYPES[ext] || 'application/octet-stream',
+          }
+        : {}),
     });
     return getSignedUrl(getR2Client(), cmd, { expiresIn: PRESIGN_SECONDS });
   };
@@ -366,29 +205,81 @@ export function registerAdminRecruitmentRoutes(app, deps) {
 
     const svc = serviceClient();
     const [{ data: candidate }, { data: settings }] = await Promise.all([
-      svc.from('admin_recruitment_candidates').select('id, full_name').eq('id', row.candidate_id).maybeSingle(),
+      svc
+        .from('admin_recruitment_candidates')
+        .select('id, full_name, current_location, home_town, email')
+        .eq('id', row.candidate_id)
+        .maybeSingle(),
       svc.from('admin_recruitment_settings').select('company_name').maybeSingle(),
     ]);
-    const companyName = settings?.company_name || 'Indus Fire Safety Private Limited';
-    let content;
+    const companyName = settings?.company_name || 'INDUS FIRE SAFETY PVT LTD';
+    let docx;
     if (kind === 'offer') {
-      content = offerLetterContent(row, candidate, companyName);
+      docx = await buildOfferLetterDocx(row, candidate || {}, companyName);
     } else {
-      const { data: offer } = await svc.from('admin_recruitment_offers').select('offer_ref').eq('id', row.offer_id).maybeSingle();
-      content = appointmentLetterContent(row, offer, candidate, companyName);
+      const { data: offer } = await svc
+        .from('admin_recruitment_offers')
+        .select('offer_ref, annual_ctc, monthly_gross, designation, department')
+        .eq('id', row.offer_id)
+        .maybeSingle();
+      docx = await buildAppointmentLetterDocx(row, offer, candidate || {}, companyName);
     }
-    const pdf = await buildLetterPdf(content);
     const ref = String(kind === 'offer' ? row.offer_ref : row.appointment_ref).replace(/[^A-Za-z0-9]+/g, '-');
-    const fileName = `${kind === 'offer' ? 'Offer' : 'Appointment'}-${ref}.pdf`;
+    const fileName = `${kind === 'offer' ? 'Offer' : 'Appointment'}-${ref}.docx`;
     const objectKey = `${KEY_PREFIX}${row.candidate_id}/${kind}/${Date.now()}-${fileName}`;
-    await putObject(objectKey, pdf, 'application/pdf');
-    const file = { objectKey, fileName, contentType: 'application/pdf', size: pdf.length };
+    const contentType = CONTENT_TYPES.docx;
+    await putObject(objectKey, docx, contentType);
+    const file = { objectKey, fileName, contentType, size: docx.length };
     await rpc(svc, 'admin_recruitment_letter_attach_generated', { p_kind: kind, p_id: id, p_file: file }, 'Could not save the letter.');
     return file;
   }
 
+  async function listRecruitmentSenders(db, userEmails = []) {
+    const { data, error } = await db
+      .from('sender_mailboxes')
+      .select('id, mail, display_name, status')
+      .eq('status', 'Verified')
+      .order('mail', { ascending: true });
+    if (error) throw dbError(error, 'Could not load sender mailboxes.');
+    return (data || [])
+      .map((row) => ({
+        id: row.id,
+        mail: String(row.mail || '').trim().toLowerCase(),
+        name: String(row.display_name || '').trim(),
+        label: row.display_name ? `${row.display_name} <${row.mail}>` : String(row.mail || ''),
+      }))
+      .filter((row) => row.mail && canUseSenderMailbox(row.mail, userEmails));
+  }
+
+  async function resolveRecruitmentSender(db, senderMail, userEmails) {
+    const senders = await listRecruitmentSenders(db, userEmails);
+    if (!senders.length) {
+      throw httpError(400, 'No verified sender mailboxes found. Add and verify an email in Mail Outreach → Sender Mailboxes.');
+    }
+    const requested = String(senderMail || '').trim().toLowerCase();
+    const sender = requested ? senders.find((s) => s.mail === requested) : senders[0];
+    if (!sender) throw httpError(400, 'Choose a verified From address from Mail Outreach.');
+    return sender;
+  }
+
   // ---- email sending -----------------------------------------------------
-  async function sendCommunication(db, input, { trigger = 'manual', baseUrl }) {
+  async function sendCommunication(db, input, { trigger = 'manual', baseUrl, userEmails = [] }) {
+    const toOverride = String(input.to || '').trim().toLowerCase();
+    if (toOverride) {
+      if (!toOverride.includes('@')) throw httpError(400, 'Enter a valid recipient email address.');
+      // Ensure prepare can run when candidate email was blank, and keep profile in sync.
+      const svcPre = serviceClient();
+      await svcPre
+        .from('admin_recruitment_candidates')
+        .update({ email: toOverride, updated_at: new Date().toISOString() })
+        .eq('id', input.candidateId);
+    }
+
+    const sender =
+      trigger === 'manual'
+        ? await resolveRecruitmentSender(serviceClient(), input.senderMail, userEmails)
+        : null;
+
     const prepared = await rpc(
       db,
       'admin_recruitment_comm_prepare',
@@ -425,22 +316,76 @@ export function registerAdminRecruitmentRoutes(app, deps) {
           p_ref_id: prepared.portalRefId || null,
           p_token_hash: hashToken(token),
         });
-        portalLink = `${baseUrl}/candidate-portal/${token}`;
+        // Opaque sealed path — raw token and /candidate-portal are not shown in the mail.
+        portalLink = `${baseUrl}/r/${sealPortalToken(token)}`;
       }
 
-      // The stored copy keeps {{portal_link}} so a retry issues a fresh link and no token is logged.
-      const isHtml = looksLikeHtmlEmail(comm.body);
+      // Stored history keeps {{portal_link}}; the outbound copy gets a cloaked HTML button (no raw URL).
       const storedSubject = renderTokens(comm.subject, values).replace(/\s+/g, ' ').trim();
-      const storedBody = renderTokens(comm.body, isHtml ? escapeTokenValues(values) : values);
-      const subject = renderTokens(storedSubject, { portal_link: portalLink });
-      const body = renderTokens(storedBody, { portal_link: portalLink });
+      const templateIsHtml = looksLikeHtmlEmail(comm.body);
+      const storedBody = renderTokens(comm.body, templateIsHtml ? escapeTokenValues(values) : values);
+      const subject = renderTokens(storedSubject, { portal_link: 'secure link' });
+
+      let body;
+      let sendAsHtml = templateIsHtml;
+      if (portalLink) {
+        const linkLabel =
+          prepared.portalPurpose === 'offer'
+            ? 'Open secure offer link'
+            : prepared.portalPurpose === 'appointment'
+              ? 'Open secure appointment link'
+              : 'Open secure document link';
+        const cloaked = `<a href="${portalLink.replace(/"/g, '&quot;')}" style="display:inline-block;padding:10px 16px;background:#b01c1c;color:#ffffff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${linkLabel}</a>`;
+        if (templateIsHtml) {
+          body = renderTokens(storedBody, { portal_link: cloaked });
+        } else {
+          const escapedLines = String(storedBody)
+            .replace(/\r\n/g, '\n')
+            .split('\n')
+            .map((line) => {
+              if (/\{\{\s*portal_link\s*\}\}/i.test(line)) return cloaked;
+              return String(line)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            });
+          body = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">${escapedLines.join('<br>\n')}</div>`;
+        }
+        sendAsHtml = true;
+      } else {
+        body = renderTokens(storedBody, { portal_link: '' });
+      }
 
       const attachments = [];
       const attachmentMeta = [];
       if (prepared.letter?.objectKey) {
         const buf = await readObject(prepared.letter.objectKey);
-        attachments.push({ filename: prepared.letter.fileName || 'letter.pdf', contentType: 'application/pdf', content: buf });
-        attachmentMeta.push({ fileName: prepared.letter.fileName, objectKey: prepared.letter.objectKey });
+        const rawName = String(prepared.letter.fileName || 'letter.docx').trim() || 'letter.docx';
+        const baseName = rawName.replace(/\.(docx|doc|pdf)$/i, '') || 'letter';
+        const isDocx =
+          /\.docx$/i.test(rawName) ||
+          String(prepared.letter.contentType || '').includes('wordprocessingml') ||
+          !/\.pdf$/i.test(rawName);
+
+        // Email must carry a PDF print of the Word letter (layout locked). Never attach .docx.
+        if (isDocx && !/\.pdf$/i.test(rawName)) {
+          const pdf = await convertDocxBufferToPdf(buf, baseName);
+          if (!pdf) {
+            throw httpError(
+              503,
+              'Could not create the PDF letter for email. Ensure Microsoft Word is available on the server and try again.'
+            );
+          }
+          attachments.push({ filename: `${baseName}.pdf`, contentType: CONTENT_TYPES.pdf, content: pdf });
+          attachmentMeta.push({ fileName: `${baseName}.pdf`, objectKey: prepared.letter.objectKey, source: 'docx-pdf' });
+        } else {
+          attachments.push({
+            filename: /\.pdf$/i.test(rawName) ? rawName : `${baseName}.pdf`,
+            contentType: CONTENT_TYPES.pdf,
+            content: buf,
+          });
+          attachmentMeta.push({ fileName: `${baseName}.pdf`, objectKey: prepared.letter.objectKey });
+        }
       }
 
       const claimed = await rpc(svc, 'admin_recruitment_comm_claim', {
@@ -458,23 +403,40 @@ export function registerAdminRecruitmentRoutes(app, deps) {
         return { communication: done, delivered: false };
       }
 
+      const recipient = toOverride || String(comm.recipient || '').trim();
+      const mailOpts = {
+        to: recipient,
+        subject,
+        ...(sendAsHtml ? { html: emailHtmlForSending(body) } : { text: body }),
+        attachments,
+      };
+      if (sender?.mail) {
+        mailOpts.from = sender.mail;
+        mailOpts.fromName = sender.name || undefined;
+        // Same message to the sender mailbox in CC (as requested for offer/appointment sends).
+        if (sender.mail.toLowerCase() !== recipient.toLowerCase()) {
+          mailOpts.cc = [sender.mail];
+        }
+      }
+
       try {
-        await sendOutboundMail({
-          to: comm.recipient,
-          subject,
-          ...(isHtml ? { html: emailHtmlForSending(body) } : { text: body }),
-          attachments,
-        });
+        await sendOutboundMail(mailOpts);
       } catch (err) {
         const done = await rpc(svc, 'admin_recruitment_comm_complete', {
           p_id: comm.id,
           p_success: false,
           p_error: String(err?.message || 'Delivery failed').slice(0, 500),
         });
-        return { communication: done, delivered: false };
+        return { communication: done, delivered: false, from: sender?.mail || null };
       }
       const done = await rpc(svc, 'admin_recruitment_comm_complete', { p_id: comm.id, p_success: true, p_error: null });
-      return { communication: done, delivered: true };
+      return {
+        communication: done,
+        delivered: true,
+        from: sender?.mail || null,
+        cc: mailOpts.cc || null,
+        to: recipient,
+      };
     } catch (err) {
       // Preparation failed after the message was recorded: keep it as failed so it can be retried.
       try {
@@ -593,12 +555,25 @@ export function registerAdminRecruitmentRoutes(app, deps) {
     }
   });
 
+  app.get('/api/admin-recruitment/communications/senders', requireAuth, async (req, res) => {
+    try {
+      const userEmails = [req.profile?.email, req.user?.email].filter(Boolean);
+      const senders = await listRecruitmentSenders(serviceClient(), userEmails);
+      res.json({ senders });
+    } catch (err) {
+      sendError(res, err, 'Could not load sender mailboxes.');
+    }
+  });
+
   app.post('/api/admin-recruitment/communications/send', requireAuth, async (req, res) => {
     try {
       const b = req.body || {};
       if (!isUuid(b.candidateId)) throw httpError(400, 'Candidate is required.');
       if (!String(b.templateKey || '').trim()) throw httpError(400, 'Choose an email template.');
+      const to = String(b.to || '').trim();
+      if (!to || !to.includes('@')) throw httpError(400, 'Enter the recipient email address before sending.');
       const idempotencyKey = String(b.idempotencyKey || '').trim() || `manual:${crypto.randomUUID()}`;
+      const userEmails = [req.profile?.email, req.user?.email].filter(Boolean);
       const out = await sendCommunication(
         userClient(req),
         {
@@ -608,9 +583,15 @@ export function registerAdminRecruitmentRoutes(app, deps) {
           relatedId: isUuid(b.relatedId) ? b.relatedId : null,
           subject: b.subject,
           body: b.body,
+          to,
+          senderMail: b.senderMail,
           idempotencyKey: idempotencyKey.slice(0, 200),
         },
-        { trigger: b.trigger === 'workflow' ? 'workflow' : 'manual', baseUrl: publicBaseUrl(req) }
+        {
+          trigger: b.trigger === 'workflow' ? 'workflow' : 'manual',
+          baseUrl: publicBaseUrl(req),
+          userEmails,
+        }
       );
       res.json(out);
     } catch (err) {
@@ -657,13 +638,24 @@ export function registerAdminRecruitmentRoutes(app, deps) {
   // ---- candidate portal (public, token based) ----------------------------
   const portalLimit = rateLimit({ windowMs: 60_000, max: 40, standardHeaders: true, legacyHeaders: false });
   const tokenHashFrom = (req) => {
-    const token = String(req.params.token || '').trim();
-    if (!/^[A-Za-z0-9_-]{30,100}$/.test(token)) throw httpError(404, 'This link has expired or is no longer valid. Please contact the recruitment team.');
-    return hashToken(token);
+    const raw = String(req.params.token || '').trim();
+    // Accept sealed /r/ codes (longer) and legacy plain portal tokens.
+    if (!/^[A-Za-z0-9_-]{20,300}$/.test(raw)) {
+      throw httpError(404, 'This link has expired or is no longer valid. Please contact the recruitment team.');
+    }
+    const plain = resolvePortalTokenParam(raw);
+    if (!plain || !/^[A-Za-z0-9_-]{20,100}$/.test(plain)) {
+      throw httpError(404, 'This link has expired or is no longer valid. Please contact the recruitment team.');
+    }
+    return hashToken(plain);
   };
   const clientIp = (req) => String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim().slice(0, 80);
   const portalError = (res, err, fallback) => {
     const status = Number(err?.status) || 500;
+    if (status >= 500) {
+      // eslint-disable-next-line no-console
+      console.error('[admin-recruitment] portal error:', err?.message || err);
+    }
     res.status(status === 500 ? 500 : status).json({ message: status >= 500 && !err?.status ? fallback : err?.message || fallback });
   };
 
@@ -703,10 +695,13 @@ export function registerAdminRecruitmentRoutes(app, deps) {
       const hash = tokenHashFrom(req);
       const kind = String(req.body?.kind || '').trim();
       if (!['appointment_signed', 'document', 'offer_signed'].includes(kind)) throw httpError(400, 'Unknown upload type.');
+      if (!req.file?.buffer) throw httpError(400, 'Choose a file to upload.');
       const svc = serviceClient();
       const info = await rpc(svc, 'admin_recruitment_portal_resolve', { p_token_hash: hash });
+      const candidateId = info?.candidateId || info?.candidate_id;
+      if (!isUuid(candidateId)) throw httpError(400, 'This link could not be verified for upload.');
       const category = kind === 'document' ? 'document' : kind === 'offer_signed' ? 'offer' : 'appointment';
-      const file = await storeUpload(info.candidateId, category, req.file, req.body?.fileName);
+      const file = await storeUpload(candidateId, category, req.file, req.body?.fileName || req.file.originalname);
       await rpc(svc, 'admin_recruitment_portal_attach', {
         p_token_hash: hash,
         p_kind: kind,
@@ -724,7 +719,30 @@ export function registerAdminRecruitmentRoutes(app, deps) {
     try {
       const hash = tokenHashFrom(req);
       const file = await rpc(serviceClient(), 'admin_recruitment_portal_file', { p_token_hash: hash, p_which: 'letter' });
-      res.redirect(302, await presign(file.objectKey, file.fileName, req.query.download === '1'));
+      const objectKey = String(file?.objectKey || '').trim();
+      if (!objectKey) throw httpError(404, 'File not available.');
+      const rawName = String(file.fileName || 'letter.docx').trim() || 'letter.docx';
+      const baseName = rawName.replace(/\.(docx|doc|pdf)$/i, '') || 'letter';
+      const buf = await readObject(objectKey);
+      const alreadyPdf =
+        /\.pdf$/i.test(rawName) ||
+        String(file.contentType || '').toLowerCase().includes('pdf') ||
+        (buf.length > 4 && String(buf.slice(0, 4)) === '%PDF');
+
+      let pdfBuf = alreadyPdf ? buf : null;
+      if (!pdfBuf) {
+        pdfBuf = await convertDocxBufferToPdf(buf, baseName);
+      }
+      if (!pdfBuf) {
+        throw httpError(503, 'Could not prepare the PDF letter. Please try again shortly.');
+      }
+
+      const downloadName = sanitizeFileName(`${baseName}.pdf`);
+      res.setHeader('Content-Type', CONTENT_TYPES.pdf);
+      res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+      res.setHeader('Content-Length', String(pdfBuf.length));
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.status(200).end(pdfBuf);
     } catch (err) {
       portalError(res, err, 'The letter could not be opened.');
     }
