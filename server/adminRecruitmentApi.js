@@ -127,11 +127,16 @@ export function registerAdminRecruitmentRoutes(app, deps) {
     });
   };
 
-  const publicBaseUrl = (req) => {
+  /**
+   * Candidate-facing links in emails (offer / appointment / documents) must open on
+   * production. Never use localhost or the admin browser Origin — candidates cannot
+   * reach those. Prefer ERP_PUBLIC_URL when it is a real public https host.
+   */
+  const publicBaseUrl = (_req) => {
     const env = String(process.env.ERP_PUBLIC_URL || '').trim().replace(/\/+$/, '');
-    if (env) return env;
-    const origin = String(req?.headers?.origin || '').trim().replace(/\/+$/, '');
-    if (/^https?:\/\//i.test(origin)) return origin;
+    if (env && /^https:\/\//i.test(env) && !/localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]/i.test(env)) {
+      return env;
+    }
     return DEFAULT_PUBLIC_URL;
   };
 
