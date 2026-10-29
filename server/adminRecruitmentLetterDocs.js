@@ -258,7 +258,9 @@ function offerPlaceholders(offer, candidate, companyName) {
     '{{COMPANY_NAME}}': company,
     '{{JOINING_DATE_LONG}}': formatLetterDate(offer?.joining_date),
     '{{LOCATION}}': String(offer?.location || '').trim() || '—',
-    '{{VALID_UNTIL}}': formatLetterDate(offer?.valid_until, { shortMonth: true }),
+    '{{VALID_UNTIL}}': formatLetterDate(offer?.valid_until || offer?.respond_by, {
+      shortMonth: true,
+    }),
     '{{JOINING_DATE_SHORT}}': formatLetterDateAbbrev(offer?.joining_date),
   };
 }
@@ -516,26 +518,53 @@ if (-not (Test-Path $out)) { throw 'Word did not write the PDF.' }
 
 /**
  * Convert a filled .docx buffer to PDF by printing the real Word file.
- * Windows: Microsoft Word. Linux/production: LibreOffice.
- * Never rebuilds layout — output must match the .docx.
+ * Priority:
+ * 1) Microsoft Word COM (Windows)
+ * 2) Microsoft Graph / Word Online (production Linux — same engine as Word)
+ * 3) LibreOffice (approximate only; last resort)
+ * Never rebuilds layout with pdf-lib.
  */
 export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
   if (process.platform === 'win32') {
     const viaWord = await convertDocxViaWord(docxBuffer, baseName);
     if (viaWord) return viaWord;
   }
-  const viaLo = await convertDocxViaLibreOffice(docxBuffer, baseName);
-  if (viaLo) return viaLo;
-  if (process.platform === 'win32') {
-    // Last resort on Windows if Word failed but LibreOffice exists.
-    return null;
+
+  try {
+    const { convertDocxToPdfViaGraph } = await import('./mail/index.js');
+    const viaGraph = await convertDocxToPdfViaGraph(docxBuffer, baseName);
+    if (viaGraph) return viaGraph;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[admin-recruitment] Graph Word→PDF unavailable:', err?.message || err);
+  }
+
+  // LibreOffice reflows tables/letterhead (often 2 pages vs Word's 1). Only use when explicitly allowed.
+  const allowLo =
+    String(process.env.RECRUITMENT_ALLOW_LIBREOFFICE_PDF || '').trim().toLowerCase() === '1' ||
+    String(process.env.RECRUITMENT_ALLOW_LIBREOFFICE_PDF || '').trim().toLowerCase() === 'true';
+  if (allowLo) {
+    const viaLo = await convertDocxViaLibreOffice(docxBuffer, baseName);
+    if (viaLo) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[admin-recruitment] Using LibreOffice PDF (layout may differ from Word). Grant Graph Files.ReadWrite.All for exact Word PDF.'
+      );
+      return viaLo;
+    }
   }
   return null;
 }
 
-/** True when a real Word→PDF printer is available (Word or LibreOffice). */
+/** True when a Word-faithful PDF path exists (Word COM, Graph mail config, or LibreOffice). */
 export async function isExactDocxPdfConversionAvailable() {
   if (process.platform === 'win32') return true;
+  try {
+    const { isMicrosoftGraphMailConfigured } = await import('./mail/index.js');
+    if (isMicrosoftGraphMailConfigured()) return true;
+  } catch {
+    /* ignore */
+  }
   return Boolean(await findLibreOfficeBinary());
 }
 
