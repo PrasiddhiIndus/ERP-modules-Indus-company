@@ -38,6 +38,20 @@ function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || '').trim());
 }
 
+const PORTAL_SALARY_KEYS = new Set(['monthlyGross', 'annualCtc', 'monthly_gross', 'annual_ctc']);
+
+/** Acceptance-link payload must never include salary / CTC (letters may still attach separately). */
+function stripPortalSalary(data) {
+  if (!data || typeof data !== 'object') return data;
+  const out = { ...data };
+  for (const key of ['offer', 'appointment']) {
+    const block = out[key];
+    if (!block || typeof block !== 'object') continue;
+    out[key] = Object.fromEntries(Object.entries(block).filter(([k]) => !PORTAL_SALARY_KEYS.has(k)));
+  }
+  return out;
+}
+
 function fileExt(name) {
   const m = String(name || '').toLowerCase().match(/\.([a-z0-9]+)$/);
   return m ? m[1] : '';
@@ -678,7 +692,7 @@ export function registerAdminRecruitmentRoutes(app, deps) {
       const svc = serviceClient();
       const data = await rpc(svc, 'admin_recruitment_portal_resolve', { p_token_hash: hash });
       await svc.rpc('admin_recruitment_portal_view', { p_token_hash: hash, p_ip: clientIp(req) });
-      res.json(data);
+      res.json(stripPortalSalary(data));
     } catch (err) {
       portalError(res, err, 'This link could not be opened.');
     }
@@ -697,7 +711,7 @@ export function registerAdminRecruitmentRoutes(app, deps) {
         p_ip: clientIp(req),
         p_user_agent: String(req.headers['user-agent'] || '').slice(0, 400),
       });
-      res.json(await rpc(svc, 'admin_recruitment_portal_resolve', { p_token_hash: hash }));
+      res.json(stripPortalSalary(await rpc(svc, 'admin_recruitment_portal_resolve', { p_token_hash: hash })));
     } catch (err) {
       portalError(res, err, 'Your response could not be saved. Please try again.');
     }
@@ -722,7 +736,7 @@ export function registerAdminRecruitmentRoutes(app, deps) {
         p_file: file,
         p_ip: clientIp(req),
       });
-      res.json(await rpc(svc, 'admin_recruitment_portal_resolve', { p_token_hash: hash }));
+      res.json(stripPortalSalary(await rpc(svc, 'admin_recruitment_portal_resolve', { p_token_hash: hash })));
     } catch (err) {
       portalError(res, err, 'Upload failed. Please try again.');
     }

@@ -63,6 +63,7 @@ function markWeightForPaternity(mark) {
 function markWeightForCoff(mark) {
   const m = String(mark || "").trim().toUpperCase();
   if (m === "CO") return 1;
+  if (m === "P/CO" || m === "CO/P") return 0.5;
   return 0;
 }
 

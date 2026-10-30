@@ -22,7 +22,15 @@ export const PURPLE_PRESENT_LAST_PUNCH_BEFORE = '12:00';
 export const PUNCH_DERIVED_REGISTER_MARKS = new Set(['P', 'HD']);
 
 /** Half-day leave composites — punch sync must never replace these. */
-export const REGISTER_HALF_DAY_COMPOSITE_MARKS = new Set(['P/SL', 'P/CL', 'P/PL']);
+export const REGISTER_HALF_DAY_COMPOSITE_MARKS = new Set([
+  'P/SL',
+  'P/CL',
+  'P/PL',
+  'P/LWP',
+  'P/CO',
+  'P/SPLA',
+  'P/SPLB',
+]);
 
 function punchTimeHm(punch) {
   const raw = punch?.punchTime ?? punch?.punch_time ?? '';
@@ -215,6 +223,8 @@ export function canPunchSyncOverwriteExisting(existing) {
   // Keep approved tour / POD so the register can show combined P(OD)|P with punches.
   if (isTourMarkSource(markSource, tourRequestId)) return false;
   if (markNorm === 'P(OD)' || markNorm === 'T') return false;
+  // Keep CO / P/CO (punch must not wipe half-day or full comp-off).
+  if (markUpper === 'CO' || markUpper === 'P/CO') return false;
   if (String(existing.mark_remark ?? '').trim()) return false;
   if (!mark && !markSource) return true;
   if (isManualMarkSource(markSource)) return false;

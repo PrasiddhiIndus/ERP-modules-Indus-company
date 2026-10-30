@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { CheckCircle2, FileText, Upload, XCircle } from "lucide-react";
 import { apiUrl } from "../../../lib/apiBase";
 import { appointmentStatusMeta, documentStatusMeta, offerStatusMeta } from "./recruitmentConfig";
-import { Card, DetailGrid, StatusPill, btn, fmtDate, fmtMoney, textareaClass } from "./RecruitmentUi";
+import { Card, DetailGrid, StatusPill, btn, fmtDate, textareaClass } from "./RecruitmentUi";
 
 const ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx";
 
@@ -158,8 +158,6 @@ function OfferSection({ token, offer, closed, letterHref, onChange }) {
             ["Position", offer.designation],
             ["Department", offer.department],
             ["Location", offer.location],
-            ["Monthly gross", offer.monthlyGross ? fmtMoney(offer.monthlyGross) : "—"],
-            ["Annual CTC", offer.annualCtc ? fmtMoney(offer.annualCtc) : "—"],
             ["Joining date", fmtDate(offer.joiningDate)],
             ["Respond by", fmtDate(offer.validUntil)],
           ]}
