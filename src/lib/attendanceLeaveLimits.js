@@ -31,6 +31,12 @@ export const REGISTER_MARK_DAY_FRACTION = {
   "P/SL": 0.5,
   "P/CL": 0.5,
   "P/PL": 0.5,
+  "P/LWP": 0.5,
+  "P/SPLA": 0.5,
+  "P/SPLB": 0.5,
+  "LWP/P": 0.5,
+  "SPLA/P": 0.5,
+  "SPLB/P": 0.5,
   "LWP/PL": 0.5,
   "LWP/SL": 0.5,
   "LWP/CL": 0.5,
@@ -55,6 +61,8 @@ export function leaveLimitTypeForMark(mark) {
   if (m === "P/SL" || m === "LWP/SL") return "SL";
   if (m === "P/CL" || m === "LWP/CL") return "CL";
   if (m === "P/PL" || m === "LWP/PL") return "PL";
+  if (m === "P/SPLA" || m === "SPLA/P") return "SPLA";
+  if (m === "P/SPLB" || m === "SPLB/P") return "SPLB";
   if (m && REGISTER_LEAVE_ANNUAL_LIMITS[m] != null) return m;
   return null;
 }
