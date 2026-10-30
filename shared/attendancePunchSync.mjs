@@ -106,6 +106,13 @@ export function makePunchKey(record, index = 0) {
     normalizeDbTime(pickField(payload, ['PunchTimeOnly', 'Time', 'AttendanceTime', 'PunchTime'])) ||
     'no-time';
 
+  // In/out summary rows share one provider payload. Key them by day slot so a later
+  // punch updates the same row instead of leaving the previous time in place.
+  const slot = String(record.punchSlot || record.punch_slot || '').trim().toLowerCase();
+  if (slot === 'in' || slot === 'out') {
+    return `${emp}|${date}|${slot}`;
+  }
+
   if (providerId) {
     return `${emp}|pid:${providerId}`.toLowerCase();
   }
