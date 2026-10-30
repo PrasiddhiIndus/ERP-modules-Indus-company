@@ -761,7 +761,7 @@ export async function buildOfferLetterPdf(offer, candidate, companyName) {
   return Buffer.from(await pdf.save());
 }
 
-/** Appointment PDF fallback for Linux/production (no Word required). */
+/** Appointment PDF fallback for Linux/production (no Word required). Body layout unchanged; letterhead matches Letterhead.doc / offer pad. */
 export async function buildAppointmentLetterPdf(appt, offer, candidate, companyName) {
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
   const p = appointmentPlaceholders(appt, offer, candidate, companyName);
@@ -770,7 +770,21 @@ export async function buildAppointmentLetterPdf(appt, offer, candidate, companyN
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const margin = 54;
-  let y = 841.89 - 54;
+  let y = 841.89 - 40;
+
+  const letterheadPath = path.join(TEMPLATE_DIR, 'offer-assets', 'letterhead.png');
+  try {
+    if (fs.existsSync(letterheadPath)) {
+      const img = await pdf.embedPng(fs.readFileSync(letterheadPath));
+      const w = 220;
+      const h = (img.height / img.width) * w;
+      page.drawImage(img, { x: (595.28 - w) / 2, y: y - h, width: w, height: h });
+      y -= h + 18;
+    }
+  } catch {
+    /* continue without letterhead */
+  }
+
   const draw = (text, { f = font, size = 10.5, gap = 3.5 } = {}) => {
     const line = pdfSafe(text);
     page.drawText(line.slice(0, 110), { x: margin, y: y - size, size, font: f, color: rgb(0.12, 0.12, 0.12) });

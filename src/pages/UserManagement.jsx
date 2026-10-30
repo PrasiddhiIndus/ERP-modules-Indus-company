@@ -46,6 +46,7 @@ import {
   toggleRecruitmentAccessKey,
   hasHrSectionScope,
 } from "../config/roles";
+import { EMPLOYEE_MASTER_SUBMODULE_KEY } from "./adminOperations/salaryAdmin/salaryAccess";
 import { ChevronDown as ChevronDownIcon } from "lucide-react";
 import {
   fetchEmployeeMasterDepartmentsInUse,
@@ -159,10 +160,11 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
   const safeSubModules = Array.isArray(allowedSubModules) ? allowedSubModules : [];
 
   // Auto-expand nodes that have active sub-selections (level-2 or level-3).
+  // Always expand Admin so Employee Master is visible without hunting for the chevron.
   React.useEffect(() => {
     const autoExpand = {};
     tree.forEach((mod) => {
-      if (mod.implicitViaTeam) {
+      if (mod.implicitViaTeam || mod.value === "admin") {
         autoExpand[mod.value] = true;
       }
       if (mod.subModules?.some((s) => safeSubModules.includes(s.value))) {
@@ -257,16 +259,27 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
               </p>
             )}
 
-            {fullChecked && hasSubs && (
+            {implicitViaTeam && mod.value === "admin" && (
               <p className="ml-9 mr-3 -mt-1 pb-2 text-[11px] text-gray-500">
-                Full access: includes every sub-module and page. Untick {mod.label} to choose sub-modules or pages.
+                {activeSubCount > 0
+                  ? "Only the ticked sections are shown to this user (e.g. Employee Master)."
+                  : "Nothing ticked: this user sees all of Admin. Tick Employee Master (or other sections) to show only those."}
               </p>
             )}
 
-            {fullChecked && hasSubs && mod.subModules.some((s) => s.optIn) && (
+            {fullChecked && hasSubs && (
+              <p className="ml-9 mr-3 -mt-1 pb-2 text-[11px] text-gray-500">
+                Full access: includes every sub-module and page. Untick {mod.label} to choose sub-modules or pages
+                {mod.value === "admin" ? " (e.g. Employee Master only)" : ""}.
+              </p>
+            )}
+
+            {fullChecked &&
+              hasSubs &&
+              mod.subModules.some((s) => s.optIn || s.value === EMPLOYEE_MASTER_SUBMODULE_KEY) && (
               <div className="bg-slate-50 border-t border-gray-100 ml-6 mr-0 divide-y divide-gray-100/60">
                 {mod.subModules
-                  .filter((sub) => sub.optIn)
+                  .filter((sub) => sub.optIn || sub.value === EMPLOYEE_MASTER_SUBMODULE_KEY)
                   .map((sub) => (
                     <label
                       key={sub.value}
@@ -274,12 +287,22 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
                     >
                       <input
                         type="checkbox"
-                        checked={safeSubModules.includes(sub.value)}
+                        checked={
+                          sub.value === EMPLOYEE_MASTER_SUBMODULE_KEY
+                            ? false
+                            : safeSubModules.includes(sub.value)
+                        }
                         onChange={() => onToggleSubModule(sub.value)}
                         className="rounded border-gray-300 text-indigo-500 focus:ring-indigo-400 shrink-0"
                       />
-                      <span className="flex-1 text-xs text-gray-700">{sub.label}</span>
-                      <span className="text-[10px] text-indigo-500">opt-in</span>
+                      <span className="flex-1 text-xs text-gray-700">
+                        {sub.value === EMPLOYEE_MASTER_SUBMODULE_KEY
+                          ? "Employee Master only"
+                          : sub.label}
+                      </span>
+                      <span className="text-[10px] text-indigo-500">
+                        {sub.optIn ? "opt-in" : "replaces full Admin"}
+                      </span>
                     </label>
                   ))}
               </div>
@@ -1180,7 +1203,10 @@ const UserManagement = () => {
 
   const toggleSubModule = (subValue) => {
     setEditForm((prev) => {
-      const willAdd = !prev.allowed_sub_modules.includes(subValue);
+      // Full Admin → Employee Master only: drop the full module and keep the section grant.
+      const switchingToEmployeeMasterOnly =
+        subValue === EMPLOYEE_MASTER_SUBMODULE_KEY && prev.allowed_modules.includes("admin");
+      const willAdd = switchingToEmployeeMasterOnly || !prev.allowed_sub_modules.includes(subValue);
 
       let newSubModules;
       const recruitmentNext = toggleRecruitmentAccessKey(prev.allowed_sub_modules, subValue);
@@ -1188,11 +1214,17 @@ const UserManagement = () => {
         newSubModules = recruitmentNext;
       } else {
         newSubModules = willAdd
-          ? [...prev.allowed_sub_modules, subValue]
+          ? [...prev.allowed_sub_modules.filter((s) => s !== subValue), subValue]
           : prev.allowed_sub_modules.filter((s) => s !== subValue);
       }
 
-      const next = { ...prev, allowed_sub_modules: newSubModules };
+      const next = {
+        ...prev,
+        allowed_modules: switchingToEmployeeMasterOnly
+          ? prev.allowed_modules.filter((m) => m !== "admin")
+          : prev.allowed_modules,
+        allowed_sub_modules: newSubModules,
+      };
 
       // Software Subscriptions grant = full View / Update / Delete (no separate CRUD toggles).
       // Keep parent IT/IS module unchecked so API Health is not auto-granted; sub-module alone is enough.
@@ -2314,7 +2346,12 @@ const UserManagement = () => {
                       }
                       onToggleSubModule={(subValue) =>
                         setCreateForm((prev) => {
-                          const willAdd = !prev.allowed_sub_modules.includes(subValue);
+                          const switchingToEmployeeMasterOnly =
+                            subValue === EMPLOYEE_MASTER_SUBMODULE_KEY &&
+                            prev.allowed_modules.includes("admin");
+                          const willAdd =
+                            switchingToEmployeeMasterOnly ||
+                            !prev.allowed_sub_modules.includes(subValue);
                           let newSubModules;
                           const recruitmentNext = toggleRecruitmentAccessKey(
                             prev.allowed_sub_modules,
@@ -2324,10 +2361,16 @@ const UserManagement = () => {
                             newSubModules = recruitmentNext;
                           } else {
                             newSubModules = willAdd
-                              ? [...prev.allowed_sub_modules, subValue]
+                              ? [...prev.allowed_sub_modules.filter((s) => s !== subValue), subValue]
                               : prev.allowed_sub_modules.filter((s) => s !== subValue);
                           }
-                          const next = { ...prev, allowed_sub_modules: newSubModules };
+                          const next = {
+                            ...prev,
+                            allowed_modules: switchingToEmployeeMasterOnly
+                              ? prev.allowed_modules.filter((m) => m !== "admin")
+                              : prev.allowed_modules,
+                            allowed_sub_modules: newSubModules,
+                          };
                           if (willAdd && String(subValue).startsWith("billing.")) {
                             setCreateBillingVerticals((bv) =>
                               bv.selectedCodes.length

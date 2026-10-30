@@ -38,13 +38,13 @@ function markWeightForSbel(mark) {
 
 function markWeightForSpla(mark) {
   const m = String(mark || "").trim().toUpperCase();
-  if (m === "SPLA") return 0.5;
+  if (m === "SPLA" || m === "P/SPLA" || m === "SPLA/P") return 0.5;
   return 0;
 }
 
 function markWeightForSplb(mark) {
   const m = String(mark || "").trim().toUpperCase();
-  if (m === "SPLB") return 0.5;
+  if (m === "SPLB" || m === "P/SPLB" || m === "SPLB/P") return 0.5;
   return 0;
 }
 

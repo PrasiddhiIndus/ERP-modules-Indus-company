@@ -114,10 +114,12 @@ function collectSubModulePaths(profile, userMetadata = null) {
     ...normalizedAllowedModuleKeys(profile),
   ].filter(Boolean));
   if (hasHrSectionScope(profile, userMetadata)) fullModuleKeys.delete("hr");
+  if (hasAdminSectionScope(profile, userMetadata)) fullModuleKeys.delete("admin");
 
   // If user has the full "hr" module, skip hr.* expansion — those routes are already
   // covered by MODULE_PATH_PREFIXES["hr"]. Still expand non-HR sub-modules (e.g. finance.pl).
   const hasFullHr = fullModuleKeys.has("hr");
+  const hasFullAdmin = fullModuleKeys.has("admin");
   const restrictRecruitment = hasRecruitmentTabRestrictions(profile, userMetadata);
 
   const paths = new Set();
@@ -130,6 +132,10 @@ function collectSubModulePaths(profile, userMetadata = null) {
     keysToExpand = [...new Set([...recruitmentKeys, ...nonHrSubs])];
   } else if (hasFullHr && !restrictRecruitment) {
     keysToExpand = subMods.filter((s) => !String(s).startsWith("hr."));
+  }
+  // Full Admin already covers /app/admin/* — only expand admin.* when Admin is section-scoped.
+  if (hasFullAdmin) {
+    keysToExpand = keysToExpand.filter((s) => !String(s).startsWith("admin."));
   }
 
   if (!keysToExpand.length) return new Set();
@@ -306,6 +312,7 @@ export function getPartialAccessModuleKeys(profile, userMetadata = null) {
     ...normalizedAllowedModuleKeys(profile),
   ].filter(Boolean));
   if (hasHrSectionScope(profile, userMetadata)) full.delete("hr");
+  if (hasAdminSectionScope(profile, userMetadata)) full.delete("admin");
   const partial = new Set();
   for (const subKey of getEffectiveAllowedSubModules(profile, userMetadata)) {
     const mod = String(subKey).split(".")[0];
@@ -602,6 +609,24 @@ export function hasHrSectionScope(profile, userMetadata = null) {
   return getEffectiveAllowedSubModules(profile, userMetadata).some(isHrSectionScopeKey);
 }
 
+/** Admin sections ticked in User Management (e.g. Employee Master only). Opt-in extras do not limit Admin. */
+function isAdminSectionScopeKey(key) {
+  const k = String(key || "");
+  if (!k.startsWith("admin.") || k === RULES_CONSOLE_SUBMODULE_KEY) return false;
+  const adminSections = NAV_MODULE_TREE.find((m) => m.value === "admin")?.subModules || [];
+  return adminSections.some((s) => s.value === k) || ALL_RECRUITMENT_TAB_KEYS.includes(k);
+}
+
+/**
+ * Admin-team user with Admin sections ticked → only those sections.
+ * Nothing ticked, or Admin ticked as a full module → the whole Admin module.
+ */
+export function hasAdminSectionScope(profile, userMetadata = null) {
+  if (resolveTeamModuleKey(profile?.team) !== "admin") return false;
+  if (normalizedAllowedModuleKeys(profile).includes("admin")) return false;
+  return getEffectiveAllowedSubModules(profile, userMetadata).some(isAdminSectionScopeKey);
+}
+
 /** First ticked HR section, in menu order. */
 function firstHrSectionPath(profile, accessibleModules) {
   const subs = getEffectiveAllowedSubModules(profile);
@@ -610,6 +635,22 @@ function firstHrSectionPath(profile, accessibleModules) {
     if (sub.value === HR_RECRUITMENT_FAMILY.parentKey) {
       if (hasAnyRecruitmentTabAccess(profile, accessibleModules)) {
         return getRecruitmentLandingPath(profile, accessibleModules);
+      }
+      continue;
+    }
+    if (subs.includes(sub.value)) return sub.pathPrefix;
+  }
+  return null;
+}
+
+/** First ticked Admin section, in menu order. */
+function firstAdminSectionPath(profile, accessibleModules) {
+  const subs = getEffectiveAllowedSubModules(profile);
+  const adminSections = NAV_MODULE_TREE.find((m) => m.value === "admin")?.subModules || [];
+  for (const sub of adminSections) {
+    if (sub.value === "admin.recruitment") {
+      if (hasAnyRecruitmentTabAccess(profile, accessibleModules, null, "admin")) {
+        return getRecruitmentLandingPath(profile, accessibleModules, null, "admin");
       }
       continue;
     }
@@ -1266,7 +1307,13 @@ export function isEmptyPendingAccessStub(profile) {
 function buildScopedModuleSet(profile, { includeOverview = false } = {}) {
   const scoped = new Set(includeOverview ? ["overview", "settings"] : ["settings"]);
   const teamKey = resolveTeamModuleKey(profile?.team);
-  if (teamKey && !(teamKey === "hr" && hasHrSectionScope(profile))) scoped.add(teamKey);
+  if (
+    teamKey &&
+    !(teamKey === "hr" && hasHrSectionScope(profile)) &&
+    !(teamKey === "admin" && hasAdminSectionScope(profile))
+  ) {
+    scoped.add(teamKey);
+  }
   normalizedAllowedModuleKeys(profile).forEach((key) => scoped.add(key));
   SUPER_ADMIN_ONLY_MODULES.forEach((m) => scoped.delete(m));
   applyFireTenderModuleGate(profile, scoped);
@@ -1303,6 +1350,10 @@ export function getLandingPathForUser(userProfile, accessibleModules) {
   if (teamKey === "hr" && hasHrSectionScope(userProfile)) {
     const hrHome = firstHrSectionPath(userProfile, mods);
     if (hrHome) return hrHome;
+  }
+  if (teamKey === "admin" && hasAdminSectionScope(userProfile)) {
+    const adminHome = firstAdminSectionPath(userProfile, mods);
+    if (adminHome) return adminHome;
   }
 
   // 2) Explicit extra modules from User Management
