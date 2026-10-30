@@ -347,14 +347,22 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
     expect(merged['101'][10]).toBe('P');
   });
 
-  it('keeps approved CO when punch exists (CO+P display)', () => {
+  it('stores P/CO when approved CO has punch (half-day consume)', () => {
     const punches = [{ empCode: '2661', punchDate: '2026-10-08' }];
     const merged = mergeApprovedLeaveMarksIntoManualMarks(
       { '2661': { 8: 'P' } },
       { '2661': { 8: 'CO' } },
       { monthKey: '2026-10', punches }
     );
-    expect(merged['2661'][8]).toBe('CO');
+    expect(merged['2661'][8]).toBe('P/CO');
+    // Stored P/CO display follows punch window (same as other P/* half-day marks).
+    expect(
+      resolveRegisterCellDisplayMark('P/CO', { punchIn: '09:00', punchOut: '18:00' })
+    ).toBe('P/CO');
+    expect(
+      resolveRegisterCellDisplayMark('P/CO', { punchIn: '14:00', punchOut: '18:00' })
+    ).toBe('CO/P');
+    // Legacy full-CO cell + punch still resolves to display-only CO|P / P|CO.
     expect(
       resolveRegisterCellDisplayMark('CO', { punchIn: '09:00', punchOut: '18:00' })
     ).toBe(REGISTER_CO_PUNCH_FIRST);

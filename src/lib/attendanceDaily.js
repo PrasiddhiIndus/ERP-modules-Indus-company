@@ -2330,12 +2330,9 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
         continue;
       }
 
-      // Register WO/NH·PH is source of truth after sandwich undo — do not re-paint leave.
-      if (existing === "WO" || isRegisterNhphMark(existing)) {
-        continue;
-      }
-
-      // Saved Admin mark (HD, manual P, …) is overridable by approved leave here.
+      // Saved Admin mark (HD, manual P, WO, …) is overridable by approved leave here
+      // (including legitimate sandwich leave on week-off). Stale WO-sandwich applied
+      // marks are filtered earlier when flanks block (P/PL / punch / P(OD)).
       next[code][day] = canonical;
     }
   }
