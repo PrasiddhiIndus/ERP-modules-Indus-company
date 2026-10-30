@@ -112,11 +112,25 @@ export const REGISTER_LEAVE_SUBMENU_OPTIONS = [
 
 /**
  * Half-day composite marks stored in DB: Present first (P/SL, P/CL, P/PL).
- * Leave-first order (SL/P, CL/P, PL/P) is display-only from punch window.
+ * Leave-first order (SL/P, CL/P, PL/P, LWP/P) is display-only from punch window.
  */
-export const REGISTER_HALF_DAY_COMPOSITE_MARKS = new Set(["P/SL", "P/CL", "P/PL"]);
+export const REGISTER_HALF_DAY_COMPOSITE_MARKS = new Set([
+  "P/SL",
+  "P/CL",
+  "P/PL",
+  "P/LWP",
+  "P/SPLA",
+  "P/SPLB",
+]);
 /** Display-only leave-first half-day composites (never persisted). */
-export const REGISTER_HALF_DAY_LEAVE_FIRST_MARKS = new Set(["SL/P", "CL/P", "PL/P"]);
+export const REGISTER_HALF_DAY_LEAVE_FIRST_MARKS = new Set([
+  "SL/P",
+  "CL/P",
+  "PL/P",
+  "LWP/P",
+  "SPLA/P",
+  "SPLB/P",
+]);
 
 /** Half Day submenu under the register mark picker. */
 export const REGISTER_HALF_DAY_SUBMENU_OPTIONS = [
@@ -170,22 +184,22 @@ export const REGISTER_PRIMARY_MARK_OPTIONS = [
   { value: REGISTER_MARK_LEFT, label: "Left — Left organization" },
 ];
 
-/** Canonical P/SL | P/CL | P/PL (case-insensitive leave half). */
+/** Canonical P/SL | P/CL | P/PL | P/LWP | P/SPLA | P/SPLB (case-insensitive leave half). */
 export function canonicalRegisterCompositeMark(mark) {
   const compact = String(mark ?? "")
     .trim()
     .replace(/\s+/g, "");
-  const match = compact.match(/^P\/(SL|CL|PL)$/i);
+  const match = compact.match(/^P\/(SL|CL|PL|LWP|SPLA|SPLB)$/i);
   if (!match) return null;
   return `P/${match[1].toUpperCase()}`;
 }
 
-/** Canonical SL/P | CL/P | PL/P (display-only leave-first half-day). */
+/** Canonical SL/P | CL/P | PL/P | LWP/P | SPLA/P | SPLB/P (display-only leave-first). */
 export function canonicalRegisterLeaveFirstCompositeMark(mark) {
   const compact = String(mark ?? "")
     .trim()
     .replace(/\s+/g, "");
-  const match = compact.match(/^(SL|CL|PL)\/P$/i);
+  const match = compact.match(/^(SL|CL|PL|LWP|SPLA|SPLB)\/P$/i);
   if (!match) return null;
   return `${match[1].toUpperCase()}/P`;
 }
@@ -489,10 +503,10 @@ export function isRegisterCommentMark(mark) {
 /** Marks that count toward monthly present-day totals (payroll / register summary). */
 const REGISTER_PRESENT_CREDIT_MARKS = new Set(["P", "P(OD)", "T", "CO", "WFH"]);
 
-/** LWP — leave without pay (full day or LWP/PL|SL|CL composite). */
+/** LWP — leave without pay (full day, P/LWP|LWP/P punch half, or LWP/PL|SL|CL composite). */
 export function isRegisterLwpMark(mark) {
   const m = String(mark ?? "").trim();
-  return m === "LWP" || isRegisterLwpCompositeMark(m);
+  return m === "LWP" || m === "P/LWP" || m === "LWP/P" || isRegisterLwpCompositeMark(m);
 }
 
 /** Whether mark is a leave type for register summary tallies. */
@@ -508,11 +522,16 @@ export function isRegisterSummaryLeaveMark(mark) {
 
 /**
  * Present-summary display credit for P/PL, P/CL, P/SL — count as 1 present day in Total present.
- * Leave balance deduction remains 0.5 via registerPlSlClLeaveDayWeight / leaveDayFraction.
+ * P/LWP (punch + LWP) stays 0.5. Leave balance deduction remains 0.5 via
+ * registerPlSlClLeaveDayWeight / leaveDayFraction for paid leave halves.
  */
 export function registerCompositePaidLeaveSummaryCredit(mark) {
-  // Present-first or leave-first half-day composites count as 1 in Total present display.
-  return halfDayLeaveTypeFromCompositeMark(mark) ? 1 : 0;
+  const leaveHalf = halfDayLeaveTypeFromCompositeMark(mark);
+  if (!leaveHalf) return 0;
+  // Punch + LWP is half present (not full present like P/PL).
+  if (leaveHalf === "LWP") return 0.5;
+  // Present-first or leave-first paid leave composites count as 1 in Total present display.
+  return 1;
 }
 
 /** Leave-day credit for register summary (HD / P/* / LWP/* half-day marks = 0.5; full leave = 1). */
@@ -550,7 +569,7 @@ export function registerPresentDayCredit(mark) {
   if (canonical && REGISTER_PRESENT_CREDIT_MARKS.has(canonical)) return 1;
   // LWP + PL/SL/CL → half present (and 0.5 leave balance via leave limits).
   if (isRegisterLwpCompositeMark(raw) || isRegisterLwpCompositeMark(canonical)) return 0.5;
-  if (isRegisterLwpMark(raw) || (canonical && isRegisterLwpMark(canonical))) return 0;
+  // Punch + LWP (P/LWP) and other P/* half-day composites → 0.5 present.
   if (
     raw === "HD" ||
     canonical === "HD" ||
@@ -559,6 +578,8 @@ export function registerPresentDayCredit(mark) {
   ) {
     return 0.5;
   }
+  // Full-day LWP only (not P/LWP — handled above as composite).
+  if (raw === "LWP" || canonical === "LWP") return 0;
   if (isRegisterSummaryLeaveMark(raw) || (canonical && isRegisterSummaryLeaveMark(canonical))) return 1;
   return 0;
 }
@@ -701,6 +722,9 @@ export const REGISTER_MARKS_DB_ALLOWED = new Set([
   "P/SL",
   "P/CL",
   "P/PL",
+  "P/LWP",
+  "P/SPLA",
+  "P/SPLB",
   "LWP/PL",
   "LWP/SL",
   "LWP/CL",
@@ -821,6 +845,30 @@ export const REGISTER_MARK_CELL_COLORS = {
     topLeft: "#1a7a1a",
     bottomRight: "#c62818",
   },
+  "P/LWP": {
+    bg: "#1a7a1a",
+    border: "#c62818",
+    text: "white",
+    diagonal: true,
+    topLeft: "#1a7a1a",
+    bottomRight: "#c62818",
+  },
+  "P/SPLA": {
+    bg: "#1a7a1a",
+    border: "#c62818",
+    text: "white",
+    diagonal: true,
+    topLeft: "#1a7a1a",
+    bottomRight: "#c62818",
+  },
+  "P/SPLB": {
+    bg: "#1a7a1a",
+    border: "#c62818",
+    text: "white",
+    diagonal: true,
+    topLeft: "#1a7a1a",
+    bottomRight: "#c62818",
+  },
   /** Diagonal display-only: leave first half (red) + Present second half (green). */
   "SL/P": {
     bg: "#c62818",
@@ -839,6 +887,30 @@ export const REGISTER_MARK_CELL_COLORS = {
     bottomRight: "#1a7a1a",
   },
   "PL/P": {
+    bg: "#c62818",
+    border: "#1a7a1a",
+    text: "white",
+    diagonal: true,
+    topLeft: "#c62818",
+    bottomRight: "#1a7a1a",
+  },
+  "LWP/P": {
+    bg: "#c62818",
+    border: "#1a7a1a",
+    text: "white",
+    diagonal: true,
+    topLeft: "#c62818",
+    bottomRight: "#1a7a1a",
+  },
+  "SPLA/P": {
+    bg: "#c62818",
+    border: "#1a7a1a",
+    text: "white",
+    diagonal: true,
+    topLeft: "#c62818",
+    bottomRight: "#1a7a1a",
+  },
+  "SPLB/P": {
     bg: "#c62818",
     border: "#1a7a1a",
     text: "white",
@@ -1588,10 +1660,16 @@ function registerMarkFromApprovedLeaveType(leaveTypeCode) {
   return normalizeRegisterMarkForDb(upper) || "L";
 }
 
-/** True when mark is full or composite LWP (unpaid). */
+/** True when mark is full or composite LWP (unpaid), including punch half P/LWP|LWP/P. */
 function isRegisterLwpDisplayMark(mark) {
   const m = normalizeRegisterMarkForDb(mark) || String(mark ?? "").trim();
-  return m === "LWP" || REGISTER_LWP_COMPOSITE_MARKS.has(m);
+  const raw = String(mark ?? "").trim();
+  return (
+    m === "LWP" ||
+    m === "P/LWP" ||
+    raw === "LWP/P" ||
+    REGISTER_LWP_COMPOSITE_MARKS.has(m)
+  );
 }
 
 /** Paid leave types that must not overwrite a stored LWP (sandwich / partial LWP). */
@@ -1617,16 +1695,25 @@ function markFromAppliedDayMarks(req, isoDate) {
 }
 
 function overlayMarkForLeaveRequestDay(req, isoDate, appliedMark = null) {
+  const typeMark = registerMarkFromApprovedLeaveType(req?.leave_type_code);
   const fromAppliedJson = markFromAppliedDayMarks(req, isoDate);
-  if (fromAppliedJson) return fromAppliedJson;
   const fromRow = normalizeRegisterMarkForDb(appliedMark);
+  // Stale L from old normalize collapsing P/SPLA|P/SPLB → L — restore leave type.
+  if (
+    (typeMark === "SPLA" || typeMark === "SPLB") &&
+    (!fromAppliedJson || fromAppliedJson === "L") &&
+    (!fromRow || fromRow === "L")
+  ) {
+    return typeMark;
+  }
+  if (fromAppliedJson) return fromAppliedJson;
   if (fromRow) {
     // Stale applied_mark=PL on an all-LWP request → still show LWP
     if (requestIsAllLwp(req) && isPaidLeaveOverlayMark(fromRow)) return "LWP";
     return fromRow;
   }
   if (requestIsAllLwp(req)) return "LWP";
-  return registerMarkFromApprovedLeaveType(req?.leave_type_code);
+  return typeMark;
 }
 
 function addLeaveMark(marks, employeeCode, registerDate, mark) {
@@ -2064,6 +2151,11 @@ function compositeHalfDayLeaveMark(mark) {
   if (m === "CL") return "P/CL";
   if (m === "PL") return "P/PL";
   if (m === "SL") return "P/SL";
+  // Punch + LWP leave → P/LWP (0.5). Do not map other leave types here.
+  if (m === "LWP") return "P/LWP";
+  // Birthday / anniversary special leave (requires punch) → P/SPLA | P/SPLB.
+  if (m === "SPLA") return "P/SPLA";
+  if (m === "SPLB") return "P/SPLB";
   return null;
 }
 
@@ -2074,8 +2166,8 @@ function compositeHalfDayLeaveMark(mark) {
  * LWP fix (e.g. NH/PH sandwiched between LWP) is immediately overwritten on refresh because
  * leave gap-fill uses leave_type_code (PL) and admin_leave_attendance_marks may still say PL.
  * Machine punch Present (P) still wins over full-day leave (except approved CO, kept for
- * CO+P display); half-day leave (P/CL, P/PL, P/SL) replaces HD even when a punch exists.
- * Overlay remains editable in Admin.
+ * CO+P display, and LWP → P/LWP at 0.5); half-day leave (P/CL, P/PL, P/SL) replaces HD
+ * even when a punch exists. Overlay remains editable in Admin.
  */
 export function mergeApprovedLeaveMarksIntoManualMarks(
   manualMarks,
@@ -2129,19 +2221,38 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
       const existingIsHd = existing === "HD";
       const composite = compositeHalfDayLeaveMark(canonical);
 
-      // Admin HD (or punch on that day) + Indus One CL/PL/SL → show P/CL etc.
+      // Admin HD (or punch on that day) + Indus One CL/PL/SL/LWP → show P/CL etc. or P/LWP.
       if (composite && (existingIsHd || hasPunch) && existing !== "P" && existing !== "P(OD)") {
         canonical = composite;
+      }
+      // Punch + full-day LWP → P/LWP (0.5), even when the cell already shows Present.
+      if (hasPunch && (canonical === "LWP" || canonical === "P/LWP")) {
+        canonical = "P/LWP";
+      }
+      // Punch + SPLA/SPLB (birthday/anniversary; punch required) → P/SPLA | P/SPLB.
+      if (hasPunch && (canonical === "SPLA" || canonical === "P/SPLA")) {
+        canonical = "P/SPLA";
+      }
+      if (hasPunch && (canonical === "SPLB" || canonical === "P/SPLB")) {
+        canonical = "P/SPLB";
       }
 
       const leaveIsHalfDayComposite = isRegisterCompositeHalfDayMark(canonical);
 
       // Full-day leave: biometric punch Present still wins — except approved CO,
-      // which is kept so the cell can show CO+P (same idea as POD+P).
+      // which is kept so the cell can show CO+P (same idea as POD+P), and LWP → P/LWP.
       // Half-day composite / any leave: override saved Admin marks including HD.
       if (hasPunch) {
         if (canonical === "CO") {
           next[code][day] = "CO";
+          continue;
+        }
+        if (canonical === "P/LWP") {
+          next[code][day] = "P/LWP";
+          continue;
+        }
+        if (canonical === "P/SPLA" || canonical === "P/SPLB") {
+          next[code][day] = canonical;
           continue;
         }
         if (!leaveIsHalfDayComposite) continue;

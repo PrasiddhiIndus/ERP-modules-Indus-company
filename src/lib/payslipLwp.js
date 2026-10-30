@@ -1,5 +1,6 @@
 /**
- * LWP days shown on the salary slip: full LWP = 1 day, LWP/PL | LWP/SL | LWP/CL = 0.5 day.
+ * LWP days shown on the salary slip: full LWP = 1 day;
+ * P/LWP | LWP/PL | LWP/SL | LWP/CL = 0.5 day.
  */
 import {
   ATTENDANCE_REGISTER_TABLE,
@@ -11,7 +12,7 @@ export function lwpDaysFromMarks(marks) {
   for (const raw of marks || []) {
     const m = String(raw ?? "").trim().toUpperCase();
     if (m === "LWP") total += 1;
-    else if (/^LWP\/(PL|SL|CL)$/.test(m)) total += 0.5;
+    else if (m === "P/LWP" || m === "LWP/P" || /^LWP\/(PL|SL|CL)$/.test(m)) total += 0.5;
   }
   return total;
 }

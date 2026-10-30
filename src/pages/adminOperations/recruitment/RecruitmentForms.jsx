@@ -28,7 +28,7 @@ import {
   submitDocument,
   updateJoining,
 } from "./recruitmentService";
-import { ActionModal, Field, FileButton, FilePicker, StatusPill, btn, fmtDate, inputClass, textareaClass } from "./RecruitmentUi";
+import { ActionModal, EmployeeNameSuggest, Field, FileButton, FilePicker, StatusPill, btn, fmtDate, inputClass, textareaClass } from "./RecruitmentUi";
 
 const todayIso = () => new Date().toLocaleDateString("en-CA");
 
@@ -488,7 +488,13 @@ export function AppointmentModal({ open, candidate, onClose, onGenerated }) {
         <input type="date" min={todayIso()} className={inputClass} value={joiningDate} onChange={(e) => setJoiningDate(e.target.value)} />
       </Field>
       <Field label="Reporting to">
-        <input className={inputClass} value={reportingTo} onChange={(e) => setReportingTo(e.target.value)} />
+        <EmployeeNameSuggest
+          value={reportingTo}
+          onChange={setReportingTo}
+          onPick={(emp) => setReportingTo(emp?.name || "")}
+          placeholder="Start typing employee name…"
+          aria-label="Reporting to"
+        />
       </Field>
       <Field label="Additional terms">
         <textarea className={textareaClass} value={terms} onChange={(e) => setTerms(e.target.value)} />
