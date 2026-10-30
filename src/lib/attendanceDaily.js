@@ -119,6 +119,7 @@ export const REGISTER_HALF_DAY_COMPOSITE_MARKS = new Set([
   "P/CL",
   "P/PL",
   "P/LWP",
+  "P/CO",
   "P/SPLA",
   "P/SPLB",
 ]);
@@ -128,6 +129,7 @@ export const REGISTER_HALF_DAY_LEAVE_FIRST_MARKS = new Set([
   "CL/P",
   "PL/P",
   "LWP/P",
+  "CO/P",
   "SPLA/P",
   "SPLB/P",
 ]);
@@ -138,6 +140,7 @@ export const REGISTER_HALF_DAY_SUBMENU_OPTIONS = [
   { value: "P/SL", label: "Present + Sick Leave" },
   { value: "P/CL", label: "Present + Casual Leave" },
   { value: "P/PL", label: "Present + Paid Leave" },
+  { value: "P/CO", label: "Present + Comp Off" },
 ];
 
 /**
@@ -189,17 +192,17 @@ export function canonicalRegisterCompositeMark(mark) {
   const compact = String(mark ?? "")
     .trim()
     .replace(/\s+/g, "");
-  const match = compact.match(/^P\/(SL|CL|PL|LWP|SPLA|SPLB)$/i);
+  const match = compact.match(/^P\/(SL|CL|PL|LWP|CO|SPLA|SPLB)$/i);
   if (!match) return null;
   return `P/${match[1].toUpperCase()}`;
 }
 
-/** Canonical SL/P | CL/P | PL/P | LWP/P | SPLA/P | SPLB/P (display-only leave-first). */
+/** Canonical SL/P | CL/P | PL/P | LWP/P | CO/P | SPLA/P | SPLB/P (display-only leave-first). */
 export function canonicalRegisterLeaveFirstCompositeMark(mark) {
   const compact = String(mark ?? "")
     .trim()
     .replace(/\s+/g, "");
-  const match = compact.match(/^(SL|CL|PL|LWP|SPLA|SPLB)\/P$/i);
+  const match = compact.match(/^(SL|CL|PL|LWP|CO|SPLA|SPLB)\/P$/i);
   if (!match) return null;
   return `${match[1].toUpperCase()}/P`;
 }
@@ -286,9 +289,9 @@ export function inferOfficeHalfFromPunch(punchInfo = {}, times = {}) {
 export const REGISTER_POD_PUNCH_FIRST = "P(OD)/P";
 /** Display-only: machine Present first half + POD second half. Never persisted. */
 export const REGISTER_POD_PUNCH_SECOND = "P/P(OD)";
-/** Display-only: approved CO first half + machine Present second half. Never persisted. */
+/** Display-only leave-first: approved CO first half + machine Present second half. */
 export const REGISTER_CO_PUNCH_FIRST = "CO/P";
-/** Display-only: machine Present first half + approved CO second half. Never persisted. */
+/** Present + CO half day (persisted as P/CO; same token used for display). */
 export const REGISTER_CO_PUNCH_SECOND = "P/CO";
 
 export function isRegisterPodOrTourMark(mark) {
@@ -723,6 +726,7 @@ export const REGISTER_MARKS_DB_ALLOWED = new Set([
   "P/CL",
   "P/PL",
   "P/LWP",
+  "P/CO",
   "P/SPLA",
   "P/SPLB",
   "LWP/PL",
@@ -1970,7 +1974,9 @@ export async function fetchApprovedLeaveMarksForMonth(
   const { data: applied, error: appliedErr } = await supabase
     .schema("indus_one")
     .from("admin_leave_attendance_marks")
-    .select("leave_request_id, employee_code, register_date, applied_mark")
+    .select(
+      "leave_request_id, employee_code, register_date, applied_mark, previous_mark"
+    )
     .eq("reverted", false)
     .gte("register_date", fromDate)
     .lte("register_date", toDate);
@@ -1978,6 +1984,9 @@ export async function fetchApprovedLeaveMarksForMonth(
   if (appliedErr) {
     console.warn("Leave attendance marks fetch failed; using leave date ranges:", appliedErr.message);
   } else {
+    const presentKeysForApplied = buildPresentKeysFromPunches(punches || []);
+    const appliedWorking = [];
+    const deferredWoSandwich = [];
     for (const row of applied || []) {
       const req = approvedById.get(row.leave_request_id);
       if (!req) continue;
@@ -1986,6 +1995,42 @@ export async function fetchApprovedLeaveMarksForMonth(
       if (!empCode) continue;
       if (row.employee_code && !codesMatch(empCode, row.employee_code)) continue;
       const iso = normalizeDbDate(row.register_date);
+      const prevOff = String(row.previous_mark ?? "").trim().toUpperCase();
+      const wasWoSandwich =
+        Boolean(iso) &&
+        isDefaultWeekoffDate(iso) &&
+        (prevOff === "WO" || prevOff === "NH/PH" || prevOff === "NHPH");
+      if (wasWoSandwich) deferredWoSandwich.push({ row, req, empCode, iso });
+      else appliedWorking.push({ row, req, empCode, iso });
+    }
+    for (const { row, req, empCode, iso } of appliedWorking) {
+      const mark = overlayMarkForLeaveRequestDay(req, iso, row.applied_mark);
+      addLeaveMark(marks, empCode, row.register_date, mark);
+    }
+    const flankBlocksWo = (empCode, iso) => {
+      const step = (dir) => {
+        const d = new Date(`${iso}T12:00:00`);
+        for (let i = 0; i < 21; i += 1) {
+          d.setDate(d.getDate() + dir);
+          const next = d.toISOString().slice(0, 10);
+          if (!isLeaveSandwichableOffDate(next, holidaySet)) return next;
+        }
+        return null;
+      };
+      const leftIso = step(-1);
+      const rightIso = step(1);
+      const leftDay = leftIso ? dayOfMonthFromIsoDate(leftIso) : null;
+      const rightDay = rightIso ? dayOfMonthFromIsoDate(rightIso) : null;
+      if (registerMarkBlocksWoSandwich(leftDay ? marks[empCode]?.[leftDay] : null)) return true;
+      if (registerMarkBlocksWoSandwich(rightDay ? marks[empCode]?.[rightDay] : null)) return true;
+      const norm = normalizeAttendanceEmpCode(empCode);
+      if (leftIso && presentKeysForApplied.has(`${norm}|${leftIso}`)) return true;
+      if (rightIso && presentKeysForApplied.has(`${norm}|${rightIso}`)) return true;
+      return false;
+    };
+    for (const { row, req, empCode, iso } of deferredWoSandwich) {
+      // Skip stale sandwich leave on WO when a flank is half-day / P/PL / punch / P(OD).
+      if (flankBlocksWo(empCode, iso)) continue;
       const mark = overlayMarkForLeaveRequestDay(req, iso, row.applied_mark);
       addLeaveMark(marks, empCode, row.register_date, mark);
     }
@@ -1997,6 +2042,7 @@ export async function fetchApprovedLeaveMarksForMonth(
   // when the request was approved as unpaid.
   // Half-day requests store the base leave type (CL/PL/SL); merge promotes to P/CL when
   // the Admin cell is HD or a machine punch exists that day.
+  const presentKeysForSandwich = buildPresentKeysFromPunches(punches || []);
   for (const req of approvedById.values()) {
     if (skipCompOffRequest(req)) continue;
     const empCode = normalizeAttendanceEmpCode(req.employee_code);
@@ -2005,10 +2051,18 @@ export async function fetchApprovedLeaveMarksForMonth(
     if (!empCode || !reqFrom || !reqTo) continue;
     const windowFrom = reqFrom < fromDate ? fromDate : reqFrom;
     const windowTo = reqTo > toDate ? toDate : reqTo;
+    const blocksWoSandwichAnchor = (iso) => {
+      const day = dayOfMonthFromIsoDate(iso);
+      const cellMark = day ? marks[empCode]?.[day] : null;
+      if (registerMarkBlocksWoSandwich(cellMark)) return true;
+      const punchKey = `${normalizeAttendanceEmpCode(empCode)}|${iso}`;
+      return Boolean(punchKey && presentKeysForSandwich.has(punchKey));
+    };
     for (const iso of enumerateLeaveDatesWithSandwich(reqFrom, reqTo, {
       halfDay: isHalfDayLeaveRequest(req),
       days: req.days,
       holidayDates: holidaySet,
+      blocksWoSandwichAnchor,
     })) {
       if (iso < windowFrom || iso > windowTo) continue;
       const day = dayOfMonthFromIsoDate(iso);
@@ -2035,6 +2089,12 @@ export async function fetchApprovedLeaveMarksForMonth(
         halfDay: isHalfDayLeaveRequest(req),
         days: req.days,
         holidayDates: holidaySet,
+        blocksWoSandwichAnchor: (iso) => {
+          const day = dayOfMonthFromIsoDate(iso);
+          const cellMark = day ? marks[empCode]?.[day] : null;
+          if (registerMarkBlocksWoSandwich(cellMark)) return true;
+          return presentKeys.has(`${normalizeAttendanceEmpCode(empCode)}|${iso}`);
+        },
       })) {
         if (iso < windowFrom || iso > windowTo) continue;
         if (revertedCompOffDayKeys.has(`${req.id}|${iso}`)) continue;
@@ -2153,6 +2213,8 @@ function compositeHalfDayLeaveMark(mark) {
   if (m === "SL") return "P/SL";
   // Punch + LWP leave → P/LWP (0.5). Do not map other leave types here.
   if (m === "LWP") return "P/LWP";
+  // Punch / half-day CO → P/CO (0.5), same pattern as other leave composites.
+  if (m === "CO") return "P/CO";
   // Birthday / anniversary special leave (requires punch) → P/SPLA | P/SPLB.
   if (m === "SPLA") return "P/SPLA";
   if (m === "SPLB") return "P/SPLB";
@@ -2236,15 +2298,18 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
       if (hasPunch && (canonical === "SPLB" || canonical === "P/SPLB")) {
         canonical = "P/SPLB";
       }
+      // Punch + CO → P/CO (0.5), same as P/LWP / P/PL.
+      if (hasPunch && (canonical === "CO" || canonical === "P/CO")) {
+        canonical = "P/CO";
+      }
 
       const leaveIsHalfDayComposite = isRegisterCompositeHalfDayMark(canonical);
 
-      // Full-day leave: biometric punch Present still wins — except approved CO,
-      // which is kept so the cell can show CO+P (same idea as POD+P), and LWP → P/LWP.
-      // Half-day composite / any leave: override saved Admin marks including HD.
+      // Full-day leave: biometric punch Present still wins — except P/CO / P/LWP /
+      // P/SPLA|P/SPLB composites. Half-day composite overrides saved Admin marks.
       if (hasPunch) {
-        if (canonical === "CO") {
-          next[code][day] = "CO";
+        if (canonical === "P/CO") {
+          next[code][day] = "P/CO";
           continue;
         }
         if (canonical === "P/LWP") {
@@ -2265,7 +2330,9 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
         continue;
       }
 
-      // Saved Admin mark (HD, manual P, WO, …) is always overridable by approved leave here.
+      // Saved Admin mark (HD, manual P, WO, …) is overridable by approved leave here
+      // (including legitimate sandwich leave on week-off). Stale WO-sandwich applied
+      // marks are filtered earlier when flanks block (P/PL / punch / P(OD)).
       next[code][day] = canonical;
     }
   }
@@ -3007,6 +3074,11 @@ export async function syncApprovedLeaveSandwichToRegister(supabase, fromDate, to
       halfDay: false,
       days: req.days,
       holidayDates,
+      blocksWoSandwichAnchor: (iso) => {
+        const dbCode = toRegisterDbEmployeeCode(empCode, masterCodeMap) || empCode;
+        const flank = lookupRegisterRow(existingByKey, empCode, dbCode, iso);
+        return registerMarkBlocksWoSandwich(flank?.mark, flank?.mark_source);
+      },
     });
 
     for (const iso of dates) {
@@ -3023,6 +3095,41 @@ export async function syncApprovedLeaveSandwichToRegister(supabase, fromDate, to
         existingMark.toUpperCase() === "LWP" ||
         !existingMark;
       if (!isOffCell) continue;
+
+      // Extra WO guard: skip if either flanking working cell blocks sandwich.
+      if (isDefaultWeekoffDate(iso) || existingMark === "WO") {
+        const leftIso = (() => {
+          const d = new Date(`${iso}T12:00:00`);
+          for (let i = 0; i < 21; i += 1) {
+            d.setDate(d.getDate() - 1);
+            const prev = d.toISOString().slice(0, 10);
+            if (!isLeaveSandwichableOffDate(prev, holidayDates)) return prev;
+          }
+          return null;
+        })();
+        const rightIso = (() => {
+          const d = new Date(`${iso}T12:00:00`);
+          for (let i = 0; i < 21; i += 1) {
+            d.setDate(d.getDate() + 1);
+            const next = d.toISOString().slice(0, 10);
+            if (!isLeaveSandwichableOffDate(next, holidayDates)) return next;
+          }
+          return null;
+        })();
+        const leftRow = leftIso
+          ? lookupRegisterRow(existingByKey, empCode, dbCode, leftIso)
+          : null;
+        const rightRow = rightIso
+          ? lookupRegisterRow(existingByKey, empCode, dbCode, rightIso)
+          : null;
+        if (
+          registerMarkBlocksWoSandwich(leftRow?.mark, leftRow?.mark_source) ||
+          registerMarkBlocksWoSandwich(rightRow?.mark, rightRow?.mark_source)
+        ) {
+          skipped += 1;
+          continue;
+        }
+      }
 
       candidates += 1;
       // Paid Taken Leave may replace wrongly stamped LWP on sandwich offs.
@@ -4693,15 +4800,38 @@ export function isLeaveSandwichableOffDate(isoDate, holidayDates = null) {
 }
 
 /**
+ * Flanking working-day mark/punch that must block sandwiching a week-off (WO).
+ * Matches DB admin_leave_date_blocks_wo_sandwich: half-day / P/PL|P/SL|P/CL,
+ * machine punch, or P(OD) (incl. P(OD)+P). Does not alter NH/PH sandwich.
+ */
+export function registerMarkBlocksWoSandwich(mark, markSource = null) {
+  const m = String(mark ?? "").trim();
+  if (!m) return false;
+  // Half-day leave composites — e.g. emp 8680 on 2026-10-10 P/PL before Sunday WO
+  if (m === "HD" || m === "P/PL" || m === "P/CL" || m === "P/SL") return true;
+  if (m === "PL/P" || m === "CL/P" || m === "SL/P") return true;
+  // P(OD) and P(OD)+P combined display marks
+  if (m === "P(OD)" || isRegisterPodPunchCombinedMark(m)) return true;
+  // Machine punch (punch-sourced Present) — not bare manual P
+  if (isPunchMarkSource(m, markSource)) return true;
+  return false;
+}
+
+/**
  * Leave attendance dates mirroring DB sandwich policy (within-request):
  * include all non-off days, plus WO / NH·PH strictly between the first and last
  * leave working day — unless either side is a half-day leave (no sandwich).
- * Explicit Saturday WO conversion and adjacent blocks are handled in DB; this
- * fallback covers Sunday / 3rd Sat / calendar NH·PH for full-day leave.
+ * WO is also skipped when either flanking working day blocks sandwich
+ * (half-day / P/PL|P/SL|P/CL / punch / P(OD)).
  *
  * @param {string} fromDate
  * @param {string} toDate
- * @param {{ halfDay?: boolean, days?: number, holidayDates?: Set<string>|string[] }} [options]
+ * @param {{
+ *   halfDay?: boolean,
+ *   days?: number,
+ *   holidayDates?: Set<string>|string[],
+ *   blocksWoSandwichAnchor?: (iso: string) => boolean,
+ * }} [options]
  */
 export function enumerateLeaveDatesWithSandwich(fromDate, toDate, options = {}) {
   const all = enumerateDates(fromDate, toDate);
@@ -4715,9 +4845,16 @@ export function enumerateLeaveDatesWithSandwich(fromDate, toDate, options = {}) 
   if (halfDay) return anchors;
   const amin = anchors[0];
   const amax = anchors[anchors.length - 1];
+  const blockWo =
+    typeof options?.blocksWoSandwichAnchor === "function" &&
+    (Boolean(options.blocksWoSandwichAnchor(amin)) ||
+      Boolean(options.blocksWoSandwichAnchor(amax)));
   return all.filter((iso) => {
     if (!isOff(iso)) return true;
-    return iso > amin && iso < amax;
+    if (!(iso > amin && iso < amax)) return false;
+    // WO between anchors: skip when flanks block (punch / half-day / P(OD) / P/*).
+    if (blockWo && isDefaultWeekoffDate(iso)) return false;
+    return true;
   });
 }
 

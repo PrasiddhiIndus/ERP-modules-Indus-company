@@ -164,7 +164,7 @@ export function validateCoMark(
   { dayMarkOnDate = "", holidayDates = null } = {}
 ) {
   const m = normalizeRegisterMarkForDb(mark);
-  if (m !== "CO") return { ok: true };
+  if (m !== "CO" && m !== "P/CO") return { ok: true };
   const date = String(registerDate || "").slice(0, 10);
   const year = date.slice(0, 4);
   const onDay = normalizeRegisterMarkForDb(dayMarkOnDate);
@@ -212,7 +212,7 @@ export function registerMarkPlClSlType(mark) {
   if (m === "PL" || m === "P/PL" || m === "LWP/PL") return "PL";
   if (m === "CL" || m === "P/CL" || m === "LWP/CL") return "CL";
   if (m === "SL" || m === "P/SL" || m === "LWP/SL") return "SL";
-  if (m === "CO") return "CO";
+  if (m === "CO" || m === "P/CO") return "CO";
   return null;
 }
 
@@ -475,9 +475,10 @@ export function buildInsufficientCompOffBalanceMessage({
   availableCo,
 } = {}) {
   const m = normalizeRegisterMarkForDb(mark);
-  if (m !== "CO") return null;
+  if (m !== "CO" && m !== "P/CO") return null;
+  const need = m === "P/CO" ? 0.5 : 1;
   const available = Number(availableCo);
-  if (Number.isFinite(available) && available >= 1) return null;
+  if (Number.isFinite(available) && available >= need) return null;
   const who = employeeName
     ? `${employeeName}${empCode ? ` (${empCode})` : ""}`
     : empCode || "This employee";
