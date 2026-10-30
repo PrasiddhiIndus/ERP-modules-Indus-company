@@ -248,6 +248,39 @@ function buildPunchRecord({ empCode, employeeName, punchDate, punchTime, deviceN
     direction: direction || '',
     status: status || '',
     sourcePayload,
+    punchSlot: suffix === 'in' || suffix === 'out' ? suffix : '',
+  };
+}
+
+/** HTTP 200 responses can still carry a .NET parse error and zero punches. */
+export function etimeProviderBodyError(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return '';
+  const msg = String(data.Msg || data.Message || data.message || '').trim();
+  const errFlag = data.Error === true || String(data.Error).toLowerCase() === 'true';
+  if (errFlag) return msg || 'eTimeOffice returned an error.';
+  if (/FormatException|not recognized as a valid DateTime|Exception/i.test(msg)) return msg;
+  return '';
+}
+
+/**
+ * DownloadInOutPunchData only accepts dd/MM/yyyy.
+ * Punch download endpoints accept dd/MM/yyyy_HH:mm.
+ */
+export function etimeDatesForEndpoint(endpoint, fromValue, toValue) {
+  const fromIso = normalizeDbDate(fromValue);
+  const toIso = normalizeDbDate(toValue);
+  if (!fromIso || !toIso) {
+    throw new HttpError(400, 'From and to dates are required.');
+  }
+  if (/downloadinoutpunchdata/i.test(String(endpoint || ''))) {
+    return {
+      fromDate: isoDateToEtimeSlash(fromIso),
+      toDate: isoDateToEtimeSlash(toIso),
+    };
+  }
+  return {
+    fromDate: isoDateToEtimeDateTime(fromIso, false),
+    toDate: isoDateToEtimeDateTime(toIso, true),
   };
 }
 
@@ -454,18 +487,22 @@ export async function fetchEtimePunchData(c, empCode, fromDate, toDate) {
 }
 
 /** Merge punches from all successful endpoints (dedupe by normalized punch_key later). */
-export async function fetchEtimePunchDataMerged(c, empCode, fromDateSlash, toDateSlash) {
+export async function fetchEtimePunchDataMerged(c, empCode, fromValue, toValue) {
   const endpoints = uniqueEtimePunchEndpoints(c.punchEndpoint);
   const records = [];
   const endpointsUsed = [];
   let lastError = null;
+  let lastBodyError = '';
 
   for (const endpoint of endpoints) {
-    const result = await requestEtimePunchEndpoint(c, endpoint, empCode, fromDateSlash, toDateSlash);
-    if (!result.providerRes.ok) {
-      if ([404, 405].includes(result.providerRes.status)) continue;
+    const { fromDate, toDate } = etimeDatesForEndpoint(endpoint, fromValue, toValue);
+    const result = await requestEtimePunchEndpoint(c, endpoint, empCode, fromDate, toDate);
+    const bodyError = etimeProviderBodyError(result.providerData);
+    if (!result.providerRes.ok || bodyError) {
+      if (bodyError) lastBodyError = bodyError;
+      if ([404, 405].includes(result.providerRes.status) || bodyError) continue;
       lastError = result;
-      if (!c.mergeEndpoints) return { ...result, records: normalizeEtimePunchRows(result.providerData) };
+      if (!c.mergeEndpoints) return { ...result, records: [], endpointsUsed };
       continue;
     }
     endpointsUsed.push(endpoint);
@@ -475,8 +512,13 @@ export async function fetchEtimePunchDataMerged(c, empCode, fromDateSlash, toDat
     }
   }
 
-  if (!records.length && lastError) {
-    return { ...lastError, records: [], endpointsUsed };
+  if (!endpointsUsed.length) {
+    const msg =
+      lastBodyError ||
+      lastError?.providerData?.Msg ||
+      lastError?.providerData?.Message ||
+      'eTimeOffice returned no attendance data.';
+    throw new HttpError(502, msg, { endpoints });
   }
 
   return {
@@ -493,9 +535,7 @@ export async function fetchEtimePunchesForIsoRange(c, empCode, fromIso, toIso) {
   const endpointsUsed = new Set();
 
   for (const chunk of chunks) {
-    const fromSlash = isoDateToEtimeDateTime(chunk.fromDate, false);
-    const toSlash = isoDateToEtimeDateTime(chunk.toDate, true);
-    const result = await fetchEtimePunchDataMerged(c, empCode, fromSlash, toSlash);
+    const result = await fetchEtimePunchDataMerged(c, empCode, chunk.fromDate, chunk.toDate);
     if (!result.providerRes?.ok) {
       const providerStatus = Number(result.providerRes?.status) || 0;
       const msg =
@@ -564,6 +604,57 @@ export async function upsertPunchRows(supabase, rows) {
   return { upserted, inputCount, uniqueCount, collisionCount, errors };
 }
 
+/**
+ * Upsert the fresh eTimeOffice snapshot, then drop stored punches in that date
+ * range that are no longer in the snapshot (so a new punch replaces the old one).
+ */
+export async function persistPunchSnapshot(supabase, rows, { fromDate, toDate, empCode = 'ALL' } = {}) {
+  const prepared = (rows || []).filter((row) => row.punch_date && row.employee_code);
+  const upsertResult = await upsertPunchRows(supabase, prepared);
+  const fromIso = normalizeDbDate(fromDate);
+  const toIso = normalizeDbDate(toDate);
+  let removed = 0;
+  if (prepared.length && fromIso && toIso) {
+    removed = await deleteStalePunchKeys(supabase, prepared, { fromDate: fromIso, toDate: toIso, empCode });
+  }
+  return { ...upsertResult, removed };
+}
+
+async function deleteStalePunchKeys(supabase, freshRows, { fromDate, toDate, empCode }) {
+  const fresh = new Set(freshRows.map((row) => row.punch_key).filter(Boolean));
+  const code = normalizeAttendanceEmpCode(empCode);
+  const scoped = Boolean(code) && code.toUpperCase() !== 'ALL';
+  const existing = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    let query = supabase
+      .from(ATTENDANCE_PUNCH_TABLE)
+      .select('punch_key')
+      .gte('punch_date', fromDate)
+      .lte('punch_date', toDate)
+      .order('punch_key', { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (scoped) query = query.eq('employee_code', code);
+    const { data, error } = await query;
+    if (error) throw error;
+    existing.push(...(data || []).map((row) => row.punch_key).filter(Boolean));
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const stale = existing.filter((key) => !fresh.has(key));
+  let removed = 0;
+  for (let i = 0; i < stale.length; i += 100) {
+    const chunk = stale.slice(i, i + 100);
+    const { error } = await supabase.from(ATTENDANCE_PUNCH_TABLE).delete().in('punch_key', chunk);
+    if (error) throw error;
+    removed += chunk.length;
+  }
+  return removed;
+}
+
 export async function readSyncState(supabase) {
   const { data, error } = await supabase.from('erp_attendance_sync_state').select('*').eq('id', 1).maybeSingle();
   if (error && error.code !== 'PGRST205') throw error;
@@ -613,7 +704,11 @@ export async function runAttendanceOverlapSync({
     const rowsWithDate = dbRows.filter((r) => r.punch_date && r.employee_code);
     const skippedNoDate = dbRows.length - rowsWithDate.length;
 
-    const { upserted, inputCount, uniqueCount, collisionCount } = await upsertPunchRows(supabase, rowsWithDate);
+    const { upserted, inputCount, uniqueCount, collisionCount, removed } = await persistPunchSnapshot(
+      supabase,
+      rowsWithDate,
+      { fromDate: range.fromDate, toDate: range.toDate, empCode: code }
+    );
 
     const endedAt = new Date().toISOString();
     const summary = {
@@ -629,6 +724,7 @@ export async function runAttendanceOverlapSync({
       dedupeUniqueCount: uniqueCount,
       dedupeCollisions: collisionCount,
       upserted,
+      removed,
       endpointsUsed: fetchResult.endpointsUsed,
       dateChunks: fetchResult.chunks,
     };
