@@ -1,3 +1,5 @@
+import { allWorkingCostManualIds } from './workingCostSheets';
+
 /** Sum grand total (incl. GST) from Excel costing JSON. */
 export function calcFinalAmountFromCostingData(costingData) {
   if (!costingData) return 0;
@@ -19,6 +21,29 @@ export function calcFinalAmountFromCostingData(costingData) {
     const legacy = parseFloat(parsed[`${item.id}_final_price`] || 0);
     return sum + legacy;
   }, 0);
+}
+
+/** Product names stored on a costing sheet, in row order. */
+export function itemNamesFromCostingData(costingData) {
+  if (!costingData) return [];
+  let parsed = costingData;
+  if (typeof costingData === 'string') {
+    try {
+      parsed = JSON.parse(costingData);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(parsed?.items)) return [];
+  return parsed.items.map((item) => {
+    const name = String(item?.productName || item?.name || '').trim();
+    if (!name) return '';
+    const code = String(item?.productCode || '').trim();
+    if (code && !name.toLowerCase().includes(code.toLowerCase())) {
+      return `${name} Item Code-(${code})`;
+    }
+    return name;
+  }).filter(Boolean);
 }
 
 /** Map quotation_id -> latest costing sheet row (prefers JSON costing_data). */
@@ -57,6 +82,7 @@ const COSTING_MANUAL_CELL_KEYS = [
   'business_dev_pct',
   'other_misc_cost',
   'gst_pct',
+  ...allWorkingCostManualIds(),
 ];
 
 /** True when a costing row has a product name or any manual cell value. */
@@ -66,6 +92,7 @@ export function costingItemHasContent(item, costingData = {}) {
   return COSTING_MANUAL_CELL_KEYS.some((key) => {
     const raw = costingData[`${item.id}_${key}`];
     if (raw === '' || raw === null || raw === undefined) return false;
+    if (key === 'hsn_code') return String(raw).trim() !== '';
     const n = parseFloat(raw);
     return !Number.isNaN(n) && n !== 0;
   });

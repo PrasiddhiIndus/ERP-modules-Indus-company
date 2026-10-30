@@ -131,16 +131,31 @@ const QuotationForm = ({
         return;
       }
 
-      const { data: enquiry, error } = await supabase
-        .from('marketing_enquiries')
-        .select(`
+      const enquiryColumns = `
           id, 
           enquiry_number, 
           client_id,
+          cost_sheet_type,
           marketing_clients:client_id (id, client_name)
-        `)
+        `;
+      let { data: enquiry, error } = await supabase
+        .from('marketing_enquiries')
+        .select(enquiryColumns)
         .eq('id', enquiryId)
         .single();
+
+      if (error && String(error.message || '').includes('cost_sheet_type')) {
+        ({ data: enquiry, error } = await supabase
+          .from('marketing_enquiries')
+          .select(`
+            id, 
+            enquiry_number, 
+            client_id,
+            marketing_clients:client_id (id, client_name)
+          `)
+          .eq('id', enquiryId)
+          .single());
+      }
 
       if (error) {
         // Log detailed error information
@@ -187,16 +202,30 @@ const QuotationForm = ({
   const fetchEnquiries = async () => {
     try {
       // Fetch all enquiries
-      const { data: enquiriesData } = await supabase
+      let { data: enquiriesData, error: enquiriesError } = await supabase
         .from('marketing_enquiries')
         .select(`
           id, 
           enquiry_number, 
           client_id, 
           is_converted_to_quotation,
+          cost_sheet_type,
           marketing_clients:client_id (id, client_name)
         `)
         .order('created_at', { ascending: false });
+
+      if (enquiriesError && String(enquiriesError.message || '').includes('cost_sheet_type')) {
+        ({ data: enquiriesData } = await supabase
+          .from('marketing_enquiries')
+          .select(`
+            id, 
+            enquiry_number, 
+            client_id, 
+            is_converted_to_quotation,
+            marketing_clients:client_id (id, client_name)
+          `)
+          .order('created_at', { ascending: false }));
+      }
 
       // Fetch all quotations to check which enquiries actually have quotations
       const { data: quotationsData } = await supabase
@@ -1038,6 +1067,7 @@ const QuotationForm = ({
             <ExcelCostingSheet
               ref={costingSheetRef}
               quotationId={quotation?.id || null}
+              enquirySheetType={selectedEnquiry?.cost_sheet_type || null}
               onCostingChange={(total) => {
                 setCostingTotal(total);
               }}

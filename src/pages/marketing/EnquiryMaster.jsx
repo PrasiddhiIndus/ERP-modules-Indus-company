@@ -15,6 +15,12 @@ import {
   parseEnquirySecondaryEmails,
 } from './utils/marketingQuotationUtils';
 import { toast } from '../../lib/toast';
+import {
+  WORKING_COST_SHEET_OPTIONS,
+  normalizeWorkingCostSheetType,
+  workingCostSheetLabel,
+} from './utils/workingCostSheets';
+import WorkingCostSheetFilter from './components/WorkingCostSheetFilter';
 
 const DOCUMENTS_BUCKET = 'marketing-documents';
 const ENQUIRY_DOCUMENTS_TABLE = 'marketing_enquiry_documents';
@@ -24,6 +30,7 @@ const OPTIONAL_ENQUIRY_WRITE_COLUMNS = [
   'contact_emails',
   'assigned_to_ids',
   'assigned_to_custom_names',
+  'cost_sheet_type',
 ];
 
 function isMissingColumnError(error, column) {
@@ -66,6 +73,7 @@ const EnquiryMaster = () => {
     status: 'New',
     assigned_to_ids: [],
     assigned_to_custom_names: [],
+    cost_sheet_type: '',
   });
   const [customNamesOptions, setCustomNamesOptions] = useState([]);
   const [showAddNameInput, setShowAddNameInput] = useState(false);
@@ -80,6 +88,7 @@ const EnquiryMaster = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [searchQuery, setSearchQuery] = useState('');
+  const [costSheetFilter, setCostSheetFilter] = useState('');
   const [showCalendar, setShowCalendar] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [viewingBrokenImageIds, setViewingBrokenImageIds] = useState(new Set());
@@ -296,6 +305,12 @@ const EnquiryMaster = () => {
       // Generate next number from maximum
       const enquiryNumber = `ENQ/${currentYear}/${String(maxNumber + 1).padStart(4, '0')}`;
 
+      const costSheetType = normalizeWorkingCostSheetType(formData.cost_sheet_type);
+      if (!costSheetType) {
+        toast.warning('Select a working cost sheet', 'Choose Domestic Procurement or International Procurement.');
+        return;
+      }
+
       const assignedIds = Array.isArray(formData.assigned_to_ids) ? formData.assigned_to_ids.filter(Boolean) : [];
       const assignedNames = Array.isArray(formData.assigned_to_custom_names) ? formData.assigned_to_custom_names.map((n) => (n || '').trim()).filter(Boolean) : [];
 
@@ -331,6 +346,7 @@ const EnquiryMaster = () => {
         estimated_value: formData.estimated_value ? parseIndianNumber(String(formData.estimated_value)) : null,
         expected_closing_date: formData.expected_closing_date || null,
         status: formData.status || 'New',
+        cost_sheet_type: costSheetType,
         assigned_to: assignedIds[0] || null,
         assigned_to_name: assignedNames[0] || null,
       };
@@ -355,6 +371,7 @@ const EnquiryMaster = () => {
 
       const saveEnquiryRow = async (payload) => {
         let current = editingEnquiry ? { ...payload } : omitNullOptionalColumns(payload);
+        const dropped = [];
         for (let attempt = 0; attempt < OPTIONAL_ENQUIRY_WRITE_COLUMNS.length + 1; attempt += 1) {
           const result = editingEnquiry
             ? await supabase
@@ -369,13 +386,14 @@ const EnquiryMaster = () => {
                 .select()
                 .single();
 
-          if (!result.error) return result.data;
+          if (!result.error) return { data: result.data, dropped };
 
           const missingCol = OPTIONAL_ENQUIRY_WRITE_COLUMNS.find(
             (col) => isMissingColumnError(result.error, col) && Object.prototype.hasOwnProperty.call(current, col)
           );
           if (!missingCol) throw result.error;
           console.warn(`Column ${missingCol} missing on marketing_enquiries; retrying without it.`);
+          dropped.push(missingCol);
           const { [missingCol]: _removed, ...rest } = current;
           current = rest;
         }
@@ -383,13 +401,15 @@ const EnquiryMaster = () => {
       };
 
       let enquiryId;
+      let droppedColumns = [];
       if (editingEnquiry) {
-        const data = await saveEnquiryRow({
+        const saved = await saveEnquiryRow({
           ...enquiryPayload,
           updated_by: user.id,
           updated_at: new Date().toISOString(),
         });
-        enquiryId = data.id;
+        enquiryId = saved.data.id;
+        droppedColumns = saved.dropped;
       } else {
         // Duplicate prevention: same core details should not create a new enquiry id.
         // We check only "identity" fields (not status/assignee/estimated value) so repeated clicks or
@@ -427,13 +447,21 @@ const EnquiryMaster = () => {
           return;
         }
 
-        const data = await saveEnquiryRow({
+        const saved = await saveEnquiryRow({
           ...enquiryPayload,
           enquiry_number: enquiryNumber,
           created_by: user.id,
           updated_by: user.id,
         });
-        enquiryId = data.id;
+        enquiryId = saved.data.id;
+        droppedColumns = saved.dropped;
+      }
+
+      if (droppedColumns.includes('cost_sheet_type')) {
+        toast.warning(
+          'Working cost sheet was not stored',
+          'The enquiry saved, but the database is missing the cost sheet field. Apply the latest database update and edit this enquiry again.'
+        );
       }
 
       let uploadFailed = 0;
@@ -511,6 +539,7 @@ const EnquiryMaster = () => {
         status: 'New',
         assigned_to_ids: [],
         assigned_to_custom_names: [],
+        cost_sheet_type: '',
       });
       setShowAddNameInput(false);
       setNewCustomName('');
@@ -569,6 +598,7 @@ const EnquiryMaster = () => {
       status: enquiry.status || 'New',
       assigned_to_ids: ids,
       assigned_to_custom_names: names,
+      cost_sheet_type: normalizeWorkingCostSheetType(enquiry.cost_sheet_type) || '',
     });
     setShowAddNameInput(false);
     setNewCustomName('');
@@ -710,6 +740,7 @@ const EnquiryMaster = () => {
         'Assigned To': assignedTo,
         'Estimated Value (₹)': enquiry.estimated_value || '-',
         'Expected Closing Date': enquiry.expected_closing_date || '-',
+        'Working Cost Sheet': workingCostSheetLabel(enquiry.cost_sheet_type) || '-',
         'Status': enquiry.status,
         'Converted to Quotation': enquiry.is_converted_to_quotation ? 'Yes' : 'No',
         'Created At': formatDateDdMmYyyy(enquiry.created_at),
@@ -808,6 +839,7 @@ const EnquiryMaster = () => {
                   status: 'New',
                   assigned_to_ids: defaultIds,
                   assigned_to_custom_names: [],
+                  cost_sheet_type: '',
                 });
                 setShowAddNameInput(false);
                 setNewCustomName('');
@@ -825,6 +857,16 @@ const EnquiryMaster = () => {
             </button>
           </div>
         </div>
+
+        <WorkingCostSheetFilter
+          value={costSheetFilter}
+          onChange={(next) => {
+            setCostSheetFilter(next);
+            setCurrentPage(1);
+          }}
+          domesticCount={enquiries.filter((enquiry) => enquiry.cost_sheet_type === 'domestic').length}
+          internationalCount={enquiries.filter((enquiry) => enquiry.cost_sheet_type === 'international').length}
+        />
 
         {/* Enquiries Table */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden" style={{ overflow: 'visible' }}>
@@ -866,6 +908,7 @@ const EnquiryMaster = () => {
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Date</th>
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Expected Closing Date</th>
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Estimated Value</th>
+                    <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Working Cost Sheet</th>
                     <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider">Status</th>
                     <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider">Actions</th>
                   </tr>
@@ -874,14 +917,17 @@ const EnquiryMaster = () => {
                   {(() => {
                     // Filter enquiries based on search query
                     const filteredEnquiries = enquiries.filter(enquiry => {
+                      if (costSheetFilter && enquiry.cost_sheet_type !== costSheetFilter) return false;
                       if (!searchQuery) return true;
                       const query = searchQuery.toLowerCase();
                       const enquiryNumber = enquiry.enquiry_number?.toLowerCase() || '';
                       const clientName = enquiry.marketing_clients?.client_name?.toLowerCase() || '';
                       const contactPerson = enquiry.contact_person?.toLowerCase() || '';
+                      const sheetLabel = workingCostSheetLabel(enquiry.cost_sheet_type).toLowerCase();
                       return enquiryNumber.includes(query) || 
                              clientName.includes(query) || 
-                             contactPerson.includes(query);
+                             contactPerson.includes(query) ||
+                             sheetLabel.includes(query);
                     });
                     
                     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -919,6 +965,19 @@ const EnquiryMaster = () => {
                         <span className="text-xs font-semibold text-gray-900">
                           {enquiry.estimated_value ? `₹${parseFloat(enquiry.estimated_value).toLocaleString('en-IN')}` : '-'}
                         </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        {enquiry.cost_sheet_type === 'domestic' ? (
+                          <span className="inline-flex px-2 py-0.5 text-[10px] font-semibold rounded-full bg-sky-100 text-sky-900 border border-sky-200 whitespace-nowrap">
+                            Domestic Procurement
+                          </span>
+                        ) : enquiry.cost_sheet_type === 'international' ? (
+                          <span className="inline-flex px-2 py-0.5 text-[10px] font-semibold rounded-full bg-amber-100 text-amber-900 border border-amber-200 whitespace-nowrap">
+                            International Procurement
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">-</span>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-center">
                         {enquiry.is_converted_to_quotation ? (
@@ -1159,6 +1218,39 @@ const EnquiryMaster = () => {
                     <option value="Expo">Expo</option>
                     <option value="Other">Other</option>
                   </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Working Cost Sheet <span className="text-red-500">*</span>
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    {WORKING_COST_SHEET_OPTIONS.map((option) => {
+                      const selected = formData.cost_sheet_type === option.id;
+                      return (
+                        <label
+                          key={option.id}
+                          className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg cursor-pointer transition-colors ${
+                            selected
+                              ? 'border-purple-600 bg-purple-50 text-purple-900'
+                              : 'border-gray-300 bg-white text-gray-800 hover:border-purple-300'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="cost_sheet_type"
+                            value={option.id}
+                            checked={selected}
+                            onChange={() => setFormData({ ...formData, cost_sheet_type: option.id })}
+                            className="text-purple-600 focus:ring-purple-500"
+                            required
+                          />
+                          <span className="text-sm font-medium">{option.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">One sheet is used for this enquiry. The quotation cost sheet opens on this choice.</p>
                 </div>
 
                 <div className="min-w-0">
@@ -1634,6 +1726,14 @@ const EnquiryMaster = () => {
                     <div className="bg-white border border-gray-200 rounded-lg px-3 py-2.5">
                       <p className="text-sm text-gray-900">
                         {viewingEnquiry.source || <span className="text-gray-400 italic">Not provided</span>}
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1.5">Working Cost Sheet</label>
+                    <div className="bg-white border border-gray-200 rounded-lg px-3 py-2.5">
+                      <p className="text-sm text-gray-900">
+                        {workingCostSheetLabel(viewingEnquiry.cost_sheet_type) || <span className="text-gray-400 italic">Not selected</span>}
                       </p>
                     </div>
                   </div>
