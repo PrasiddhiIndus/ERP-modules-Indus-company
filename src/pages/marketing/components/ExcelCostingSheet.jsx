@@ -3,6 +3,15 @@ import { Plus, Trash2, Save, ChevronDown } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { filterEmptyCostingItems, dedupeCostingItemsById, pruneCostingCellData, pickCanonicalCostingSheet } from '../utils/marketingQuotationUtils';
 import { sanitizePdfText } from '../utils/pdfTextSanitize';
+import {
+  WORKING_COST_SHEET_OPTIONS,
+  normalizeWorkingCostSheetType,
+  workingCostSheetLabel,
+  getWorkingCostColumns,
+  getManualInputIds,
+  computeWorkingCostRow,
+  costingDataLooksLegacy,
+} from '../utils/workingCostSheets';
 
 import { toast } from "../../../lib/toast";
 // Fixed costing sheet column definitions (column names as required – do not add/remove)
@@ -47,12 +56,21 @@ const formatNumber = (value, decimals = null) => {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 };
 
-const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSuccess, isViewMode = false, costingSheetId = null, hideSaveButton = false }, ref) => {
+const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSuccess, isViewMode = false, costingSheetId = null, hideSaveButton = false, enquirySheetType = null }, ref) => {
   const [items, setItems] = useState([
     { id: 'item-1', productId: null, productName: '', specification: '' },
   ]);
   const [products, setProducts] = useState([]);
-  const [costHeads] = useState(COSTING_SHEET_COLUMNS);
+  const [sheetType, setSheetType] = useState(() => normalizeWorkingCostSheetType(enquirySheetType));
+  const [sheetTypeOrigin, setSheetTypeOrigin] = useState(enquirySheetType ? 'enquiry' : '');
+  const sheetTypeRef = useRef(normalizeWorkingCostSheetType(enquirySheetType));
+  const enquirySheetTypeRef = useRef(normalizeWorkingCostSheetType(enquirySheetType));
+  const userPickedSheetRef = useRef(false);
+  const savedSheetTypeRef = useRef(null);
+  const legacySheetRef = useRef(false);
+  const costHeads = (sheetType === 'domestic' || sheetType === 'international')
+    ? getWorkingCostColumns(sheetType)
+    : COSTING_SHEET_COLUMNS;
   const [costingData, setCostingData] = useState({});
   const [editingCell, setEditingCell] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -95,6 +113,50 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   }, [products]);
 
   useEffect(() => {
+    sheetTypeRef.current = sheetType;
+  }, [sheetType]);
+
+  useEffect(() => {
+    enquirySheetTypeRef.current = normalizeWorkingCostSheetType(enquirySheetType);
+  }, [enquirySheetType]);
+
+  useEffect(() => {
+    if (userPickedSheetRef.current || savedSheetTypeRef.current || legacySheetRef.current) return;
+    const next = normalizeWorkingCostSheetType(enquirySheetType);
+    if (!next) return;
+    setSheetType(next);
+    setSheetTypeOrigin('enquiry');
+  }, [enquirySheetType]);
+
+  const fetchEnquirySheetType = async (targetQuotationId) => {
+    if (!targetQuotationId) return null;
+    try {
+      const { data: quotation, error: quotationError } = await supabase
+        .from('marketing_quotations')
+        .select('enquiry_id')
+        .eq('id', targetQuotationId)
+        .maybeSingle();
+      if (quotationError || !quotation?.enquiry_id) return null;
+      const { data: enquiry, error: enquiryError } = await supabase
+        .from('marketing_enquiries')
+        .select('cost_sheet_type')
+        .eq('id', quotation.enquiry_id)
+        .maybeSingle();
+      if (enquiryError) return null;
+      return normalizeWorkingCostSheetType(enquiry?.cost_sheet_type);
+    } catch (error) {
+      console.error('Error reading enquiry cost sheet type:', error);
+      return null;
+    }
+  };
+
+  const applyResolvedSheetType = (resolvedType, origin) => {
+    if (userPickedSheetRef.current) return;
+    setSheetType(resolvedType);
+    setSheetTypeOrigin(origin || (resolvedType ? 'enquiry' : ''));
+  };
+
+  useEffect(() => {
     const loadData = async () => {
       // Don't wipe in-progress edits if quotationId/costingSheetId briefly change
       if (userEditedRef.current && dataReadyRef.current) return;
@@ -104,6 +166,13 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       if (quotationId) {
         await fetchCostingData();
       } else {
+        if (!userPickedSheetRef.current && !savedSheetTypeRef.current && !legacySheetRef.current) {
+          const next = normalizeWorkingCostSheetType(enquirySheetTypeRef.current);
+          if (next) {
+            setSheetType(next);
+            setSheetTypeOrigin('enquiry');
+          }
+        }
         // New quotation — sheet starts empty and is ready for entry
         dataReadyRef.current = true;
         setLoading(false);
@@ -182,6 +251,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
     });
     currentInputData.itemsLength = items.length;
     currentInputData.costHeadsLength = costHeads.length;
+    currentInputData.sheetType = sheetType || '';
 
     // Compare with previous input data
     const inputDataChanged = JSON.stringify(currentInputData) !== JSON.stringify(previousInputDataRef.current);
@@ -190,7 +260,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       previousInputDataRef.current = currentInputData;
       calculateAll();
     }
-  }, [costingData, items, costHeads, loading]);
+  }, [costingData, items, costHeads, loading, sheetType]);
 
   // Update dropdown position on scroll/resize
   useEffect(() => {
@@ -298,7 +368,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         const newToOldKey = { import_base_cost: 'base_cost', import_custom_duty_pct: 'customs_duty', import_freight: 'freight', import_transit_insurance_pct: 'insurance', margin_pct: 'margin_percent', gst_pct: 'gst_percent', other_misc_cost: 'other_cost' };
         const cellData = {};
         Object.keys(parsedData).forEach((key) => {
-          if (key === 'items' || key === 'costHeads' || key === 'gstPercentage') return;
+          if (key === 'items' || key === 'costHeads' || key === 'gstPercentage' || key === 'sheetType') return;
           const ownerId = sortedIds.find((id) => key.startsWith(`${id}_`));
           if (ownerId) {
             cellData[key] = parsedData[key];
@@ -332,9 +402,30 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
           }
         }
         setCostingData(cellData);
+        const savedType = normalizeWorkingCostSheetType(parsedData.sheetType);
+        if (savedType) {
+          savedSheetTypeRef.current = savedType;
+          legacySheetRef.current = false;
+          applyResolvedSheetType(savedType, 'saved');
+        } else if (costingDataLooksLegacy(parsedData)) {
+          savedSheetTypeRef.current = null;
+          legacySheetRef.current = true;
+          applyResolvedSheetType(null, 'legacy');
+        } else {
+          savedSheetTypeRef.current = null;
+          legacySheetRef.current = false;
+          const fromEnquiry = await fetchEnquirySheetType(quotationId);
+          const next = fromEnquiry || enquirySheetTypeRef.current;
+          applyResolvedSheetType(next, next ? 'enquiry' : '');
+        }
         // Reset the previous input data ref after loading
         previousInputDataRef.current = {};
       } else {
+        savedSheetTypeRef.current = null;
+        legacySheetRef.current = false;
+        const fromEnquiry = await fetchEnquirySheetType(quotationId);
+        const next = fromEnquiry || enquirySheetTypeRef.current;
+        applyResolvedSheetType(next, next ? 'enquiry' : '');
         // Reset the previous input data ref if no data
         previousInputDataRef.current = {};
       }
@@ -354,6 +445,21 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
 
   /** Builds full cell data (manual + calculated) for save - so DB always gets correct values */
   const buildFullCostingDataForSave = (itemsList, cellData) => {
+    const activeType = sheetTypeRef.current;
+    if (activeType === 'domestic' || activeType === 'international') {
+      const out = { ...cellData };
+      itemsList.forEach((item) => {
+        const getVal = (costHeadId) => {
+          if (costHeadId === 'hsn_code') return cellData[`${item.id}_hsn_code`] || '';
+          return parseFloat(cellData[`${item.id}_${costHeadId}`] || 0) || 0;
+        };
+        const computed = computeWorkingCostRow(activeType, getVal);
+        Object.entries(computed).forEach(([key, value]) => {
+          out[`${item.id}_${key}`] = value;
+        });
+      });
+      return out;
+    }
     const out = { ...cellData };
     itemsList.forEach((item) => {
       const getVal = (costHeadId) => parseFloat(cellData[`${item.id}_${costHeadId}`] || 0) || 0;
@@ -411,6 +517,32 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
 
   const calculateAll = () => {
     if (isCalculatingRef.current) {
+      return;
+    }
+    const activeType = sheetTypeRef.current;
+    if (activeType === 'domestic' || activeType === 'international') {
+      isCalculatingRef.current = true;
+      setCostingData((prev) => {
+        const newData = { ...prev };
+        items.forEach((item) => {
+          const getVal = (costHeadId) => {
+            if (costHeadId === 'hsn_code') return prev[`${item.id}_hsn_code`] || '';
+            return parseFloat(prev[`${item.id}_${costHeadId}`] || 0) || 0;
+          };
+          const computed = computeWorkingCostRow(activeType, getVal);
+          Object.entries(computed).forEach(([key, value]) => {
+            newData[`${item.id}_${key}`] = value;
+          });
+        });
+        const grandTotal = items.reduce((sum, item) => {
+          return sum + (parseFloat(newData[`${item.id}_grand_total_supply_cost_with_gst`] || 0) || 0);
+        }, 0);
+        setTimeout(() => {
+          if (onCostingChange) onCostingChange(grandTotal);
+          isCalculatingRef.current = false;
+        }, 0);
+        return newData;
+      });
       return;
     }
     isCalculatingRef.current = true;
@@ -522,9 +654,17 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
           : item
       ));
       const baseCost = selectedProduct.base_cost_price || 0;
-      setCellValue(itemId, 'import_base_cost', baseCost);
       const customDutyPct = selectedProduct.custom_price != null && selectedProduct.custom_price !== '' ? selectedProduct.custom_price : 0;
-      setCellValue(itemId, 'import_custom_duty_pct', customDutyPct);
+      const activeType = sheetTypeRef.current;
+      if (activeType === 'domestic') {
+        setCellValue(itemId, 'vendor_unit_rate', baseCost);
+      } else if (activeType === 'international') {
+        setCellValue(itemId, 'item_cost_dollar', baseCost);
+        setCellValue(itemId, 'duty_pct', customDutyPct);
+      } else {
+        setCellValue(itemId, 'import_base_cost', baseCost);
+        setCellValue(itemId, 'import_custom_duty_pct', customDutyPct);
+      }
     }
   };
 
@@ -624,9 +764,21 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         };
       });
 
+      const activeType = sheetTypeRef.current;
+      const manualKeys = (activeType === 'domestic' || activeType === 'international')
+        ? getManualInputIds(activeType)
+        : [
+          'qty', 'import_base_cost', 'import_custom_duty_pct', 'import_freight',
+          'import_transit_insurance_pct', 'supply_freight', 'supply_transit_insurance_pct',
+          'margin_pct', 'business_dev_pct', 'other_misc_cost', 'gst_pct',
+        ];
+
       const dataToSave = {
         items: itemsWithProductInfo,
-        costHeads: COSTING_SHEET_COLUMNS,
+        costHeads: (activeType === 'domestic' || activeType === 'international')
+          ? getWorkingCostColumns(activeType)
+          : COSTING_SHEET_COLUMNS,
+        sheetType: activeType || null,
         ...fullCellData,
       };
 
@@ -644,14 +796,11 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       const existingTotal = parseFloat(existing?.total_price || 0) || 0;
       const hasMeaningfulContent = activeItems.some((item) => {
         const name = (item.productName || item.name || '').trim();
-        if (name) return true;
-        return [
-          'qty', 'import_base_cost', 'import_custom_duty_pct', 'import_freight',
-          'import_transit_insurance_pct', 'supply_freight', 'supply_transit_insurance_pct',
-          'margin_pct', 'business_dev_pct', 'other_misc_cost', 'gst_pct',
-        ].some((key) => {
+        if (name && !(activeType === 'domestic' || activeType === 'international')) return true;
+        return manualKeys.some((key) => {
           const raw = currentData[`${item.id}_${key}`];
           if (raw === '' || raw === null || raw === undefined) return false;
+          if (key === 'hsn_code') return String(raw).trim() !== '';
           const n = parseFloat(raw);
           return !Number.isNaN(n) && n !== 0;
         });
@@ -770,7 +919,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
-  }, [costingData, items, quotationId, isViewMode, loading]);
+  }, [costingData, items, quotationId, isViewMode, loading, sheetType]);
 
   useImperativeHandle(ref, () => ({
     save: (opts) => saveCostingSheet(opts),
@@ -789,30 +938,73 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
     );
   }
 
-  const grandTotal = items.reduce((sum, item) => {
-    return sum + (parseFloat(getCellValue(item.id, 'grand_total_supply_cost_with_gst')) || 0);
-  }, 0);
+  const workingSheet = sheetType === 'domestic' || sheetType === 'international';
+  const sheetTitle = workingCostSheetLabel(sheetType);
+  const chooseSheet = (type) => {
+    const next = normalizeWorkingCostSheetType(type);
+    if (!next || next === sheetType) return;
+    if (!isViewMode) {
+      userPickedSheetRef.current = true;
+      savedSheetTypeRef.current = next;
+      legacySheetRef.current = false;
+      markUserEdited();
+      previousInputDataRef.current = {};
+    }
+    setSheetType(next);
+    setSheetTypeOrigin('manual');
+  };
+  const sheetHint = !sheetTitle
+    ? 'Select Domestic Procurement or International Procurement. Older quotations keep the previous sheet until you choose.'
+    : sheetTypeOrigin === 'enquiry'
+      ? `Auto-fetched from the enquiry: ${sheetTitle}. You can switch and view the other sheet.`
+      : `${sheetTitle}. You can switch and view the other sheet.`;
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200/90 ring-1 ring-slate-900/5 p-3">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+        <div className="min-w-0">
           <h3 className="text-sm font-semibold text-gray-900">Costing Sheet</h3>
-          <p className="text-[9px] text-gray-500 mt-0.5">Items as rows, cost heads as columns. <span className="bg-red-50 text-red-900 px-1.5 py-0.5 rounded border border-red-200 font-medium">Tint = Manual entry</span></p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <p className="text-[11px] text-gray-500">Items as rows, cost heads as columns.</p>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-red-50 text-red-800 border border-red-200">
+              Tint = Manual entry
+            </span>
+          </div>
+          <p className="text-[11px] text-gray-500 mt-1">{sheetHint}</p>
         </div>
-        {!isViewMode && !hideSaveButton && (
-          <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <label htmlFor="working-cost-sheet-type" className="text-xs font-medium text-gray-700 whitespace-nowrap">
+            Working cost sheet
+          </label>
+          <select
+            id="working-cost-sheet-type"
+            value={sheetType || ''}
+            onChange={(e) => chooseSheet(e.target.value)}
+            className="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            aria-label="Working cost sheet"
+          >
+            {!sheetType && <option value="">Select sheet</option>}
+            {WORKING_COST_SHEET_OPTIONS.map((option) => (
+              <option key={option.id} value={option.id}>{option.label}</option>
+            ))}
+          </select>
+          {sheetTypeOrigin === 'enquiry' && sheetTitle && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-50 text-purple-800 border border-purple-200 whitespace-nowrap">
+              Auto-fetched
+            </span>
+          )}
+          {!isViewMode && !hideSaveButton && (
             <button
               type="button"
               onClick={() => saveCostingSheet()}
-              className="flex items-center space-x-1 px-2 py-0.5 bg-green-600 text-white rounded-md hover:bg-green-700 text-[10px] font-medium"
+              className="flex items-center space-x-1 px-2 py-1 bg-green-600 text-white rounded-md hover:bg-green-700 text-[10px] font-medium"
               title="Save Costing Sheet"
             >
               <Save className="w-3 h-3" />
               <span className="hidden sm:inline">Save</span>
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <div className="overflow-x-auto border border-gray-300 rounded-md" style={{ maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: 'rgba(220, 38, 38, 0.45) var(--surface-sunken)' }}>
@@ -857,29 +1049,36 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
           </colgroup>
           <thead>
             <tr className="bg-gradient-to-r from-gray-100 to-gray-200 border-b-2 border-gray-400">
-              <th className="px-1.5 py-2 text-center text-[10px] font-bold text-gray-800 border-r border-gray-400 sticky left-0 bg-gradient-to-r from-gray-100 to-gray-200 z-10 whitespace-nowrap align-middle" title="Serial Number">
+              <th
+                className="px-1.5 py-2 text-center text-[10px] font-bold text-gray-800 border-r border-gray-400 sticky left-0 z-10 whitespace-nowrap align-middle bg-gradient-to-r from-gray-100 to-gray-200"
+                title="Serial Number"
+              >
                 Sr. No.
               </th>
-              <th className="px-1.5 py-2 text-left text-[10px] font-bold text-gray-800 border-r border-gray-400 sticky bg-gradient-to-r from-gray-100 to-gray-200 z-10 align-middle shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]" style={{ left: '36px' }} title="Item Name - Select or type product name">
+              <th
+                className="px-1.5 py-2 text-left text-[10px] font-bold text-gray-800 border-r border-gray-400 sticky z-10 align-middle bg-gradient-to-r from-gray-100 to-gray-200 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]"
+                style={{ left: '36px' }}
+                title="Item name"
+              >
                 Item Name
               </th>
               {costHeads.map((head) => (
                 <th
                   key={head.id}
-                  className={`px-1.5 py-2 text-[10px] font-bold text-gray-800 border-r border-gray-400 bg-gradient-to-r from-gray-100 to-gray-200 align-middle ${head.isCalculated ? 'text-right' : 'text-center'}`}
+                  className={`px-1.5 py-2 text-[10px] font-bold text-gray-800 border-r border-gray-400 align-middle bg-gradient-to-r from-gray-100 to-gray-200 ${head.isCalculated ? 'text-right' : 'text-center'}`}
                   title={head.label}
                   style={{ minWidth: head.id.includes('_pct') || head.id === 'gst_pct' ? '72px' : '96px', maxWidth: '120px', whiteSpace: 'normal', lineHeight: 1.2 }}
                 >
                   <span className={head.isCalculated ? 'font-bold' : ''}>{head.label}</span>
                 </th>
               ))}
-              <th className="px-1 py-1.5 w-8 border-l border-gray-400 bg-gradient-to-r from-gray-100 to-gray-200 z-10"></th>
+              <th className="px-1 py-1.5 w-8 border-l border-gray-400 z-10 bg-gradient-to-r from-gray-100 to-gray-200"></th>
             </tr>
           </thead>
           <tbody>
             {items.map((item, index) => (
               <tr key={item.id} className="border-b border-gray-300 hover:bg-purple-50/30 group transition-colors">
-                <td className="px-1 py-1 text-center text-xs text-gray-700 border-r border-gray-400 sticky left-0 bg-white z-10 group-hover:bg-purple-50/30">
+                <td className="px-1 py-1 text-center text-xs text-gray-800 border-r border-gray-400 sticky left-0 z-10 bg-white">
                   <div className="flex items-center justify-center gap-1">
                     <span>{index + 1}</span>
                     {!isViewMode && (
@@ -894,7 +1093,10 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                     )}
                   </div>
                 </td>
-                <td className="px-1 py-1 border-r border-gray-400 sticky z-10 group-hover:bg-gray-50 costing-manual-entry bg-red-50" style={{ left: '36px' }}>
+                <td
+                  className="px-1 py-1 border-r border-gray-400 sticky z-10 group-hover:bg-gray-50 costing-manual-entry bg-red-50"
+                  style={{ left: '36px' }}
+                >
                   {isViewMode ? (
                     <div className="px-1 py-0.5 text-xs text-gray-700 font-medium truncate">
                       {item.productName || item.name || 'No product selected'}
@@ -1002,8 +1204,9 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                   const cellValue = getCellValue(item.id, head.id);
                   const isEditing = editingCell === `${item.id}_${head.id}`;
                   const numericValue = parseFloat(cellValue) || 0;
-                  const isPctCol = head.id.includes('_pct') || head.id === 'gst_pct';
+                  const isText = head.inputType === 'text';
                   const isManualEntry = !head.isCalculated;
+                  const moneyPrefix = head.money === 'usd' ? '$' : '₹';
 
                   return (
                     <td
@@ -1011,9 +1214,21 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                       className={`px-1.5 py-1 border-r border-gray-400 align-middle ${isManualEntry ? 'costing-manual-entry bg-red-50' : 'bg-white'}`}
                     >
                       {head.isCalculated ? (
-                        <div className={`text-xs font-semibold text-right whitespace-nowrap ${head.id === 'grand_total_supply_cost_with_gst' ? 'text-green-700' : 'text-gray-800'}`}>
-                          ₹{formatNumber(numericValue, 2)}
+                        <div className="text-xs font-semibold text-gray-900 text-right whitespace-nowrap">
+                          {moneyPrefix}{formatNumber(numericValue, 2)}
                         </div>
+                      ) : isText ? (
+                        isViewMode ? (
+                          <div className="text-xs text-gray-900 px-1 py-0.5">{cellValue || '-'}</div>
+                        ) : (
+                          <input
+                            type="text"
+                            value={cellValue}
+                            onChange={(e) => setCellValue(item.id, head.id, e.target.value)}
+                            className="w-full px-1 py-0.5 border border-red-300 text-xs focus:outline-none focus:border-red-500 rounded bg-white"
+                            placeholder="Enter"
+                          />
+                        )
                       ) : isEditing && !isViewMode ? (
                         <input
                           type="number"
@@ -1026,21 +1241,21 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                             if (e.key === 'Enter') handleCellChange(item.id, head.id, e.target.value);
                             if (e.key === 'Escape') setEditingCell(null);
                           }}
-                          className="w-full px-1 py-0.5 border border-red-500 text-xs text-right focus:outline-none rounded bg-white"
+                          className="w-full px-1 py-0.5 border border-sky-500 text-xs text-right focus:outline-none rounded bg-white"
                           autoFocus
                           placeholder=""
                           title="Manual entry"
                         />
                       ) : (
                         <div
-                          className={`text-xs text-gray-700 text-right px-1 py-0.5 min-h-[20px] flex items-center justify-end ${isViewMode ? '' : 'cursor-pointer hover:bg-red-100 rounded'}`}
+                          className={`text-xs text-gray-800 text-right px-1 py-0.5 min-h-[20px] flex items-center justify-end ${isViewMode ? '' : 'cursor-pointer rounded'}`}
                           onClick={() => !isViewMode && setEditingCell(`${item.id}_${head.id}`)}
                           title={isViewMode ? 'Read only' : 'Manual entry - click to edit'}
                         >
-                          {numericValue > 0 || (head.id === 'qty' && cellValue !== '') ? (
-                            <span>{formatNumber(numericValue)}</span>
+                          {cellValue !== '' && cellValue != null ? (
+                            <span>{head.money === 'usd' ? '$' : ''}{formatNumber(numericValue, head.money ? 2 : null)}</span>
                           ) : (
-                            <span className="text-gray-400 text-[10px]">Enter</span>
+                            <span className="text-gray-500 text-[10px]">Enter</span>
                           )}
                         </div>
                       )}
@@ -1083,21 +1298,23 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
             )}
           </tbody>
           <tfoot>
-            <tr className="bg-gradient-to-r from-gray-200 to-gray-300 text-gray-900 font-bold border-t-2 border-gray-500">
-              <td className="px-1 py-1 text-xs border-r border-gray-400 sticky bg-gradient-to-r from-gray-200 to-gray-300 z-20" style={{ left: 0 }}></td>
-              <td className="px-1 py-1 text-xs border-r border-gray-400 sticky bg-gradient-to-r from-gray-200 to-gray-300 z-20 font-semibold" style={{ left: '36px' }}>
+            <tr className="text-gray-900 font-bold border-t-2 border-gray-500">
+              <td className="px-1 py-1 text-xs border-r border-gray-400 sticky z-20 bg-gradient-to-r from-gray-200 to-gray-300" style={{ left: 0 }}></td>
+              <td className="px-1 py-1 text-xs border-r border-gray-400 sticky z-20 font-semibold bg-gradient-to-r from-gray-200 to-gray-300" style={{ left: '36px' }}>
                 Grand Total
               </td>
               {costHeads.map((head) => {
-                if (head.id === 'grand_total_supply_cost_with_gst') {
-                  const columnTotal = items.reduce((sum, item) => sum + (parseFloat(getCellValue(item.id, head.id)) || 0), 0);
-                  return (
-                    <td key={head.id} className="px-1 py-1 text-xs text-right border-r border-gray-400 font-bold whitespace-nowrap text-green-700 bg-green-50">
-                      ₹{formatNumber(columnTotal, 2)}
-                    </td>
-                  );
+                const showSum = workingSheet ? head.sumTotal : head.id === 'grand_total_supply_cost_with_gst';
+                if (!showSum) {
+                  return <td key={head.id} className="px-1 py-1 border-r border-gray-400 bg-gradient-to-r from-gray-200 to-gray-300"></td>;
                 }
-                return <td key={head.id} className="px-1 py-1 border-r border-gray-400"></td>;
+                const columnTotal = items.reduce((sum, item) => sum + (parseFloat(getCellValue(item.id, head.id)) || 0), 0);
+                const prefix = head.id === 'qty' ? '' : (head.money === 'usd' ? '$' : '₹');
+                return (
+                  <td key={head.id} className="px-1 py-1 text-xs text-right border-r border-gray-400 font-bold whitespace-nowrap bg-gradient-to-r from-gray-200 to-gray-300">
+                    {prefix}{formatNumber(columnTotal, head.id === 'qty' ? null : 2)}
+                  </td>
+                );
               })}
               <td className="px-1 py-1 text-xs border-l border-gray-400 bg-gradient-to-r from-gray-200 to-gray-300"></td>
             </tr>

@@ -7,17 +7,96 @@ import QuotationForm from './components/QuotationForm';
 import CostingSheetForm from './components/CostingSheetForm';
 import InternalQuotationFormModal from './components/InternalQuotationFormModal';
 import ExcelCostingSheet from './components/ExcelCostingSheet';
-import { X, Plus, Edit2, Trash2, MoreVertical, Download, Eye, FileText, Save, FileDown, Search, RefreshCw, History } from 'lucide-react';
+import { X, Plus, Edit2, Trash2, MoreVertical, Download, Eye, FileText, Save, FileDown, Search, RefreshCw, History, ChevronDown } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
 import {
   buildLatestCostingMap,
   calcFinalAmountFromCostingData,
+  itemNamesFromCostingData,
 } from './utils/marketingQuotationUtils';
+import { workingCostSheetLabel } from './utils/workingCostSheets';
+import WorkingCostSheetFilter from './components/WorkingCostSheetFilter';
 import jsPDF from 'jspdf';
 import { INDUS_LOGO_SRC } from '../../constants/branding.js';;
 import FormDateInput from "../../components/FormDateInput";
 import { toast } from '../../lib/toast';
 
+function ItemNameMenu({ names }) {
+  const buttonRef = useRef(null);
+  const panelRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 260 });
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (event) => {
+      if (buttonRef.current?.contains(event.target) || panelRef.current?.contains(event.target)) return;
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  if (!names?.length) {
+    return <span className="text-xs text-gray-400">-</span>;
+  }
+
+  const openMenu = () => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (rect) {
+      const width = Math.max(rect.width, 260);
+      const panelHeight = Math.min(names.length * 44 + 36, 280);
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const top = spaceBelow < panelHeight + 12
+        ? Math.max(8, rect.top - panelHeight - 6)
+        : rect.bottom + 6;
+      const left = Math.min(rect.left, window.innerWidth - width - 12);
+      setPos({ top, left: Math.max(8, left), width });
+    }
+    setOpen((current) => !current);
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        ref={buttonRef}
+        onClick={openMenu}
+        className="flex w-full min-w-[190px] max-w-[250px] items-start gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-left text-[11px] leading-snug text-gray-800 hover:border-rose-300 hover:bg-rose-100/70"
+        title={names.length > 1 ? `${names.length} items` : names[0]}
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block overflow-hidden" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+            {names[0]}
+          </span>
+          {names.length > 1 && (
+            <span className="mt-0.5 block text-[10px] font-semibold text-rose-700">{names.length} items</span>
+          )}
+        </span>
+        <ChevronDown className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div
+          ref={panelRef}
+          className="fixed z-[80] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
+          style={{ top: pos.top, left: pos.left, width: pos.width }}
+        >
+          <div className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            {names.length} item{names.length === 1 ? '' : 's'}
+          </div>
+          <div className="max-h-60 overflow-y-auto">
+            {names.map((name, index) => (
+              <div key={`${name}-${index}`} className="border-b border-slate-100 px-3 py-2 text-xs leading-snug text-slate-800 last:border-b-0">
+                <span className="mr-2 text-[10px] font-semibold tabular-nums text-slate-400">{index + 1}.</span>
+                {name}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 const DropdownMenu = ({ buttonId, quotation, onView, onEdit, onDownloadPDF, onDelete, onRevision, hasRevisions }) => {
   const menuRef = useRef(null);
@@ -194,7 +273,9 @@ const QuotationTracker = () => {
   const [isCostingSheetViewMode, setIsCostingSheetViewMode] = useState(false);
   const [showNewCostingSheetForm, setShowNewCostingSheetForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [quotationSheetFilter, setQuotationSheetFilter] = useState('');
   const [costingSearchQuery, setCostingSearchQuery] = useState('');
+  const [costingSheetFilter, setCostingSheetFilter] = useState('');
   const [internalSearchQuery, setInternalSearchQuery] = useState('');
   const [showRevisionModal, setShowRevisionModal] = useState(false);
   const [selectedQuotationForRevision, setSelectedQuotationForRevision] = useState(null);
@@ -305,9 +386,7 @@ const QuotationTracker = () => {
   const fetchQuotations = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('marketing_quotations')
-        .select(`
+      const quotationSelect = (withSheetType) => `
           id,
           quotation_number,
           enquiry_id,
@@ -328,10 +407,20 @@ const QuotationTracker = () => {
           subject,
           created_at,
           updated_at,
-          marketing_enquiries:enquiry_id (id, enquiry_number),
+          marketing_enquiries:enquiry_id (id, enquiry_number${withSheetType ? ', cost_sheet_type' : ''}),
           marketing_clients:client_id (id, client_name, contact_email)
-        `)
+        `;
+      let { data, error } = await supabase
+        .from('marketing_quotations')
+        .select(quotationSelect(true))
         .order('created_at', { ascending: false });
+
+      if (error && String(error.message || '').includes('cost_sheet_type')) {
+        ({ data, error } = await supabase
+          .from('marketing_quotations')
+          .select(quotationSelect(false))
+          .order('created_at', { ascending: false }));
+      }
 
       if (error) throw error;
       
@@ -385,6 +474,22 @@ const QuotationTracker = () => {
         costingByQuotation = buildLatestCostingMap(costingSheets || []);
       }
 
+      const itemsByQuotation = new Map();
+      if (baseIds.length > 0) {
+        const { data: itemRows } = await supabase
+          .from('marketing_quotation_items')
+          .select('quotation_id, item_description, item_order')
+          .in('quotation_id', baseIds)
+          .order('item_order', { ascending: true });
+        (itemRows || []).forEach((row) => {
+          const name = String(row.item_description || '').trim();
+          if (!name || name === 'Total from Costing Sheet') return;
+          const list = itemsByQuotation.get(row.quotation_id) || [];
+          list.push(name);
+          itemsByQuotation.set(row.quotation_id, list);
+        });
+      }
+
       const revisionCountMap = {};
       if (baseIds.length > 0) {
         const { data: revisionRows } = await supabase
@@ -399,15 +504,18 @@ const QuotationTracker = () => {
 
       const quotationsWithSheetAmounts = uniqueQuotations.map((quotation) => {
         const sheet = costingByQuotation.get(quotation.id);
-        if (!sheet) return quotation;
+        const fromSheet = itemNamesFromCostingData(sheet?.costing_data);
+        const itemNames = fromSheet.length ? fromSheet : (itemsByQuotation.get(quotation.id) || []);
+        if (!sheet) return { ...quotation, itemNames };
 
         const fromJson = calcFinalAmountFromCostingData(sheet.costing_data);
         const fromPrice = parseFloat(sheet.total_price || 0) || 0;
         const sheetTotal = fromJson > 0 ? fromJson : fromPrice;
-        if (sheetTotal <= 0) return quotation;
+        if (sheetTotal <= 0) return { ...quotation, itemNames };
 
         return {
           ...quotation,
+          itemNames,
           final_amount: sheetTotal,
           // Keep net/gst coherent when sheet has a total (net unknown → leave existing unless final was wrong)
           total_amount: parseFloat(quotation.total_amount || 0) > 0
@@ -476,9 +584,7 @@ const QuotationTracker = () => {
     try {
       setLoadingCosting(true);
       
-      const { data, error } = await supabase
-        .from('marketing_costing_sheets')
-        .select(`
+      const sheetSelect = (withSheetType) => `
           id,
           quotation_id,
           total_price,
@@ -492,10 +598,21 @@ const QuotationTracker = () => {
             client_id,
             enquiry_id,
           marketing_clients:client_id (id, client_name),
-          marketing_enquiries:enquiry_id (id, enquiry_number)
+          marketing_enquiries:enquiry_id (id, enquiry_number${withSheetType ? ', cost_sheet_type' : ''})
           )
-        `)
+        `;
+
+      let { data, error } = await supabase
+        .from('marketing_costing_sheets')
+        .select(sheetSelect(true))
         .order('updated_at', { ascending: false });
+
+      if (error && String(error.message || '').includes('cost_sheet_type')) {
+        ({ data, error } = await supabase
+          .from('marketing_costing_sheets')
+          .select(sheetSelect(false))
+          .order('updated_at', { ascending: false }));
+      }
 
       if (error) {
         console.error('Error fetching costing sheets:', error);
@@ -1696,13 +1813,21 @@ Marketing Team`;
         {/* Content */}
         {activeTab === 'list' && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden" style={{ overflow: 'visible' }}>
+            <div className="px-3 pt-3">
+              <WorkingCostSheetFilter
+                value={quotationSheetFilter}
+                onChange={setQuotationSheetFilter}
+                domesticCount={quotations.filter((quotation) => quotation.marketing_enquiries?.cost_sheet_type === 'domestic').length}
+                internationalCount={quotations.filter((quotation) => quotation.marketing_enquiries?.cost_sheet_type === 'international').length}
+              />
+            </div>
             {/* Search Bar */}
             <div className="p-3 border-b border-gray-200">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
                   type="text"
-                  placeholder="Search by quotation number, client name, or enquiry number..."
+                  placeholder="Search by quotation number, client, enquiry, or item name..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-10 pr-4 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-transparent"
@@ -1744,6 +1869,7 @@ Marketing Team`;
                       <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider w-11">S.No</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Quotation ID</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Client Name</th>
+                      <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider min-w-[200px]">Item Name</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Enquiry ID</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Total Amount</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Quotation Date</th>
@@ -1753,14 +1879,20 @@ Marketing Team`;
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-100">
                     {quotations.filter(quotation => {
+                      const sheetType = quotation.marketing_enquiries?.cost_sheet_type || '';
+                      if (quotationSheetFilter && sheetType !== quotationSheetFilter) return false;
                       if (!searchQuery) return true;
                       const query = searchQuery.toLowerCase();
                       const quotationNumber = quotation.quotation_number?.toLowerCase() || '';
                       const clientName = quotation.marketing_clients?.client_name?.toLowerCase() || '';
                       const enquiryNumber = quotation.marketing_enquiries?.enquiry_number?.toLowerCase() || '';
+                      const sheetLabel = workingCostSheetLabel(sheetType).toLowerCase();
+                      const itemNames = (quotation.itemNames || []).join(' ').toLowerCase();
                       return quotationNumber.includes(query) || 
                              clientName.includes(query) || 
-                             enquiryNumber.includes(query);
+                             enquiryNumber.includes(query) ||
+                             sheetLabel.includes(query) ||
+                             itemNames.includes(query);
                     }).map((quotation, index) => {
                       const isLastRow = index === quotations.length - 1;
                       return (
@@ -1773,6 +1905,9 @@ Marketing Team`;
                             <span className="text-xs text-gray-700 font-medium">
                               {quotation.marketing_clients?.client_name || '-'}
                             </span>
+                          </td>
+                          <td className="px-3 py-2 align-top">
+                            <ItemNameMenu names={quotation.itemNames || []} />
                           </td>
                           <td className="px-3 py-2">
                             <span className="text-xs text-gray-600">
@@ -1949,6 +2084,12 @@ Marketing Team`;
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
               <div className="p-4 border-b border-gray-200">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Costing Sheets</h3>
+                <WorkingCostSheetFilter
+                  value={costingSheetFilter}
+                  onChange={setCostingSheetFilter}
+                  domesticCount={costingSheets.filter((sheet) => sheet.marketing_quotations?.marketing_enquiries?.cost_sheet_type === 'domestic').length}
+                  internationalCount={costingSheets.filter((sheet) => sheet.marketing_quotations?.marketing_enquiries?.cost_sheet_type === 'international').length}
+                />
                 {/* Search Bar */}
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -1975,6 +2116,7 @@ Marketing Team`;
                         <th className="px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wider w-11">S.No</th>
                         <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider">Quotation ID</th>
                         <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider">Enquiry ID</th>
+                        <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider">Working Cost Sheet</th>
                         <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider">Client Name</th>
                         <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider">Create Date</th>
                         <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider">Updated</th>
@@ -1984,15 +2126,19 @@ Marketing Team`;
                   </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {costingSheets.filter((sheet) => {
+                        const quotation = sheet.marketing_quotations;
+                        const sheetType = quotation?.marketing_enquiries?.cost_sheet_type || '';
+                        if (costingSheetFilter && sheetType !== costingSheetFilter) return false;
                         if (!costingSearchQuery) return true;
                         const query = costingSearchQuery.toLowerCase();
-                        const quotation = sheet.marketing_quotations;
                         const quotationNumber = quotation?.quotation_number?.toLowerCase() || '';
                         const clientName = quotation?.marketing_clients?.client_name?.toLowerCase() || '';
                         const enquiryNumber = quotation?.marketing_enquiries?.enquiry_number?.toLowerCase() || '';
+                        const sheetLabel = workingCostSheetLabel(sheetType).toLowerCase();
                         return quotationNumber.includes(query) || 
                                clientName.includes(query) || 
-                               enquiryNumber.includes(query);
+                               enquiryNumber.includes(query) ||
+                               sheetLabel.includes(query);
                       }).map((sheet, idx) => {
                         const quotation = sheet.marketing_quotations;
                         const finalAmount = parseFloat(sheet.total_price || 0);
@@ -2004,6 +2150,9 @@ Marketing Team`;
                         </td>
                             <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-700">
                               {quotation?.marketing_enquiries?.enquiry_number || '-'}
+                        </td>
+                            <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-800">
+                              {workingCostSheetLabel(quotation?.marketing_enquiries?.cost_sheet_type) || '-'}
                         </td>
                             <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-700">
                               {quotation?.marketing_clients?.client_name || '-'}
