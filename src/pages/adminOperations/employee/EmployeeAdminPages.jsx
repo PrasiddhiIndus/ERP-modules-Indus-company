@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import {
   SectionCard,
@@ -363,6 +363,7 @@ export function EmployeeAttendanceInputsPage() {
     baseUrl: "",
     punchEndpoint: "",
   });
+  const loadSeq = useRef(0);
 
   useEffect(() => {
     const timer = setTimeout(() => setSearchDebounced(search), 350);
@@ -436,6 +437,7 @@ export function EmployeeAttendanceInputsPage() {
   }, []);
 
   const loadAttendanceFromTable = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setError("");
     try {
@@ -449,6 +451,7 @@ export function EmployeeAttendanceInputsPage() {
           pageSize,
           search: searchDebounced,
         });
+        if (seq !== loadSeq.current) return;
         setRows(result.rows);
         setTotalCount(result.total);
         setSummary((prev) => ({
@@ -478,6 +481,7 @@ export function EmployeeAttendanceInputsPage() {
           }),
           ensureAttendanceRulesLoaded(supabase),
         ]);
+        if (seq !== loadSeq.current) return;
         setRows(enrichRawPunchesWithDayInOut(result.rows, pairPunchesToDailyRows(allForDay)));
         setTotalCount(result.total);
         setSummary((prev) => ({
@@ -490,6 +494,7 @@ export function EmployeeAttendanceInputsPage() {
         }));
       }
     } catch (err) {
+      if (seq !== loadSeq.current) return;
       setRows([]);
       setTotalCount(0);
       const msg = err?.message || "Unable to load attendance punches.";
@@ -507,7 +512,7 @@ export function EmployeeAttendanceInputsPage() {
         );
       }
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }, [empCode, page, pageSize, searchDebounced, selectedDate, sortDir, sortKey, viewMode]);
 
@@ -565,11 +570,16 @@ export function EmployeeAttendanceInputsPage() {
         message:
           data?.message ||
           (syncedCount
-            ? `${syncedCount} punch row(s) stored (${syncFromDate} → ${selectedDate}, overlap ${SYNC_OVERLAP_DAYS} day(s)).`
-            : "No punch rows with a valid date and employee code to store."),
+            ? `${syncedCount} punch row(s) updated (${syncFromDate} → ${selectedDate}).`
+            : "No new punches were returned for that date."),
       });
       setPage(1);
       await loadAttendanceFromTable();
+      if (syncedCount > 0) {
+        toast.success(data?.message || `${syncedCount} punches updated for ${selectedDate}.`);
+      } else {
+        toast.warning(data?.message || "No new punches were returned for that date.");
+      }
     } catch (err) {
       const formatted = formatAttendanceApiError(err) || formatAttendanceSupabaseError(err);
       toast.error(formatted || "Unable to sync attendance punches from eTimeOffice.");
@@ -715,9 +725,9 @@ export function EmployeeAttendanceInputsPage() {
       </FilterBar>
 
       <CollapsibleHelp label="how sync works">
-        This grid shows punch data stored for the selected date. eTimeOffice is not loaded automatically
-        — click <strong>Sync eTimeOffice</strong> to import punches for that date, then reload. Daily view
-        shows the first punch as in and the last as out for each employee.
+        This grid shows punch data stored for the selected date. Click <strong>Sync eTimeOffice</strong> to
+        pull the latest punches for that date and replace anything that changed. Daily view shows the first
+        punch as in and the latest punch as out.
       </CollapsibleHelp>
 
       {!apiConnection.checking && apiConnection.etimeConfigured ? (

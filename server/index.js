@@ -21,7 +21,7 @@ import {
   runAttendanceOverlapSync,
   startAttendanceSyncCron,
   uniqueEtimePunchEndpoints,
-  upsertPunchRows,
+  persistPunchSnapshot,
 } from './attendanceEtime.js';
 import { mapApiPunchToDbRow } from '../shared/attendancePunchSync.mjs';
 import { adminUpdateProfile } from './adminProfileApi.js';
@@ -1492,6 +1492,7 @@ app.get('/api/admin/attendance/punches', requireAttendanceAdmin, async (req, res
     let syncedCount = 0;
     let skippedNoDateOrEmp = 0;
     let dedupeCollisions = 0;
+    let removedCount = 0;
     if (persist) {
       const dbRows = (records || []).map((record, index) => mapApiPunchToDbRow(record, index));
       const rowsToStore = dbRows.filter((row) => row.punch_date && row.employee_code);
@@ -1501,9 +1502,14 @@ app.get('/api/admin/attendance/punches', requireAttendanceAdmin, async (req, res
           getSupabaseUrlForServer,
           getSupabaseServiceRoleKeyForServer
         );
-        const upsertResult = await upsertPunchRows(supabase, rowsToStore);
+        const upsertResult = await persistPunchSnapshot(supabase, rowsToStore, {
+          fromDate,
+          toDate,
+          empCode,
+        });
         syncedCount = upsertResult.upserted;
         dedupeCollisions = upsertResult.collisionCount;
+        removedCount = upsertResult.removed || 0;
       }
     }
 
@@ -1517,11 +1523,12 @@ app.get('/api/admin/attendance/punches', requireAttendanceAdmin, async (req, res
       count: records.length,
       persisted: persist,
       syncedCount,
+      removed: removedCount,
       skippedNoDateOrEmp,
       dedupeCollisions,
       message: persist
         ? syncedCount
-          ? `${syncedCount} punch row(s) stored (${fromDate} → ${toDate}).`
+          ? `${syncedCount} punch row(s) updated (${fromDate} → ${toDate})${removedCount ? `, ${removedCount} outdated row(s) removed` : ''}.`
           : 'No punch rows with a valid date and employee code to store.'
         : undefined,
       // Avoid shipping huge payloads back to the browser when already persisted.
