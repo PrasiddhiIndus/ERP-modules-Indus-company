@@ -95,6 +95,20 @@ export function suggestEmi(principal, months) {
   return round2(p / m);
 }
 
+/**
+ * EMI tenure in months from principal ÷ EMI.
+ * Rounds up so the last month still covers a remainder (e.g. ₹10,000 ÷ ₹3,000 = 4 months).
+ */
+export function suggestTenureMonths(principal, emi) {
+  const p = round2(principal);
+  const e = round2(emi);
+  if (p <= 0 || e <= 0) return 0;
+  const whole = Math.floor(p / e + 1e-9);
+  const covered = round2(whole * e);
+  if (covered >= p) return Math.max(whole, 1);
+  return whole + 1;
+}
+
 export function addMonthsYm(ym, monthsToAdd) {
   if (!ym || !/^\d{4}-\d{2}/.test(String(ym))) return "";
   const [y, m] = String(ym).slice(0, 7).split("-").map(Number);

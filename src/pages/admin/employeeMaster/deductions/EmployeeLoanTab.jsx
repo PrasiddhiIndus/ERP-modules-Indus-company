@@ -14,7 +14,7 @@ import {
   formatINR,
   parseMoney,
   round2,
-  suggestEmi,
+  suggestTenureMonths,
 } from "./deductionsStore";
 import {
   DangerButton,
@@ -32,13 +32,20 @@ import { toast } from "../../../../lib/toast";
 function blankLoanForm() {
   return {
     principal: "",
-    months: "",
     emi: "",
-    emiManual: false,
+    balance: "",
     start_month: currentYm(),
     entry_date: new Date().toISOString().slice(0, 10),
     remarks: "",
   };
+}
+
+/** Months to pay = principal ÷ EMI (rounded up when the amount does not divide evenly). */
+function tenureMonthsFor(principal, emi) {
+  const p = parseMoney(principal);
+  const e = parseMoney(emi);
+  if (p == null || e == null || p <= 0 || e <= 0) return 0;
+  return suggestTenureMonths(p, e);
 }
 
 /**
@@ -79,9 +86,8 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
     setEditingId(loan.id);
     setForm({
       principal: String(loan.principal ?? ""),
-      months: String(loan.months_remaining ?? loan.months ?? ""),
       emi: String(loan.installment_amount ?? ""),
-      emiManual: true,
+      balance: String(loan.balance_outstanding ?? loan.principal ?? ""),
       start_month: loan.start_month || currentYm(),
       entry_date: loan.entry_date || new Date().toISOString().slice(0, 10),
       remarks: loan.remarks || "",
@@ -89,28 +95,43 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
     setShowForm(true);
   };
 
-  const syncEmi = (principal, months, keepManual) => {
-    if (keepManual) return;
-    const emi = suggestEmi(parseMoney(principal), Number(months));
-    setForm((prev) => ({ ...prev, emi: emi > 0 ? String(emi) : "" }));
-  };
+  const tenureMonths = tenureMonthsFor(form.principal, form.emi);
+  const balanceForTenure = editingId ? parseMoney(form.balance) : parseMoney(form.principal);
+  const emiValue = parseMoney(form.emi) ?? 0;
+  const monthsLeft = emiValue > 0 ? suggestTenureMonths(balanceForTenure ?? 0, emiValue) : 0;
+  const principalValue = parseMoney(form.principal) ?? 0;
+  const tenureHint = (() => {
+    if (tenureMonths <= 0) return "Filled automatically: principal ÷ EMI.";
+    if (editingId && monthsLeft !== tenureMonths) {
+      return `${tenureMonths} months from principal ÷ EMI. ${monthsLeft} month${monthsLeft === 1 ? "" : "s"} left on the balance.`;
+    }
+    if (round2(emiValue * tenureMonths) > round2(principalValue)) {
+      return `${tenureMonths} months. The last month may be a smaller deduction.`;
+    }
+    return "Filled automatically: principal ÷ EMI.";
+  })();
 
   const handleSave = async (e) => {
     e.preventDefault();
     if (!employeeId) return;
     const principal = parseMoney(form.principal);
-    const months = Math.max(0, Math.floor(Number(form.months) || 0));
     const emi = parseMoney(form.emi) ?? 0;
+    const months = tenureMonthsFor(principal, emi);
+    const remaining = editingId ? monthsLeft : months;
     if (!editingId && (principal == null || principal <= 0)) {
       toast.warning("Enter a loan principal greater than zero.");
       return;
     }
-    if (!editingId && months <= 0) {
-      toast.warning("Enter EMI tenure in months (e.g. 3).");
+    if (!editingId && emi <= 0) {
+      toast.warning("Enter the monthly EMI amount.");
       return;
     }
-    if (months > 0 && emi <= 0) {
-      toast.warning("Enter an EMI amount, or set months to 0 to stop salary deduction.");
+    if (!editingId && months <= 0) {
+      toast.warning("EMI tenure could not be calculated. Check principal and EMI.");
+      return;
+    }
+    if (editingId && emi > 0 && months <= 0) {
+      toast.warning("EMI tenure could not be calculated. Check principal and EMI.");
       return;
     }
     if (!form.start_month) {
@@ -123,9 +144,9 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
     try {
       if (editingId) {
         await updateLoan(editingId, {
-          months_remaining: months,
+          months_remaining: emi > 0 ? remaining : 0,
           months: months > 0 ? months : undefined,
-          installment_amount: months > 0 ? emi : 0,
+          installment_amount: emi > 0 ? emi : 0,
           start_month: form.start_month,
           entry_date: form.entry_date,
           remarks: form.remarks || "",
@@ -209,14 +230,14 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
     <div className="space-y-4">
       <SectionCard title="Loans" right={<PrimaryButton onClick={openCreate} disabled={busy}>New loan</PrimaryButton>}>
         <p className="text-xs text-gray-500 mb-3">
-          {activeCount} active loan{activeCount === 1 ? "" : "s"} — EMI hits salary only inside
-          tenure.
+          {activeCount} active loan{activeCount === 1 ? "" : "s"}. Enter principal and monthly EMI —
+          tenure in months is principal ÷ EMI.
         </p>
 
         {showForm ? (
           <form onSubmit={handleSave} className="mb-5 rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
             <p className="text-sm font-semibold text-gray-900">
-              {editingId ? "Update EMI / months" : "Enter new loan"}
+              {editingId ? "Update EMI" : "Enter new loan"}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
               <Field label="Principal (₹)" hint={editingId ? "Original principal is kept." : null}>
@@ -226,46 +247,34 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
                   step="0.01"
                   value={form.principal}
                   disabled={Boolean(editingId) || busy}
-                  onChange={(e) => {
-                    const principal = e.target.value;
-                    setForm((prev) => ({ ...prev, principal }));
-                    syncEmi(principal, form.months, form.emiManual);
-                  }}
+                  onChange={(e) => setForm((prev) => ({ ...prev, principal: e.target.value }))}
                   className={inputClass}
                   required={!editingId}
                 />
               </Field>
               <Field
-                label="Months (EMI tenure)"
-                hint={editingId ? "0 = stop salary deduction." : "e.g. 3 pay months from start."}
+                label="EMI / month (₹)"
+                hint={editingId ? "Set to 0 to stop salary deduction." : "Amount deducted each pay month."}
               >
-                <input
-                  type="number"
-                  min={editingId ? "0" : "1"}
-                  step="1"
-                  value={form.months}
-                  disabled={busy}
-                  onChange={(e) => {
-                    const months = e.target.value;
-                    setForm((prev) => ({ ...prev, months }));
-                    syncEmi(form.principal, months, form.emiManual && Boolean(editingId));
-                  }}
-                  className={inputClass}
-                  required
-                />
-              </Field>
-              <Field label="EMI / month (₹)">
                 <input
                   type="number"
                   min="0"
                   step="0.01"
                   value={form.emi}
                   disabled={busy}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, emi: e.target.value, emiManual: true }))
-                  }
+                  onChange={(e) => setForm((prev) => ({ ...prev, emi: e.target.value }))}
                   className={inputClass}
-                  required={Number(form.months) > 0}
+                  required={!editingId}
+                />
+              </Field>
+              <Field label="EMI tenure (months)" hint={tenureHint}>
+                <input
+                  type="text"
+                  readOnly
+                  value={tenureMonths > 0 ? String(tenureMonths) : ""}
+                  className={inputClass + " bg-gray-100 text-gray-800"}
+                  placeholder="—"
+                  aria-label="EMI tenure in months"
                 />
               </Field>
               <Field label="Start month" hint="First salary month that deducts EMI.">
@@ -299,7 +308,7 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
             </Field>
             <div className="flex flex-wrap gap-2 pt-1">
               <PrimaryButton type="submit" disabled={busy}>
-                {busy ? "Saving…" : editingId ? "Save EMI / months" : "Save loan"}
+                {busy ? "Saving…" : editingId ? "Save EMI" : "Save loan"}
               </PrimaryButton>
               <SecondaryButton
                 disabled={busy}
@@ -317,7 +326,7 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
         {!loans.length && !showForm ? (
           <EmptyState
             title="No loans yet"
-            body="Add principal, tenure, monthly EMI, start month, and entry date. Saved to the salary database."
+            body="Add the loan amount and monthly EMI. Tenure in months fills in as principal divided by EMI."
             action={<PrimaryButton onClick={openCreate}>New loan</PrimaryButton>}
           />
         ) : null}
@@ -390,7 +399,7 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
                             {loan.status !== "closed" ? (
                               <>
                                 <SecondaryButton disabled={busy} onClick={() => openEdit(loan)}>
-                                  EMI / months
+                                  EMI
                                 </SecondaryButton>
                                 <SecondaryButton
                                   disabled={busy}
