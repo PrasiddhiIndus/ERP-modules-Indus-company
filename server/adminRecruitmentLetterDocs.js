@@ -568,6 +568,7 @@ function normalizeOfferLetterDocxLayout(docxBuffer) {
       !xml.includes('Designation') ||
       !xml.includes('Date of Joining') ||
       !xml.includes('Work Location') ||
+      !xml.includes('I accept the offer') &&
       !xml.includes('I accept the above offer')
     ) {
       return buf;
@@ -613,9 +614,12 @@ function normalizeOfferLetterDocxLayout(docxBuffer) {
         if (xml.includes(needle)) xml = xml.replace(needle, repl);
       }
 
-      if (!xml.includes('w:keepNext') && xml.includes('I accept the above offer')) {
+      if (
+        !xml.includes('w:keepNext') &&
+        (xml.includes('I accept the offer') || xml.includes('I accept the above offer'))
+      ) {
         xml = xml.replace(
-          /(<w:p[^>]*>)(\s*<w:r[^>]*>\s*(?:<w:rPr>[\s\S]*?<\/w:rPr>\s*)?<w:t>I accept the above offer)/,
+          /(<w:p[^>]*>)(\s*<w:r[^>]*>\s*(?:<w:rPr>[\s\S]*?<\/w:rPr>\s*)?<w:t>I accept the (?:above )?offer)/,
           '$1<w:pPr><w:keepNext/><w:keepLines/></w:pPr>$2'
         );
       }
@@ -1186,7 +1190,7 @@ export async function buildOfferLetterPdf(offer, candidate, companyName) {
   draw(p['{{COMPANY_NAME}}'], { size: 10 });
   y -= 16;
   draw(
-    `I accept the above offer and confirm that I will join on ${p['{{JOINING_DATE_DDMMYYYY}}'] || '[DD/MM/YYYY]'}`,
+    `I accept the offer and confirm that I will join on ${p['{{JOINING_DATE_DDMMYYYY}}'] || '[DD/MM/YYYY]'}`,
     { f: bold, size: 10 }
   );
   y -= 10;
