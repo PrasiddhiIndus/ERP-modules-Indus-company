@@ -635,7 +635,106 @@ export async function buildOfferLetterDocx(offer, candidate, companyName) {
   return normalizeOfferLetterDocxLayout(filled);
 }
 
-/** Appointment-only: fix annexure amount cell packing. Does not touch offer table/page logic. */
+/**
+ * Word's built-in "No Spacing" is incomplete in the exported styles.xml (rPr only).
+ * Word still applies compact spacing; LibreOffice/Graph fall back to Normal and inflate
+ * empty lines — pushing CEO/ack/annexure content onto later pages. Pin Word's spacing.
+ */
+function fixAppointmentNoSpacingStyle(stylesXml) {
+  let out = String(stylesXml || '');
+  if (!out.includes('w:styleId="NoSpacing"')) return out;
+  out = out.replace(
+    /<w:style([^>]*w:styleId="NoSpacing"[^>]*)>([\s\S]*?)<\/w:style>/,
+    (full, attrs, body) => {
+      if (/<w:spacing\b/.test(body) && /<w:pPr>/.test(body)) return full;
+      let next = body;
+      if (/<w:pPr>/.test(next)) {
+        if (!/<w:spacing\b/.test(next)) {
+          next = next.replace(
+            /<w:pPr>/,
+            '<w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>'
+          );
+        }
+      } else {
+        next = `<w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>${next}`;
+      }
+      return `<w:style${attrs}>${next}</w:style>`;
+    }
+  );
+  return out;
+}
+
+/**
+ * Candidate name before Annexure - I was indented with ~9 default tabs (jc=both).
+ * Word centers that visually; LibreOffice tab stops differ and shift the name on the x-axis.
+ * Center the paragraph, drop the tab runs, and start that block on a new page.
+ */
+function fixAppointmentCandidateNameBeforeAnnexure(xml) {
+  let out = String(xml || '');
+  const annexIdx = out.indexOf('<w:t>Annexure - I</w:t>');
+  const nameTokIdx = out.indexOf('{{CANDIDATE_NAME}}');
+  if (annexIdx < 0 && nameTokIdx < 0) return out;
+
+  let target = null;
+  let targetAbs = -1;
+
+  // Prefer the paragraph that still has the placeholder (template) or the tab-indented
+  // name line immediately before Annexure - I (filled letter).
+  const needleIdx = nameTokIdx >= 0 ? nameTokIdx : annexIdx;
+  const pStart = out.lastIndexOf('<w:p ', needleIdx);
+  const pEnd = out.indexOf('</w:p>', needleIdx);
+  if (pStart >= 0 && pEnd > pStart) {
+    let candidate = out.slice(pStart, pEnd + 6);
+    // When anchored on Annexure - I, walk back to the prior non-empty name para with tabs.
+    if (nameTokIdx < 0 && candidate.includes('Annexure - I')) {
+      const before = out.slice(Math.max(0, annexIdx - 5000), pStart);
+      const paras = [...before.matchAll(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)];
+      candidate = null;
+      for (let i = paras.length - 1; i >= 0; i--) {
+        const p = paras[i][0];
+        const texts = [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((t) => t[1]).join('');
+        if (!texts.trim()) continue; // skip empties between name and Annexure - I
+        const tabCount = (p.match(/<w:tab\/>/g) || []).length;
+        if (tabCount >= 3 || texts.trim().length > 0) {
+          candidate = p;
+          targetAbs = Math.max(0, annexIdx - 5000) + paras[i].index;
+          break;
+        }
+      }
+    } else {
+      targetAbs = pStart;
+    }
+    if (candidate) {
+      target = candidate;
+    }
+  }
+
+  if (!target || targetAbs < 0) {
+    // Fallback: page-break the Annexure - I heading only.
+    if (annexIdx >= 0 && !/w:pageBreakBefore/.test(out.slice(Math.max(0, annexIdx - 300), annexIdx))) {
+      out = out.replace(
+        /(<w:p\b[^>]*>\s*<w:pPr>)([\s\S]*?<w:t>Annexure - I<\/w:t>[\s\S]*?<\/w:p>)/,
+        (full, open, rest) => (/w:pageBreakBefore/.test(full) ? full : `${open}<w:pageBreakBefore/>${rest}`)
+      );
+    }
+    return out;
+  }
+
+  let fixed = target;
+  fixed = fixed.replace(/<w:jc w:val="both"\/>/g, '<w:jc w:val="center"/>');
+  if (!/<w:jc\b/.test(fixed) && /<w:pPr>/.test(fixed)) {
+    fixed = fixed.replace(/<w:pPr>/, '<w:pPr><w:jc w:val="center"/>');
+  }
+  // Drop leading tab runs used as a fake center indent.
+  fixed = fixed.replace(/(?:<w:r\b[^>]*>\s*(?:<w:rPr>[\s\S]*?<\/w:rPr>\s*)?<w:tab\/>\s*<\/w:r>\s*)+/g, '');
+  if (/<w:pPr>/.test(fixed) && !/w:pageBreakBefore/.test(fixed)) {
+    fixed = fixed.replace(/<w:pPr>/, '<w:pPr><w:pageBreakBefore/>');
+  }
+  if (fixed === target) return out;
+  return `${out.slice(0, targetAbs)}${fixed}${out.slice(targetAbs + target.length)}`;
+}
+
+/** Appointment-only layout fixes for Word-faithful PDF. Does not touch offer table/page logic. */
 function normalizeAppointmentLetterDocxLayout(docxBuffer) {
   const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
   if (buf.length < 100) return buf;
@@ -643,11 +742,26 @@ function normalizeAppointmentLetterDocxLayout(docxBuffer) {
     const zip = new PizZip(buf);
     const docFile = zip.file('word/document.xml');
     if (!docFile) return buf;
-    const before = docFile.asText();
-    if (!before.includes('Annexure II') && !before.includes('{{CONVEYANCE_M}}')) return buf;
-    const xml = fixAnnexureAmountCells(before);
-    if (xml === before) return buf;
-    zip.file('word/document.xml', xml);
+    const beforeDoc = docFile.asText();
+    if (
+      !beforeDoc.includes('Annexure II') &&
+      !beforeDoc.includes('Annexure - I') &&
+      !beforeDoc.includes('{{CONVEYANCE_M}}')
+    ) {
+      return buf;
+    }
+
+    let docXml = beforeDoc;
+    docXml = fixAnnexureAmountCells(docXml);
+    docXml = fixAppointmentCandidateNameBeforeAnnexure(docXml);
+
+    const stylesFile = zip.file('word/styles.xml');
+    const beforeStyles = stylesFile?.asText() || '';
+    const stylesXml = beforeStyles ? fixAppointmentNoSpacingStyle(beforeStyles) : beforeStyles;
+
+    if (docXml === beforeDoc && stylesXml === beforeStyles) return buf;
+    zip.file('word/document.xml', docXml);
+    if (stylesFile && stylesXml !== beforeStyles) zip.file('word/styles.xml', stylesXml);
     return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -885,7 +999,7 @@ if (-not (Test-Path $out)) { throw 'Word did not write the PDF.' }
  * Never rebuilds layout with pdf-lib. Email always attaches PDF (same as CTC details mail).
  */
 export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
-  // Offer: table pin + annexure cell fix. Appointment: annexure cell fix only.
+  // Offer: table pin + annexure cell fix. Appointment: NoSpacing + name align + annexure cells.
   // Never apply offer table/page-break rewrites to appointment PDFs.
   const name = String(baseName || '').toLowerCase();
   const isOfferLetter = /\boffer\b/.test(name);
