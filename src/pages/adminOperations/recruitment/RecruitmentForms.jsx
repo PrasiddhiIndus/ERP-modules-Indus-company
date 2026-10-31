@@ -794,7 +794,7 @@ export function ConvertModal({ open, candidate, onClose, onConverted }) {
  * Sends a template email. `candidates` (optional) enables choosing the recipient; otherwise `candidate` is fixed.
  * `templateKey` pre-selects a template; `relatedId` ties it to an interview / offer / appointment.
  */
-export function SendEmailModal({ open, candidate, candidates, templateKey, relatedId, onClose }) {
+export function SendEmailModal({ open, candidate, candidates, templateKey, relatedId, defaultValidUntil, onClose }) {
   const [templates, setTemplates] = useState([]);
   const [senders, setSenders] = useState([]);
   const [sendersError, setSendersError] = useState("");
@@ -804,8 +804,10 @@ export function SendEmailModal({ open, candidate, candidates, templateKey, relat
   const [senderMail, setSenderMail] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [acceptBy, setAcceptBy] = useState("");
   const idemRef = useRef(newKey());
 
+  const isOfferSend = templateKey === "offer_letter" || key === "offer_letter";
   const modalTitle =
     templateKey === "offer_letter"
       ? "Send offer"
@@ -821,6 +823,8 @@ export function SendEmailModal({ open, candidate, candidates, templateKey, relat
     setToEmail(candidate?.email || "");
     setSenderMail("");
     setSendersError("");
+    const preset = String(defaultValidUntil || "").slice(0, 10);
+    setAcceptBy(preset && /^\d{4}-\d{2}-\d{2}$/.test(preset) ? preset : "");
     listTemplates()
       .then((rows) => setTemplates(rows.filter((t) => t.active)))
       .catch(() => setTemplates([]));
@@ -837,7 +841,7 @@ export function SendEmailModal({ open, candidate, candidates, templateKey, relat
         setSenderMail("");
         setSendersError(err?.message || "Could not load sender mailboxes.");
       });
-  }, [open, templateKey, candidate]);
+  }, [open, templateKey, candidate, defaultValidUntil]);
 
   const tpl = useMemo(() => templates.find((t) => t.key === key), [templates, key]);
   useEffect(() => {
@@ -853,7 +857,13 @@ export function SendEmailModal({ open, candidate, candidates, templateKey, relat
 
   const toTrimmed = toEmail.trim();
   const canSend = Boolean(
-    recipient?.id && tpl && subject.trim() && body.trim() && toTrimmed.includes("@") && senderMail
+    recipient?.id &&
+      tpl &&
+      subject.trim() &&
+      body.trim() &&
+      toTrimmed.includes("@") &&
+      senderMail &&
+      (!isOfferSend || /^\d{4}-\d{2}-\d{2}$/.test(acceptBy))
   );
 
   return (
@@ -873,6 +883,7 @@ export function SendEmailModal({ open, candidate, candidates, templateKey, relat
           body: body === tpl.body ? null : body,
           to: toTrimmed,
           senderMail,
+          validUntil: isOfferSend ? acceptBy : undefined,
           idempotencyKey: `manual:${idemRef.current}`,
         });
         if (out?.delivered === false || out?.communication?.status === "failed") {
@@ -903,6 +914,22 @@ export function SendEmailModal({ open, candidate, candidates, templateKey, relat
           Candidate: <span className="font-medium text-ink">{candidate.name}</span>
         </p>
       )}
+
+      {isOfferSend ? (
+        <Field label="Accept by (acceptance deadline) *">
+          <input
+            type="date"
+            min={todayIso()}
+            className={inputClass}
+            value={acceptBy}
+            onChange={(e) => setAcceptBy(e.target.value)}
+            required
+          />
+          <p className="mt-1 text-[10px] text-ink-muted">
+            Portal response deadline. Offer letter wording is within 24 hours from issuance; this date sets link expiry. The letter is rebuilt when you send.
+          </p>
+        </Field>
+      ) : null}
 
       <div className="rounded-lg border border-divider bg-surface-muted/40 p-3 space-y-3">
         <p className="text-[11px] font-medium text-ink">Choose mailboxes before sending</p>

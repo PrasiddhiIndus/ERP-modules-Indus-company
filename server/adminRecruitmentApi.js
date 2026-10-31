@@ -320,6 +320,19 @@ export function registerAdminRecruitmentRoutes(app, deps) {
         offerId = offer?.id || null;
       }
       if (!offerId) throw httpError(400, 'There is no open offer to send.');
+
+      // Acceptance deadline drives {{VALID_UNTIL}} in the letter and portal link expiry.
+      const validUntil = String(input.validUntil || '').trim().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(validUntil)) {
+        throw httpError(400, 'Choose the acceptance deadline (accept by date) before sending the offer.');
+      }
+      await rpc(
+        db,
+        'admin_recruitment_offer_set_valid_until',
+        { p_offer_id: offerId, p_valid_until: validUntil, p_expected_version: null },
+        'Could not set the acceptance deadline.'
+      );
+
       await generateLetter(db, 'offer', offerId);
       return offerId;
     }
@@ -675,6 +688,7 @@ export function registerAdminRecruitmentRoutes(app, deps) {
           body: b.body,
           to,
           senderMail: b.senderMail,
+          validUntil: b.validUntil || null,
           idempotencyKey: idempotencyKey.slice(0, 200),
         },
         {

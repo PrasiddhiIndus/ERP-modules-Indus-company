@@ -371,6 +371,11 @@ export default function OffersPage() {
         }
         templateKey={modal?.templateKey}
         relatedId={modal?.relatedId || (open && !open.pendingAppointment ? open.id : null)}
+        defaultValidUntil={
+          modal?.templateKey === "offer_letter" || (!modal?.templateKey && open && !open.pendingAppointment)
+            ? open?.validUntil || ""
+            : ""
+        }
         onClose={close}
       />
 

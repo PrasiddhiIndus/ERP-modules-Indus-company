@@ -213,6 +213,15 @@ export function formatLetterDateDots(value) {
   return `${dd}.${mm}.${d.getFullYear()}`;
 }
 
+/** e.g. 05/11/2026 — acceptance block “join on …” */
+export function formatLetterDateDdMmYyyy(value) {
+  const d = parseIsoDate(value);
+  if (!d) return '';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${d.getFullYear()}`;
+}
+
 function todayIsoIst() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
@@ -363,6 +372,7 @@ function offerPlaceholders(offer, candidate, companyName, { rules } = {}) {
       shortMonth: true,
     }),
     '{{JOINING_DATE_SHORT}}': formatLetterDateAbbrev(offer?.joining_date),
+    '{{JOINING_DATE_DDMMYYYY}}': formatLetterDateDdMmYyyy(offer?.joining_date),
     ...buildOfferAnnexurePlaceholders(offer, candidate, rules || SEED_RULES_2026_27),
   };
 }
@@ -665,73 +675,91 @@ function fixAppointmentNoSpacingStyle(stylesXml) {
 }
 
 /**
- * Candidate name before Annexure - I was indented with ~9 default tabs (jc=both).
- * Word centers that visually; LibreOffice tab stops differ and shift the name on the x-axis.
- * Center the paragraph, drop the tab runs, and start that block on a new page.
+ * Match Word sample pagination:
+ * - Candidate name stays on the signature/ack page (NOT a page break).
+ * - "Annexure - I" starts the next page.
+ * Name was tab-indented (jc=both); LibreOffice tab stops shift it on the x-axis —
+ * center it and drop the tab runs. Never page-break the name (that created a blank page).
  */
-function fixAppointmentCandidateNameBeforeAnnexure(xml) {
+function paragraphAt(xml, textIdx) {
+  if (textIdx < 0) return null;
+  const pStart = xml.lastIndexOf('<w:p ', textIdx);
+  const pEnd = xml.indexOf('</w:p>', textIdx);
+  if (pStart < 0 || pEnd < pStart) return null;
+  // Prefer real body paragraphs; skip if this hit is inside a table cell near annexure header.
+  return { start: pStart, end: pEnd + 6, xml: xml.slice(pStart, pEnd + 6) };
+}
+
+function fixAppointmentAnnexureIPagination(xml) {
   let out = String(xml || '');
   const annexIdx = out.indexOf('<w:t>Annexure - I</w:t>');
-  const nameTokIdx = out.indexOf('{{CANDIDATE_NAME}}');
-  if (annexIdx < 0 && nameTokIdx < 0) return out;
+  if (annexIdx < 0) return out;
 
-  let target = null;
-  let targetAbs = -1;
+  // 1) Signature-page candidate name = last non-empty body paragraph before Annexure - I
+  //    (not the Employee Name cell inside Annexure II, which also uses {{CANDIDATE_NAME}}).
+  const beforeAnnex = out.slice(0, annexIdx);
+  const paras = [...beforeAnnex.matchAll(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)];
+  let nameHit = null;
+  for (let i = paras.length - 1; i >= 0; i--) {
+    const p = paras[i][0];
+    if (/<w:tc[\s>]/.test(beforeAnnex.slice(Math.max(0, paras[i].index - 80), paras[i].index))) {
+      // Still allow body paras; table check below via ancestor tc.
+    }
+    // Skip paragraphs that sit inside a table cell.
+    const abs = paras[i].index;
+    const lastTc = beforeAnnex.lastIndexOf('<w:tc', abs);
+    const lastTcEnd = beforeAnnex.lastIndexOf('</w:tc>', abs);
+    if (lastTc > lastTcEnd) continue;
 
-  // Prefer the paragraph that still has the placeholder (template) or the tab-indented
-  // name line immediately before Annexure - I (filled letter).
-  const needleIdx = nameTokIdx >= 0 ? nameTokIdx : annexIdx;
-  const pStart = out.lastIndexOf('<w:p ', needleIdx);
-  const pEnd = out.indexOf('</w:p>', needleIdx);
-  if (pStart >= 0 && pEnd > pStart) {
-    let candidate = out.slice(pStart, pEnd + 6);
-    // When anchored on Annexure - I, walk back to the prior non-empty name para with tabs.
-    if (nameTokIdx < 0 && candidate.includes('Annexure - I')) {
-      const before = out.slice(Math.max(0, annexIdx - 5000), pStart);
-      const paras = [...before.matchAll(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)];
-      candidate = null;
-      for (let i = paras.length - 1; i >= 0; i--) {
-        const p = paras[i][0];
+    const texts = [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((t) => t[1]).join('');
+    if (!texts.trim()) continue;
+    // Stop at acknowledgement — name is after it; if we hit ack, keep scanning upward only for name-like.
+    nameHit = { start: abs, xml: p, text: texts.trim() };
+    break;
+  }
+
+  if (nameHit && nameHit.text !== 'Annexure - I') {
+    let fixed = nameHit.xml;
+    fixed = fixed.replace(/<w:pageBreakBefore\s*\/>/g, '');
+    fixed = fixed.replace(/<w:jc w:val="both"\/>/g, '<w:jc w:val="center"/>');
+    if (!/<w:jc\b/.test(fixed) && /<w:pPr>/.test(fixed)) {
+      fixed = fixed.replace(/<w:pPr>/, '<w:pPr><w:jc w:val="center"/>');
+    }
+    fixed = fixed.replace(/(?:<w:r\b[^>]*>\s*(?:<w:rPr>[\s\S]*?<\/w:rPr>\s*)?<w:tab\/>\s*<\/w:r>\s*)+/g, '');
+    if (fixed !== nameHit.xml) {
+      out = `${out.slice(0, nameHit.start)}${fixed}${out.slice(nameHit.start + nameHit.xml.length)}`;
+    }
+  }
+
+  // 2) Remove empty body paragraphs between the signature name and Annexure - I.
+  //    Those empties + a page break produced a fully blank page in the emailed PDF.
+  //    Index-based only (never a cross-document regex replace).
+  const annexNow = out.indexOf('<w:t>Annexure - I</w:t>');
+  if (nameHit && annexNow > nameHit.start) {
+    const nameEnd = nameHit.start + (out.slice(nameHit.start).indexOf('</w:p>') + 6);
+    const annexParaStart = out.lastIndexOf('<w:p ', annexNow);
+    if (nameEnd > 0 && annexParaStart > nameEnd) {
+      const mid = out.slice(nameEnd, annexParaStart);
+      // Only strip paragraphs that have no <w:t> text (true blanks).
+      const stripped = mid.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>\s*/g, (p) => {
         const texts = [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((t) => t[1]).join('');
-        if (!texts.trim()) continue; // skip empties between name and Annexure - I
-        const tabCount = (p.match(/<w:tab\/>/g) || []).length;
-        if (tabCount >= 3 || texts.trim().length > 0) {
-          candidate = p;
-          targetAbs = Math.max(0, annexIdx - 5000) + paras[i].index;
-          break;
-        }
+        return texts.trim() ? p : '';
+      });
+      if (stripped !== mid) {
+        out = `${out.slice(0, nameEnd)}${stripped}${out.slice(annexParaStart)}`;
       }
-    } else {
-      targetAbs = pStart;
-    }
-    if (candidate) {
-      target = candidate;
     }
   }
 
-  if (!target || targetAbs < 0) {
-    // Fallback: page-break the Annexure - I heading only.
-    if (annexIdx >= 0 && !/w:pageBreakBefore/.test(out.slice(Math.max(0, annexIdx - 300), annexIdx))) {
-      out = out.replace(
-        /(<w:p\b[^>]*>\s*<w:pPr>)([\s\S]*?<w:t>Annexure - I<\/w:t>[\s\S]*?<\/w:p>)/,
-        (full, open, rest) => (/w:pageBreakBefore/.test(full) ? full : `${open}<w:pageBreakBefore/>${rest}`)
-      );
-    }
-    return out;
+  // 3) Page-break the Annexure - I paragraph only (Word sample: name on prior page).
+  const annexAfter = out.indexOf('<w:t>Annexure - I</w:t>');
+  const annexPara = paragraphAt(out, annexAfter);
+  if (annexPara && !/w:pageBreakBefore/.test(annexPara.xml)) {
+    const fixed = annexPara.xml.replace(/<w:pPr>/, '<w:pPr><w:pageBreakBefore/>');
+    out = `${out.slice(0, annexPara.start)}${fixed}${out.slice(annexPara.end)}`;
   }
 
-  let fixed = target;
-  fixed = fixed.replace(/<w:jc w:val="both"\/>/g, '<w:jc w:val="center"/>');
-  if (!/<w:jc\b/.test(fixed) && /<w:pPr>/.test(fixed)) {
-    fixed = fixed.replace(/<w:pPr>/, '<w:pPr><w:jc w:val="center"/>');
-  }
-  // Drop leading tab runs used as a fake center indent.
-  fixed = fixed.replace(/(?:<w:r\b[^>]*>\s*(?:<w:rPr>[\s\S]*?<\/w:rPr>\s*)?<w:tab\/>\s*<\/w:r>\s*)+/g, '');
-  if (/<w:pPr>/.test(fixed) && !/w:pageBreakBefore/.test(fixed)) {
-    fixed = fixed.replace(/<w:pPr>/, '<w:pPr><w:pageBreakBefore/>');
-  }
-  if (fixed === target) return out;
-  return `${out.slice(0, targetAbs)}${fixed}${out.slice(targetAbs + target.length)}`;
+  return out;
 }
 
 /** Appointment-only layout fixes for Word-faithful PDF. Does not touch offer table/page logic. */
@@ -753,7 +781,7 @@ function normalizeAppointmentLetterDocxLayout(docxBuffer) {
 
     let docXml = beforeDoc;
     docXml = fixAnnexureAmountCells(docXml);
-    docXml = fixAppointmentCandidateNameBeforeAnnexure(docXml);
+    docXml = fixAppointmentAnnexureIPagination(docXml);
 
     const stylesFile = zip.file('word/styles.xml');
     const beforeStyles = stylesFile?.asText() || '';
@@ -1130,7 +1158,7 @@ export async function buildOfferLetterPdf(offer, candidate, companyName) {
   );
   y -= 4;
   draw(
-    `Please confirm your acceptance by signing and returning a copy of this letter on or before ${p['{{VALID_UNTIL}}']}. This offer will lapse if your acceptance is not received on or before ${p['{{VALID_UNTIL}}']}, or if you fail to join on the agreed date (${p['{{JOINING_DATE_SHORT}}']}).`
+    'You are requested to accept or decline this offer within 24 hours from the date and time of issuance'
   );
   y -= 4;
   draw('We look forward to having you with us.');
@@ -1157,7 +1185,10 @@ export async function buildOfferLetterPdf(offer, candidate, companyName) {
   draw('Manager - Human Resources', { size: 10 });
   draw(p['{{COMPANY_NAME}}'], { size: 10 });
   y -= 16;
-  draw('I accept the above offer and confirm that I will join on [DD/MM/YYYY]', { f: bold, size: 10 });
+  draw(
+    `I accept the above offer and confirm that I will join on ${p['{{JOINING_DATE_DDMMYYYY}}'] || '[DD/MM/YYYY]'}`,
+    { f: bold, size: 10 }
+  );
   y -= 10;
   draw('Name: ____________________');
   y -= 8;
