@@ -2228,8 +2228,8 @@ function compositeHalfDayLeaveMark(mark) {
  * LWP fix (e.g. NH/PH sandwiched between LWP) is immediately overwritten on refresh because
  * leave gap-fill uses leave_type_code (PL) and admin_leave_attendance_marks may still say PL.
  * Machine punch Present (P) still wins over full-day leave (except approved CO, kept for
- * CO+P display, and LWP → P/LWP at 0.5); half-day leave (P/CL, P/PL, P/SL) replaces HD
- * even when a punch exists. Overlay remains editable in Admin.
+ * CO+P display, and LWP → P/LWP at 0.5); approved half-day leave (P/CL, P/PL, P/SL)
+ * wins over punch Present / HD. Overlay remains editable in Admin.
  */
 export function mergeApprovedLeaveMarksIntoManualMarks(
   manualMarks,
@@ -2305,8 +2305,8 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
 
       const leaveIsHalfDayComposite = isRegisterCompositeHalfDayMark(canonical);
 
-      // Full-day leave: biometric punch Present still wins — except P/CO / P/LWP /
-      // P/SPLA|P/SPLB composites. Half-day composite overrides saved Admin marks.
+      // Full-day leave: biometric punch Present still wins — except half-day composites
+      // (P/PL|P/CL|P/SL|P/CO|P/LWP|P/SPLA|P/SPLB), which win over punch Present / HD.
       if (hasPunch) {
         if (canonical === "P/CO") {
           next[code][day] = "P/CO";
@@ -2320,8 +2320,12 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
           next[code][day] = canonical;
           continue;
         }
-        if (!leaveIsHalfDayComposite) continue;
-        if (existing === "P" || existing === "P(OD)") continue;
+        // Approved P/PL|P/CL|P/SL must overlay punch Present (same as P/CO / P/LWP).
+        if (leaveIsHalfDayComposite) {
+          next[code][day] = canonical;
+          continue;
+        }
+        continue;
       }
 
       // Stored LWP (register / partial-LWP / sandwich repair) must not be painted
