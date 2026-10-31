@@ -1,4 +1,4 @@
-# Build appointment-letter.docx from the sample appointment-with-letterhead Word file.
+﻿# Build appointment-letter.docx from the sample appointment-with-letterhead Word file.
 # Default source: Downloads\apppointment letter format.doc
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -116,11 +116,15 @@ try {
   }
 
   # Keep "Annexure II" with the compensation table (not orphaned at end of prior page).
+  # Only force a page break when Annexure is mid-page — sample already starts it near the top.
   for ($i = 1; $i -le $doc.Paragraphs.Count; $i++) {
     $p = $doc.Paragraphs.Item($i)
     $t = ($p.Range.Text -replace '[\r\n\x07]', '').Trim()
     if ($t -eq "Annexure II") {
-      $p.Format.PageBreakBefore = $true
+      $vpos = $p.Range.Information(5) # wdVerticalPositionRelativeToPage
+      if (-not $p.Format.PageBreakBefore -and $vpos -gt 120) {
+        $p.Format.PageBreakBefore = $true
+      }
       $p.Format.KeepWithNext = $true
       $p.Format.KeepTogether = $true
       break

@@ -18,6 +18,7 @@ import {
   fmtDate,
   fmtMoney,
   runAction,
+  runBusyAction,
   useCapabilities,
   useRecruitmentData,
 } from "./RecruitmentUi";
@@ -241,7 +242,11 @@ export default function OffersPage() {
                 {kindKey === "offer" ? (
                   <>
                     {open.status !== "draft" && !open.generatedDoc && ["generated", "sent", "viewed", "accepted"].includes(open.status) ? (
-                      <button type="button" className={btn.primary} onClick={() => runAction(() => prepareOfferLetter(open.id), "Offer letter ready")}>
+                      <button
+                        type="button"
+                        className={btn.primary}
+                        onClick={() => runBusyAction(() => prepareOfferLetter(open.id), "Offer letter ready", undefined, "Generating offer letter…")}
+                      >
                         <FileSignature className="h-3.5 w-3.5" /> Prepare letter
                       </button>
                     ) : null}
@@ -249,7 +254,9 @@ export default function OffersPage() {
                       <button
                         type="button"
                         className={btn.secondary}
-                        onClick={() => runAction(() => prepareOfferLetter(open.id), "Offer letter regenerated")}
+                        onClick={() =>
+                          runBusyAction(() => prepareOfferLetter(open.id), "Offer letter regenerated", undefined, "Regenerating offer letter…")
+                        }
                       >
                         <FileSignature className="h-3.5 w-3.5" /> Regenerate letter
                       </button>

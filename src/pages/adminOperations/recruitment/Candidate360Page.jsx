@@ -17,6 +17,7 @@ import {
   PhoneCall,
   RotateCcw,
   Send,
+  SkipForward,
   Upload,
   UserCheck,
   UserX,
@@ -39,6 +40,7 @@ import {
 } from "./recruitmentConfig";
 import {
   addCandidateNote,
+  bypassInterview,
   cancelAppointment,
   closeCandidate,
   getCandidateWorkspace,
@@ -73,7 +75,10 @@ import {
   fmtDateTime,
   fmtMoney,
   inputClass,
+  hideRecruitmentBusy,
   runAction,
+  runBusyAction,
+  showRecruitmentBusy,
   textareaClass,
   useCapabilities,
   useRecruitmentData,
@@ -366,8 +371,18 @@ function NextStep({ data, caps, open }) {
         break;
       case "shortlisted":
         title = "Schedule the interview";
-        hint = c.requisitionId ? "" : "You will pick an approved requisition when scheduling.";
+        hint = c.requisitionId
+          ? "Or skip interview and prepare the offer directly."
+          : "Link an approved requisition before scheduling or preparing an offer.";
         add("interviews", "Schedule interview", () => open("schedule"), CalendarPlus, true);
+        if (caps.candidates && caps.offers) {
+          actions.push({
+            label: "Bypass interview & prepare offer",
+            onClick: () => open("bypassInterview"),
+            Icon: SkipForward,
+            primary: false,
+          });
+        }
         if (!c.requisitionId) add("candidates", "Link requisition", () => open("edit"), Pencil);
         break;
       case "interview":
@@ -387,6 +402,14 @@ function NextStep({ data, caps, open }) {
           if (latest) add("interviews", "Open interview", () => open("interview", latest), CalendarPlus, true);
           add("interviews", "Schedule another round", () => open("schedule"), CalendarPlus);
         }
+        if (caps.candidates && caps.offers) {
+          actions.push({
+            label: "Bypass interview & prepare offer",
+            onClick: () => open("bypassInterview"),
+            Icon: SkipForward,
+            primary: false,
+          });
+        }
         break;
       case "selected":
         title = offer ? "Finish and generate the offer" : "Prepare the offer";
@@ -395,13 +418,24 @@ function NextStep({ data, caps, open }) {
       case "offer":
         if (offer && !offer.generatedDoc) {
           title = "Offer letter document pending";
-          add("offers", "Prepare letter", () => runAction(() => prepareOfferLetter(offer.id), "Offer letter ready"), FileSignature, true);
+          add(
+            "offers",
+            "Prepare letter",
+            () => runBusyAction(() => prepareOfferLetter(offer.id), "Offer letter ready", undefined, "Generating offer letter…"),
+            FileSignature,
+            true
+          );
         } else if (offer?.status === "generated") {
           title = `Send offer ${offer.offerNo}`;
           hint = `Valid until ${fmtDate(offer.validUntil)}.`;
           add("offers", "Send offer", () => open("email", { templateKey: "offer_letter", relatedId: offer.id }), Send, true);
           if (offer.generatedDoc) {
-            add("offers", "Regenerate letter", () => runAction(() => prepareOfferLetter(offer.id), "Offer letter regenerated"), FileSignature);
+            add(
+              "offers",
+              "Regenerate letter",
+              () => runBusyAction(() => prepareOfferLetter(offer.id), "Offer letter regenerated", undefined, "Regenerating offer letter…"),
+              FileSignature
+            );
           }
         } else if (offer) {
           title = `Awaiting response · ${offerStatusMeta(offer.status).label}`;
@@ -409,7 +443,12 @@ function NextStep({ data, caps, open }) {
           add("offers", "Record response", () => open("offerResponse", offer), FileSignature, true);
           add("offers", "Resend offer", () => open("email", { templateKey: "offer_letter", relatedId: offer.id }), Send);
           if (offer.generatedDoc) {
-            add("offers", "Regenerate letter", () => runAction(() => prepareOfferLetter(offer.id), "Offer letter regenerated"), FileSignature);
+            add(
+              "offers",
+              "Regenerate letter",
+              () => runBusyAction(() => prepareOfferLetter(offer.id), "Offer letter regenerated", undefined, "Regenerating offer letter…"),
+              FileSignature
+            );
           }
         }
         if (offer) add("offers", "Withdraw offer", () => open("withdrawOffer", offer), XCircle);
@@ -508,16 +547,20 @@ function Workspace({ data, onReload }) {
         ["generated", "sent", "viewed", "accepted"].includes(o.status)
       );
       if (openOffer?.id) {
+        showRecruitmentBusy("Updating offer letter…", "Refreshing Annexure A with the new CTC.");
         try {
           await prepareOfferLetter(openOffer.id);
         } catch {
           /* letter can be regenerated before send */
+        } finally {
+          hideRecruitmentBusy();
         }
       }
       toast.success("CTC saved", `Monthly CTC ₹${Number(ctc).toLocaleString("en-IN")} — used on offer Annexure A & appointment letters.`);
       close();
       await onReload?.();
     } catch (err) {
+      hideRecruitmentBusy();
       toast.error("Could not save CTC", err?.message || "Please try again.");
     }
   };
@@ -797,7 +840,32 @@ function Workspace({ data, onReload }) {
       <ScreeningModal open={is("screening")} candidate={c} onClose={close} />
       <ScheduleInterviewModal open={is("schedule")} candidate={c} onClose={close} />
       {is("interview") ? <InterviewDetailDrawer interview={interviews.find((i) => i.id === modal.payload?.id) || modal.payload} candidate={c} onClose={close} /> : null}
-      <OfferModal open={is("offer")} candidate={c} offer={modal?.payload} onClose={close} />
+      <OfferModal
+        open={is("offer")}
+        candidate={c}
+        offer={modal?.payload}
+        onClose={() => {
+          close();
+          onReload?.();
+        }}
+      />
+      <ReasonModal
+        open={is("bypassInterview")}
+        title="Bypass interview"
+        description="Skip interviews for this candidate and move them to Selected so you can prepare and generate the offer letter."
+        label="Reason (optional)"
+        submitLabel="Skip interview & prepare offer"
+        tone="primary"
+        required={false}
+        onClose={close}
+        onSubmit={async (reason) => {
+          await bypassInterview(c.id, reason || null, c.version);
+          toast.success("Interview skipped", "Candidate selected — prepare the offer letter.");
+          close();
+          await onReload?.();
+          open("offer", null);
+        }}
+      />
       <OfferResponseModal open={is("offerResponse")} offer={modal?.payload} onClose={close} />
       <AppointmentModal
         open={is("appointment")}

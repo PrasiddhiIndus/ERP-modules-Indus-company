@@ -19,7 +19,7 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { getVisibleRecruitmentTabs } from "../../../config/roles";
 import { RECRUITMENT_SECTIONS } from "./recruitmentConfig";
 import { RECRUITMENT_DATA_EVENT, getCapabilities, getNavBadges } from "./recruitmentService";
-import { EmptyState } from "./RecruitmentUi";
+import { EmptyState, RecruitmentBusyHost } from "./RecruitmentUi";
 
 const SECTION_ICONS = {
   dashboard: LayoutDashboard,
@@ -69,6 +69,7 @@ export default function RecruitmentLayout() {
 
   return (
     <div className="mx-auto flex w-full max-w-[1600px] min-w-0 flex-col gap-4 p-4 md:p-6">
+      <RecruitmentBusyHost />
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="type-page-title text-ink">In-house Recruitment</h1>
