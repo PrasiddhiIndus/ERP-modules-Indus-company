@@ -879,7 +879,21 @@ function Workspace({ data, onReload }) {
       <JoiningDateModal open={is("joiningDate")} candidate={c} onClose={close} />
       <MarkJoinedModal open={is("joined")} candidate={c} onClose={close} />
       <ConvertModal open={is("convert")} candidate={c} onClose={close} />
-      <SendEmailModal open={is("email")} candidate={c} templateKey={modal?.payload?.templateKey} relatedId={modal?.payload?.relatedId} onClose={close} />
+      <SendEmailModal
+        open={is("email")}
+        candidate={c}
+        templateKey={modal?.payload?.templateKey}
+        relatedId={modal?.payload?.relatedId}
+        defaultValidUntil={
+          modal?.payload?.templateKey === "offer_letter"
+            ? (
+                offers.find((o) => o.id === modal?.payload?.relatedId) ||
+                offers.find((o) => ["generated", "sent", "viewed"].includes(o.status))
+              )?.validUntil || ""
+            : ""
+        }
+        onClose={close}
+      />
       <EditProfileModal open={is("edit")} candidate={c} onClose={close} />
       <ResumeModal open={is("resume")} candidate={c} onClose={close} />
       <NoteModal open={is("note")} candidate={c} onClose={close} />

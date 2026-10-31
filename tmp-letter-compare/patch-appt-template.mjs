@@ -1,10 +1,5 @@
 import fs from 'fs';
-import { createRequire } from 'module';
 import PizZip from 'pizzip';
-
-const require = createRequire(import.meta.url);
-// Re-use the same helpers by importing the module functions via dynamic eval of the file
-// is awkward (side effects). Duplicate the small patch here to persist into the template.
 
 function fixAppointmentNoSpacingStyle(stylesXml) {
   let out = String(stylesXml || '');
@@ -29,65 +24,70 @@ function fixAppointmentNoSpacingStyle(stylesXml) {
   );
 }
 
-function fixAppointmentCandidateNameBeforeAnnexure(xml) {
+function fixAppointmentAnnexureIPagination(xml) {
   let out = String(xml || '');
   const annexIdx = out.indexOf('<w:t>Annexure - I</w:t>');
   const nameTokIdx = out.indexOf('{{CANDIDATE_NAME}}');
-  if (annexIdx < 0 && nameTokIdx < 0) return out;
 
-  let target = null;
-  let targetAbs = -1;
-  const needleIdx = nameTokIdx >= 0 ? nameTokIdx : annexIdx;
-  const pStart = out.lastIndexOf('<w:p ', needleIdx);
-  const pEnd = out.indexOf('</w:p>', needleIdx);
-  if (pStart >= 0 && pEnd > pStart) {
-    let candidate = out.slice(pStart, pEnd + 6);
-    if (nameTokIdx < 0 && candidate.includes('Annexure - I')) {
-      const before = out.slice(Math.max(0, annexIdx - 5000), pStart);
-      const paras = [...before.matchAll(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)];
-      candidate = null;
-      for (let i = paras.length - 1; i >= 0; i--) {
-        const p = paras[i][0];
-        const texts = [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((t) => t[1]).join('');
-        if (!texts.trim()) continue;
-        candidate = p;
-        targetAbs = Math.max(0, annexIdx - 5000) + paras[i].index;
-        break;
+  if (nameTokIdx >= 0 || annexIdx >= 0) {
+    let target = null;
+    let targetAbs = -1;
+    if (nameTokIdx >= 0) {
+      const pStart = out.lastIndexOf('<w:p ', nameTokIdx);
+      const pEnd = out.indexOf('</w:p>', nameTokIdx);
+      if (pStart >= 0 && pEnd > pStart) {
+        target = out.slice(pStart, pEnd + 6);
+        targetAbs = pStart;
       }
-    } else {
-      targetAbs = pStart;
     }
-    if (candidate) target = candidate;
+    if (target && targetAbs >= 0) {
+      let fixed = target;
+      fixed = fixed.replace(/<w:pageBreakBefore\s*\/>/g, '');
+      fixed = fixed.replace(/<w:jc w:val="both"\/>/g, '<w:jc w:val="center"/>');
+      if (!/<w:jc\b/.test(fixed) && /<w:pPr>/.test(fixed)) {
+        fixed = fixed.replace(/<w:pPr>/, '<w:pPr><w:jc w:val="center"/>');
+      }
+      fixed = fixed.replace(/(?:<w:r\b[^>]*>\s*(?:<w:rPr>[\s\S]*?<\/w:rPr>\s*)?<w:tab\/>\s*<\/w:r>\s*)+/g, '');
+      out = `${out.slice(0, targetAbs)}${fixed}${out.slice(targetAbs + target.length)}`;
+    }
   }
-  if (!target || targetAbs < 0) return out;
 
-  let fixed = target;
-  fixed = fixed.replace(/<w:jc w:val="both"\/>/g, '<w:jc w:val="center"/>');
-  if (!/<w:jc\b/.test(fixed) && /<w:pPr>/.test(fixed)) {
-    fixed = fixed.replace(/<w:pPr>/, '<w:pPr><w:jc w:val="center"/>');
+  if (out.includes('<w:t>Annexure - I</w:t>')) {
+    const i = out.indexOf('<w:t>Annexure - I</w:t>');
+    const head = out.slice(Math.max(0, i - 400), i);
+    if (!/w:pageBreakBefore/.test(head)) {
+      out = out.replace(
+        /(<w:p\b[^>]*>\s*<w:pPr>)([\s\S]*?<w:t>Annexure - I<\/w:t>[\s\S]*?<\/w:p>)/,
+        (full, open, rest) => (/w:pageBreakBefore/.test(full) ? full : `${open}<w:pageBreakBefore/>${rest}`)
+      );
+    }
   }
-  fixed = fixed.replace(/(?:<w:r\b[^>]*>\s*(?:<w:rPr>[\s\S]*?<\/w:rPr>\s*)?<w:tab\/>\s*<\/w:r>\s*)+/g, '');
-  if (/<w:pPr>/.test(fixed) && !/w:pageBreakBefore/.test(fixed)) {
-    fixed = fixed.replace(/<w:pPr>/, '<w:pPr><w:pageBreakBefore/>');
+
+  const emptyPara =
+    '(?:<w:p\\b[^>]*/>|<w:p\\b[^>]*>\\s*(?:<w:pPr>[\\s\\S]*?</w:pPr>\\s*)?</w:p>)';
+  const gap = new RegExp(
+    `(<w:t>(?:\\{\\{CANDIDATE_NAME\\}\\}|[^<]{2,80})</w:t>[\\s\\S]*?</w:p>)` +
+      `((?:\\s*${emptyPara}){2,})` +
+      `(\\s*<w:p\\b[^>]*>\\s*<w:pPr>[\\s\\S]*?<w:t>Annexure - I</w:t>)`
+  );
+  if (gap.test(out)) {
+    const keepOne =
+      '<w:p><w:pPr><w:pStyle w:val="NoSpacing"/><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:p>';
+    out = out.replace(gap, (_, nameBlock, _empties, annexStart) => `${nameBlock}${keepOne}${annexStart}`);
   }
-  return `${out.slice(0, targetAbs)}${fixed}${out.slice(targetAbs + target.length)}`;
+  return out;
 }
 
 const path = 'public/templates/admin-recruitment/appointment-letter.docx';
 const zip = new PizZip(fs.readFileSync(path));
-const stylesAfter = fixAppointmentNoSpacingStyle(zip.file('word/styles.xml').asText());
-const docAfter = fixAppointmentCandidateNameBeforeAnnexure(zip.file('word/document.xml').asText());
-zip.file('word/styles.xml', stylesAfter);
-zip.file('word/document.xml', docAfter);
+zip.file('word/styles.xml', fixAppointmentNoSpacingStyle(zip.file('word/styles.xml').asText()));
+zip.file('word/document.xml', fixAppointmentAnnexureIPagination(zip.file('word/document.xml').asText()));
 fs.writeFileSync(path, zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }));
 
-const verify = new PizZip(fs.readFileSync(path));
-const ns = verify.file('word/styles.xml').asText().match(/<w:style[^>]*w:styleId="NoSpacing"[\s\S]*?<\/w:style>/)[0];
-const doc = verify.file('word/document.xml').asText();
+const doc = new PizZip(fs.readFileSync(path)).file('word/document.xml').asText();
 const nameIdx = doc.indexOf('{{CANDIDATE_NAME}}');
 const namePara = doc.slice(doc.lastIndexOf('<w:p ', nameIdx), doc.indexOf('</w:p>', nameIdx) + 6);
-console.log('NoSpacing has spacing:', /w:spacing/.test(ns));
-console.log('name tabs', (namePara.match(/<w:tab\/>/g) || []).length);
-console.log('name jc', (namePara.match(/<w:jc[^/]*\/>/) || [])[0]);
-console.log('name pbb', /w:pageBreakBefore/.test(namePara));
-console.log('name text', [...namePara.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((m) => m[1]).join(''));
+const annexIdx = doc.indexOf('<w:t>Annexure - I</w:t>');
+const annexPara = doc.slice(doc.lastIndexOf('<w:p ', annexIdx), doc.indexOf('</w:p>', annexIdx) + 6);
+console.log('name tabs', (namePara.match(/<w:tab\/>/g) || []).length, 'pbb', /w:pageBreakBefore/.test(namePara), 'jc', (namePara.match(/<w:jc[^/]*\/>/) || [])[0]);
+console.log('annex pbb', /w:pageBreakBefore/.test(annexPara));

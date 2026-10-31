@@ -415,7 +415,7 @@ function mapEvent(e) {
 function mapSettings(s, types) {
   return {
     companyName: s?.company_name || "",
-    offerValidityDays: s?.offer_validity_days ?? 7,
+    offerValidityDays: s?.offer_validity_days ?? 1,
     approvalLevels: s?.approval_levels ?? 1,
     portalLinkDays: s?.portal_link_days ?? 14,
     autoReminders: s?.auto_reminders || {},
@@ -1017,6 +1017,7 @@ export async function sendCommunication({
   body,
   to,
   senderMail,
+  validUntil,
   idempotencyKey,
 }) {
   const out = await api(
@@ -1030,12 +1031,26 @@ export async function sendCommunication({
       body,
       to,
       senderMail,
+      validUntil: validUntil || null,
       idempotencyKey: idempotencyKey || `manual:${requestKey()}`,
     },
     "Could not send the email."
   );
   notify();
   return out;
+}
+
+/** Sets the offer acceptance deadline (letter “on or before …” / portal expiry). */
+export function setOfferAcceptanceDeadline(offerId, validUntil, version) {
+  return call(
+    "admin_recruitment_offer_set_valid_until",
+    {
+      p_offer_id: offerId,
+      p_valid_until: validUntil,
+      p_expected_version: version ?? null,
+    },
+    "Could not set the acceptance deadline."
+  );
 }
 
 export async function retryCommunication(id) {

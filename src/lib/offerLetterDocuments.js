@@ -146,6 +146,7 @@ export function buildOfferLetterPlaceholders(offer) {
     "{{LOCATION}}": String(offer?.siteFullName || offer?.location || "").trim(),
     "{{VALID_UNTIL}}": formatOfferDateShortMonth(validIso, { doubleSpace: false }),
     "{{JOINING_DATE_SHORT}}": formatOfferDateAbbrev(joiningIso),
+    "{{JOINING_DATE_DDMMYYYY}}": formatOfferDateDdMmYyyy(joiningIso),
   };
 }
 
@@ -244,16 +245,12 @@ export function openOfferLetterPrintPreview(offer) {
   </table>
   <p>This offer is subject to verification of your educational and employment documents, and satisfactory reference checks.</p>
   <p>Your detailed terms and conditions of employment will be shared in the Appointment Letter, which will be issued to you on the date of joining.</p>
-  <p>Please confirm your acceptance by signing and returning a copy of this letter on or before ${escapeXmlText(
-    p["{{VALID_UNTIL}}"]
-  )}. This offer will lapse if your acceptance is not received on or before ${escapeXmlText(
-    p["{{VALID_UNTIL}}"]
-  )}, or if you fail to join on the agreed date (${escapeXmlText(p["{{JOINING_DATE_SHORT}}"])}).</p>
+  <p>You are requested to accept or decline this offer within 24 hours from the date and time of issuance</p>
   <p>We look forward to having you with us.</p>
   <p>Yours sincerely,</p>
   <p><strong>Shilpa Thakur</strong><br/>Manager - Human Resources<br/>${escapeXmlText(p["{{COMPANY_NAME}}"])}</p>
   <div class="accept">
-    <p><strong>I accept the above offer and confirm that I will join on [DD/MM/YYYY]</strong></p>
+    <p><strong>I accept the above offer and confirm that I will join on ${escapeXmlText(p["{{JOINING_DATE_DDMMYYYY}}"] || "[DD/MM/YYYY]")}</strong></p>
     <p>Name: ____________________</p>
     <p>Signature: ____________________</p>
     <p>Date: ____________</p>
