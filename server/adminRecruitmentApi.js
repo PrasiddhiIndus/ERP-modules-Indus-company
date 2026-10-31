@@ -226,7 +226,7 @@ export function registerAdminRecruitmentRoutes(app, deps) {
     const [{ data: candidate }, { data: settings }] = await Promise.all([
       svc
         .from('admin_recruitment_candidates')
-        .select('id, full_name, current_location, home_town, email')
+        .select('id, full_name, current_location, home_town, email, expected_ctc, date_of_birth, employee_code')
         .eq('id', row.candidate_id)
         .maybeSingle(),
       svc.from('admin_recruitment_settings').select('company_name').maybeSingle(),
@@ -281,6 +281,66 @@ export function registerAdminRecruitmentRoutes(app, deps) {
     return sender;
   }
 
+  /**
+   * Before emailing an offer/appointment letter, rebuild the Word file so Annexure A
+   * (and appointment CTC) use the candidate's CTC calculator saved value.
+   */
+  async function refreshLetterDocForEmail(db, input) {
+    const key = String(input.templateKey || '').trim();
+    if (key !== 'offer_letter' && key !== 'appointment_letter') return input.relatedId || null;
+
+    const svc = serviceClient();
+    const { data: candidate, error: candErr } = await svc
+      .from('admin_recruitment_candidates')
+      .select('id, expected_ctc')
+      .eq('id', input.candidateId)
+      .maybeSingle();
+    if (candErr) throw dbError(candErr, 'Could not load the candidate.');
+    if (!candidate) throw httpError(404, 'Candidate not found.');
+
+    if (key === 'offer_letter') {
+      const monthly = Number(candidate.expected_ctc);
+      if (!Number.isFinite(monthly) || monthly <= 0) {
+        throw httpError(
+          400,
+          "Save this candidate's CTC (CTC calculator on the candidate page) before sending the offer letter. Annexure A is filled from that value."
+        );
+      }
+
+      let offerId = isUuid(input.relatedId) ? input.relatedId : null;
+      if (!offerId) {
+        const { data: offer } = await svc
+          .from('admin_recruitment_offers')
+          .select('id')
+          .eq('candidate_id', input.candidateId)
+          .in('status', ['generated', 'sent', 'viewed'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        offerId = offer?.id || null;
+      }
+      if (!offerId) throw httpError(400, 'There is no open offer to send.');
+      await generateLetter(db, 'offer', offerId);
+      return offerId;
+    }
+
+    let apptId = isUuid(input.relatedId) ? input.relatedId : null;
+    if (!apptId) {
+      const { data: appt } = await svc
+        .from('admin_recruitment_appointments')
+        .select('id')
+        .eq('candidate_id', input.candidateId)
+        .in('status', ['generated', 'sent', 'viewed'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      apptId = appt?.id || null;
+    }
+    if (!apptId) throw httpError(400, 'There is no unsigned appointment letter to send.');
+    await generateLetter(db, 'appointment', apptId);
+    return apptId;
+  }
+
   // ---- email sending -----------------------------------------------------
   async function sendCommunication(db, input, { trigger = 'manual', baseUrl, userEmails = [] }) {
     const toOverride = String(input.to || '').trim().toLowerCase();
@@ -299,6 +359,9 @@ export function registerAdminRecruitmentRoutes(app, deps) {
         ? await resolveRecruitmentSender(serviceClient(), input.senderMail, userEmails)
         : null;
 
+    const refreshedRelatedId = await refreshLetterDocForEmail(db, input);
+    const relatedId = refreshedRelatedId || input.relatedId || null;
+
     const prepared = await rpc(
       db,
       'admin_recruitment_comm_prepare',
@@ -306,7 +369,7 @@ export function registerAdminRecruitmentRoutes(app, deps) {
         p_candidate_id: input.candidateId,
         p_template_key: input.templateKey,
         p_related_type: input.relatedType || null,
-        p_related_id: input.relatedId || null,
+        p_related_id: relatedId,
         p_subject: input.subject || null,
         p_body: input.body || null,
         p_idempotency_key: input.idempotencyKey,

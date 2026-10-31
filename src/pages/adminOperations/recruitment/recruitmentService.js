@@ -8,6 +8,15 @@
 import { supabase } from "../../../lib/supabase";
 import { fetchApiWithAuth } from "../../../lib/apiBase";
 import { PIPELINE_STAGES, STAGE_INDEX } from "./recruitmentConfig";
+import {
+  CATEGORY_NEW_PROBATION,
+  SCHEME_NEW,
+  SEED_RULES_2026_27,
+  SKILL_SKILLED,
+  STATUS_PROBATION,
+  calculateCtc,
+} from "../salaryAdmin/ctcEngine";
+import { resultToStructurePayload } from "../salaryAdmin/annexureCtcRecord";
 
 export const RECRUITMENT_DATA_EVENT = "admin-recruitment-data-updated";
 
@@ -252,6 +261,8 @@ function mapInterview(i) {
 
 function mapOffer(o) {
   const cand = o.candidate || {};
+  // Offered salary is the offer row; fall back to candidate expected (recruitment-captured) if draft never saved one.
+  const offeredMonthly = num(o.monthly_gross) ?? num(cand.expected_ctc);
   return {
     id: o.id,
     candidateId: o.candidate_id,
@@ -265,8 +276,9 @@ function mapOffer(o) {
     department: o.department || "",
     location: o.location || "",
     employmentType: o.employment_type || "",
-    monthlyGross: num(o.monthly_gross),
-    annualCtc: num(o.annual_ctc),
+    monthlyGross: offeredMonthly,
+    expectedSalary: num(cand.expected_ctc),
+    annualCtc: num(o.annual_ctc) ?? (offeredMonthly != null ? offeredMonthly * 12 : null),
     joiningDate: o.joining_date,
     validUntil: o.valid_until,
     terms: o.terms || "",
@@ -420,7 +432,8 @@ function mapSettings(s, types) {
   };
 }
 
-const CANDIDATE_EMBED = "candidate:admin_recruitment_candidates(full_name, phone, email, stage, outcome, requisition:admin_recruitment_requisitions(requisition_no, designation))";
+const CANDIDATE_EMBED =
+  "candidate:admin_recruitment_candidates(full_name, phone, email, stage, outcome, expected_ctc, requisition:admin_recruitment_requisitions(requisition_no, designation))";
 
 // ---------------------------------------------------------------------------
 // Capabilities
@@ -872,8 +885,90 @@ export function updateJoining(candidateId, expectedDate, remarks, version) {
   return call("admin_recruitment_joining_update", { p_candidate_id: candidateId, p_expected_date: expectedDate, p_remarks: remarks || null, p_expected_version: version ?? null }, "Could not update the joining date.");
 }
 
-export function markJoined(candidateId, actualDate, remarks, version) {
-  return call("admin_recruitment_mark_joined", { p_candidate_id: candidateId, p_actual_date: actualDate, p_remarks: remarks || null, p_expected_version: version ?? null }, "Could not mark the candidate as joined.");
+/**
+ * When recruitment creates a new Employee Master row, also store the candidate's
+ * saved CTC (expected_ctc) as the initial Admin Salary structure. Does not change
+ * linked existing employees, and never fails the conversion if CTC save fails.
+ */
+async function saveConvertedEmployeeCtc(candidateId, conversion) {
+  if (!conversion || conversion.status !== "converted") return;
+  // Linking an existing employee must not overwrite their Admin Salary CTC.
+  if (conversion.linked) return;
+  const employeeMasterId = conversion.employeeMasterId;
+  if (employeeMasterId == null) return;
+
+  try {
+    const { data: cand, error } = await supabase
+      .from(T.candidates)
+      .select("expected_ctc, actual_joining_date, date_of_birth")
+      .eq("id", candidateId)
+      .maybeSingle();
+    if (error) throw error;
+
+    let monthly = Number(cand?.expected_ctc);
+    if (!Number.isFinite(monthly) || monthly <= 0) {
+      const { data: offer } = await supabase
+        .from(T.offers)
+        .select("monthly_gross, annual_ctc")
+        .eq("candidate_id", candidateId)
+        .in("status", ["accepted", "sent", "draft"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const fromGross = Number(offer?.monthly_gross);
+      const fromAnnual = Number(offer?.annual_ctc);
+      if (Number.isFinite(fromGross) && fromGross > 0) monthly = fromGross;
+      else if (Number.isFinite(fromAnnual) && fromAnnual > 0) monthly = fromAnnual / 12;
+    }
+    if (!Number.isFinite(monthly) || monthly <= 0) return;
+
+    const wef =
+      String(cand?.actual_joining_date || "").slice(0, 10) ||
+      new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+    const result = calculateCtc(SEED_RULES_2026_27, {
+      skill: SKILL_SKILLED,
+      status: STATUS_PROBATION,
+      monthlyCtc: monthly,
+    });
+    const payload = resultToStructurePayload(result, {
+      rules: SEED_RULES_2026_27,
+      wefDate: wef,
+      reason: "Initial CTC from In-house Recruitment",
+      revisionType: "initial",
+      category: CATEGORY_NEW_PROBATION,
+      scheme: SCHEME_NEW,
+      employee: {
+        date_of_birth: cand?.date_of_birth || null,
+        date_of_joining: cand?.actual_joining_date || wef,
+      },
+    });
+    if (!(Number(payload.ctc_monthly) > 0)) return;
+
+    const { error: attachError } = await supabase.rpc("admin_recruitment_attach_employee_ctc", {
+      p_employee_master_id: employeeMasterId,
+      p_payload: payload,
+    });
+    if (attachError) throw attachError;
+  } catch (err) {
+    // Employee is already created — CTC can be entered later in Admin Salary.
+    // eslint-disable-next-line no-console
+    console.warn("[recruitment] Could not save CTC on Employee Master:", err?.message || err);
+  }
+}
+
+export async function markJoined(candidateId, actualDate, remarks, version) {
+  const out = await call(
+    "admin_recruitment_mark_joined",
+    {
+      p_candidate_id: candidateId,
+      p_actual_date: actualDate,
+      p_remarks: remarks || null,
+      p_expected_version: version ?? null,
+    },
+    "Could not mark the candidate as joined."
+  );
+  if (out?.conversion) await saveConvertedEmployeeCtc(candidateId, out.conversion);
+  return out;
 }
 
 export function markJoiningNoShow(candidateId, reason, version) {
@@ -881,12 +976,14 @@ export function markJoiningNoShow(candidateId, reason, version) {
 }
 
 /** Returns { status: 'converted', employeeMasterId, employeeCode, ... } or { status: 'duplicate', matches }. */
-export function convertToEmployee(candidateId, { employeeCode, linkEmployeeId } = {}) {
-  return call(
+export async function convertToEmployee(candidateId, { employeeCode, linkEmployeeId } = {}) {
+  const out = await call(
     "admin_recruitment_convert_to_employee",
     { p_candidate_id: candidateId, p_employee_code: employeeCode || null, p_link_employee_id: linkEmployeeId || null },
     "Could not create the employee."
   );
+  await saveConvertedEmployeeCtc(candidateId, out);
+  return out;
 }
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
+  Calculator,
   CalendarPlus,
   ExternalLink,
   FilePlus2,
@@ -92,6 +93,8 @@ import {
   SendEmailModal,
   UploadModal,
 } from "./RecruitmentForms";
+import { Modal } from "../components/AdminUi";
+import CtcCalculator from "../salaryAdmin/CtcCalculator";
 
 const TABS = [
   { key: "overview", label: "Overview" },
@@ -113,7 +116,7 @@ export default function Candidate360Page() {
         <ArrowLeft className="h-3.5 w-3.5" /> All candidates
       </Link>
       <AsyncBoundary loading={loading} error={error} onRetry={reload} rows={6}>
-        {data ? <Workspace data={data} /> : null}
+        {data ? <Workspace data={data} onReload={reload} /> : null}
       </AsyncBoundary>
     </div>
   );
@@ -328,8 +331,12 @@ function NextStep({ data, caps, open }) {
   const { candidate: c, interviews, offers, appointments, screenings } = data;
   const offer = offers.find((o) => ["draft", "generated", "sent", "viewed", "accepted"].includes(o.status));
   const appt = appointments.find((a) => ["generated", "sent", "viewed", "signed"].includes(a.status));
-  const scheduled = interviews.find((i) => i.status === "scheduled");
-  const latest = interviews[0];
+  // Reschedule keeps the old row (status=rescheduled) with its original date. Interviews are
+  // ordered by scheduled_at, so that superseded row can sort above the new/attended one and
+  // block "Record evaluation" / further process — ignore cancelled & rescheduled here.
+  const liveInterviews = interviews.filter((i) => !["rescheduled", "cancelled"].includes(i.status));
+  const scheduled = liveInterviews.find((i) => i.status === "scheduled");
+  const latest = liveInterviews[0] || null;
   const passed = screenings.some((s) => s.kind === "screening" && s.result === "pass");
 
   let title = "";
@@ -477,7 +484,7 @@ function NextStep({ data, caps, open }) {
   );
 }
 
-function Workspace({ data }) {
+function Workspace({ data, onReload }) {
   const caps = useCapabilities();
   const { candidate: c, requisition, screenings, interviews, offers, appointments, documents, communications, activity } = data;
   const [tab, setTab] = useState("overview");
@@ -489,6 +496,31 @@ function Workspace({ data }) {
   };
   const close = () => setModal(null);
   const is = (name) => modal?.name === name;
+
+  const saveCandidateCtc = async ({ ctc }) => {
+    if (ctc == null || !Number.isFinite(Number(ctc)) || Number(ctc) <= 0) {
+      toast.error("Calculate a valid CTC before saving.");
+      return;
+    }
+    try {
+      await updateCandidate(c.id, { expectedCtc: Number(ctc) }, c.version);
+      const openOffer = (offers || []).find((o) =>
+        ["generated", "sent", "viewed", "accepted"].includes(o.status)
+      );
+      if (openOffer?.id) {
+        try {
+          await prepareOfferLetter(openOffer.id);
+        } catch {
+          /* letter can be regenerated before send */
+        }
+      }
+      toast.success("CTC saved", `Monthly CTC ₹${Number(ctc).toLocaleString("en-IN")} — used on offer Annexure A & appointment letters.`);
+      close();
+      await onReload?.();
+    } catch (err) {
+      toast.error("Could not save CTC", err?.message || "Please try again.");
+    }
+  };
 
   const tabs = TABS.map((t) => ({
     ...t,
@@ -533,6 +565,9 @@ function Workspace({ data }) {
                 <Mail className="h-3.5 w-3.5" /> Email
               </button>
             ) : null}
+            <button type="button" className={btn.secondary} onClick={() => open("ctc")}>
+              <Calculator className="h-3.5 w-3.5" /> CTC calculator
+            </button>
             <button type="button" className={btn.secondary} onClick={() => open("note")}>
               <MessageSquarePlus className="h-3.5 w-3.5" /> Note
             </button>
@@ -781,6 +816,14 @@ function Workspace({ data }) {
       <ResumeModal open={is("resume")} candidate={c} onClose={close} />
       <NoteModal open={is("note")} candidate={c} onClose={close} />
       <CloseCandidateModal open={is("close")} candidate={c} onClose={close} />
+      <Modal open={is("ctc")} title="CTC Calculator" onClose={close} widthClass="max-w-5xl">
+        <CtcCalculator
+          embedded
+          initialCtc={c.expectedSalary ?? ""}
+          saveLabel="Save CTC"
+          onSave={caps.candidates && c.stage !== "employee_created" ? saveCandidateCtc : null}
+        />
+      </Modal>
       <ReasonModal
         open={is("reopen")}
         title="Reopen candidate"

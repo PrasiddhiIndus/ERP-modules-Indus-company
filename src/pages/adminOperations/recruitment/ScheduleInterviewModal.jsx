@@ -183,11 +183,11 @@ export default function ScheduleInterviewModal({ open, candidate, candidates = [
             </select>
             {!requisitions.length ? (
               <p className="mt-1.5 text-[11px] text-ink-muted">
-                No approved openings yet. Approve a requisition in{" "}
+                No approved openings yet. Add a requisition in{" "}
                 <Link to={`${RECRUITMENT_BASE}/requisitions`} className="font-medium text-accent-deep underline" onClick={onClose}>
                   Requisitions
                 </Link>{" "}
-                first.
+                (approval is done in Indus One).
               </p>
             ) : (
               <p className="mt-1.5 text-[11px] text-ink-muted">This candidate is not linked to an opening yet — pick one to continue.</p>

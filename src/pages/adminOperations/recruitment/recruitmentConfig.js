@@ -139,7 +139,7 @@ export const DOCUMENT_STATUSES = [
 export const REQUISITION_STATUSES = [
   { key: "draft", label: "Draft", tone: "neutral" },
   { key: "submitted", label: "Submitted", tone: "info" },
-  { key: "pending_approval", label: "Pending Approval", tone: "warning" },
+  { key: "pending_approval", label: "Pending L1 Approval", tone: "warning" },
   { key: "approved", label: "Approved", tone: "info" },
   { key: "rejected", label: "Rejected", tone: "critical" },
   { key: "open", label: "Open", tone: "accent" },

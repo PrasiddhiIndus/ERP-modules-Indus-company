@@ -10,6 +10,13 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { promisify } from 'util';
 import PizZip from 'pizzip';
+import {
+  calculateCtc,
+  roundRupee,
+  SEED_RULES_2026_27,
+  SKILL_SKILLED,
+  STATUS_PROBATION,
+} from '../src/pages/adminOperations/salaryAdmin/ctcEngine.js';
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -245,7 +252,100 @@ function splitAddress(candidate) {
   };
 }
 
-function offerPlaceholders(offer, candidate, companyName) {
+/** Monthly CTC saved on the candidate (recruitment CTC calculator), else offer annual/12. */
+function resolveMonthlyCtc(offer, candidate) {
+  const fromCand = Number(candidate?.expected_ctc);
+  if (Number.isFinite(fromCand) && fromCand > 0) return fromCand;
+  const fromAnnual = Number(offer?.annual_ctc);
+  if (Number.isFinite(fromAnnual) && fromAnnual > 0) return fromAnnual / 12;
+  const fromGross = Number(offer?.monthly_gross);
+  if (Number.isFinite(fromGross) && fromGross > 0) return fromGross;
+  return null;
+}
+
+function formatWefShort(value) {
+  const d = parseIsoDate(value) || parseIsoDate(todayIsoIst());
+  if (!d) return '';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${dd}.${mm}.${yy}`;
+}
+
+function schemeYearLabel(value) {
+  const d = parseIsoDate(value) || parseIsoDate(todayIsoIst());
+  if (!d) return '2026-27';
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1;
+  if (m >= 4) return `${y}-${String(y + 1).slice(-2)}`;
+  return `${y - 1}-${String(y).slice(-2)}`;
+}
+
+function annexureAmount(value) {
+  const n = roundRupee(Number(value) || 0);
+  return n > 0 ? String(n) : '';
+}
+
+function annexurePlaceholdersFromBreakup(breakup, wefIso) {
+  if (!breakup) return {};
+  const m = (key) => Number(breakup[key]) || 0;
+  const pa = (key) => roundRupee(m(key) * 12);
+  return {
+    '{{SCHEME_YEAR}}': schemeYearLabel(wefIso),
+    '{{WEF_SHORT}}': formatWefShort(wefIso),
+    '{{BASIC_M}}': annexureAmount(m('basic')),
+    '{{BASIC_PA}}': annexureAmount(pa('basic')),
+    '{{HRA_M}}': annexureAmount(m('hra')),
+    '{{HRA_PA}}': annexureAmount(pa('hra')),
+    '{{CONVEYANCE_M}}': annexureAmount(m('conveyance')),
+    '{{CONVEYANCE_PA}}': annexureAmount(pa('conveyance')),
+    '{{BONUS_M}}': annexureAmount(m('bonus')),
+    '{{BONUS_PA}}': annexureAmount(pa('bonus')),
+    '{{MEDICAL_M}}': annexureAmount(m('medical')),
+    '{{MEDICAL_PA}}': annexureAmount(pa('medical')),
+    '{{GROSS_M}}': annexureAmount(m('gross')),
+    '{{GROSS_PA}}': annexureAmount(pa('gross')),
+    '{{EE_PF_M}}': annexureAmount(m('ee_pf')),
+    '{{EE_PF_PA}}': annexureAmount(pa('ee_pf')),
+    '{{PT_M}}': annexureAmount(m('pt')),
+    '{{PT_PA}}': annexureAmount(pa('pt')),
+    '{{EE_ESIC_M}}': annexureAmount(m('ee_esic')),
+    '{{EE_ESIC_PA}}': annexureAmount(pa('ee_esic')),
+    '{{TAKE_HOME_M}}': annexureAmount(m('take_home')),
+    '{{TAKE_HOME_PA}}': annexureAmount(pa('take_home')),
+    '{{ER_PF_M}}': annexureAmount(m('er_pf')),
+    '{{ER_PF_PA}}': annexureAmount(pa('er_pf')),
+    '{{ER_ESIC_M}}': annexureAmount(m('er_esic')),
+    '{{ER_ESIC_PA}}': annexureAmount(pa('er_esic') || m('mediclaim') * 12),
+    '{{GRATUITY_M}}': annexureAmount(m('gratuity')),
+    '{{GRATUITY_PA}}': annexureAmount(pa('gratuity')),
+    '{{EX_GRATIA_M}}': annexureAmount(m('ex_gratia')),
+    '{{EX_GRATIA_PA}}': annexureAmount(pa('ex_gratia')),
+    '{{TOTAL_B_M}}': annexureAmount(m('total_b')),
+    '{{TOTAL_B_PA}}': annexureAmount(pa('total_b')),
+    '{{CTC_M}}': annexureAmount(m('ctc')),
+    '{{CTC_PA}}': annexureAmount(pa('ctc')),
+  };
+}
+
+function buildOfferAnnexurePlaceholders(offer, candidate, rules = SEED_RULES_2026_27) {
+  const monthlyCtc = resolveMonthlyCtc(offer, candidate);
+  if (!monthlyCtc) return {};
+  try {
+    const breakup = calculateCtc(rules, {
+      skill: SKILL_SKILLED,
+      status: STATUS_PROBATION,
+      monthlyCtc,
+    });
+    return annexurePlaceholdersFromBreakup(breakup, offer?.joining_date || todayIsoIst());
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[admin-recruitment] CTC annexure calc skipped:', err?.message || err);
+    return {};
+  }
+}
+
+function offerPlaceholders(offer, candidate, companyName, { rules } = {}) {
   const company = companyName || 'INDUS FIRE SAFETY PVT LTD';
   const offerDate = todayIsoIst();
   const designation = String(offer?.designation || '').trim() || '—';
@@ -254,6 +354,7 @@ function offerPlaceholders(offer, candidate, companyName) {
     '{{OFFER_DATE}}': formatLetterDate(offerDate, { shortMonth: true, doubleSpace: true }),
     '{{CANDIDATE_NAME}}': String(candidate?.full_name || 'Candidate').trim(),
     '{{DESIGNATION}}': deptClause ? `${designation} ` : designation,
+    '{{DESIGNATION_PLAIN}}': designation,
     '{{DEPARTMENT_CLAUSE}}': deptClause,
     '{{COMPANY_NAME}}': company,
     '{{JOINING_DATE_LONG}}': formatLetterDate(offer?.joining_date),
@@ -262,7 +363,26 @@ function offerPlaceholders(offer, candidate, companyName) {
       shortMonth: true,
     }),
     '{{JOINING_DATE_SHORT}}': formatLetterDateAbbrev(offer?.joining_date),
+    ...buildOfferAnnexurePlaceholders(offer, candidate, rules || SEED_RULES_2026_27),
   };
+}
+
+function formatDobShort(value) {
+  const d = parseIsoDate(value);
+  if (!d) return '';
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = d.toLocaleDateString('en-GB', { month: 'short' }).replace(/\.$/, '');
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${day}-${month}-${yy}`;
+}
+
+function formatDojShort(value) {
+  const d = parseIsoDate(value);
+  if (!d) return '';
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = d.toLocaleDateString('en-GB', { month: 'short' }).replace(/\.$/, '');
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${day}-${month}-${yy}`;
 }
 
 function appointmentPlaceholders(appt, offer, candidate, companyName) {
@@ -270,8 +390,18 @@ function appointmentPlaceholders(appt, offer, candidate, companyName) {
   const name = String(candidate?.full_name || '').trim();
   const address = splitAddress(candidate);
   const joining = appt?.joining_date;
-  const annual = offer?.annual_ctc ?? appt?.annual_ctc;
+  const monthlyCtc = resolveMonthlyCtc(offer, candidate);
+  const annual =
+    monthlyCtc != null
+      ? monthlyCtc * 12
+      : offer?.annual_ctc ?? appt?.annual_ctc;
   const letterDate = todayIsoIst();
+  const axLocation =
+    [candidate?.current_location, candidate?.home_town].filter(Boolean).join(',') ||
+    String(appt?.location || '')
+      .replace(/^the\s+/i, '')
+      .trim() ||
+    'Dashrath,Vadodara';
   return {
     '{{APPOINTMENT_REF}}': String(appt?.appointment_ref || '').trim(),
     '{{LETTER_DATE}}': formatLetterDateDots(letterDate),
@@ -282,11 +412,26 @@ function appointmentPlaceholders(appt, offer, candidate, companyName) {
     '{{FIRST_NAME}}': firstName(name),
     '{{DESIGNATION}}': String(appt?.designation || offer?.designation || '').trim() || '—',
     '{{COMPANY_NAME}}': company,
+    '{{COMPANY_NAME_FULL}}': String(company || '')
+      .replace(/\bPvt\.?\s*Ltd\.?/gi, 'Private Limited')
+      .replace(/\bLtd\.?/gi, 'Limited')
+      .replace(/\s+/g, ' ')
+      .trim() || 'Indus Fire Safety Private Limited',
     '{{JOINING_DATE_LONG}}': formatLetterDate(joining),
     '{{LOCATION}}': String(appt?.location || '').trim() || 'the Head Office, Vadodara',
     '{{REPORTING_TO}}': String(appt?.reporting_to || '').trim() || 'HR Manager',
     '{{ANNUAL_CTC}}': formatInrAmount(annual),
     '{{CANDIDATE_NAME}}': name || 'Candidate',
+    '{{AX_LOCATION}}': axLocation,
+    '{{EMPLOYEE_CODE}}': String(candidate?.employee_code || appt?.employee_code || '').trim(),
+    '{{DEPARTMENT}}': String(appt?.department || offer?.department || '').trim() || '—',
+    '{{SEGMENT}}': String(appt?.segment || 'IFSPL, HO').trim(),
+    '{{DOB}}': formatDobShort(candidate?.date_of_birth || candidate?.dob),
+    '{{DOJ_SHORT}}': formatDojShort(joining),
+    ...buildOfferAnnexurePlaceholders(
+      { ...(offer || {}), joining_date: joining || offer?.joining_date },
+      candidate
+    ),
   };
 }
 

@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, Download, Pencil, Plus, Send, Users, X } from "lucide-react";
+import { Check, Download, Pencil, Plus, Users } from "lucide-react";
 import { Drawer } from "../components/AdminUi";
 import { toast } from "../../../lib/toast";
 import { ACTIVITY_TYPES, REQUISITION_STATUSES, requisitionStatusMeta } from "./recruitmentConfig";
-import { decideRequisition, getRequisitionHistory, listRequisitions, saveRequisition, submitRequisition, transitionRequisition } from "./recruitmentService";
+import { getRequisitionHistory, listRequisitions, saveRequisition, transitionRequisition } from "./recruitmentService";
 import { downloadRequisitionFormPdf } from "./requisitionFormPdf";
 import {
   ActionModal,
@@ -83,7 +83,7 @@ function RequisitionForm({ open, requisition, onClose, onSaved }) {
       title={requisition ? `Edit ${requisition.requisitionNo}` : "New requisition"}
       onClose={onClose}
       widthClass="max-w-2xl"
-      submitLabel="Save draft"
+      submitLabel="Save"
       canSubmit={form.designation.trim() && Number(form.openings) > 0}
       onSubmit={async () => {
         const saved = await saveRequisition(
@@ -95,7 +95,7 @@ function RequisitionForm({ open, requisition, onClose, onSaved }) {
           },
           requisition?.version
         );
-        toast.success("Requisition saved", "Submit it for approval when ready.");
+        toast.success("Requisition saved", "Ready for recruitment — approval is handled in Indus One.");
         onSaved(saved);
       }}
     >
@@ -225,8 +225,6 @@ export default function RequisitionsPage() {
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState(null);
   const [reasonAction, setReasonAction] = useState(null);
-  const [approveOpen, setApproveOpen] = useState(false);
-  const [approveRemarks, setApproveRemarks] = useState("");
 
   const rows = data || [];
   const selected = rows.find((r) => r.id === selectedId) || null;
@@ -280,9 +278,6 @@ export default function RequisitionsPage() {
           {r.decidedBy && r.status === "rejected" ? (
             <span className="text-[10px] text-ink-secondary">Rejected by {r.decidedBy}</span>
           ) : null}
-          {r.status === "pending_approval" && r.approvalLevelsRequired > 1 ? (
-            <span className="text-[10px] text-ink-muted">Level {r.approvalLevelDone + 1} of {r.approvalLevelsRequired}</span>
-          ) : null}
         </span>
       ),
     },
@@ -297,11 +292,8 @@ export default function RequisitionsPage() {
   const canManage = caps.requisitions;
   const s = selected?.status;
   const isErpRecord = selected?.source !== "indus_one";
-  /** Indus One requests are L1-approved already — no HR approve/reject step. */
-  const needsHrApproval = isErpRecord && s === "pending_approval";
 
   const REASON_ACTIONS = {
-    reject: { title: "Reject requisition", label: "Reason for rejection", submitLabel: "Reject", run: (r, reason) => decideRequisition(r.id, "reject", reason, r.version), done: "Requisition rejected" },
     cancel: { title: "Cancel requisition", label: "Reason", submitLabel: "Cancel requisition", run: (r, reason) => transitionRequisition(r.id, "cancel", reason, r.version), done: "Requisition cancelled" },
     reopen: { title: "Reopen requisition", label: "Reason", submitLabel: "Reopen", tone: "primary", run: (r, reason) => transitionRequisition(r.id, "reopen", reason, r.version), done: "Requisition reopened" },
   };
@@ -368,7 +360,6 @@ export default function RequisitionsPage() {
                 ["Position detail", selected.employmentType],
                 ["Required locality", selected.location],
                 ["Positions", `${selected.filled} of ${selected.positions} filled`],
-                ["Approvals", `${selected.approvalLevelDone} of ${selected.approvalLevelsRequired}`],
               ].filter(Boolean)}
             />
             {selected.skills ? (
@@ -397,36 +388,10 @@ export default function RequisitionsPage() {
               <button type="button" className={btn.secondary} onClick={() => navigate(`../candidates?requisition=${selected.id}`)}>
                 <Users className="h-3.5 w-3.5" /> Candidates ({selected.candidateCount})
               </button>
-              {canManage && isErpRecord && ["draft", "rejected"].includes(s) ? (
-                <>
-                  <button type="button" className={btn.secondary} onClick={() => setForm({ requisition: selected })}>
-                    <Pencil className="h-3.5 w-3.5" /> Edit
-                  </button>
-                  <button
-                    type="button"
-                    className={btn.primary}
-                    onClick={() => runAction(() => submitRequisition(selected.id, selected.version), "Sent for approval")}
-                  >
-                    <Send className="h-3.5 w-3.5" /> Submit for approval
-                  </button>
-                </>
-              ) : null}
-              {caps.approve && needsHrApproval ? (
-                <>
-                  <button
-                    type="button"
-                    className={btn.primary}
-                    onClick={() => {
-                      setApproveRemarks("");
-                      setApproveOpen(true);
-                    }}
-                  >
-                    <Check className="h-3.5 w-3.5" /> Approve
-                  </button>
-                  <button type="button" className={btn.secondary} onClick={() => setReasonAction("reject")}>
-                    <X className="h-3.5 w-3.5" /> Reject
-                  </button>
-                </>
+              {canManage && isErpRecord && ["draft", "rejected", "submitted", "pending_approval", "approved"].includes(s) ? (
+                <button type="button" className={btn.secondary} onClick={() => setForm({ requisition: selected })}>
+                  <Pencil className="h-3.5 w-3.5" /> Edit
+                </button>
               ) : null}
               {canManage && s === "approved" ? (
                 <button type="button" className={btn.primary} onClick={() => runAction(() => transitionRequisition(selected.id, "open", null, selected.version), "Opened for recruitment")}>
@@ -451,12 +416,18 @@ export default function RequisitionsPage() {
             </div>
             {selected.source === "indus_one" ? (
               <p className="text-[11px] text-ink-muted">
-                Raised in Indus One and approved by L1 — ready for recruitment (no HR approval). Details are edited in Indus One.
+                {selected.status === "pending_approval"
+                  ? "Raised in Indus One — waiting for L1 approval. Details are edited in Indus One."
+                  : "Raised in Indus One and approved there — ready for recruitment. Details are edited in Indus One."}
               </p>
-            ) : null}
+            ) : (
+              <p className="text-[11px] text-ink-muted">
+                ERP does not run requisition approval. Use Indus One for approval; add or edit openings here when they are ready for recruitment.
+              </p>
+            )}
 
             <div className="border-t border-divider pt-4">
-              <p className="mb-2 text-xs font-semibold text-ink">Approval history</p>
+              <p className="mb-2 text-xs font-semibold text-ink">History</p>
               <ApprovalHistory requisitionId={selected.id} version={selected.version} />
             </div>
           </div>
@@ -470,29 +441,9 @@ export default function RequisitionsPage() {
         onSaved={(saved) => {
           setForm(null);
           if (saved?.id) setSelectedId(saved.id);
+          reload({ silent: true });
         }}
       />
-
-      <ActionModal
-        open={approveOpen && Boolean(selected)}
-        title={`Approve ${selected?.requisitionNo || ""}`}
-        description={
-          selected && selected.approvalLevelsRequired > 1
-            ? `This records approval level ${selected.approvalLevelDone + 1} of ${selected.approvalLevelsRequired}.`
-            : "Recruiting can start once the requisition is approved."
-        }
-        submitLabel="Approve"
-        onClose={() => setApproveOpen(false)}
-        onSubmit={async () => {
-          await decideRequisition(selected.id, "approve", approveRemarks.trim(), selected.version);
-          toast.success("Approval recorded");
-          setApproveOpen(false);
-        }}
-      >
-        <Field label="Remarks">
-          <textarea className={textareaClass} value={approveRemarks} onChange={(e) => setApproveRemarks(e.target.value)} />
-        </Field>
-      </ActionModal>
 
       <ReasonModal
         open={Boolean(ra) && Boolean(selected)}
