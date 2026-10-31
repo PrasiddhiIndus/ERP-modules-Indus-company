@@ -166,7 +166,6 @@ function DocumentTypes({ types }) {
 const NUMBER_FIELDS = [
   ["offerValidityDays", "Offer validity (days)", 1, 90],
   ["portalLinkDays", "Candidate link validity (days)", 1, 60],
-  ["approvalLevels", "Requisition approval levels", 1, 3],
   ["interviewReminderHours", "Interview reminder (hours before)", 1, 168],
   ["offerReminderDays", "Offer reminder every (days)", 1, 30],
   ["documentReminderDays", "Document reminder every (days)", 1, 30],

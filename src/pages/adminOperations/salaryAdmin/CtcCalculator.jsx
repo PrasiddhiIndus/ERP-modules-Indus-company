@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Eraser, RefreshCw } from "lucide-react";
+import { Eraser, RefreshCw, Save } from "lucide-react";
 import {
   CollapsibleHelp,
   KpiTile,
@@ -178,15 +178,34 @@ function AnnexureBreakupTable({ groups, change }) {
 }
 
 /**
- * Salary Admin · CTC Calculator — same Compensation Scheme math as Employee Master CTC,
- * estimation only (nothing is saved).
+ * Salary Admin · CTC Calculator — same Compensation Scheme math as Employee Master CTC.
+ * Standalone page: estimation only. Pass `onSave` (e.g. In-house Recruitment candidate) to persist.
+ *
+ * @param {{
+ *   embedded?: boolean,
+ *   initialCtc?: string|number|null,
+ *   initialGross?: string|number|null,
+ *   onSave?: (result: { gross: number, ctc: number, takeHome: number, display: object }) => void|Promise<void>,
+ *   saveLabel?: string,
+ * }} [props]
  */
-export default function CtcCalculator() {
-  const [form, setForm] = useState(emptyForm);
+export default function CtcCalculator({
+  embedded = false,
+  initialCtc = "",
+  initialGross = "",
+  onSave = null,
+  saveLabel = "Save CTC",
+} = {}) {
+  const [form, setForm] = useState(() => ({
+    ...emptyForm(),
+    ctc: initialCtc != null && initialCtc !== "" ? String(initialCtc) : "",
+    gross: initialGross != null && initialGross !== "" ? String(initialGross) : "",
+  }));
   const [ruleVersions, setRuleVersions] = useState([]);
   const [rulesLoading, setRulesLoading] = useState(true);
   const [rulesError, setRulesError] = useState("");
   const [usingSeed, setUsingSeed] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -217,6 +236,15 @@ export default function CtcCalculator() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!embedded) return;
+    setForm((f) => ({
+      ...f,
+      ctc: initialCtc != null && initialCtc !== "" ? String(initialCtc) : f.ctc,
+      gross: initialGross != null && initialGross !== "" ? String(initialGross) : f.gross,
+    }));
+  }, [embedded, initialCtc, initialGross]);
 
   const setField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -306,15 +334,51 @@ export default function CtcCalculator() {
     ? { title: "Change", values: calc.confirmation.change }
     : null;
 
-  const reset = () => setForm(emptyForm());
+  const reset = () =>
+    setForm({
+      ...emptyForm(),
+      ctc: initialCtc != null && initialCtc !== "" ? String(initialCtc) : "",
+      gross: initialGross != null && initialGross !== "" ? String(initialGross) : "",
+    });
   const clearAmounts = () => setForm((f) => ({ ...f, ctc: "", gross: "" }));
+
+  const canSave = Boolean(onSave) && Boolean(display) && !calc.error && !saving;
+
+  const handleSave = async () => {
+    if (!canSave || !display) return;
+    setSaving(true);
+    try {
+      await onSave({
+        gross: roundRupee(display.gross),
+        ctc: roundRupee(display.ctc),
+        takeHome: roundRupee(display.take_home),
+        display,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const headerSubtitle = embedded
+    ? onSave
+      ? "Same Compensation Scheme rules as Admin Salary. Save stores the calculated monthly CTC on this candidate."
+      : "Same Compensation Scheme rules as Admin Salary (estimate only for this login)."
+    : "Estimate Compensation Scheme breakup from Monthly CTC or Gross. Same rules as Employee Master CTC details — nothing is saved.";
 
   return (
     <div className="space-y-4">
-      <PageTaskHeader
-        title="CTC Calculator"
-        subtitle="Estimate Compensation Scheme breakup from Monthly CTC or Gross. Same rules as Employee Master CTC details — nothing is saved."
-      >
+      <PageTaskHeader title="CTC Calculator" subtitle={headerSubtitle}>
+        {onSave ? (
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={!canSave}
+            className="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-medium rounded-lg border border-accent-border bg-accent text-white hover:bg-accent disabled:opacity-50 disabled:pointer-events-none"
+          >
+            <Save className="w-3.5 h-3.5" />
+            {saving ? "Saving…" : saveLabel}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={clearAmounts}
@@ -343,7 +407,14 @@ export default function CtcCalculator() {
           <li>
             Breakup shows Basic, HRA, allowances, deductions, Part B and CTC — monthly and per annum.
           </li>
-          <li>This page never saves to an employee record. Use Employee Master → CTC details to store.</li>
+          {embedded && onSave ? (
+            <li>
+              <strong>Save CTC</strong> writes the calculated monthly CTC to this candidate&apos;s expected
+              salary (used when preparing the offer).
+            </li>
+          ) : (
+            <li>This page never saves to an employee record. Use Employee Master → CTC details to store.</li>
+          )}
         </ul>
       </CollapsibleHelp>
 
