@@ -43,7 +43,9 @@ try {
   Replace-All "5th Nov 2026" "{{JOINING_DATE_SHORT}}"
   # Acceptance request + join-on date (filled at generate from joining_date).
   Replace-All "Please confirm your acceptance by signing and returning a copy of this letter on or before 7th Nov 2026. This offer will lapse if your acceptance is not received on or before 7th Nov 2026, or if you fail to join on the agreed date (5th Nov 2026)." "You are requested to accept or decline this offer within 24 hours from the date and time of issuance"
-  Replace-All "I accept the above offer and confirm that I will join on [DD/MM/YYYY]" "I accept the above offer and confirm that I will join on {{JOINING_DATE_DDMMYYYY}}"
+  Replace-All "I accept the above offer and confirm that I will join on [DD/MM/YYYY]" "I accept the offer and confirm that I will join on {{JOINING_DATE_DDMMYYYY}}"
+  Replace-All "I accept the above offer and confirm that I will join on {{JOINING_DATE_DDMMYYYY}}" "I accept the offer and confirm that I will join on {{JOINING_DATE_DDMMYYYY}}"
+  Replace-All "I accept the above and confirm that I will join on {{JOINING_DATE_DDMMYYYY}}" "I accept the offer and confirm that I will join on {{JOINING_DATE_DDMMYYYY}}"
   Replace-All "indus HO" "{{LOCATION}}"
   Replace-All "COMPENSATION SCHEME-Year 2026-27" "COMPENSATION SCHEME-Year {{SCHEME_YEAR}}"
   Replace-All "w.e.f. 05.11.26" "w.e.f. {{WEF_SHORT}}"

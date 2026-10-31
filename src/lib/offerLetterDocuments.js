@@ -250,7 +250,7 @@ export function openOfferLetterPrintPreview(offer) {
   <p>Yours sincerely,</p>
   <p><strong>Shilpa Thakur</strong><br/>Manager - Human Resources<br/>${escapeXmlText(p["{{COMPANY_NAME}}"])}</p>
   <div class="accept">
-    <p><strong>I accept the above offer and confirm that I will join on ${escapeXmlText(p["{{JOINING_DATE_DDMMYYYY}}"] || "[DD/MM/YYYY]")}</strong></p>
+    <p><strong>I accept the offer and confirm that I will join on ${escapeXmlText(p["{{JOINING_DATE_DDMMYYYY}}"] || "[DD/MM/YYYY]")}</strong></p>
     <p>Name: ____________________</p>
     <p>Signature: ____________________</p>
     <p>Date: ____________</p>
