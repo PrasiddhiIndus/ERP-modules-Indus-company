@@ -124,6 +124,19 @@ try {
   $null = Set-AnnexureAmountRow "Less : Employee ESIC" "{{EE_ESIC_M}}" "{{EE_ESIC_PA}}" $true
   $null = Set-AnnexureAmountRow "ADD:Employer ESIC" "{{ER_ESIC_M}}" "{{ER_ESIC_PA}}" $true
 
+  # Candidate name before Annexure - I used many default tabs to fake centering.
+  # LibreOffice tab stops differ (x-axis drift). Center + page-break that line instead.
+  for ($i = 1; $i -le $doc.Paragraphs.Count; $i++) {
+    $p = $doc.Paragraphs.Item($i)
+    $t = ($p.Range.Text -replace '[\r\n\x07]', '').Trim()
+    if ($t -eq "{{CANDIDATE_NAME}}") {
+      $p.Range.Text = "{{CANDIDATE_NAME}}`r"
+      $p.Format.Alignment = 1 # wdAlignParagraphCenter
+      $p.Format.PageBreakBefore = $true
+      break
+    }
+  }
+
   # Keep "Annexure II" with the compensation table (not orphaned at end of prior page).
   # Only force a page break when Annexure is mid-page — sample already starts it near the top.
   for ($i = 1; $i -le $doc.Paragraphs.Count; $i++) {
