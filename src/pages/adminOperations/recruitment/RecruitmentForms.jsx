@@ -349,7 +349,12 @@ export function OfferModal({ open, candidate, offer, onClose }) {
       department: offer?.department || candidate?.department || "",
       location: offer?.location || candidate?.site || "",
       employmentType: offer?.employmentType || "Permanent",
-      monthlyGross: offer?.monthlyGross ?? "",
+      // Prefill from the salary captured in recruitment (expected / negotiated), not CTC/payroll.
+      monthlyGross:
+        offer?.monthlyGross ??
+        candidate?.expectedSalary ??
+        candidate?.expectedCtc ??
+        "",
       joiningDate: offer?.joiningDate || candidate?.expectedJoining || "",
       terms: offer?.terms || "",
     });
@@ -392,7 +397,7 @@ export function OfferModal({ open, candidate, offer, onClose }) {
             ))}
           </select>
         </Field>
-        <Field label="Monthly gross (₹)">
+        <Field label="Offered salary / month (₹)">
           <input type="number" min={0} className={inputClass} value={form.monthlyGross ?? ""} onChange={set("monthlyGross")} />
         </Field>
         <Field label="Proposed joining date">

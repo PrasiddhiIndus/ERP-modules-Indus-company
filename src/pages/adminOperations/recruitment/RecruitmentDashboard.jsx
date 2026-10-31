@@ -40,11 +40,7 @@ function DashboardBody({ data, navigate }) {
         <StatTile
           label="Open requisitions"
           value={data.openRequisitions}
-          sub={
-            data.pendingRequisitions > 0
-              ? `${data.pendingRequisitions} ERP draft awaiting approval`
-              : "L1-approved Indus One requests show as approved"
-          }
+          sub="Approved in Indus One · ready to recruit"
           icon={ClipboardList}
           tone="info"
           onClick={() => navigate("requisitions")}
