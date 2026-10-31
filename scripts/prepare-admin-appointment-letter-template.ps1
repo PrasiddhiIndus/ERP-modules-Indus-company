@@ -124,16 +124,19 @@ try {
   $null = Set-AnnexureAmountRow "Less : Employee ESIC" "{{EE_ESIC_M}}" "{{EE_ESIC_PA}}" $true
   $null = Set-AnnexureAmountRow "ADD:Employer ESIC" "{{ER_ESIC_M}}" "{{ER_ESIC_PA}}" $true
 
-  # Candidate name before Annexure - I used many default tabs to fake centering.
-  # LibreOffice tab stops differ (x-axis drift). Center + page-break that line instead.
+  # Candidate name stays on the signature page (Word sample). Center it; do NOT page-break it.
+  # Page-break Annexure - I so Code of Conduct starts the next page.
   for ($i = 1; $i -le $doc.Paragraphs.Count; $i++) {
     $p = $doc.Paragraphs.Item($i)
     $t = ($p.Range.Text -replace '[\r\n\x07]', '').Trim()
     if ($t -eq "{{CANDIDATE_NAME}}") {
       $p.Range.Text = "{{CANDIDATE_NAME}}`r"
       $p.Format.Alignment = 1 # wdAlignParagraphCenter
+      $p.Format.PageBreakBefore = $false
+    }
+    if ($t -eq "Annexure - I") {
       $p.Format.PageBreakBefore = $true
-      break
+      $p.Format.KeepWithNext = $true
     }
   }
 
