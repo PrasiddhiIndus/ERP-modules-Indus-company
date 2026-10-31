@@ -74,49 +74,28 @@ try {
   # PT monthly appears twice in sample text dump (value + possible duplicate) — replace once carefully
   Replace-Once "200" "{{PT_M}}"
 
-  # Empty Part-A lines that may be blank or 0 in the sample
-  $labelsNeedEmpty = @(
-    @{ Label = "Conveyance Allowance"; M = "{{CONVEYANCE_M}}"; PA = "{{CONVEYANCE_PA}}" },
-    @{ Label = "Advance Against Statutory Bonus"; M = "{{BONUS_M}}"; PA = "{{BONUS_PA}}" },
-    @{ Label = "Medical Allowance"; M = "{{MEDICAL_M}}"; PA = "{{MEDICAL_PA}}" }
-  )
-  foreach ($item in $labelsNeedEmpty) {
-    $after = $false
-    $hits = 0
-    for ($i = 1; $i -le $doc.Paragraphs.Count; $i++) {
-      $t = ($doc.Paragraphs.Item($i).Range.Text -replace '[\r\n\x07]', '').Trim()
-      if ($t -eq $item.Label) { $after = $true; $hits = 0; continue }
-      if (-not $after) { continue }
-      if ($t -eq "" -or $t -eq "0" -or $t -eq [char]0xA0.ToString()) {
-        $hits++
-        if ($hits -eq 1) { $doc.Paragraphs.Item($i).Range.Text = "$($item.M)`r" }
-        elseif ($hits -eq 2) { $doc.Paragraphs.Item($i).Range.Text = "$($item.PA)`r"; break }
-      } elseif ($t) {
-        break
+  # Blank annexure amount cells: set table cells directly (never Paragraph.Text + `r —
+  # that packed M+PA into one cell and left extras, inflating row height).
+  function Set-AnnexureAmountRow([string]$label, [string]$mTok, [string]$paTok, [bool]$startsWith = $false) {
+    foreach ($tbl in $doc.Tables) {
+      for ($r = 1; $r -le $tbl.Rows.Count; $r++) {
+        if ($tbl.Rows.Item($r).Cells.Count -lt 3) { continue }
+        $labelText = ($tbl.Cell($r, 1).Range.Text -replace '[\r\n\x07]', '').Trim()
+        $match = if ($startsWith) { $labelText.StartsWith($label) } else { $labelText -eq $label }
+        if (-not $match) { continue }
+        $tbl.Cell($r, 2).Range.Text = "$mTok"
+        $tbl.Cell($r, 3).Range.Text = "$paTok"
+        return $true
       }
     }
+    return $false
   }
 
-  # Employee / Employer ESIC blank cells
-  foreach ($pair in @(
-    @{ Label = "Less : Employee ESIC"; M = "{{EE_ESIC_M}}"; PA = "{{EE_ESIC_PA}}" },
-    @{ Label = "ADD:Employer ESIC"; M = "{{ER_ESIC_M}}"; PA = "{{ER_ESIC_PA}}" }
-  )) {
-    $after = $false
-    $hits = 0
-    for ($i = 1; $i -le $doc.Paragraphs.Count; $i++) {
-      $t = ($doc.Paragraphs.Item($i).Range.Text -replace '[\r\n\x07]', '').Trim()
-      if ($t.StartsWith($pair.Label)) { $after = $true; $hits = 0; continue }
-      if (-not $after) { continue }
-      if ($t -eq "" -or $t -eq "0" -or $t -eq [char]0xA0.ToString() -or $t -eq [string]([char]0x00A0)) {
-        $hits++
-        if ($hits -eq 1) { $doc.Paragraphs.Item($i).Range.Text = "$($pair.M)`r" }
-        elseif ($hits -eq 2) { $doc.Paragraphs.Item($i).Range.Text = "$($pair.PA)`r"; break }
-      } elseif ($t) {
-        break
-      }
-    }
-  }
+  $null = Set-AnnexureAmountRow "Conveyance Allowance" "{{CONVEYANCE_M}}" "{{CONVEYANCE_PA}}"
+  $null = Set-AnnexureAmountRow "Advance Against Statutory Bonus" "{{BONUS_M}}" "{{BONUS_PA}}"
+  $null = Set-AnnexureAmountRow "Medical Allowance" "{{MEDICAL_M}}" "{{MEDICAL_PA}}"
+  $null = Set-AnnexureAmountRow "Less : Employee ESIC" "{{EE_ESIC_M}}" "{{EE_ESIC_PA}}" $true
+  $null = Set-AnnexureAmountRow "ADD:Employer ESIC" "{{ER_ESIC_M}}" "{{ER_ESIC_PA}}" $true
 
   # Remove blank lines between acceptance block and Annexure A, then start annexure
   # on a fresh page (avoids large white gap at end of page 1 / top of page 2).

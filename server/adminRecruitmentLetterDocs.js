@@ -436,6 +436,71 @@ function appointmentPlaceholders(appt, offer, candidate, companyName) {
 }
 
 /**
+ * Annexure CTC rows must be Label | Monthly | P.A. with one paragraph per cell.
+ * A bad prepare pass put M+PA into the monthly cell (and left empties), which
+ * inflated row height and pushed later line items onto the next page.
+ */
+function fixAnnexureAmountCells(xml) {
+  let out = String(xml || '');
+  const pairs = [
+    ['{{CONVEYANCE_M}}', '{{CONVEYANCE_PA}}'],
+    ['{{BONUS_M}}', '{{BONUS_PA}}'],
+    ['{{MEDICAL_M}}', '{{MEDICAL_PA}}'],
+    ['{{EE_ESIC_M}}', '{{EE_ESIC_PA}}'],
+    ['{{ER_ESIC_M}}', '{{ER_ESIC_PA}}'],
+  ];
+
+  for (const [mTok, paTok] of pairs) {
+    let searchFrom = 0;
+    while (true) {
+      const mIdx = out.indexOf(mTok, searchFrom);
+      if (mIdx < 0) break;
+      const trStart = out.lastIndexOf('<w:tr ', mIdx);
+      const trEnd = out.indexOf('</w:tr>', mIdx);
+      if (trStart < 0 || trEnd < 0) {
+        searchFrom = mIdx + mTok.length;
+        continue;
+      }
+      const row = out.slice(trStart, trEnd + 7);
+      const cells = [];
+      const cellRe = /<w:tc[\s>][\s\S]*?<\/w:tc>/g;
+      let cm;
+      while ((cm = cellRe.exec(row))) cells.push(cm[0]);
+      if (cells.length < 3) {
+        searchFrom = trEnd + 7;
+        continue;
+      }
+
+      const paraCount = (row.match(/<w:p\b/g) || []).length;
+      const healthy =
+        paraCount <= 3 && cells[1].includes(mTok) && cells[2].includes(paTok) && !cells[1].includes(paTok);
+      if (healthy) {
+        searchFrom = trEnd + 7;
+        continue;
+      }
+
+      const pPrMatch = cells[1].match(/<w:pPr>[\s\S]*?<\/w:pPr>/);
+      const rPrInner = cells[1].match(/<w:rPr>[\s\S]*?<\/w:rPr>/);
+      const pPr =
+        pPrMatch?.[0] ||
+        '<w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="right"/></w:pPr>';
+      const rPr = rPrInner?.[0] || '<w:rPr/>';
+      const tcPr = (idx) => {
+        const m = cells[idx].match(/<w:tcPr>[\s\S]*?<\/w:tcPr>/);
+        return m ? m[0] : '<w:tcPr/>';
+      };
+      const makeCell = (idx, token) =>
+        `<w:tc>${tcPr(idx)}<w:p>${pPr}<w:r>${rPr}<w:t>${token}</w:t></w:r></w:p></w:tc>`;
+      const rowHead = row.slice(0, row.indexOf('<w:tc'));
+      const rebuilt = `${rowHead}${cells[0]}${makeCell(1, mTok)}${makeCell(2, paTok)}</w:tr>`;
+      out = `${out.slice(0, trStart)}${rebuilt}${out.slice(trEnd + 7)}`;
+      searchFrom = trStart + rebuilt.length;
+    }
+  }
+  return out;
+}
+
+/**
  * Drop blank paragraphs between the acceptance block and the Annexure A heading,
  * and start Annexure A on a fresh page. Those empties were leaving a large white
  * gap at the bottom of page 1 and the top of page 2 (DOCX + PDF).
@@ -499,6 +564,7 @@ function normalizeOfferLetterDocxLayout(docxBuffer) {
     }
 
     const before = xml;
+    xml = fixAnnexureAmountCells(xml);
     xml = tightenOfferAnnexurePageBreak(xml);
 
     const tableAlreadyPinned =
@@ -569,8 +635,30 @@ export async function buildOfferLetterDocx(offer, candidate, companyName) {
   return normalizeOfferLetterDocxLayout(filled);
 }
 
+/** Appointment-only: fix annexure amount cell packing. Does not touch offer table/page logic. */
+function normalizeAppointmentLetterDocxLayout(docxBuffer) {
+  const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
+  if (buf.length < 100) return buf;
+  try {
+    const zip = new PizZip(buf);
+    const docFile = zip.file('word/document.xml');
+    if (!docFile) return buf;
+    const before = docFile.asText();
+    if (!before.includes('Annexure II') && !before.includes('{{CONVEYANCE_M}}')) return buf;
+    const xml = fixAnnexureAmountCells(before);
+    if (xml === before) return buf;
+    zip.file('word/document.xml', xml);
+    return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[admin-recruitment] appointment layout normalize skipped:', err?.message || err);
+    return buf;
+  }
+}
+
 export async function buildAppointmentLetterDocx(appt, offer, candidate, companyName) {
-  return fillDocxTemplate(APPOINTMENT_TEMPLATE, appointmentPlaceholders(appt, offer, candidate, companyName));
+  const filled = await fillDocxTemplate(APPOINTMENT_TEMPLATE, appointmentPlaceholders(appt, offer, candidate, companyName));
+  return normalizeAppointmentLetterDocxLayout(filled);
 }
 
 async function findLibreOfficeBinary() {
@@ -797,11 +885,16 @@ if (-not (Test-Path $out)) { throw 'Word did not write the PDF.' }
  * Never rebuilds layout with pdf-lib. Email always attaches PDF (same as CTC details mail).
  */
 export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
-  // Offer-only table pin for LibreOffice. Never rewrite appointment (or other) letters —
-  // that path was changing appointment PDF spacing/layout in production.
+  // Offer: table pin + annexure cell fix. Appointment: annexure cell fix only.
+  // Never apply offer table/page-break rewrites to appointment PDFs.
   const name = String(baseName || '').toLowerCase();
   const isOfferLetter = /\boffer\b/.test(name);
-  const printBuffer = isOfferLetter ? normalizeOfferLetterDocxLayout(docxBuffer) : docxBuffer;
+  const isAppointmentLetter = /\bappointment\b/.test(name);
+  const printBuffer = isOfferLetter
+    ? normalizeOfferLetterDocxLayout(docxBuffer)
+    : isAppointmentLetter
+      ? normalizeAppointmentLetterDocxLayout(docxBuffer)
+      : docxBuffer;
 
   if (process.platform === 'win32') {
     const viaWord = await convertDocxViaWord(printBuffer, baseName);

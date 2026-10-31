@@ -103,17 +103,26 @@ try {
     }
   }
 
-  $afterConv = $false
-  $zeros = 0
-  for ($i = 1; $i -le $doc.Paragraphs.Count; $i++) {
-    $t = ($doc.Paragraphs.Item($i).Range.Text -replace '[\r\n\x07]', '').Trim()
-    if ($t -eq "Conveyance Allowance") { $afterConv = $true; continue }
-    if ($afterConv -and $t -eq "0") {
-      $zeros++
-      if ($zeros -eq 1) { $doc.Paragraphs.Item($i).Range.Text = "{{CONVEYANCE_M}}`r" }
-      elseif ($zeros -eq 2) { $doc.Paragraphs.Item($i).Range.Text = "{{CONVEYANCE_PA}}`r"; break }
-    } elseif ($afterConv -and $t -and $t -ne "0") { break }
+  # Blank annexure amount cells via table cells (avoid Paragraph.Text + `r packing M+PA).
+  function Set-AnnexureAmountRow([string]$label, [string]$mTok, [string]$paTok, [bool]$startsWith = $false) {
+    foreach ($tbl in $doc.Tables) {
+      for ($r = 1; $r -le $tbl.Rows.Count; $r++) {
+        if ($tbl.Rows.Item($r).Cells.Count -lt 3) { continue }
+        $labelText = ($tbl.Cell($r, 1).Range.Text -replace '[\r\n\x07]', '').Trim()
+        $match = if ($startsWith) { $labelText.StartsWith($label) } else { $labelText -eq $label }
+        if (-not $match) { continue }
+        $tbl.Cell($r, 2).Range.Text = "$mTok"
+        $tbl.Cell($r, 3).Range.Text = "$paTok"
+        return $true
+      }
+    }
+    return $false
   }
+  $null = Set-AnnexureAmountRow "Conveyance Allowance" "{{CONVEYANCE_M}}" "{{CONVEYANCE_PA}}"
+  $null = Set-AnnexureAmountRow "Advance Against Statutory Bonus" "{{BONUS_M}}" "{{BONUS_PA}}"
+  $null = Set-AnnexureAmountRow "Medical Allowance" "{{MEDICAL_M}}" "{{MEDICAL_PA}}"
+  $null = Set-AnnexureAmountRow "Less : Employee ESIC" "{{EE_ESIC_M}}" "{{EE_ESIC_PA}}" $true
+  $null = Set-AnnexureAmountRow "ADD:Employer ESIC" "{{ER_ESIC_M}}" "{{ER_ESIC_PA}}" $true
 
   # Keep "Annexure II" with the compensation table (not orphaned at end of prior page).
   # Only force a page break when Annexure is mid-page — sample already starts it near the top.
