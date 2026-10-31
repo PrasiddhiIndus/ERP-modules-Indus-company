@@ -3,15 +3,15 @@ import { saveAs } from "file-saver";
 import { ArrowLeft, BadgeCheck, Clock, FileDown, Loader2, Lock, Mail, PenLine, Plus, Save, Trash2, X } from "lucide-react";
 import { toast } from "../../../lib/toast";
 import {
-  OC_COMPANY_NAME, OC_CONTACTS_HEADING, OC_DOC_REF, OC_FORM_TITLE, OC_SECURITY_HEADING,
-  OC_SIGNOFF_HEADING, PERIOD_UNITS, SECURITY_TYPES, SIGNOFF_SLOTS, blankContact, blankMilestone,
+  OC_CONTACTS_HEADING, OC_SECURITY_HEADING,
+  OC_SIGNOFF_HEADING, PERIOD_UNITS, SECURITY_TYPES, blankContact, blankMilestone,
   blankSecurityRow, contractValueInWords, emptyOcForm, formFromRecord, formatSignedAt, isBlank, milestoneTotal,
   ocExportFileName, signoffPending, toSavePayload, validateOcForm,
 } from "./ocModel";
 import {
   amFinance, friendlyOcError, loadOc, loadSignoffAssignees, myEmployeeCode, notifyOcSignoff, saveOc,
 } from "./ocApi";
-import { buildOcDocx } from "./ocWordExport";
+import { IEV_OC_DEPARTMENT } from "./ocDepartment";
 
 const inputCls =
   "w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100 disabled:bg-slate-50 disabled:text-slate-600";
@@ -63,7 +63,7 @@ function YesNo({ value, onChange, name }) {
 }
 
 /** Digital sign-off: the signer types their name; the date and time are recorded on save. */
-function SignatureBox({ label, value, onChange, disabled, assignee, locked, onRequestSign }) {
+function SignatureBox({ label, value, onChange, disabled, assignee, locked, onRequestSign, assigneeCount }) {
   const pending = signoffPending(value);
   const signedAt = !pending && !isBlank(value.signed_by) ? formatSignedAt(value.signed_at) : "";
   const signName = assignee?.employee_name;
@@ -107,7 +107,7 @@ function SignatureBox({ label, value, onChange, disabled, assignee, locked, onRe
         ) : pending ? (
           <>
             <Clock className="mt-px h-3.5 w-3.5 shrink-0 text-amber-600" />
-            <span className="text-amber-800">Date and time are recorded when you save. The four assigned users will be emailed.</span>
+            <span className="text-amber-800">Date and time are recorded when you save. The {assigneeCount} assigned users will be emailed.</span>
           </>
         ) : (
           <span className="text-slate-400">Not signed</span>
@@ -117,8 +117,8 @@ function SignatureBox({ label, value, onChange, disabled, assignee, locked, onRe
   );
 }
 
-/** Confirm sign-off + show email result to the four assigned users. */
-function SignNotifyModal({ state, onClose, onConfirmSign }) {
+/** Confirm sign-off + show email result to the assigned users. */
+function SignNotifyModal({ state, onClose, onConfirmSign, assigneeCount }) {
   if (!state?.open) return null;
   const mode = state.mode || "result";
   const signs = state.signatures || [];
@@ -154,7 +154,7 @@ function SignNotifyModal({ state, onClose, onConfirmSign }) {
 
           {mode === "confirm" ? (
             <p className="text-xs text-slate-600">
-              On save, a notification will be emailed from the Outreach module&apos;s verified From mailbox to the four
+              On save, a notification will be emailed from the Outreach module&apos;s verified From mailbox to the {assigneeCount}
               users assigned under PO At Glance Sign-off.
             </p>
           ) : state.ok ? (
@@ -207,11 +207,12 @@ function SignNotifyModal({ state, onClose, onConfirmSign }) {
 
 /**
  * PO At Glance form (create / edit). Field order and grid follow the paper form.
- * @param {{ ocId: string|null, canEdit: boolean, onBack: () => void, onSaved: (id: string) => void }} props
+ * @param {{ ocId: string|null, canEdit: boolean, onBack: () => void, onSaved: (id: string) => void, department?: object }} props
  */
-export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
-  const [form, setForm] = useState(() => emptyOcForm());
-  const [initial, setInitial] = useState(() => JSON.stringify(emptyOcForm()));
+export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, department = IEV_OC_DEPARTMENT }) {
+  const SIGNOFF_SLOTS = department.slots;
+  const [form, setForm] = useState(() => emptyOcForm(SIGNOFF_SLOTS));
+  const [initial, setInitial] = useState(() => JSON.stringify(emptyOcForm(SIGNOFF_SLOTS)));
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(Boolean(ocId));
   const [saving, setSaving] = useState(false);
@@ -227,7 +228,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
   useEffect(() => {
     let alive = true;
     amFinance().then((f) => alive && setIsFinance(f));
-    Promise.all([loadSignoffAssignees(), myEmployeeCode()])
+    Promise.all([loadSignoffAssignees(department), myEmployeeCode()])
       .then(([a, code]) => {
         if (!alive) return;
         setAssignees(a);
@@ -238,7 +239,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [department]);
 
   const isLockedFor = (slot) => {
     const a = assignees[slot];
@@ -247,7 +248,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
 
   useEffect(() => {
     if (!ocId) {
-      const blank = emptyOcForm();
+      const blank = emptyOcForm(SIGNOFF_SLOTS);
       setForm(blank);
       setInitial(JSON.stringify(blank));
       setLoading(false);
@@ -255,19 +256,20 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
     }
     let alive = true;
     setLoading(true);
-    loadOc(ocId)
+    loadOc(ocId, department)
       .then((bundle) => {
         if (!alive) return;
-        const f = formFromRecord(bundle);
+        const f = formFromRecord(bundle, SIGNOFF_SLOTS);
         setForm(f);
         setInitial(JSON.stringify(f));
       })
-      .catch((err) => alive && toast.error(friendlyOcError(err, "Could not load this PO At Glance.")))
+      .catch((err) => alive && toast.error(friendlyOcError(err, "Could not load this PO At Glance.", department)))
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
     };
-  }, [ocId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- SIGNOFF_SLOTS comes from department
+  }, [ocId, department]);
 
   const dirty = useMemo(() => JSON.stringify(form) !== initial, [form, initial]);
   const words = useMemo(() => contractValueInWords(form.contract_value, form.currency), [form.contract_value, form.currency]);
@@ -299,9 +301,9 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
     }));
     setSaving(true);
     try {
-      const res = await saveOc(toSavePayload(form));
-      const bundle = await loadOc(res.id);
-      const f = formFromRecord(bundle);
+      const res = await saveOc(toSavePayload(form, SIGNOFF_SLOTS), department);
+      const bundle = await loadOc(res.id, department);
+      const f = formFromRecord(bundle, SIGNOFF_SLOTS);
       setForm(f);
       setInitial(JSON.stringify(f));
       toast.success(saved ? "PO At Glance updated." : res.oc_no ? `PO At Glance for OC No. ${res.oc_no} created.` : "PO At Glance created.");
@@ -313,7 +315,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
             ocId: res.id,
             signatures: newSignatures.map(({ slot, signed_by }) => ({ slot, signed_by })),
             signerName: newSignatures[0]?.signed_by,
-          });
+          }, department);
           setSignNotify({
             open: true,
             mode: "result",
@@ -339,7 +341,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
         }
       }
     } catch (e) {
-      toast.error(friendlyOcError(e, "Could not save the PO At Glance."));
+      toast.error(friendlyOcError(e, "Could not save the PO At Glance.", department));
     } finally {
       setSaving(false);
     }
@@ -348,10 +350,10 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
   const handleExportWord = async () => {
     setExporting(true);
     try {
-      const blob = await buildOcDocx(form);
+      const blob = await department.buildDocx(form);
       saveAs(blob, `${ocExportFileName(form)}.docx`);
     } catch (e) {
-      toast.error(friendlyOcError(e, "Could not export the Word file."));
+      toast.error(friendlyOcError(e, "Could not export the Word file.", department));
     } finally {
       setExporting(false);
     }
@@ -393,10 +395,10 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
 
       <div className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
         <div className="flex flex-col gap-1 border-b border-slate-300 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm font-bold tracking-wide text-slate-900">{OC_COMPANY_NAME}</p>
-          <p className="text-[11px] text-slate-500">{OC_DOC_REF}</p>
+          <p className="text-sm font-bold tracking-wide text-slate-900">{department.companyName}</p>
+          <p className="text-[11px] text-slate-500">{department.docRef}</p>
         </div>
-        <h2 className="border-b border-slate-300 py-2 text-center text-base font-bold tracking-wider text-slate-900">{OC_FORM_TITLE}</h2>
+        <h2 className="border-b border-slate-300 py-2 text-center text-base font-bold tracking-wider text-slate-900">{department.formTitle}</h2>
 
         <fieldset disabled={readOnly} className="min-w-0">
           <div className="grid grid-cols-1 border-l border-slate-300 md:grid-cols-[minmax(9rem,18%)_1fr_minmax(9rem,16%)_1fr]">
@@ -757,6 +759,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
                 value={form.signoff[slot]}
                 disabled={readOnly}
                 assignee={assignees[slot]}
+                assigneeCount={department.assigneeCount}
                 locked={isLockedFor(slot)}
                 onChange={(v) => setForm((f) => ({ ...f, signoff: { ...f.signoff, [slot]: v } }))}
                 onRequestSign={(signName) => {
@@ -794,6 +797,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
 
       <SignNotifyModal
         state={signNotify}
+        assigneeCount={department.assigneeCount}
         onClose={() => {
           setSignNotify(null);
           setPendingSignSlot(null);
@@ -812,7 +816,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved }) {
           }));
           setSignNotify(null);
           setPendingSignSlot(null);
-          toast.success("Name filled. Save the PO At Glance to record the signature and email the four assigned users.");
+          toast.success(`Name filled. Save the PO At Glance to record the signature and email the ${department.assigneeCount} assigned users.`);
         }}
       />
     </div>

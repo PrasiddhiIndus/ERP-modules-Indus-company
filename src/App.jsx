@@ -204,6 +204,8 @@ import {
   MaintenanceProductCatalog,
   MaintenancePurchaseOrders,
   MaintenanceMmPoEntry,
+  MaintenancePoAtGlance,
+  MaintenanceSignatureConfig,
   MaintenanceExpoSeminar,
   MaintenanceGSTUpload,
   MaintenanceReports,
@@ -775,6 +777,8 @@ function App() {
             <Route path="maintenance/product-catalog" element={<MaintenanceProductCatalog />} />
             <Route path="maintenance/purchase-orders" element={<MaintenancePurchaseOrders />} />
             <Route path="maintenance/mm-po-entry" element={<MaintenanceMmPoEntry />} />
+            <Route path="maintenance/po-at-glance" element={<MaintenancePoAtGlance />} />
+            <Route path="maintenance/po-at-glance/signature-config" element={<MaintenanceSignatureConfig />} />
             <Route path="maintenance/expo-seminar" element={<MaintenanceExpoSeminar />} />
             <Route path="maintenance/gst-upload" element={<MaintenanceGSTUpload />} />
             <Route path="maintenance/reports-analytics" element={<MaintenanceReports />} />

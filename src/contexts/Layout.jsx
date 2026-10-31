@@ -1125,6 +1125,10 @@ const Layout = () => {
                     <FileText className="w-4 h-4 shrink-0 text-rose-600" />
                     <span className="type-meta type-truncate">PO Entry</span>
                   </NavLink>
+                  <NavLink to="/app/maintenance/po-at-glance" end className={subNavClass}>
+                    <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span className="type-meta type-truncate">PO At Glance</span>
+                  </NavLink>
                   <NavLink to="/app/maintenance/expo-seminar" className={subNavClass}>
                     <MapPin className="w-4 h-4 shrink-0 text-accent" />
                     <span className="type-meta type-truncate">Expo & Seminar</span>

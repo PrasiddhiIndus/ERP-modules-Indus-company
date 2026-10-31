@@ -1,4 +1,4 @@
-﻿# Inject placeholders into Downloads\offer letter format.doc → public/templates/admin-recruitment/offer-letter.docx
+# Inject placeholders into Downloads\offer letter format.doc → public/templates/admin-recruitment/offer-letter.docx
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $dst = Join-Path $root "public\templates\admin-recruitment\offer-letter.docx"
@@ -41,11 +41,14 @@ try {
   Replace-All "31st  Oct 2026" "{{OFFER_DATE}}"
   Replace-All "5th November 2026" "{{JOINING_DATE_LONG}}"
   Replace-All "5th Nov 2026" "{{JOINING_DATE_SHORT}}"
-  # Acceptance request + join-on date (filled at generate from joining_date).
-  Replace-All "Please confirm your acceptance by signing and returning a copy of this letter on or before 7th Nov 2026. This offer will lapse if your acceptance is not received on or before 7th Nov 2026, or if you fail to join on the agreed date (5th Nov 2026)." "You are requested to accept or decline this offer within 24 hours from the date and time of issuance"
+  # Keep attached acceptance wording. Only normalize older samples that still use dates.
+  Replace-All "Please confirm your acceptance by signing and returning a copy of this letter on or before 7th Nov 2026." "You are requested to accept or decline within 24 hours from the date and time of issuance"
+  Replace-All " This offer will lapse if your acceptance is not received on or before 7th Nov 2026, or if you fail to join on the agreed date (5th Nov 2026)." ""
+  Replace-All "Please confirm your acceptance by signing and returning a copy of this letter on or before {{VALID_UNTIL}}." "You are requested to accept or decline within 24 hours from the date and time of issuance"
+  Replace-All " This offer will lapse if your acceptance is not received on or before {{VALID_UNTIL}}, or if you fail to join on the agreed date ({{JOINING_DATE_SHORT}})." ""
   Replace-All "I accept the above offer and confirm that I will join on [DD/MM/YYYY]" "I accept the offer and confirm that I will join on {{JOINING_DATE_DDMMYYYY}}"
-  Replace-All "I accept the above offer and confirm that I will join on {{JOINING_DATE_DDMMYYYY}}" "I accept the offer and confirm that I will join on {{JOINING_DATE_DDMMYYYY}}"
-  Replace-All "I accept the above and confirm that I will join on {{JOINING_DATE_DDMMYYYY}}" "I accept the offer and confirm that I will join on {{JOINING_DATE_DDMMYYYY}}"
+  Replace-All "I accept the offer and confirm that I will join on [DD/MM/YYYY]" "I accept the offer and confirm that I will join on {{JOINING_DATE_DDMMYYYY}}"
+  Replace-All "[DD/MM/YYYY]" "{{JOINING_DATE_DDMMYYYY}}"
   Replace-All "indus HO" "{{LOCATION}}"
   Replace-All "COMPENSATION SCHEME-Year 2026-27" "COMPENSATION SCHEME-Year {{SCHEME_YEAR}}"
   Replace-All "w.e.f. 05.11.26" "w.e.f. {{WEF_SHORT}}"
@@ -101,36 +104,7 @@ try {
   $null = Set-AnnexureAmountRow "Less : Employee ESIC" "{{EE_ESIC_M}}" "{{EE_ESIC_PA}}" $true
   $null = Set-AnnexureAmountRow "ADD:Employer ESIC" "{{ER_ESIC_M}}" "{{ER_ESIC_PA}}" $true
 
-  # Remove blank lines between acceptance block and Annexure A, then start annexure
-  # on a fresh page (avoids large white gap at end of page 1 / top of page 2).
-  $annexIdx = 0
-  for ($i = 1; $i -le $doc.Paragraphs.Count; $i++) {
-    $t = ($doc.Paragraphs.Item($i).Range.Text -replace '[\r\n\x07]', '').Trim()
-    if ($t -eq "Annexure A") {
-      # Prefer the heading (short) over the in-body "below as Annexure A." sentence
-      if ($t.Length -le 12) { $annexIdx = $i; break }
-    }
-  }
-  if ($annexIdx -gt 1) {
-    for ($i = $annexIdx - 1; $i -ge 1; $i--) {
-      $t = ($doc.Paragraphs.Item($i).Range.Text -replace '[\r\n\x07]', '').Trim()
-      if ($t -eq "") {
-        $doc.Paragraphs.Item($i).Range.Delete() | Out-Null
-        $annexIdx--
-      } else {
-        break
-      }
-    }
-    # Re-find heading after deletes
-    for ($i = 1; $i -le $doc.Paragraphs.Count; $i++) {
-      $t = ($doc.Paragraphs.Item($i).Range.Text -replace '[\r\n\x07]', '').Trim()
-      if ($t -eq "Annexure A") { $annexIdx = $i; break }
-    }
-    $p = $doc.Paragraphs.Item($annexIdx)
-    $p.Format.PageBreakBefore = $true
-    $p.Format.SpaceBefore = 0
-    $p.Format.SpaceAfter = 0
-  }
+  # Keep source spacing / page breaks as-is (do not strip blanks or force Annexure page-break).
 
   $doc.Save()
   $doc.Close($false)
@@ -141,35 +115,6 @@ finally {
   [System.Runtime.InteropServices.Marshal]::ReleaseComObject($word) | Out-Null
 }
 
-# Keep signature PNG transparent for PDF export (same as prior offer pipeline).
-$extractDir = Join-Path $env:TEMP "ifspl-sig-cmp"
-New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zip = [System.IO.Compression.ZipFile]::OpenRead($dst)
-try {
-  $entry = $zip.GetEntry("word/media/image2.jpeg")
-  if (-not $entry) { $entry = $zip.GetEntry("word/media/image2.png") }
-  if (-not $entry) {
-    foreach ($e in $zip.Entries) {
-      if ($e.FullName -like "word/media/*") { Write-Output ("media: " + $e.FullName); }
-    }
-  }
-  if ($entry) {
-    $outJpeg = Join-Path $extractDir "image2.jpeg"
-    if ($entry.FullName.EndsWith(".png")) { $outJpeg = Join-Path $extractDir "image2.png" }
-    $stream = $entry.Open()
-    $fs = [System.IO.File]::Create($outJpeg)
-    $stream.CopyTo($fs)
-    $fs.Close()
-    $stream.Close()
-    Write-Output ("extracted " + $entry.FullName)
-  }
-} finally {
-  $zip.Dispose()
-}
-
-$hasSig = (Test-Path (Join-Path $extractDir "image2.jpeg")) -or (Test-Path (Join-Path $extractDir "image2.png"))
-if ($hasSig) {
-  node (Join-Path $PSScriptRoot "fix-offer-signature-transparency.mjs")
-  if ($LASTEXITCODE -ne 0) { throw "Signature transparency fix failed." }
-}
+# Transparent BODY signature only (never overwrite header letterhead image2).
+node (Join-Path $PSScriptRoot "fix-offer-signature-transparency.mjs")
+if ($LASTEXITCODE -ne 0) { throw "Signature transparency fix failed." }
