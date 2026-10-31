@@ -2,17 +2,20 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Eye, FilePlus2, Loader2, Pencil, Search, Trash2 } from "lucide-react";
 import { useAuth } from "../../../contexts/AuthContext";
-import { ocCanDelete, ocCanEdit } from "./ocAccess";
+import { IEV_OC_DEPARTMENT } from "./ocDepartment";
 import { toast } from "../../../lib/toast";
 import { deleteOc, friendlyOcError, listOcs } from "./ocApi";
 import { formatIndianAmount, formatOcDate } from "./ocModel";
 import OcCreationForm from "./OcCreationForm";
 
-/** IEV Costing → PO At Glance: list of entries, and the form for one entry (?oc=<id> or ?oc=new). */
-export default function OcCreationTab() {
+/**
+ * PO At Glance: list of entries, and the form for one entry (?oc=<id> or ?oc=new).
+ * IEV Costing by default; `department` (ocDepartment.js) switches to another department's records.
+ */
+export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
   const { userProfile, accessibleModules } = useAuth();
-  const canEdit = ocCanEdit(userProfile, accessibleModules);
-  const canDelete = ocCanDelete(userProfile, accessibleModules);
+  const canEdit = department.canEdit(userProfile, accessibleModules);
+  const canDelete = department.canDelete(userProfile, accessibleModules);
   const [params, setParams] = useSearchParams();
   const openId = params.get("oc");
   const [rows, setRows] = useState([]);
@@ -24,13 +27,13 @@ export default function OcCreationTab() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      setRows(await listOcs());
+      setRows(await listOcs(department));
     } catch (e) {
-      toast.error(friendlyOcError(e, "Could not load PO At Glance entries."));
+      toast.error(friendlyOcError(e, "Could not load PO At Glance entries.", department));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [department]);
 
   useEffect(() => {
     if (!openId) refresh();
@@ -46,17 +49,18 @@ export default function OcCreationTab() {
     const name = row.oc_no ? `PO At Glance for OC No. ${row.oc_no}` : `PO At Glance for ${row.client_name} (OC No. pending)`;
     if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return;
     try {
-      await deleteOc(row.id);
+      await deleteOc(row.id, department);
       toast.success(`${name} deleted.`);
       refresh();
     } catch (e) {
-      toast.error(friendlyOcError(e, "Could not delete this PO At Glance."));
+      toast.error(friendlyOcError(e, "Could not delete this PO At Glance.", department));
     }
   };
 
   if (openId) {
     return (
       <OcCreationForm
+        department={department}
         ocId={openId === "new" ? null : openId}
         canEdit={canEdit}
         onBack={() => open(null)}
@@ -70,7 +74,7 @@ export default function OcCreationTab() {
       <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-base font-semibold text-slate-900">PO At Glance</h3>
-          <p className="text-sm text-slate-500">Order confirmation for IEV work orders and purchase orders.</p>
+          <p className="text-sm text-slate-500">{department.listSubtitle}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">

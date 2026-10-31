@@ -5,11 +5,33 @@
 import { isMailDispatchConfigured, sendOutboundMail, MAIL_NOT_CONFIGURED_MESSAGE } from './mail/index.js';
 import { isValidEmployeeEmail, normalizeEmployeeEmail } from '../shared/crmInHouseMail.mjs';
 
-const SLOT_LABELS = {
-  SALES: 'Sales & Commercial Department',
-  PLANNING: 'Planning Department',
-  IEV_HEAD: 'Group Head or IEV Head',
-  FINANCE: 'Finance Department',
+/** Per-department tables, box labels and wording. IEV is the default; Maintenance has its own records. */
+export const OC_NOTIFY_PROFILES = {
+  iev: {
+    masterTable: 'oc_master',
+    assigneesTable: 'oc_signoff_assignees',
+    slotLabels: {
+      SALES: 'Sales & Commercial Department',
+      PLANNING: 'Planning Department',
+      IEV_HEAD: 'Group Head or IEV Head',
+      FINANCE: 'Finance Department',
+    },
+    reviewPath: 'IEV → Costing Hub → PO At Glance',
+    configPath: 'IEV Configuration → PO At Glance Sign-off',
+    assigneeCount: 'four',
+  },
+  maintenance: {
+    masterTable: 'mm_oc_master',
+    assigneesTable: 'mm_oc_signoff_assignees',
+    slotLabels: {
+      MM_USER: 'User (M&M Dept.)',
+      VERTICAL_HEAD: 'Vertical Head',
+      FINANCE: 'Finance Department',
+    },
+    reviewPath: 'Maintenance → PO At Glance',
+    configPath: 'Maintenance → PO At Glance Sign-off Assignment',
+    assigneeCount: 'three',
+  },
 };
 
 function httpError(status, message) {
@@ -30,8 +52,8 @@ function escapeLike(v) {
   return String(v || '').replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
-function slotLabel(slot) {
-  return SLOT_LABELS[String(slot || '').toUpperCase()] || String(slot || 'Department');
+function slotLabel(profile, slot) {
+  return profile.slotLabels[String(slot || '').toUpperCase()] || String(slot || 'Department');
 }
 
 /** Prefer IEV/PO-related verified mailbox; otherwise first verified outreach sender. */
@@ -106,14 +128,14 @@ async function resolveAssigneeEmail(db, employeeCode) {
   return '';
 }
 
-function buildEmail({ master, signatures, signerName }) {
+function buildEmail({ profile, master, signatures, signerName }) {
   const ocNo = String(master?.oc_no || '').trim() || '—';
   const client = String(master?.client_name || '').trim() || '—';
   const poWo = String(master?.po_wo_no || '').trim() || '—';
   const signLines = (signatures || [])
     .map(
       (s) =>
-        `<li><strong>${escapeHtml(slotLabel(s.slot))}</strong> — signed by ${escapeHtml(s.signed_by || signerName || '—')}</li>`
+        `<li><strong>${escapeHtml(slotLabel(profile, s.slot))}</strong> — signed by ${escapeHtml(s.signed_by || signerName || '—')}</li>`
     )
     .join('');
 
@@ -127,14 +149,15 @@ function buildEmail({ master, signatures, signerName }) {
 </ul>
 <p><strong>Signature(s) just applied:</strong></p>
 <ul>${signLines || '<li>—</li>'}</ul>
-<p>Please review the entry in IEV → Costing Hub → PO At Glance.</p>
+<p>Please review the entry in ${escapeHtml(profile.reviewPath)}.</p>
 <p>Regards,<br/>Indus ERP</p>
 </div>`;
   return { subject, html };
 }
 
 /**
- * Notify the four assigned sign-off users that one or more PO slots were signed.
+ * Notify the assigned sign-off users that one or more PO slots were signed.
+ * `department` picks the records and assignees ('iev' by default, or 'maintenance').
  * @returns {{ ok: true, from: string|null, sent: string[], skipped: {name:string,code:string,reason:string}[], failed: {email:string,error:string}[] }}
  */
 export async function notifyOcSignoffAssignees({
@@ -143,7 +166,10 @@ export async function notifyOcSignoffAssignees({
   signatures,
   senderMailboxId,
   signerName,
+  department = 'iev',
 }) {
+  const profile = OC_NOTIFY_PROFILES[department];
+  if (!profile) throw httpError(400, 'Unknown PO At Glance department.');
   const id = String(ocId || '').trim();
   if (!id) throw httpError(400, 'PO At Glance id is missing.');
 
@@ -156,7 +182,7 @@ export async function notifyOcSignoffAssignees({
   if (!signs.length) throw httpError(400, 'No new signatures to notify about.');
 
   const { data: master, error: masterErr } = await db
-    .from('oc_master')
+    .from(profile.masterTable)
     .select('id, oc_no, client_name, po_wo_no')
     .eq('id', id)
     .maybeSingle();
@@ -164,12 +190,12 @@ export async function notifyOcSignoffAssignees({
   if (!master) throw httpError(404, 'PO At Glance not found.');
 
   const { data: assignees, error: aErr } = await db
-    .from('oc_signoff_assignees')
+    .from(profile.assigneesTable)
     .select('slot, employee_code, employee_name');
   if (aErr) throw httpError(500, 'Could not load sign-off assignees.');
   const rows = assignees || [];
   if (!rows.length) {
-    throw httpError(400, 'No sign-off users are assigned yet. Set them in IEV Configuration → PO At Glance Sign-off.');
+    throw httpError(400, `No sign-off users are assigned yet. Set them in ${profile.configPath}.`);
   }
 
   const recipients = [];
@@ -195,7 +221,7 @@ export async function notifyOcSignoffAssignees({
   if (!recipients.length) {
     throw httpError(
       400,
-      'None of the four assigned users have a login or employee email. Add emails in Employee Master / User Management.'
+      `None of the ${profile.assigneeCount} assigned users have a login or employee email. Add emails in Employee Master / User Management.`
     );
   }
 
@@ -204,7 +230,7 @@ export async function notifyOcSignoffAssignees({
   }
 
   const sender = await resolveOutreachSender(db, senderMailboxId);
-  const { subject, html } = buildEmail({ master, signatures: signs, signerName });
+  const { subject, html } = buildEmail({ profile, master, signatures: signs, signerName });
 
   const sent = [];
   const failed = [];

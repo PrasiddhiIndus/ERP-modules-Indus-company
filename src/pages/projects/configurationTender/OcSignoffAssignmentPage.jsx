@@ -5,7 +5,8 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { ocCanEdit } from "../oc/ocAccess";
 import { canOpenIevConfigPage } from "../../../lib/ievConfigAccess";
 import { toast } from "../../../lib/toast";
-import { OC_SIGNOFF_HEADING, SIGNOFF_SLOTS } from "../oc/ocModel";
+import { OC_SIGNOFF_HEADING } from "../oc/ocModel";
+import { IEV_OC_DEPARTMENT } from "../oc/ocDepartment";
 import { friendlyOcError, listEmployeeOptions, loadSignoffAssignees, saveSignoffAssignee } from "../oc/ocApi";
 
 const optionLabel = (e) => `${e.employee_code} — ${e.full_name}${e.department ? ` (${e.department})` : ""}`;
@@ -17,6 +18,17 @@ export default function OcSignoffAssignmentPage() {
     canOpenIevConfigPage(userProfile, "oc-sign-off") &&
     ocCanEdit(userProfile, accessibleModules);
 
+  return (
+    <div className="space-y-4 p-4 sm:p-6">
+      <FireTenderNavbar />
+      <OcSignoffAssignmentPanel canConfigure={canConfigure} />
+    </div>
+  );
+}
+
+/** Assignment table for one department's sign-off boxes (IEV by default). */
+export function OcSignoffAssignmentPanel({ canConfigure, department = IEV_OC_DEPARTMENT }) {
+  const SIGNOFF_SLOTS = department.slots;
   const [employees, setEmployees] = useState([]);
   const [saved, setSaved] = useState({});
   const [draft, setDraft] = useState({});
@@ -37,18 +49,19 @@ export default function OcSignoffAssignmentPage() {
 
   useEffect(() => {
     let alive = true;
-    Promise.all([listEmployeeOptions(), loadSignoffAssignees()])
+    Promise.all([listEmployeeOptions(department), loadSignoffAssignees(department)])
       .then(([emps, assignees]) => {
         if (!alive) return;
         setEmployees(emps);
         applySaved(assignees);
       })
-      .catch((err) => alive && toast.error(friendlyOcError(err, "Could not load the sign-off assignment.")))
+      .catch((err) => alive && toast.error(friendlyOcError(err, "Could not load the sign-off assignment.", department)))
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- applySaved only reads department.slots
+  }, [department]);
 
   const changed = SIGNOFF_SLOTS.filter(({ slot }) => (draft[slot] || "") !== (saved[slot]?.employee_code || ""));
   const unmatched = SIGNOFF_SLOTS.filter(({ slot }) => (text[slot] || "").trim() && !draft[slot]);
@@ -73,21 +86,18 @@ export default function OcSignoffAssignmentPage() {
     try {
       for (const { slot } of changed) {
         const code = draft[slot];
-        await saveSignoffAssignee(slot, code ? employees.find((e) => e.employee_code === code) : null);
+        await saveSignoffAssignee(slot, code ? employees.find((e) => e.employee_code === code) : null, department);
       }
-      applySaved(await loadSignoffAssignees());
+      applySaved(await loadSignoffAssignees(department));
       toast.success("Sign-off assignment saved.");
     } catch (err) {
-      toast.error(friendlyOcError(err, "Could not save the sign-off assignment."));
+      toast.error(friendlyOcError(err, "Could not save the sign-off assignment.", department));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="space-y-4 p-4 sm:p-6">
-      <FireTenderNavbar />
-
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <div>
@@ -169,6 +179,5 @@ export default function OcSignoffAssignmentPage() {
           <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-500">You can view this assignment but not change it.</p>
         )}
       </div>
-    </div>
   );
 }

@@ -1762,6 +1762,25 @@ app.post('/api/fire-tender/oc/signoff-notify', einvoiceRateLimit, requireAuth, a
   }
 });
 
+app.post('/api/maintenance/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
+  try {
+    const result = await notifyOcSignoffAssignees({
+      db: crmInHouseServiceClient(),
+      ocId: req.body?.ocId,
+      signatures: req.body?.signatures,
+      senderMailboxId: req.body?.senderMailboxId,
+      signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
+      department: 'maintenance',
+    });
+    return res.json(result);
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    if (status >= 500) console.error('[maintenance/oc/signoff-notify]', err?.message || err);
+    const message = err?.message || 'Could not send the sign-off notification.';
+    return res.status(status).json({ error: message, message });
+  }
+});
+
 function sendExitEmailError(res, err, fallback) {
   const status = Number(err?.status) || 500;
   if (status >= 500) console.error('[employee-exit/email]', err?.message || err);

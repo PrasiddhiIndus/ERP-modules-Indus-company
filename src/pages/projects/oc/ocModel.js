@@ -41,7 +41,8 @@ export const blankSecurityRow = () => ({ key: nextKey(), type: "", applicable: n
 export const blankMilestone = () => ({ key: nextKey(), percent: "", trigger: "", due_days: "", notes: "" });
 export const blankContact = () => ({ key: nextKey(), department: "", names: "", mobiles: "", emails: "" });
 
-export function emptyOcForm() {
+/** `slots`: the department's sign-off boxes (IEV by default). */
+export function emptyOcForm(slots = SIGNOFF_SLOTS) {
   return {
     id: null,
     oc_no: "",
@@ -70,7 +71,7 @@ export function emptyOcForm() {
     contacts: [blankContact(), blankContact()],
     remarks: "",
     remarks_date: "",
-    signoff: Object.fromEntries(SIGNOFF_SLOTS.map(({ slot }) => [slot, { signed_by: "", saved_by: "", signed_at: "" }])),
+    signoff: Object.fromEntries(slots.map(({ slot }) => [slot, { signed_by: "", saved_by: "", signed_at: "" }])),
   };
 }
 
@@ -78,8 +79,8 @@ const str = (v) => (v === null || v === undefined ? "" : String(v));
 const num = (v) => (v === null || v === undefined || v === "" ? "" : String(Number(v)));
 
 /** Builds form state from the saved rows (see ocApi.loadOc). */
-export function formFromRecord({ master, security = [], conditions = [], penalty, milestones = [], contacts = [], signoff = [] }) {
-  const form = emptyOcForm();
+export function formFromRecord({ master, security = [], conditions = [], penalty, milestones = [], contacts = [], signoff = [] }, slots = SIGNOFF_SLOTS) {
+  const form = emptyOcForm(slots);
   const cond = (key) => conditions.find((c) => c.key === key) || {};
   Object.assign(form, {
     id: master.id,
@@ -145,7 +146,7 @@ const numOrNull = (v) => (isBlank(v) ? null : Number(v));
 const textOrNull = (v) => (isBlank(v) ? null : String(v).trim());
 
 /** Payload for public.oc_save(p jsonb). Fully blank repeatable rows are dropped. */
-export function toSavePayload(form) {
+export function toSavePayload(form, slots = SIGNOFF_SLOTS) {
   const emd = form.emd.enabled === true ? form.emd : { ...form.emd, release_or_adjust: "", release_date: "" };
   return {
     id: form.id || null,
@@ -200,7 +201,7 @@ export function toSavePayload(form) {
     contacts: form.contacts.filter((c) => !contactBlank(c)).map((c) => ({
       department: textOrNull(c.department), names: textOrNull(c.names), mobiles: splitList(c.mobiles), emails: splitList(c.emails),
     })),
-    signoff: SIGNOFF_SLOTS.map(({ slot }) => ({ slot, ...form.signoff[slot] }))
+    signoff: slots.map(({ slot }) => ({ slot, ...form.signoff[slot] }))
       .filter((s) => !isBlank(s.signed_by))
       .map((s) => ({ slot: s.slot, signed_by: textOrNull(s.signed_by) })),
   };
