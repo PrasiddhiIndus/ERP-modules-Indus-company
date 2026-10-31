@@ -550,98 +550,11 @@ function tightenOfferAnnexurePageBreak(xml) {
 }
 
 /**
- * LibreOffice PDF reflows the IFSPL offer details table when label columns are too
- * narrow / auto-sized (e.g. "Designatio|n"). Pin column widths and keep the
- * acceptance block together — content and placeholders are unchanged.
+ * Keep the offer letter layout exactly as prepared from the IFSPL Word sample.
+ * Do not rewrite spacing, table widths, or annexure page breaks at generate/send.
  */
 function normalizeOfferLetterDocxLayout(docxBuffer) {
-  const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
-  if (buf.length < 100) return buf;
-  try {
-    const zip = new PizZip(buf);
-    const docFile = zip.file('word/document.xml');
-    if (!docFile) return buf;
-    let xml = docFile.asText();
-    // Offer-letter markers only (case-sensitive). Appointment letters mention
-    // "date of joining" / "work location" in prose and must never be rewritten.
-    if (
-      !xml.includes('Designation') ||
-      !xml.includes('Date of Joining') ||
-      !xml.includes('Work Location') ||
-      !xml.includes('I accept the offer') &&
-      !xml.includes('I accept the above offer')
-    ) {
-      return buf;
-    }
-
-    const before = xml;
-    xml = fixAnnexureAmountCells(xml);
-    xml = tightenOfferAnnexurePageBreak(xml);
-
-    const tableAlreadyPinned =
-      xml.includes('w:gridCol w:w="2400"') && xml.includes('w:keepNext') && xml.includes('w:wordWrap');
-
-    if (!tableAlreadyPinned) {
-      const LABEL_W = 2400;
-      const VALUE_W = 3200;
-      const TABLE_W = LABEL_W + VALUE_W;
-
-      xml = xml.replace(
-        /<w:tblPr><w:tblW w:w="0" w:type="auto"\/>/,
-        `<w:tblPr><w:tblW w:w="${TABLE_W}" w:type="dxa"/>`
-      );
-      xml = xml.replace(
-        /<w:tblGrid><w:gridCol w:w="\d+"\/><w:gridCol w:w="\d+"\/><\/w:tblGrid>/,
-        `<w:tblGrid><w:gridCol w:w="${LABEL_W}"/><w:gridCol w:w="${VALUE_W}"/></w:tblGrid>`
-      );
-
-      let tcIdx = 0;
-      xml = xml.replace(/<w:tcW w:w="0" w:type="auto"\/>/g, () => {
-        const w = tcIdx % 2 === 0 ? LABEL_W : VALUE_W;
-        tcIdx += 1;
-        return `<w:tcW w:w="${w}" w:type="dxa"/>`;
-      });
-      // Already-fixed cells from a prior pass / template
-      xml = xml.replace(/<w:tcW w:w="(?:1437|2317)" w:type="dxa"\/>/g, () => {
-        const w = tcIdx % 2 === 0 ? LABEL_W : VALUE_W;
-        tcIdx += 1;
-        return `<w:tcW w:w="${w}" w:type="dxa"/>`;
-      });
-
-      for (const label of ['Designation', 'Date of Joining', 'Work Location']) {
-        const needle = `<w:spacing w:after="160" w:line="278" w:lineRule="auto"/></w:pPr><w:r w:rsidRPr="00404325"><w:rPr><w:b/><w:bCs/></w:rPr><w:t>${label}</w:t>`;
-        const repl = `<w:keepLines/><w:wordWrap w:val="0"/><w:spacing w:after="80" w:line="240" w:lineRule="auto"/></w:pPr><w:r w:rsidRPr="00404325"><w:rPr><w:b/><w:bCs/></w:rPr><w:t>${label}</w:t>`;
-        if (xml.includes(needle)) xml = xml.replace(needle, repl);
-      }
-
-      if (
-        !xml.includes('w:keepNext') &&
-        (xml.includes('I accept the offer') || xml.includes('I accept the above offer'))
-      ) {
-        xml = xml.replace(
-          /(<w:p[^>]*>)(\s*<w:r[^>]*>\s*(?:<w:rPr>[\s\S]*?<\/w:rPr>\s*)?<w:t>I accept the (?:above )?offer)/,
-          '$1<w:pPr><w:keepNext/><w:keepLines/></w:pPr>$2'
-        );
-      }
-      if (
-        xml.includes('Name: ____________________') &&
-        !/<w:t>Name: ____________________<\/w:t>[\s\S]{0,40}<\/w:r>[\s\S]{0,80}<w:keepLines\/>/.test(xml)
-      ) {
-        xml = xml.replace(
-          /(<w:p[^>]*>)(\s*<w:r[^>]*>\s*(?:<w:rPr>[\s\S]*?<\/w:rPr>\s*)?<w:t>Name: ____________________)/,
-          (full, pOpen, rest) => (full.includes('w:keepLines') ? full : `${pOpen}<w:pPr><w:keepLines/></w:pPr>${rest}`)
-        );
-      }
-    }
-
-    if (xml === before) return buf;
-    zip.file('word/document.xml', xml);
-    return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn('[admin-recruitment] offer layout normalize skipped:', err?.message || err);
-    return buf;
-  }
+  return Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
 }
 
 export async function buildOfferLetterDocx(offer, candidate, companyName) {
@@ -681,9 +594,8 @@ function fixAppointmentNoSpacingStyle(stylesXml) {
 /**
  * Match Word sample pagination:
  * - Candidate name stays on the signature/ack page (NOT a page break).
+ * - Keep sample tab-indent on the name (slightly right) — do not center/strip tabs.
  * - "Annexure - I" starts the next page.
- * Name was tab-indented (jc=both); LibreOffice tab stops shift it on the x-axis —
- * center it and drop the tab runs. Never page-break the name (that created a blank page).
  */
 function paragraphAt(xml, textIdx) {
   if (textIdx < 0) return null;
@@ -706,9 +618,6 @@ function fixAppointmentAnnexureIPagination(xml) {
   let nameHit = null;
   for (let i = paras.length - 1; i >= 0; i--) {
     const p = paras[i][0];
-    if (/<w:tc[\s>]/.test(beforeAnnex.slice(Math.max(0, paras[i].index - 80), paras[i].index))) {
-      // Still allow body paras; table check below via ancestor tc.
-    }
     // Skip paragraphs that sit inside a table cell.
     const abs = paras[i].index;
     const lastTc = beforeAnnex.lastIndexOf('<w:tc', abs);
@@ -717,22 +626,14 @@ function fixAppointmentAnnexureIPagination(xml) {
 
     const texts = [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((t) => t[1]).join('');
     if (!texts.trim()) continue;
-    // Stop at acknowledgement — name is after it; if we hit ack, keep scanning upward only for name-like.
     nameHit = { start: abs, xml: p, text: texts.trim() };
     break;
   }
 
-  if (nameHit && nameHit.text !== 'Annexure - I') {
-    let fixed = nameHit.xml;
-    fixed = fixed.replace(/<w:pageBreakBefore\s*\/>/g, '');
-    fixed = fixed.replace(/<w:jc w:val="both"\/>/g, '<w:jc w:val="center"/>');
-    if (!/<w:jc\b/.test(fixed) && /<w:pPr>/.test(fixed)) {
-      fixed = fixed.replace(/<w:pPr>/, '<w:pPr><w:jc w:val="center"/>');
-    }
-    fixed = fixed.replace(/(?:<w:r\b[^>]*>\s*(?:<w:rPr>[\s\S]*?<\/w:rPr>\s*)?<w:tab\/>\s*<\/w:r>\s*)+/g, '');
-    if (fixed !== nameHit.xml) {
-      out = `${out.slice(0, nameHit.start)}${fixed}${out.slice(nameHit.start + nameHit.xml.length)}`;
-    }
+  // Keep sample alignment/tabs; only strip a mistaken page-break on the name.
+  if (nameHit && nameHit.text !== 'Annexure - I' && /w:pageBreakBefore/.test(nameHit.xml)) {
+    const fixed = nameHit.xml.replace(/<w:pageBreakBefore\s*\/>/g, '');
+    out = `${out.slice(0, nameHit.start)}${fixed}${out.slice(nameHit.start + nameHit.xml.length)}`;
   }
 
   // 2) Remove empty body paragraphs between the signature name and Annexure - I.
@@ -744,10 +645,12 @@ function fixAppointmentAnnexureIPagination(xml) {
     const annexParaStart = out.lastIndexOf('<w:p ', annexNow);
     if (nameEnd > 0 && annexParaStart > nameEnd) {
       const mid = out.slice(nameEnd, annexParaStart);
-      // Only strip paragraphs that have no <w:t> text (true blanks).
+      // Only strip paragraphs that have no <w:t> text (true blanks). Keep tab-only spacers.
       const stripped = mid.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>\s*/g, (p) => {
         const texts = [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((t) => t[1]).join('');
-        return texts.trim() ? p : '';
+        if (texts.trim()) return p;
+        if (/<w:tab\/>/.test(p)) return p;
+        return '';
       });
       if (stripped !== mid) {
         out = `${out.slice(0, nameEnd)}${stripped}${out.slice(annexParaStart)}`;
@@ -1161,9 +1064,9 @@ export async function buildOfferLetterPdf(offer, candidate, companyName) {
     'Your detailed terms and conditions of employment will be shared in the Appointment Letter, which will be issued to you on the date of joining.'
   );
   y -= 4;
-  draw(
-    'You are requested to accept or decline this offer within 24 hours from the date and time of issuance'
-  );
+  draw('You are requested to accept or decline within 24 hours from the date and time of issuance');
+  y -= 4;
+  draw('A detailed salary breakup is below as Annexure A.');
   y -= 4;
   draw('We look forward to having you with us.');
   y -= 10;

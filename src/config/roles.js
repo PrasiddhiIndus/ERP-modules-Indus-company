@@ -958,6 +958,7 @@ export const NAV_MODULE_TREE = [
       { value: "maintenance.product-catalog", label: "Product Catalog",        pathPrefix: "/app/maintenance/product-catalog" },
       { value: "maintenance.purchase-orders", label: "Purchase Orders",        pathPrefix: "/app/maintenance/purchase-orders" },
       { value: "maintenance.mm-po-entry",     label: "M&M PO Entry",           pathPrefix: "/app/maintenance/mm-po-entry" },
+      { value: "maintenance.po-at-glance",    label: "PO At Glance",           pathPrefix: "/app/maintenance/po-at-glance" },
       { value: "maintenance.expo-seminar",    label: "Expo & Seminar",         pathPrefix: "/app/maintenance/expo-seminar" },
       { value: "maintenance.gst",             label: "GST Documents",          pathPrefix: "/app/maintenance/gst-upload" },
       { value: "maintenance.mail-template",   label: "Mail Template",          pathPrefix: "/app/maintenance/mail-templates" },

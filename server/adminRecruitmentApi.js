@@ -471,6 +471,37 @@ export function registerAdminRecruitmentRoutes(app, deps) {
               'Could not create the PDF letter from the Word file. On the server install LibreOffice (sudo apt-get install -y libreoffice-writer) and restart the API, then try again.'
             );
           }
+          // Persist the exact emailed PDF so the portal download link serves the same bytes.
+          const pdfObjectKey = `${KEY_PREFIX}${input.candidateId}/${
+            prepared.portalPurpose === 'appointment' ? 'appointment' : 'offer'
+          }/${Date.now()}-${baseName}.pdf`;
+          await putObject(pdfObjectKey, pdfContent, CONTENT_TYPES.pdf);
+          const letterWithPdf = {
+            ...(prepared.letter || {}),
+            pdfObjectKey,
+            pdfFileName: `${baseName}.pdf`,
+            pdfContentType: CONTENT_TYPES.pdf,
+            pdfSize: pdfContent.length,
+          };
+          if (prepared.portalPurpose === 'appointment' && isUuid(prepared.portalRefId)) {
+            const { error: pdfMetaErr } = await svc
+              .from('admin_recruitment_appointments')
+              .update({ generated_doc: letterWithPdf })
+              .eq('id', prepared.portalRefId);
+            if (pdfMetaErr) {
+              // eslint-disable-next-line no-console
+              console.warn('[admin-recruitment] could not store appointment PDF meta:', pdfMetaErr.message);
+            }
+          } else if (prepared.portalPurpose === 'offer' && isUuid(prepared.portalRefId)) {
+            const { error: pdfMetaErr } = await svc
+              .from('admin_recruitment_offers')
+              .update({ generated_doc: letterWithPdf })
+              .eq('id', prepared.portalRefId);
+            if (pdfMetaErr) {
+              // eslint-disable-next-line no-console
+              console.warn('[admin-recruitment] could not store offer PDF meta:', pdfMetaErr.message);
+            }
+          }
           attachments.push({
             filename: `${baseName}.pdf`,
             contentType: CONTENT_TYPES.pdf,
@@ -479,6 +510,7 @@ export function registerAdminRecruitmentRoutes(app, deps) {
           attachmentMeta.push({
             fileName: `${baseName}.pdf`,
             objectKey: prepared.letter.objectKey,
+            pdfObjectKey,
             source: 'docx-exact-pdf',
           });
         } else {
@@ -827,16 +859,30 @@ export function registerAdminRecruitmentRoutes(app, deps) {
       if (!objectKey) throw httpError(404, 'File not available.');
       const rawName = String(file.fileName || 'letter.docx').trim() || 'letter.docx';
       const baseName = rawName.replace(/\.(docx|doc|pdf)$/i, '') || 'letter';
-      const buf = await readObject(objectKey);
-      const alreadyPdf =
-        /\.pdf$/i.test(rawName) ||
-        String(file.contentType || '').toLowerCase().includes('pdf') ||
-        (buf.length > 4 && String(buf.slice(0, 4)) === '%PDF');
+      const pdfObjectKey = String(file?.pdfObjectKey || '').trim();
 
-      let pdfBuf = alreadyPdf ? buf : null;
+      let pdfBuf = null;
+      // Prefer the exact PDF that was emailed — keeps portal download identical to the mail attachment.
+      if (pdfObjectKey) {
+        try {
+          const emailed = await readObject(pdfObjectKey);
+          if (emailed?.length > 4 && String(emailed.slice(0, 4)) === '%PDF') pdfBuf = emailed;
+        } catch {
+          /* fall through to live convert */
+        }
+      }
+
       if (!pdfBuf) {
-        // Exact print of the stored Word letter (Word / Graph / LibreOffice) — no layout rebuild.
-        pdfBuf = await convertDocxBufferToPdf(buf, baseName);
+        const buf = await readObject(objectKey);
+        const alreadyPdf =
+          /\.pdf$/i.test(rawName) ||
+          String(file.contentType || '').toLowerCase().includes('pdf') ||
+          (buf.length > 4 && String(buf.slice(0, 4)) === '%PDF');
+        pdfBuf = alreadyPdf ? buf : null;
+        if (!pdfBuf) {
+          // Exact print of the stored Word letter (Word / Graph / LibreOffice) — no layout rebuild.
+          pdfBuf = await convertDocxBufferToPdf(buf, baseName);
+        }
       }
       if (!pdfBuf) {
         throw httpError(
@@ -845,7 +891,9 @@ export function registerAdminRecruitmentRoutes(app, deps) {
         );
       }
 
-      const downloadName = sanitizeFileName(`${baseName}.pdf`);
+      const downloadName = sanitizeFileName(
+        String(file?.pdfFileName || `${baseName}.pdf`).replace(/\.(docx|doc)$/i, '.pdf')
+      );
       res.setHeader('Content-Type', CONTENT_TYPES.pdf);
       res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
       res.setHeader('Content-Length', String(pdfBuf.length));

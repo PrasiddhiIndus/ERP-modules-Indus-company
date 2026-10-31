@@ -926,7 +926,7 @@ export function SendEmailModal({ open, candidate, candidates, templateKey, relat
             required
           />
           <p className="mt-1 text-[10px] text-ink-muted">
-            Portal response deadline. Offer letter wording is within 24 hours from issuance; this date sets link expiry. The letter is rebuilt when you send.
+            Portal response deadline (shown on the offer letter as the accept-by date). The letter is rebuilt when you send.
           </p>
         </Field>
       ) : null}

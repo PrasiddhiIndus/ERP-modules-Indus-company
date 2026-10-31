@@ -245,7 +245,8 @@ export function openOfferLetterPrintPreview(offer) {
   </table>
   <p>This offer is subject to verification of your educational and employment documents, and satisfactory reference checks.</p>
   <p>Your detailed terms and conditions of employment will be shared in the Appointment Letter, which will be issued to you on the date of joining.</p>
-  <p>You are requested to accept or decline this offer within 24 hours from the date and time of issuance</p>
+  <p>You are requested to accept or decline within 24 hours from the date and time of issuance</p>
+  <p>A detailed salary breakup is below as Annexure A.</p>
   <p>We look forward to having you with us.</p>
   <p>Yours sincerely,</p>
   <p><strong>Shilpa Thakur</strong><br/>Manager - Human Resources<br/>${escapeXmlText(p["{{COMPANY_NAME}}"])}</p>

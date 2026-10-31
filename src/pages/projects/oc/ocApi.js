@@ -1,8 +1,11 @@
 ﻿import { supabase } from "../../../lib/supabase";
 import { fetchApiWithAuth } from "../../../lib/apiBase";
+import { IEV_OC_DEPARTMENT } from "./ocDepartment";
+
+// Every call takes the department profile (ocDepartment.js); IEV when omitted.
 
 /** User-facing message; technical detail goes to the console. */
-export function friendlyOcError(error, fallback = "Something went wrong. Please try again.") {
+export function friendlyOcError(error, fallback = "Something went wrong. Please try again.", dept = IEV_OC_DEPARTMENT) {
   if (!error) return fallback;
   console.error("[PO At Glance]", error);
   const msg = String(error.message || error);
@@ -12,7 +15,7 @@ export function friendlyOcError(error, fallback = "Something went wrong. Please 
     return msg.replace("OC Sign-off Assignment", "PO At Glance Sign-off Assignment");
   }
   if (code === "42501" || /do not have access|permission denied|row-level security/i.test(msg)) {
-    return "You do not have access to IEV PO At Glance.";
+    return dept.accessDeniedMessage;
   }
   if (code === "PGRST202" || code === "42883" || code === "42P01" || /could not find the function|does not exist/i.test(msg)) {
     return "PO At Glance is not set up on the server yet. Please contact the administrator.";
@@ -23,9 +26,9 @@ export function friendlyOcError(error, fallback = "Something went wrong. Please 
   return fallback;
 }
 
-export async function listOcs() {
+export async function listOcs(dept = IEV_OC_DEPARTMENT) {
   const { data, error } = await supabase
-    .from("oc_master")
+    .from(dept.tables.master)
     .select("id, oc_no, oc_date, client_name, po_wo_no, po_date, contract_value, currency, delivery_date, updated_at")
     .order("created_at", { ascending: false })
     .limit(500);
@@ -33,20 +36,21 @@ export async function listOcs() {
   return data || [];
 }
 
-export async function loadOc(id) {
+export async function loadOc(id, dept = IEV_OC_DEPARTMENT) {
+  const t = dept.tables;
   const byOc = (table, order) => {
     let q = supabase.from(table).select("*").eq("oc_id", id);
     if (order) q = q.order(order, { ascending: true });
     return q;
   };
   const [master, security, conditions, penalty, milestones, contacts, signoff] = await Promise.all([
-    supabase.from("oc_master").select("*").eq("id", id).maybeSingle(),
-    byOc("oc_security_items", "seq"),
-    byOc("oc_fixed_conditions"),
-    byOc("oc_penalty").maybeSingle(),
-    byOc("oc_payment_milestones", "seq"),
-    byOc("oc_contacts", "seq"),
-    byOc("oc_signoff"),
+    supabase.from(t.master).select("*").eq("id", id).maybeSingle(),
+    byOc(t.security, "seq"),
+    byOc(t.conditions),
+    byOc(t.penalty).maybeSingle(),
+    byOc(t.milestones, "seq"),
+    byOc(t.contacts, "seq"),
+    byOc(t.signoff),
   ]);
   const failed = [master, security, conditions, penalty, milestones, contacts, signoff].find((r) => r.error);
   if (failed) throw failed.error;
@@ -63,22 +67,22 @@ export async function loadOc(id) {
 }
 
 /** Saves header + all rows in one transaction; returns { id, oc_no }. */
-export async function saveOc(payload) {
-  const { data, error } = await supabase.rpc("oc_save", { p: payload });
+export async function saveOc(payload, dept = IEV_OC_DEPARTMENT) {
+  const { data, error } = await supabase.rpc(dept.rpc.save, { p: payload });
   if (error) throw error;
   return data;
 }
 
 /** { [slot]: { employee_code, employee_name } } for the dissemination boxes that have someone assigned. */
-export async function loadSignoffAssignees() {
-  const { data, error } = await supabase.from("oc_signoff_assignees").select("slot, employee_code, employee_name");
+export async function loadSignoffAssignees(dept = IEV_OC_DEPARTMENT) {
+  const { data, error } = await supabase.from(dept.tables.assignees).select("slot, employee_code, employee_name");
   if (error) throw error;
   return Object.fromEntries((data || []).map((r) => [r.slot, { employee_code: r.employee_code, employee_name: r.employee_name }]));
 }
 
 /** Assigns an employee to a box, or clears the box when `employee` is null. */
-export async function saveSignoffAssignee(slot, employee) {
-  const q = supabase.from("oc_signoff_assignees");
+export async function saveSignoffAssignee(slot, employee, dept = IEV_OC_DEPARTMENT) {
+  const q = supabase.from(dept.tables.assignees);
   const { error } = employee
     ? await q.upsert(
       { slot, employee_code: employee.employee_code, employee_name: employee.full_name, updated_at: new Date().toISOString() },
@@ -89,8 +93,8 @@ export async function saveSignoffAssignee(slot, employee) {
 }
 
 /** Active Employee Master people: [{ employee_code, full_name, department }]. */
-export async function listEmployeeOptions() {
-  const { data, error } = await supabase.rpc("oc_employee_options");
+export async function listEmployeeOptions(dept = IEV_OC_DEPARTMENT) {
+  const { data, error } = await supabase.rpc(dept.rpc.employeeOptions);
   if (error) throw error;
   return data || [];
 }
@@ -111,17 +115,17 @@ export async function amFinance() {
   return data === true;
 }
 
-export async function deleteOc(id) {
-  const { error } = await supabase.from("oc_master").delete().eq("id", id);
+export async function deleteOc(id, dept = IEV_OC_DEPARTMENT) {
+  const { error } = await supabase.from(dept.tables.master).delete().eq("id", id);
   if (error) throw error;
 }
 
 /**
- * Email the four assigned sign-off users (outreach Verified From mailbox) after a PO slot is signed.
+ * Email the department's assigned sign-off users (outreach Verified From mailbox) after a PO slot is signed.
  * @param {{ ocId: string, signatures: { slot: string, signed_by: string }[], signerName?: string }} p
  */
-export async function notifyOcSignoff({ ocId, signatures, signerName }) {
-  const res = await fetchApiWithAuth("/api/fire-tender/oc/signoff-notify", {
+export async function notifyOcSignoff({ ocId, signatures, signerName }, dept = IEV_OC_DEPARTMENT) {
+  const res = await fetchApiWithAuth(dept.notifyPath, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ocId, signatures, signerName }),
