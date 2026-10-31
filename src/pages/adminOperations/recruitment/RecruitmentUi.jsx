@@ -1,9 +1,60 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, ChevronDown, ChevronUp, ChevronsUpDown, FileText, Inbox, Loader2, RefreshCw, Search, X } from "lucide-react";
 import { Modal } from "../components/AdminUi";
 import { toast } from "../../../lib/toast";
 import { TONE_CLASSES, TONE_DOT } from "./recruitmentConfig";
 import { RECRUITMENT_DATA_EVENT, getCapabilities, getFileUrl, searchEmployees } from "./recruitmentService";
+
+/** Full-screen wait state for long letter builds (generate / regenerate). */
+export function BusyOverlay({ open, message = "Please wait…", detail = "This can take a few seconds." }) {
+  if (!open || typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-ink/40 p-4 backdrop-blur-[1px]"
+      role="alert"
+      aria-busy="true"
+      aria-live="assertive"
+    >
+      <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-lg border border-border bg-surface px-6 py-5 text-center shadow-lg">
+        <Loader2 className="h-8 w-8 animate-spin text-accent" aria-hidden />
+        <p className="text-sm font-semibold text-ink">{message}</p>
+        {detail ? <p className="text-[11px] text-ink-muted">{detail}</p> : null}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+let busyOverlayState = { open: false, message: "", detail: "" };
+const busyOverlayListeners = new Set();
+
+function publishBusyOverlay(next) {
+  busyOverlayState = next;
+  busyOverlayListeners.forEach((fn) => fn(next));
+}
+
+export function showRecruitmentBusy(message, detail) {
+  publishBusyOverlay({
+    open: true,
+    message: message || "Please wait…",
+    detail: detail ?? "This can take a few seconds.",
+  });
+}
+
+export function hideRecruitmentBusy() {
+  publishBusyOverlay({ open: false, message: "", detail: "" });
+}
+
+/** Mount once under RecruitmentLayout so runBusyAction can show a global overlay. */
+export function RecruitmentBusyHost() {
+  const [state, setState] = useState(busyOverlayState);
+  useEffect(() => {
+    busyOverlayListeners.add(setState);
+    return () => busyOverlayListeners.delete(setState);
+  }, []);
+  return <BusyOverlay open={state.open} message={state.message} detail={state.detail} />;
+}
 
 /** Load async data, re-run when the recruitment store changes. */
 export function useRecruitmentData(loader, deps = []) {
@@ -281,20 +332,43 @@ export function ReadinessIndicator({ readiness, compact = false }) {
   if (!readiness) return null;
   const tone = readiness.ready ? "success" : readiness.done >= readiness.total - 1 ? "warning" : "critical";
   const label = readiness.ready ? "Ready to join" : `${readiness.total - readiness.done} item${readiness.total - readiness.done === 1 ? "" : "s"} pending`;
+  const checks = [...(readiness.checks || [])].sort((a, b) => Number(b.ok) - Number(a.ok));
   if (compact) {
     return (
-      <span title={readiness.checks.map((c) => `${c.ok ? "✓" : "✗"} ${c.label}`).join("\n")}>
+      <span title={checks.map((c) => `${c.ok ? "✓" : "○"} ${c.label}`).join("\n")}>
         <StatusPill meta={{ label, tone }} />
       </span>
     );
   }
   return (
-    <div className="space-y-1.5">
-      <StatusPill meta={{ label, tone }} />
-      <ul className="space-y-0.5">
-        {readiness.checks.map((c) => (
-          <li key={c.key} className={`text-[11px] ${c.ok ? "text-success" : "text-ink-muted"}`}>
-            {c.ok ? "✓" : "○"} {c.label}
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <StatusPill meta={{ label, tone }} />
+        <span className="text-[11px] tabular-nums text-ink-muted">
+          {readiness.done}/{readiness.total} done
+        </span>
+      </div>
+      <ProgressBar value={readiness.done} total={readiness.total} tone={readiness.ready ? "success" : "warning"} />
+      <ul className="divide-y divide-divider rounded-md border border-border">
+        {checks.map((c) => (
+          <li
+            key={c.key}
+            className={`grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-2 px-2.5 py-1.5 text-xs ${
+              c.ok ? "bg-success-soft/40 text-ink" : "bg-surface text-ink-secondary"
+            }`}
+          >
+            <span
+              className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${
+                c.ok ? "bg-success text-white" : "border border-border bg-surface-sunken text-ink-muted"
+              }`}
+              aria-hidden
+            >
+              {c.ok ? "✓" : "–"}
+            </span>
+            <span className={`min-w-0 truncate ${c.ok ? "font-medium" : ""}`}>{c.label}</span>
+            <span className={`shrink-0 text-[10px] font-medium uppercase tracking-wide ${c.ok ? "text-success" : "text-warning"}`}>
+              {c.ok ? "Done" : "Pending"}
+            </span>
           </li>
         ))}
       </ul>
@@ -600,7 +674,21 @@ export function FileButton({ candidateId, category, file, label, download = fals
  * Modal form for a single workflow action. `onSubmit` may throw; the message is shown inline and the
  * modal stays open so the user can correct and retry.
  */
-export function ActionModal({ open, title, onClose, onSubmit, submitLabel = "Save", tone = "primary", children, widthClass, canSubmit = true, description }) {
+export function ActionModal({
+  open,
+  title,
+  onClose,
+  onSubmit,
+  submitLabel = "Save",
+  tone = "primary",
+  children,
+  widthClass,
+  canSubmit = true,
+  description,
+  /** When set, shows a clear in-modal wait panel while onSubmit runs (e.g. letter generation). */
+  busyMessage,
+  busyDetail = "This can take a few seconds.",
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const formId = `recruitment-form-${useId().replace(/:/g, "")}`;
@@ -636,18 +724,29 @@ export function ActionModal({ open, title, onClose, onSubmit, submitLabel = "Sav
           </button>
           <button type="submit" form={formId} className={tone === "danger" ? btn.danger : btn.primary} disabled={busy || !canSubmit}>
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            {submitLabel}
+            {busy && busyMessage ? "Working…" : submitLabel}
           </button>
         </div>
       }
     >
-      <form id={formId} onSubmit={submit} className="space-y-3">
+      <form id={formId} onSubmit={submit} className="relative space-y-3">
         {description ? <p className="text-xs text-ink-secondary">{description}</p> : null}
         {children}
         {error ? (
           <p role="alert" className="rounded-md border border-critical-border bg-critical-soft px-2 py-1.5 text-[11px] text-critical">
             {error}
           </p>
+        ) : null}
+        {busy && busyMessage ? (
+          <div
+            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-md bg-surface/90 px-4 text-center backdrop-blur-[1px]"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="h-7 w-7 animate-spin text-accent" aria-hidden />
+            <p className="text-sm font-semibold text-ink">{busyMessage}</p>
+            {busyDetail ? <p className="text-[11px] text-ink-muted">{busyDetail}</p> : null}
+          </div>
         ) : null}
       </form>
     </Modal>
@@ -816,5 +915,15 @@ export async function runAction(fn, successTitle, successMessage) {
   } catch (err) {
     toast.error("Action failed", err?.message || "Please try again.");
     return undefined;
+  }
+}
+
+/** Like runAction, but shows the global letter-build overlay while waiting. */
+export async function runBusyAction(fn, successTitle, successMessage, busyMessage = "Please wait…") {
+  showRecruitmentBusy(busyMessage);
+  try {
+    return await runAction(fn, successTitle, successMessage);
+  } finally {
+    hideRecruitmentBusy();
   }
 }

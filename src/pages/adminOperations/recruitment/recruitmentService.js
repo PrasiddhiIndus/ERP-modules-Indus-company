@@ -732,6 +732,15 @@ export function moveCandidateStage(id, stage, note, version) {
   return call("admin_recruitment_candidate_move", { p_id: id, p_to: stage, p_note: note || null, p_expected_version: version ?? null }, "Could not move the candidate.");
 }
 
+/** Skip interviews and move shortlisted/interview candidates to Selected for offer prep. */
+export function bypassInterview(id, note, version) {
+  return call(
+    "admin_recruitment_bypass_interview",
+    { p_candidate_id: id, p_note: note || null, p_expected_version: version ?? null },
+    "Could not skip the interview."
+  );
+}
+
 export function closeCandidate(id, outcome, reason, version) {
   return call("admin_recruitment_candidate_close", { p_id: id, p_outcome: outcome, p_reason: reason, p_expected_version: version ?? null }, "Could not close the candidate.");
 }
@@ -976,10 +985,15 @@ export function markJoiningNoShow(candidateId, reason, version) {
 }
 
 /** Returns { status: 'converted', employeeMasterId, employeeCode, ... } or { status: 'duplicate', matches }. */
-export async function convertToEmployee(candidateId, { employeeCode, linkEmployeeId } = {}) {
+export async function convertToEmployee(candidateId, { employeeCode, linkEmployeeId, employmentType } = {}) {
   const out = await call(
     "admin_recruitment_convert_to_employee",
-    { p_candidate_id: candidateId, p_employee_code: employeeCode || null, p_link_employee_id: linkEmployeeId || null },
+    {
+      p_candidate_id: candidateId,
+      p_employee_code: employeeCode || null,
+      p_link_employee_id: linkEmployeeId || null,
+      p_employment_type: linkEmployeeId ? null : employmentType || null,
+    },
     "Could not create the employee."
   );
   await saveConvertedEmployeeCtc(candidateId, out);

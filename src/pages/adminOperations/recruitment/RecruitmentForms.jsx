@@ -6,6 +6,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Check, ExternalLink, Link2, Upload, X } from "lucide-react";
 import { toast } from "../../../lib/toast";
 import { CALL_OUTCOMES, EMPLOYMENT_TYPES, SCREENING_RESULTS, TEMPLATE_PLACEHOLDERS, candidateStatusMeta, documentStatusMeta } from "./recruitmentConfig";
+import { EMPLOYMENT_TYPE_OPTIONS } from "../../../utils/employeeMasterReminders";
 import {
   attachSignedOffer,
   convertToEmployee,
@@ -349,17 +350,12 @@ export function OfferModal({ open, candidate, offer, onClose }) {
       department: offer?.department || candidate?.department || "",
       location: offer?.location || candidate?.site || "",
       employmentType: offer?.employmentType || "Permanent",
-      // Prefill from the salary captured in recruitment (expected / negotiated), not CTC/payroll.
-      monthlyGross:
-        offer?.monthlyGross ??
-        candidate?.expectedSalary ??
-        candidate?.expectedCtc ??
-        "",
       joiningDate: offer?.joiningDate || candidate?.expectedJoining || "",
       terms: offer?.terms || "",
     });
   }, [open, offer, candidate]);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const ctcMonthly = candidate?.expectedSalary ?? candidate?.expectedCtc ?? null;
   return (
     <ActionModal
       open={open}
@@ -367,9 +363,12 @@ export function OfferModal({ open, candidate, offer, onClose }) {
       onClose={onClose}
       widthClass="max-w-xl"
       submitLabel={generate ? "Save & generate offer" : "Save draft"}
-      canSubmit={Boolean(form.designation?.trim())}
+      busyMessage={generate ? "Generating offer letter…" : "Saving offer draft…"}
+      busyDetail={generate ? "Building the Word letter and PDF — please wait." : undefined}
+      canSubmit={Boolean(form.designation?.trim()) && Number(ctcMonthly) > 0}
       onSubmit={async () => {
-        const payload = { ...form, monthlyGross: form.monthlyGross === "" ? null : Number(form.monthlyGross) };
+        // Monthly amount always comes from CTC calculator (candidate expected_ctc) — not entered here.
+        const payload = { ...form };
         const saved = await saveOfferDraft(candidate.id, offer?.id, payload, offer?.version);
         if (generate) {
           await generateOffer(saved.id, saved.version);
@@ -397,8 +396,12 @@ export function OfferModal({ open, candidate, offer, onClose }) {
             ))}
           </select>
         </Field>
-        <Field label="Offered salary / month (₹)">
-          <input type="number" min={0} className={inputClass} value={form.monthlyGross ?? ""} onChange={set("monthlyGross")} />
+        <Field label="Monthly CTC (from calculator)" className="sm:col-span-2">
+          <p className="rounded-md border border-border bg-surface-sunken px-3 py-2 text-sm tabular-nums text-ink">
+            {ctcMonthly != null && Number(ctcMonthly) > 0
+              ? `₹${Number(ctcMonthly).toLocaleString("en-IN")}`
+              : "Not saved — open CTC calculator on the candidate page and save first."}
+          </p>
         </Field>
         <Field label="Proposed joining date">
           <input type="date" min={todayIso()} className={inputClass} value={form.joiningDate || ""} onChange={set("joiningDate")} />
@@ -708,11 +711,13 @@ export function MarkJoinedModal({ open, candidate, onClose }) {
 // ---------------------------------------------------------------------------
 export function ConvertModal({ open, candidate, onClose, onConverted }) {
   const [code, setCode] = useState("");
+  const [employmentType, setEmploymentType] = useState("");
   const [matches, setMatches] = useState(null);
   const [linkId, setLinkId] = useState(null);
   useEffect(() => {
     if (open) {
       setCode("");
+      setEmploymentType("");
       setMatches(null);
       setLinkId(null);
     }
@@ -724,9 +729,14 @@ export function ConvertModal({ open, candidate, onClose, onConverted }) {
       description="Creates the Employee Master record from the recruitment details. Existing employees are never changed."
       onClose={onClose}
       submitLabel={matches ? (linkId ? "Link to selected employee" : "Select an employee") : "Create employee"}
-      canSubmit={!matches || Boolean(linkId)}
+      canSubmit={matches ? Boolean(linkId) : Boolean(employmentType)}
       onSubmit={async () => {
-        const out = await convertToEmployee(candidate.id, matches ? { linkEmployeeId: linkId } : { employeeCode: code.trim() });
+        const out = await convertToEmployee(
+          candidate.id,
+          matches
+            ? { linkEmployeeId: linkId }
+            : { employeeCode: code.trim(), employmentType }
+        );
         if (out?.status === "duplicate") {
           setMatches(out.matches || []);
           return;
@@ -737,9 +747,26 @@ export function ConvertModal({ open, candidate, onClose, onConverted }) {
       }}
     >
       {!matches ? (
-        <Field label="Employee code (optional)">
-          <input className={inputClass} value={code} onChange={(e) => setCode(e.target.value)} placeholder="Leave blank to assign automatically" />
-        </Field>
+        <div className="space-y-3">
+          <Field label="Employment type *">
+            <select
+              className={inputClass}
+              value={employmentType}
+              onChange={(e) => setEmploymentType(e.target.value)}
+              required
+            >
+              <option value="">Select employment type</option>
+              {EMPLOYMENT_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Employee code (optional)">
+            <input className={inputClass} value={code} onChange={(e) => setCode(e.target.value)} placeholder="Leave blank to assign automatically" />
+          </Field>
+        </div>
       ) : (
         <div className="space-y-2">
           <p className="flex items-center gap-1.5 rounded-md border border-warning-border bg-warning-soft px-2 py-1.5 text-[11px] text-ink">
