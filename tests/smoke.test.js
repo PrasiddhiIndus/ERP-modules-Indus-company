@@ -470,6 +470,22 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
     expect(merged['101'][10]).toBe('P/CL');
   });
 
+  it('approved half-day P/PL|P/CL|P/SL overlays punch Present', () => {
+    // Punch sync may have overwritten the leave-sourced register cell to P; overlay must restore.
+    for (const [emp, day, mark, iso] of [
+      ['8720', 13, 'P/PL', '2026-10-13'],
+      ['6385', 13, 'P/SL', '2026-10-13'],
+      ['FTC-40', 13, 'P/CL', '2026-10-13'],
+    ]) {
+      const merged = mergeApprovedLeaveMarksIntoManualMarks(
+        { [emp]: { [day]: 'P' } },
+        { [emp]: { [day]: mark } },
+        { monthKey: '2026-10', punches: [{ empCode: emp, punchDate: iso }] }
+      );
+      expect(merged[emp][day]).toBe(mark);
+    }
+  });
+
   it('promotes Indus One CL over Admin HD to P/CL when punch exists', () => {
     const registerRows = [
       {
