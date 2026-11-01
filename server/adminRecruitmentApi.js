@@ -468,7 +468,7 @@ export function registerAdminRecruitmentRoutes(app, deps) {
           if (!pdfContent) {
             throw httpError(
               503,
-              'Could not create the PDF letter from the Word file. On the server install LibreOffice (sudo apt-get install -y libreoffice-writer) and restart the API, then try again.'
+              'Could not create the PDF letter from the Word file. For Word-exact layout, grant the mail app Files.ReadWrite.All (Microsoft Graph) and restart the API. Otherwise install LibreOffice on the server (sudo apt-get install -y libreoffice-writer) and restart.'
             );
           }
           // Persist the exact emailed PDF so the portal download link serves the same bytes.
