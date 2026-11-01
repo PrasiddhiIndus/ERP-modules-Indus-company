@@ -24,6 +24,24 @@ const TEMPLATE_DIR = path.join(__dirname, '../public/templates/admin-recruitment
 
 const OFFER_TEMPLATE = path.join(TEMPLATE_DIR, 'offer-letter.docx');
 const APPOINTMENT_TEMPLATE = path.join(TEMPLATE_DIR, 'appointment-letter.docx');
+/** Metric-compatible OFL/Apache fonts staged into LibreOffice for Word-like pagination. */
+const LETTER_FONTS_DIR = path.join(__dirname, 'assets', 'letter-fonts');
+
+/**
+ * Microsoft fonts used in the letter templates are often missing on Linux.
+ * LibreOffice then substitutes DejaVu (different widths) and the PDF grows
+ * from 4 → 6 pages. Remap only for the LibreOffice convert buffer.
+ * Longer names first so "Aptos Narrow" is not partially rewritten as "Aptos".
+ */
+const LIBREOFFICE_FONT_REMAP = [
+  ['Aptos Narrow', 'Liberation Sans Narrow'],
+  ['Aptos Display', 'Liberation Sans'],
+  ['Aptos', 'Liberation Sans'],
+  ['Cambria Math', 'Liberation Serif'],
+  ['Cambria', 'Caladea'],
+  ['Calibri Light', 'Carlito'],
+  ['Calibri', 'Carlito'],
+];
 
 function escapeXmlText(value) {
   return String(value ?? '')
@@ -624,7 +642,8 @@ function paragraphAt(xml, textIdx) {
 }
 
 function paragraphPlainText(p) {
-  return [...String(p || '').matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)]
+  // Do not use /<w:t[^>]*>/ — that also matches <w:tab .../> and swallows XML into "text".
+  return [...String(p || '').matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)]
     .map((t) => t[1])
     .join('')
     .replace(/\s+/g, ' ')
@@ -724,6 +743,14 @@ function fixAppointmentAnnexureIPagination(xml) {
   return out;
 }
 
+/**
+ * LibreOffice-only prep: compact No Spacing, annexure page break, strip blank name page, font remap.
+ * Exported for regression tests. Does not change the stored Word template.
+ */
+export function prepareAppointmentDocxForLibreOffice(docxBuffer) {
+  return remapDocxFontsForLibreOffice(normalizeAppointmentLetterDocxLayout(docxBuffer));
+}
+
 /** Appointment-only layout fixes for Word-faithful PDF. Does not touch offer table/page logic. */
 function normalizeAppointmentLetterDocxLayout(docxBuffer) {
   const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
@@ -789,6 +816,74 @@ export async function buildAppointmentLetterDocx(appt, offer, candidate, company
   // Keep the Word template's exact margins/spacing/xy. Only repair broken CTC amount cells.
   // LibreOffice-oriented pagination rewrites are applied only if Graph/Word PDF convert is unavailable.
   return applyAppointmentAnnexureCellFixOnly(filled);
+}
+
+/**
+ * Rewrite template font names in a temporary DOCX so LibreOffice picks staged
+ * metric-compatible families (Caladea≈Cambria, Carlito≈Calibri, Liberation Sans Narrow≈Aptos Narrow).
+ * Does not modify the stored template or the Word/Graph conversion path.
+ */
+function remapDocxFontsForLibreOffice(docxBuffer) {
+  const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
+  if (buf.length < 100) return buf;
+  try {
+    const zip = new PizZip(buf);
+    let changed = false;
+    for (const name of Object.keys(zip.files)) {
+      if (!/^word\/.+\.xml$/i.test(name) || zip.files[name].dir) continue;
+      const before = zip.file(name)?.asText();
+      if (!before) continue;
+      let after = before;
+      for (const [from, to] of LIBREOFFICE_FONT_REMAP) {
+        if (!after.includes(from)) continue;
+        after = after.split(from).join(to);
+      }
+      if (after !== before) {
+        zip.file(name, after);
+        changed = true;
+      }
+    }
+    return changed ? zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }) : buf;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[admin-recruitment] LibreOffice font remap skipped:', err?.message || err);
+    return buf;
+  }
+}
+
+/** Copy bundled letter fonts into the private LibreOffice profile + fontconfig path. */
+function stageLibreOfficeLetterFonts(profileDir, fontConfigDir) {
+  const fontDest = path.join(profileDir, 'user', 'fonts');
+  fs.mkdirSync(fontDest, { recursive: true });
+  fs.mkdirSync(fontConfigDir, { recursive: true });
+  let staged = 0;
+  if (fs.existsSync(LETTER_FONTS_DIR)) {
+    for (const name of fs.readdirSync(LETTER_FONTS_DIR)) {
+      if (!/\.(ttf|otf)$/i.test(name)) continue;
+      const src = path.join(LETTER_FONTS_DIR, name);
+      try {
+        fs.copyFileSync(src, path.join(fontDest, name));
+        fs.copyFileSync(src, path.join(fontConfigDir, name));
+        staged += 1;
+      } catch {
+        /* skip unreadable font */
+      }
+    }
+  }
+  const confPath = path.join(fontConfigDir, 'fonts.conf');
+  const fontsDirXml = fontConfigDir.replace(/\\/g, '/');
+  fs.writeFileSync(
+    confPath,
+    `<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>${fontsDirXml}</dir>
+  <cachedir>${fontsDirXml}/cache</cachedir>
+</fontconfig>
+`,
+    'utf8'
+  );
+  return { staged, confPath, fontDest };
 }
 
 async function findLibreOfficeBinary() {
@@ -874,7 +969,9 @@ async function convertDocxViaLibreOffice(docxBuffer, baseName = 'letter') {
     .slice(0, 80) || 'letter';
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ifspl-lo-pdf-'));
   const profileDir = path.join(tmpDir, 'lo-profile');
+  const fontConfigDir = path.join(tmpDir, 'fc-fonts');
   fs.mkdirSync(profileDir, { recursive: true });
+  const { staged, confPath } = stageLibreOfficeLetterFonts(profileDir, fontConfigDir);
   const docxPath = path.join(tmpDir, `${safeBase}.docx`);
   const pdfPath = path.join(tmpDir, `${safeBase}.pdf`);
   fs.writeFileSync(docxPath, buf);
@@ -914,11 +1011,18 @@ async function convertDocxViaLibreOffice(docxBuffer, baseName = 'letter') {
           // Headless / no X11 on servers
           SAL_USE_VCLPLUGIN: 'svp',
           LANG: process.env.LANG || 'en_US.UTF-8',
+          // Prefer bundled metric-compatible fonts over DejaVu substitution.
+          FONTCONFIG_FILE: confPath,
+          FONTCONFIG_PATH: fontConfigDir,
         },
       });
     } catch (err) {
       // soffice often exits non-zero even when the PDF was written — check disk before failing.
       execErr = err;
+    }
+    if (staged > 0) {
+      // eslint-disable-next-line no-console
+      console.log('[admin-recruitment] LibreOffice staged letter fonts:', staged);
     }
 
     // soffice can return before the PDF flush completes
@@ -1012,13 +1116,14 @@ if (-not (Test-Path $out)) { throw 'Word did not write the PDF.' }
 /**
  * Convert a filled .docx buffer to PDF by printing the real Word file.
  * Priority for exact margins/spacing/xy: Word COM (Windows) → Graph Word Online.
- * LibreOffice is last resort only (Linux) and may not match Word pagination.
+ * LibreOffice is last resort only (Linux). Set FORCE_LIBREOFFICE_PDF=1 to test that path.
  * Never rebuilds layout with pdf-lib.
  */
 export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
   const name = String(baseName || '').toLowerCase();
   const isOfferLetter = /\boffer\b/.test(name);
   const isAppointmentLetter = /\bappointment\b/.test(name);
+  const forceLibreOffice = String(process.env.FORCE_LIBREOFFICE_PDF || '').trim() === '1';
 
   // Word / Graph must print the filled template as-is (exact Word x/y, margins, spacing).
   const exactBuffer = isOfferLetter
@@ -1027,7 +1132,7 @@ export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
       ? applyAppointmentAnnexureCellFixOnly(docxBuffer)
       : docxBuffer;
 
-  if (process.platform === 'win32') {
+  if (!forceLibreOffice && process.platform === 'win32') {
     const viaWord = await convertDocxViaWord(exactBuffer, baseName);
     if (viaWord) {
       // eslint-disable-next-line no-console
@@ -1036,27 +1141,29 @@ export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
     }
   }
 
-  try {
-    const { convertDocxToPdfViaGraph } = await import('./mail/index.js');
-    const viaGraph = await convertDocxToPdfViaGraph(exactBuffer, baseName);
-    if (viaGraph) {
+  if (!forceLibreOffice) {
+    try {
+      const { convertDocxToPdfViaGraph } = await import('./mail/index.js');
+      const viaGraph = await convertDocxToPdfViaGraph(exactBuffer, baseName);
+      if (viaGraph) {
+        // eslint-disable-next-line no-console
+        console.log('[admin-recruitment] PDF via Graph Word Online:', baseName);
+        return viaGraph;
+      }
+    } catch (err) {
       // eslint-disable-next-line no-console
-      console.log('[admin-recruitment] PDF via Graph Word Online:', baseName);
-      return viaGraph;
+      console.warn('[admin-recruitment] Graph Word→PDF unavailable:', err?.message || err);
     }
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn('[admin-recruitment] Graph Word→PDF unavailable:', err?.message || err);
   }
 
-  // LibreOffice cannot match Word layout exactly. Apply LO-only spacing/page fixes, then convert.
+  // LibreOffice: pin spacing/page breaks, remap missing Microsoft fonts, stage OFL substitutes.
   const loBuffer = isAppointmentLetter
-    ? normalizeAppointmentLetterDocxLayout(exactBuffer)
-    : exactBuffer;
-  if (isAppointmentLetter) {
+    ? prepareAppointmentDocxForLibreOffice(exactBuffer)
+    : remapDocxFontsForLibreOffice(exactBuffer);
+  if (isAppointmentLetter || forceLibreOffice) {
     // eslint-disable-next-line no-console
     console.warn(
-      '[admin-recruitment] Appointment PDF falling back to LibreOffice — enable Graph Files.ReadWrite.All for Word-exact layout'
+      '[admin-recruitment] PDF via LibreOffice fallback — enable Graph Files.ReadWrite.All for Word-exact layout'
     );
   }
   const viaLo = await convertDocxViaLibreOffice(loBuffer, baseName);
