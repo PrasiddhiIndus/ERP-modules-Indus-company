@@ -763,9 +763,32 @@ function normalizeAppointmentLetterDocxLayout(docxBuffer) {
   }
 }
 
+/** CTC annexure cell repair only — does not touch margins, spacing, or page breaks. */
+function applyAppointmentAnnexureCellFixOnly(docxBuffer) {
+  const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
+  if (buf.length < 100) return buf;
+  try {
+    const zip = new PizZip(buf);
+    const docFile = zip.file('word/document.xml');
+    if (!docFile) return buf;
+    const before = docFile.asText();
+    const after = fixAnnexureAmountCells(before);
+    if (after === before) return buf;
+    zip.file('word/document.xml', after);
+    return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+  } catch {
+    return buf;
+  }
+}
+
 export async function buildAppointmentLetterDocx(appt, offer, candidate, companyName) {
-  const filled = await fillDocxTemplate(APPOINTMENT_TEMPLATE, appointmentPlaceholders(appt, offer, candidate, companyName));
-  return normalizeAppointmentLetterDocxLayout(filled);
+  const filled = await fillDocxTemplate(
+    APPOINTMENT_TEMPLATE,
+    appointmentPlaceholders(appt, offer, candidate, companyName)
+  );
+  // Keep the Word template's exact margins/spacing/xy. Only repair broken CTC amount cells.
+  // LibreOffice-oriented pagination rewrites are applied only if Graph/Word PDF convert is unavailable.
+  return applyAppointmentAnnexureCellFixOnly(filled);
 }
 
 async function findLibreOfficeBinary() {
@@ -988,38 +1011,60 @@ if (-not (Test-Path $out)) { throw 'Word did not write the PDF.' }
 
 /**
  * Convert a filled .docx buffer to PDF by printing the real Word file.
- * Priority: Word COM (Windows) → Graph Word Online → LibreOffice (Linux/production).
- * Never rebuilds layout with pdf-lib. Email always attaches PDF (same as CTC details mail).
+ * Priority for exact margins/spacing/xy: Word COM (Windows) → Graph Word Online.
+ * LibreOffice is last resort only (Linux) and may not match Word pagination.
+ * Never rebuilds layout with pdf-lib.
  */
 export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
-  // Offer: table pin + annexure cell fix. Appointment: NoSpacing + name align + annexure cells.
-  // Never apply offer table/page-break rewrites to appointment PDFs.
   const name = String(baseName || '').toLowerCase();
   const isOfferLetter = /\boffer\b/.test(name);
   const isAppointmentLetter = /\bappointment\b/.test(name);
-  const printBuffer = isOfferLetter
+
+  // Word / Graph must print the filled template as-is (exact Word x/y, margins, spacing).
+  const exactBuffer = isOfferLetter
     ? normalizeOfferLetterDocxLayout(docxBuffer)
     : isAppointmentLetter
-      ? normalizeAppointmentLetterDocxLayout(docxBuffer)
+      ? applyAppointmentAnnexureCellFixOnly(docxBuffer)
       : docxBuffer;
 
   if (process.platform === 'win32') {
-    const viaWord = await convertDocxViaWord(printBuffer, baseName);
-    if (viaWord) return viaWord;
+    const viaWord = await convertDocxViaWord(exactBuffer, baseName);
+    if (viaWord) {
+      // eslint-disable-next-line no-console
+      console.log('[admin-recruitment] PDF via Word COM:', baseName);
+      return viaWord;
+    }
   }
 
   try {
     const { convertDocxToPdfViaGraph } = await import('./mail/index.js');
-    const viaGraph = await convertDocxToPdfViaGraph(printBuffer, baseName);
-    if (viaGraph) return viaGraph;
+    const viaGraph = await convertDocxToPdfViaGraph(exactBuffer, baseName);
+    if (viaGraph) {
+      // eslint-disable-next-line no-console
+      console.log('[admin-recruitment] PDF via Graph Word Online:', baseName);
+      return viaGraph;
+    }
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn('[admin-recruitment] Graph Word→PDF unavailable:', err?.message || err);
   }
 
-  // Linux/production: LibreOffice prints the filled .docx (same path used when Graph Word Online is unavailable).
-  const viaLo = await convertDocxViaLibreOffice(printBuffer, baseName);
-  if (viaLo) return viaLo;
+  // LibreOffice cannot match Word layout exactly. Apply LO-only spacing/page fixes, then convert.
+  const loBuffer = isAppointmentLetter
+    ? normalizeAppointmentLetterDocxLayout(exactBuffer)
+    : exactBuffer;
+  if (isAppointmentLetter) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[admin-recruitment] Appointment PDF falling back to LibreOffice — enable Graph Files.ReadWrite.All for Word-exact layout'
+    );
+  }
+  const viaLo = await convertDocxViaLibreOffice(loBuffer, baseName);
+  if (viaLo) {
+    // eslint-disable-next-line no-console
+    console.log('[admin-recruitment] PDF via LibreOffice:', baseName);
+    return viaLo;
+  }
   return null;
 }
 
