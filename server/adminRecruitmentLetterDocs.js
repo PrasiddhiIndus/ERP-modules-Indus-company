@@ -562,28 +562,30 @@ export async function buildOfferLetterDocx(offer, candidate, companyName) {
   return normalizeOfferLetterDocxLayout(filled);
 }
 
+const APPOINTMENT_COMPACT_SPACING =
+  '<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>';
+
 /**
  * Word's built-in "No Spacing" is incomplete in the exported styles.xml (rPr only).
  * Word still applies compact spacing; LibreOffice/Graph fall back to Normal and inflate
- * empty lines — pushing CEO/ack/annexure content onto later pages. Pin Word's spacing.
+ * empty lines — pushing CEO/ack/name onto later pages (blank page before Annexure).
  */
 function fixAppointmentNoSpacingStyle(stylesXml) {
   let out = String(stylesXml || '');
   if (!out.includes('w:styleId="NoSpacing"')) return out;
   out = out.replace(
     /<w:style([^>]*w:styleId="NoSpacing"[^>]*)>([\s\S]*?)<\/w:style>/,
-    (full, attrs, body) => {
-      if (/<w:spacing\b/.test(body) && /<w:pPr>/.test(body)) return full;
+    (_full, attrs, body) => {
       let next = body;
+      if (!/<w:basedOn\b/.test(next)) {
+        next = `<w:basedOn w:val="Normal"/>${next}`;
+      }
       if (/<w:pPr>/.test(next)) {
         if (!/<w:spacing\b/.test(next)) {
-          next = next.replace(
-            /<w:pPr>/,
-            '<w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>'
-          );
+          next = next.replace(/<w:pPr>/, `<w:pPr>${APPOINTMENT_COMPACT_SPACING}`);
         }
       } else {
-        next = `<w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>${next}`;
+        next = `<w:pPr>${APPOINTMENT_COMPACT_SPACING}</w:pPr>${next}`;
       }
       return `<w:style${attrs}>${next}</w:style>`;
     }
@@ -592,9 +594,25 @@ function fixAppointmentNoSpacingStyle(stylesXml) {
 }
 
 /**
+ * LibreOffice often ignores style-level No Spacing. Pin compact spacing on every
+ * NoSpacing paragraph that lacks a local w:spacing (including empty spacers).
+ */
+function pinAppointmentNoSpacingParagraphs(xml) {
+  return String(xml || '').replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (p) => {
+    if (!/w:val="NoSpacing"/.test(p)) return p;
+    if (/<w:spacing\b/.test(p)) return p;
+    if (/<w:pPr>/.test(p)) {
+      return p.replace(/<w:pPr>/, `<w:pPr>${APPOINTMENT_COMPACT_SPACING}`);
+    }
+    return p.replace(/<w:p\b[^>]*>/, (open) => `${open}<w:pPr>${APPOINTMENT_COMPACT_SPACING}</w:pPr>`);
+  });
+}
+
+/**
  * Match Word sample pagination:
  * - Candidate name stays on the signature/ack page (NOT a page break).
  * - Keep sample tab-indent on the name (slightly right) — do not center/strip tabs.
+ * - Strip ALL blanks (including tab-only) between name and Annexure - I (LibreOffice blank page).
  * - "Annexure - I" starts the next page.
  */
 function paragraphAt(xml, textIdx) {
@@ -602,8 +620,21 @@ function paragraphAt(xml, textIdx) {
   const pStart = xml.lastIndexOf('<w:p ', textIdx);
   const pEnd = xml.indexOf('</w:p>', textIdx);
   if (pStart < 0 || pEnd < pStart) return null;
-  // Prefer real body paragraphs; skip if this hit is inside a table cell near annexure header.
   return { start: pStart, end: pEnd + 6, xml: xml.slice(pStart, pEnd + 6) };
+}
+
+function paragraphPlainText(p) {
+  return [...String(p || '').matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)]
+    .map((t) => t[1])
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isInsideTableCell(docXml, abs) {
+  const lastTc = docXml.lastIndexOf('<w:tc', abs);
+  const lastTcEnd = docXml.lastIndexOf('</w:tc>', abs);
+  return lastTc > lastTcEnd;
 }
 
 function fixAppointmentAnnexureIPagination(xml) {
@@ -612,44 +643,39 @@ function fixAppointmentAnnexureIPagination(xml) {
   if (annexIdx < 0) return out;
 
   // 1) Signature-page candidate name = last non-empty body paragraph before Annexure - I
-  //    (not the Employee Name cell inside Annexure II, which also uses {{CANDIDATE_NAME}}).
+  //    (not the Employee Name cell inside Annexure II).
   const beforeAnnex = out.slice(0, annexIdx);
   const paras = [...beforeAnnex.matchAll(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)];
   let nameHit = null;
   for (let i = paras.length - 1; i >= 0; i--) {
     const p = paras[i][0];
-    // Skip paragraphs that sit inside a table cell.
     const abs = paras[i].index;
-    const lastTc = beforeAnnex.lastIndexOf('<w:tc', abs);
-    const lastTcEnd = beforeAnnex.lastIndexOf('</w:tc>', abs);
-    if (lastTc > lastTcEnd) continue;
-
-    const texts = [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((t) => t[1]).join('');
-    if (!texts.trim()) continue;
-    nameHit = { start: abs, xml: p, text: texts.trim() };
+    if (isInsideTableCell(beforeAnnex, abs)) continue;
+    const text = paragraphPlainText(p);
+    if (!text) continue;
+    if (text === 'Annexure - I' || text === 'CODE OF CONDUCT') continue;
+    nameHit = { start: abs, xml: p, text, length: p.length };
     break;
   }
 
   // Keep sample alignment/tabs; only strip a mistaken page-break on the name.
-  if (nameHit && nameHit.text !== 'Annexure - I' && /w:pageBreakBefore/.test(nameHit.xml)) {
+  if (nameHit && /w:pageBreakBefore/.test(nameHit.xml)) {
     const fixed = nameHit.xml.replace(/<w:pageBreakBefore\s*\/>/g, '');
-    out = `${out.slice(0, nameHit.start)}${fixed}${out.slice(nameHit.start + nameHit.xml.length)}`;
+    out = `${out.slice(0, nameHit.start)}${fixed}${out.slice(nameHit.start + nameHit.length)}`;
+    nameHit = { ...nameHit, xml: fixed, length: fixed.length };
   }
 
-  // 2) Remove empty body paragraphs between the signature name and Annexure - I.
-  //    Those empties + a page break produced a fully blank page in the emailed PDF.
-  //    Index-based only (never a cross-document regex replace).
+  // 2) Remove every empty / tab-only body paragraph between name and Annexure - I.
+  //    Keeping those spacers + pageBreakBefore created a fully blank PDF page under LibreOffice.
   const annexNow = out.indexOf('<w:t>Annexure - I</w:t>');
   if (nameHit && annexNow > nameHit.start) {
     const nameEnd = nameHit.start + (out.slice(nameHit.start).indexOf('</w:p>') + 6);
     const annexParaStart = out.lastIndexOf('<w:p ', annexNow);
     if (nameEnd > 0 && annexParaStart > nameEnd) {
       const mid = out.slice(nameEnd, annexParaStart);
-      // Only strip paragraphs that have no <w:t> text (true blanks). Keep tab-only spacers.
       const stripped = mid.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>\s*/g, (p) => {
-        const texts = [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((t) => t[1]).join('');
-        if (texts.trim()) return p;
-        if (/<w:tab\/>/.test(p)) return p;
+        if (paragraphPlainText(p)) return p;
+        if (/w:pageBreakBefore|w:drawing|w:pict|v:imagedata/.test(p)) return p;
         return '';
       });
       if (stripped !== mid) {
@@ -658,11 +684,40 @@ function fixAppointmentAnnexureIPagination(xml) {
     }
   }
 
-  // 3) Page-break the Annexure - I paragraph only (Word sample: name on prior page).
+  // 3) Also tighten empties between the acknowledgment line and the signature name
+  //    so LibreOffice does not push the name alone onto the next page.
+  const ackNeedle = out.indexOf('I hereby acknowledge');
+  const annexForName = out.indexOf('<w:t>Annexure - I</w:t>');
+  if (ackNeedle >= 0 && annexForName > ackNeedle) {
+    const before = out.slice(0, annexForName);
+    const bodyParas = [...before.matchAll(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)];
+    let name = null;
+    for (let i = bodyParas.length - 1; i >= 0; i--) {
+      const p = bodyParas[i][0];
+      const abs = bodyParas[i].index;
+      if (abs < ackNeedle) break;
+      if (isInsideTableCell(before, abs)) continue;
+      if (!paragraphPlainText(p)) continue;
+      name = { start: abs, length: p.length };
+      break;
+    }
+    if (name) {
+      const ackParaEnd = before.indexOf('</w:p>', ackNeedle) + 6;
+      if (ackParaEnd > 6 && name.start > ackParaEnd) {
+        // Keep a single compact spacer so the name is not glued to the ack sentence.
+        const spacer = `<w:p><w:pPr><w:pStyle w:val="NoSpacing"/>${APPOINTMENT_COMPACT_SPACING}</w:pPr></w:p>`;
+        out = `${out.slice(0, ackParaEnd)}${spacer}${out.slice(name.start)}`;
+      }
+    }
+  }
+
+  // 4) Page-break the Annexure - I paragraph only (Word sample: name on prior page).
   const annexAfter = out.indexOf('<w:t>Annexure - I</w:t>');
   const annexPara = paragraphAt(out, annexAfter);
   if (annexPara && !/w:pageBreakBefore/.test(annexPara.xml)) {
-    const fixed = annexPara.xml.replace(/<w:pPr>/, '<w:pPr><w:pageBreakBefore/>');
+    const fixed = /<w:pPr>/.test(annexPara.xml)
+      ? annexPara.xml.replace(/<w:pPr>/, '<w:pPr><w:pageBreakBefore/>')
+      : annexPara.xml.replace(/<w:p\b[^>]*>/, (open) => `${open}<w:pPr><w:pageBreakBefore/></w:pPr>`);
     out = `${out.slice(0, annexPara.start)}${fixed}${out.slice(annexPara.end)}`;
   }
 
@@ -688,7 +743,10 @@ function normalizeAppointmentLetterDocxLayout(docxBuffer) {
 
     let docXml = beforeDoc;
     docXml = fixAnnexureAmountCells(docXml);
+    // Do not collapse body empty runs globally — Word sample uses them for rhythm.
+    // Only pin No Spacing + tighten the signature→Annexure gap (LibreOffice blank page).
     docXml = fixAppointmentAnnexureIPagination(docXml);
+    docXml = pinAppointmentNoSpacingParagraphs(docXml);
 
     const stylesFile = zip.file('word/styles.xml');
     const beforeStyles = stylesFile?.asText() || '';

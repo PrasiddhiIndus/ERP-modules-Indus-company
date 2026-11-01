@@ -907,10 +907,18 @@ export function registerAdminRecruitmentRoutes(app, deps) {
   return { runAutomation };
 }
 
+/** Background reminders are opt-in. Set ADMIN_RECRUITMENT_AUTOMATION=on to enable. */
+export function isAdminRecruitmentAutomationEnabled() {
+  const v = String(process.env.ADMIN_RECRUITMENT_AUTOMATION || 'off').trim().toLowerCase();
+  return v === 'on' || v === 'true' || v === '1';
+}
+
 export function startAdminRecruitmentAutomation({ runAutomation, getServiceKey }) {
-  if (String(process.env.ADMIN_RECRUITMENT_AUTOMATION || '').toLowerCase() === 'off') {
+  if (!isAdminRecruitmentAutomationEnabled()) {
     // eslint-disable-next-line no-console
-    console.log('[admin-recruitment] reminders automation disabled (ADMIN_RECRUITMENT_AUTOMATION=off)');
+    console.log(
+      '[admin-recruitment] reminders automation disabled (set ADMIN_RECRUITMENT_AUTOMATION=on to enable)'
+    );
     return null;
   }
   if (!getServiceKey()) {

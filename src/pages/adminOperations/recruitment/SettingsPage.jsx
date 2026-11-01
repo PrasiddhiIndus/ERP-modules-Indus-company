@@ -277,7 +277,9 @@ export default function SettingsPage() {
                     Create the employee record automatically when a candidate is marked joined
                   </label>
                 </fieldset>
-                <p className="mt-2 text-[11px] text-ink-muted">Offers expire automatically after their validity date. Reminders are checked every 15 minutes.</p>
+                <p className="mt-2 text-[11px] text-ink-muted">
+                  Offers expire automatically after their validity date. Background automatic reminders are off unless the API host sets ADMIN_RECRUITMENT_AUTOMATION=on. Manual send and Run now still work.
+                </p>
               </Card>
               <Card title="Candidate sources">
                 <ListEditor label="source" items={form.sources} onChange={(sources) => setForm({ ...form, sources })} placeholder="e.g. Campus drive" />
