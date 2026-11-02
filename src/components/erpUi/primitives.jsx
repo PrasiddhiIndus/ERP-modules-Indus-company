@@ -48,13 +48,13 @@ export function CollapsibleHelp({ label = "How this works", children, defaultOpe
 
 export const SectionCard = ({ title, right, children, className = "" }) => (
   <div
-    className={`erp-elevate bg-surface rounded-card shadow-card border border-border/80 overflow-hidden transition-[box-shadow,transform,border-color] duration-theme ease-theme hover:shadow-card-hover hover:border-accent-border/60 ${className}`.trim()}
+    className={`erp-elevate bg-surface rounded-card shadow-card border border-border/80 overflow-visible transition-[box-shadow,transform,border-color] duration-theme ease-theme hover:shadow-card-hover hover:border-accent-border/60 ${className}`.trim()}
   >
-    <div className="erp-card-header border-b border-divider flex items-center justify-between gap-3 min-h-[52px] bg-gradient-to-b from-surface to-surface-sunken/40 rounded-t-card">
+    <div className="erp-card-header border-b border-divider flex items-center justify-between gap-3 min-h-[52px] bg-gradient-to-b from-surface to-surface-sunken/40 rounded-t-card overflow-hidden">
       <h3 className="type-card-title text-ink-strong type-truncate">{title}</h3>
       {right}
     </div>
-    <div className="erp-card-body">{children}</div>
+    <div className="erp-card-body overflow-visible relative z-[1]">{children}</div>
   </div>
 );
 
@@ -88,7 +88,7 @@ export const TinyInput = ({ type, value, onChange, className = "", ...rest }) =>
 export const TinySelect = ({ children, className = "", ...rest }) => (
   <select
     {...rest}
-    className={`h-9 border border-border rounded-control px-2.5 text-xs bg-surface text-ink shadow-sm transition-[border-color,box-shadow] duration-theme focus:border-accent focus:shadow-focus ${className}`.trim()}
+    className={`relative z-[2] h-9 border border-border rounded-control px-2.5 text-xs bg-surface text-ink shadow-sm transition-[border-color,box-shadow] duration-theme focus:border-accent focus:shadow-focus focus:z-50 ${className}`.trim()}
   >
     {children}
   </select>
@@ -127,7 +127,7 @@ export const KpiTile = ({ label, value, sub, onClick, tone = "border-border/80" 
 );
 
 export const FilterBar = ({ children }) => (
-  <div className="flex flex-wrap items-end gap-3 px-3.5 py-3 rounded-card border border-border/80 bg-surface-sunken/70 shadow-sm backdrop-blur-[2px]">
+  <div className="erp-filter-bar relative z-30 flex flex-wrap items-end gap-3 px-3.5 py-3 rounded-card border border-border/80 bg-surface-sunken/70 shadow-sm backdrop-blur-[2px] overflow-visible">
     {children}
   </div>
 );

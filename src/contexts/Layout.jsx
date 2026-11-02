@@ -21,6 +21,8 @@ import { MARKETING_NAV_ITEMS } from "../pages/marketing/marketingNav";
 import PoApprovalBell from "../components/PoApprovalBell";
 import CommandPalette from "../components/CommandPalette";
 import { COMMAND_DESTINATIONS } from "../lib/commandDestinations";
+import { prefetchRouteModule } from "../lib/routePrefetch";
+import { prefetchAllDashboards } from "../lib/prefetchDashboards";
 import { useTheme } from "./ThemeContext";
 import { Breadcrumbs } from "../components/erpUi";
 
@@ -261,6 +263,28 @@ const Layout = () => {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Warm all dashboard modules as soon as the shell is up.
+  useEffect(() => {
+    prefetchAllDashboards();
+  }, []);
+
+  // Warm likely destination chunks on sidebar hover/focus (no behavior change).
+  useEffect(() => {
+    const onIntent = (e) => {
+      const a = e.target?.closest?.("a[href]");
+      if (!a) return;
+      const href = a.getAttribute("href");
+      if (!href || !href.includes("/app")) return;
+      prefetchRouteModule(href);
+    };
+    document.addEventListener("pointerover", onIntent, { passive: true });
+    document.addEventListener("focusin", onIntent, { passive: true });
+    return () => {
+      document.removeEventListener("pointerover", onIntent);
+      document.removeEventListener("focusin", onIntent);
+    };
   }, []);
 
   const navFilterNorm = navFilter.trim().toLowerCase();
@@ -1847,7 +1871,7 @@ const Layout = () => {
               : "erp-app-shell erp-workspace-glow flex-1 overflow-y-auto px-5 py-5 sm:px-8 sm:py-7"
           }
         >
-          <Suspense fallback={<PageLoader />}>
+          <Suspense fallback={<PageLoader delayMs={160} label="Opening…" />}>
             <Outlet />
           </Suspense>
         </main>

@@ -188,23 +188,138 @@ export function mapApiPunchToDbRow(record, index = 0) {
   };
 }
 
-/** Deduplicate by punch_key; later rows win. Returns stats for logging. */
-export function dedupePunchDbRows(rows) {
+function isSlotPunchKey(punchKey) {
+  return /\|(in|out)$/i.test(String(punchKey || '').trim());
+}
+
+function isSlotApiPunchRecord(record) {
+  const slot = String(record?.punchSlot || record?.punch_slot || '').trim().toLowerCase();
+  return slot === 'in' || slot === 'out';
+}
+
+/**
+ * Prefer the richer punch when two records share emp + date + time.
+ * Granular DownloadPunchData rows beat DownloadInOutPunchData in/out summaries.
+ */
+export function preferApiPunchRecord(candidate, existing) {
+  if (!existing) return true;
+  const candidateSlot = isSlotApiPunchRecord(candidate);
+  const existingSlot = isSlotApiPunchRecord(existing);
+  if (candidateSlot !== existingSlot) return !candidateSlot;
+
+  const candidateId = extractProviderPunchId(candidate?.sourcePayload || candidate?.source_payload || candidate);
+  const existingId = extractProviderPunchId(existing?.sourcePayload || existing?.source_payload || existing);
+  if (Boolean(candidateId) !== Boolean(existingId)) return Boolean(candidateId);
+
+  const candidateDir = String(candidate?.direction || '').trim();
+  const existingDir = String(existing?.direction || '').trim();
+  if (Boolean(candidateDir) !== Boolean(existingDir)) return Boolean(candidateDir);
+
+  const candidateDevice = String(candidate?.deviceName || candidate?.device_name || '').trim();
+  const existingDevice = String(existing?.deviceName || existing?.device_name || '').trim();
+  if (Boolean(candidateDevice) !== Boolean(existingDevice)) return Boolean(candidateDevice);
+
+  // Later record wins when equally informative (refresh snapshot).
+  return true;
+}
+
+/**
+ * Collapse API punch records that represent the same biometric event
+ * (same employee + date + time). Prevents same-time double entries when
+ * DownloadInOutPunchData and DownloadPunchData are merged.
+ */
+export function dedupeApiPunchRecords(records) {
   const map = new Map();
   let collisionCount = 0;
+  let skippedInvalid = 0;
+
+  for (const record of records || []) {
+    const emp = normalizeAttendanceEmpCode(record?.empCode ?? record?.employee_code);
+    const date = normalizeDbDate(record?.punchDate ?? record?.punch_date);
+    const time = normalizeDbTime(record?.punchTime ?? record?.punch_time);
+    if (!emp || !date || !time) {
+      skippedInvalid += 1;
+      continue;
+    }
+    const key = `${emp}|${date}|${time}`;
+    const existing = map.get(key);
+    if (existing) {
+      collisionCount += 1;
+      if (preferApiPunchRecord(record, existing)) map.set(key, record);
+    } else {
+      map.set(key, record);
+    }
+  }
+
+  return {
+    records: [...map.values()],
+    inputCount: (records || []).length,
+    uniqueCount: map.size,
+    collisionCount,
+    skippedInvalid,
+  };
+}
+
+function preferDbPunchRow(candidate, existing) {
+  if (!existing) return true;
+  const candidateSlot = isSlotPunchKey(candidate?.punch_key);
+  const existingSlot = isSlotPunchKey(existing?.punch_key);
+  if (candidateSlot !== existingSlot) return !candidateSlot;
+
+  const candidateId = extractProviderPunchId(candidate?.source_payload || candidate);
+  const existingId = extractProviderPunchId(existing?.source_payload || existing);
+  if (Boolean(candidateId) !== Boolean(existingId)) return Boolean(candidateId);
+
+  const candidateDir = String(candidate?.direction || '').trim();
+  const existingDir = String(existing?.direction || '').trim();
+  if (Boolean(candidateDir) !== Boolean(existingDir)) return Boolean(candidateDir);
+
+  return true;
+}
+
+/** Deduplicate by punch_key, then by emp+date+time; later/richer rows win. */
+export function dedupePunchDbRows(rows) {
+  const byKey = new Map();
+  let collisionCount = 0;
+  let skippedInvalid = 0;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    if (!row?.punch_key) continue;
-    if (map.has(row.punch_key)) collisionCount += 1;
-    map.set(row.punch_key, row);
+    if (!row?.punch_key) {
+      skippedInvalid += 1;
+      continue;
+    }
+    if (byKey.has(row.punch_key)) collisionCount += 1;
+    byKey.set(row.punch_key, row);
   }
-  const unique = [...map.values()];
+
+  // Same biometric instant can arrive once as an in/out slot key and again as a
+  // granular time key when endpoints are merged — keep a single row.
+  const byEmpDateTime = new Map();
+  for (const row of byKey.values()) {
+    const emp = normalizeAttendanceEmpCode(row.employee_code);
+    const date = normalizeDbDate(row.punch_date);
+    const time = normalizeDbTime(row.punch_time);
+    if (!emp || !date || !time) {
+      byEmpDateTime.set(`key:${row.punch_key}`, row);
+      continue;
+    }
+    const stamp = `${emp}|${date}|${time}`;
+    const existing = byEmpDateTime.get(stamp);
+    if (existing) {
+      collisionCount += 1;
+      if (preferDbPunchRow(row, existing)) byEmpDateTime.set(stamp, row);
+    } else {
+      byEmpDateTime.set(stamp, row);
+    }
+  }
+
+  const unique = [...byEmpDateTime.values()];
   return {
     rows: unique,
     inputCount: rows.length,
     uniqueCount: unique.length,
     collisionCount,
-    skippedInvalid: rows.length - unique.length - collisionCount,
+    skippedInvalid,
   };
 }
 

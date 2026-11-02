@@ -825,7 +825,7 @@ export function FilterPanel({
 
 export function MonitoringSectionCard({ title, right, children, t, className = "" }) {
   return (
-    <section className={`rounded-xl overflow-hidden ${t.card} ${className}`}>
+    <section className={`rounded-xl overflow-visible ${t.card} ${className}`}>
       <div className={`px-4 py-3 border-b flex items-center justify-between gap-2 min-h-[48px] ${t.border}`}>
         <h2 className={`text-sm font-semibold ${t.text}`}>{title}</h2>
         {right}

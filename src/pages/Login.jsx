@@ -4,12 +4,12 @@ import {
   ArrowRight,
   Building2,
   Check,
-  ChevronDown,
+  // ChevronDown, // language switcher
   CircleDollarSign,
   Eye,
   EyeOff,
-  Globe,
-  HardHat,
+  // Globe, // language switcher
+  // HardHat, // site login option
   Layers,
   LineChart,
   Lock,
@@ -40,15 +40,16 @@ import {
 import { getAccessibleModules } from '../config/roles';
 import { INDUS_LOGO_SRC } from '../constants/branding.js';
 import { isAuthBannedError, ACCOUNT_INACTIVE_MESSAGE } from '../lib/accountInactive';
+import { prefetchAppShell, prefetchAppShellNow } from '../lib/prefetchAppShell';
 import './Login.css';
 
 const REMEMBER_KEY = 'erp_trust_device_until';
 const LOGIN_AUDIENCE_KEY = 'erp_login_audience';
 const LOGIN_LANG_KEY = 'erp_login_lang';
 
-const CAMPUS_BG_SRC = `${(import.meta.env.BASE_URL || '/').replace(/\/?$/, '/')}${encodeURIComponent(
-  'Indus Fire Safety Campus Aerial View.png'
-)}`;
+const PUBLIC_BASE = (import.meta.env.BASE_URL || '/').replace(/\/?$/, '/');
+const CAMPUS_BG_WEBP = `${PUBLIC_BASE}indus-campus-aerial.webp`;
+const CAMPUS_BG_JPG = `${PUBLIC_BASE}indus-campus-aerial.jpg`;
 
 const FEATURE_TILES = [
   { title: 'People', subtitle: 'HR & Workforce', Icon: Users },
@@ -214,6 +215,7 @@ const Login = () => {
       }
     }
     emailRef.current?.focus();
+    prefetchAppShell();
   }, []);
 
   useEffect(() => {
@@ -304,6 +306,7 @@ const Login = () => {
       path: result.path,
       audience: loginAudience,
     });
+    prefetchAppShellNow();
     navigate(result.path, { replace: true });
     return true;
   };
@@ -385,13 +388,18 @@ const Login = () => {
   return (
     <div className={`login-hero${theme === 'dark' ? ' is-dark' : ''}`}>
       <div className="login-hero-media" aria-hidden="true">
-        <img
-          className="login-hero-photo"
-          src={CAMPUS_BG_SRC}
-          alt=""
-          decoding="async"
-          fetchpriority="high"
-        />
+        <picture>
+          <source srcSet={CAMPUS_BG_WEBP} type="image/webp" />
+          <img
+            className="login-hero-photo"
+            src={CAMPUS_BG_JPG}
+            alt=""
+            width={1920}
+            height={1080}
+            decoding="async"
+            fetchpriority="high"
+          />
+        </picture>
         <div className="login-hero-scrim" />
         <div className="login-hero-vignette" />
       </div>
@@ -429,6 +437,7 @@ const Login = () => {
             </button>
           </div>
 
+          {/* Language switcher temporarily hidden
           <div className="login-lang" ref={langMenuRef}>
             <button
               type="button"
@@ -458,6 +467,7 @@ const Login = () => {
               </ul>
             ) : null}
           </div>
+          */}
         </div>
       </header>
 
@@ -585,7 +595,7 @@ const Login = () => {
                   </p>
                 ) : null}
 
-                <div className="login-audience" role="tablist" aria-label="Login type">
+                <div className="login-audience login-audience--office-only" role="tablist" aria-label="Login type">
                   <button
                     type="button"
                     role="tab"
@@ -596,6 +606,7 @@ const Login = () => {
                     <Building2 className="w-4 h-4" strokeWidth={2} aria-hidden />
                     <span>IFSPL (Office)</span>
                   </button>
+                  {/* Site login option temporarily hidden
                   <button
                     type="button"
                     role="tab"
@@ -606,6 +617,7 @@ const Login = () => {
                     <HardHat className="w-4 h-4" strokeWidth={2} aria-hidden />
                     <span>Site</span>
                   </button>
+                  */}
                 </div>
 
                 <label className="login-field">

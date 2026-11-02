@@ -9,7 +9,13 @@ import {
   ruleDepartmentKey,
   setCachedRuleRows,
 } from "../src/lib/attendanceRules.js";
-import { isAutoWeekoffDate, isPaidThirdSaturdayWeekoffCell } from "../src/lib/attendanceDaily.js";
+import {
+  isAutoWeekoffDate,
+  isPaidThirdSaturdayWeekoffCell,
+  isPaidThirdSaturdayWorkingDeptCell,
+  isProductionSaturdayWeekoffPresentCredit,
+  registerPresentDaySummaryCreditForCell,
+} from "../src/lib/attendanceDaily.js";
 import { compOffCutoffMonthKey } from "../src/lib/compOffBalance.js";
 import {
   departmentHasOwnValue,
@@ -95,6 +101,36 @@ describe("resolver honours dates and department overrides", () => {
     expect(isAutoWeekoffDate(THIRD_SAT, "HR")).toBe(true);
     expect(isPaidThirdSaturdayWeekoffCell("WO", { year: 2026, month: 10, day: 17, department: "HR" })).toBe(true);
     expect(isPaidThirdSaturdayWeekoffCell("WO", { year: 2026, month: 11, day: 21, department: "HR" })).toBe(false);
+  });
+
+  it("Production Total present credits blank/WO on worked 3rd Saturday", () => {
+    setCachedRuleRows(rows);
+    const prod = { year: 2026, month: 10, day: 17, department: "Production" };
+    const hr = { year: 2026, month: 10, day: 17, department: "HR" };
+    expect(isPaidThirdSaturdayWorkingDeptCell("", prod)).toBe(true);
+    expect(isPaidThirdSaturdayWorkingDeptCell("WO", prod)).toBe(true);
+    expect(isPaidThirdSaturdayWorkingDeptCell("P", prod)).toBe(false);
+    expect(isPaidThirdSaturdayWorkingDeptCell("", hr)).toBe(false);
+    expect(registerPresentDaySummaryCreditForCell("", prod)).toBe(1);
+    expect(registerPresentDaySummaryCreditForCell("WO", prod)).toBe(1);
+    expect(registerPresentDaySummaryCreditForCell("WO", { ...prod, day: 4 })).toBe(0); // Sunday WO
+    expect(registerPresentDaySummaryCreditForCell("NH/PH", prod)).toBe(1); // NH/PH credit unchanged
+    expect(registerPresentDaySummaryCreditForCell("WO", hr)).toBe(1); // office paid 3rd-Sat WO unchanged
+  });
+
+  it("Production Total present credits WO on any Saturday only", () => {
+    setCachedRuleRows(rows);
+    // Oct 2026: Sat 3 / 10 / 17 / 24 / 31; Sun 4.
+    const prodSat = { year: 2026, month: 10, day: 3, department: "Production" };
+    expect(isProductionSaturdayWeekoffPresentCredit("WO", prodSat)).toBe(true);
+    expect(isProductionSaturdayWeekoffPresentCredit("WO", { ...prodSat, day: 24 })).toBe(true);
+    expect(isProductionSaturdayWeekoffPresentCredit("WO", { ...prodSat, day: 4 })).toBe(false); // Sunday
+    expect(isProductionSaturdayWeekoffPresentCredit("P", prodSat)).toBe(false);
+    expect(isProductionSaturdayWeekoffPresentCredit("WO", { ...prodSat, department: "HR" })).toBe(false);
+    expect(registerPresentDaySummaryCreditForCell("WO", prodSat)).toBe(1);
+    expect(registerPresentDaySummaryCreditForCell("WO", { ...prodSat, day: 24 })).toBe(1);
+    expect(registerPresentDaySummaryCreditForCell("WO", { ...prodSat, day: 4 })).toBe(0);
+    expect(registerPresentDaySummaryCreditForCell("WO", { ...prodSat, department: "HR" })).toBe(0);
   });
 
   it("C/O start date follows the saved value", () => {

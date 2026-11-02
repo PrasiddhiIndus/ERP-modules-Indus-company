@@ -745,7 +745,72 @@ select.register-mark-select option {
 
 .erp-elevate {
   position: relative;
+  overflow: visible;
+  z-index: 1;
 }
+/* Lift the whole card while a menu/filter is open so the next sibling can't cover it */
+.erp-elevate:focus-within,
+.erp-elevate:has(.erp-filter-bar:hover),
+.erp-elevate:has([data-erp-menu]),
+.erp-elevate:has(.erp-menu-panel),
+.erp-elevate:has(.relative > .absolute) {
+  z-index: 40;
+}
+.erp-filter-bar {
+  position: relative;
+  z-index: 30;
+  overflow: visible;
+}
+.erp-filter-bar:focus-within,
+.erp-filter-bar:hover {
+  z-index: 60;
+}
+.erp-card-body {
+  overflow: visible;
+}
+
+/*
+ * Dropdown / autocomplete panels often use absolute + low z-index and get
+ * painted under the next card or sticky topbar. Keep them above page chrome.
+ */
+main.erp-app-shell .absolute.top-full,
+main.erp-app-shell .absolute.left-0.top-full,
+main.erp-app-shell .absolute.right-0.top-full,
+main.erp-app-shell .absolute.mt-1,
+main.erp-app-shell .absolute.mt-2,
+main.erp-app-shell [data-erp-menu],
+main.erp-app-shell .erp-menu-panel {
+  z-index: 70 !important;
+}
+
+/* Anchor that owns an open absolute menu sits above neighbors in the same row */
+main.erp-app-shell .relative:has(> .absolute.top-full),
+main.erp-app-shell .relative:has(> .absolute.mt-1),
+main.erp-app-shell .relative:has(> .absolute.mt-2),
+main.erp-app-shell .relative:has(> .erp-menu-panel),
+main.erp-app-shell .relative:has(> [data-erp-menu]) {
+  z-index: 50;
+}
+
+/* Native selects/date controls inside filter rows should not be trapped */
+main.erp-app-shell .erp-filter-bar select,
+main.erp-app-shell .erp-filter-bar input,
+main.erp-app-shell .erp-card-body > .erp-filter-bar,
+main.erp-app-shell .erp-card-body > form {
+  position: relative;
+  z-index: 2;
+}
+
+/* Sticky page filters stay above scrolling content (below app topbar z-30) */
+main.erp-app-shell .sticky.top-0,
+main.erp-app-shell .sticky.top-16,
+main.erp-app-shell .sticky.top-20 {
+  z-index: 25;
+}
+main.erp-app-shell header.sticky {
+  z-index: 30;
+}
+
 .erp-kpi-tile {
   position: relative;
 }

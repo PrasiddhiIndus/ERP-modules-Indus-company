@@ -8,6 +8,7 @@ import {
   ATTENDANCE_PUNCH_TABLE,
   ATTENDANCE_UPSERT_CHUNK,
   computeSyncDateRange,
+  dedupeApiPunchRecords,
   dedupePunchDbRows,
   isoDateToEtimeDateTime,
   isoDateToEtimeSlash,
@@ -319,13 +320,14 @@ export function normalizeEtimePunchRows(data) {
     ).trim();
 
     const punches = [];
-    const seen = new Set();
+    // Dedupe by emp+date+time only — InOut rows often repeat INTime/OUTTime as PunchDateTime.
+    const seenTimes = new Set();
 
     const pushUnique = (punch) => {
       if (!punch?.empCode || !punch?.punchDate || !punch?.punchTime) return;
-      const key = `${punch.empCode}|${normalizeDbDate(punch.punchDate)}|${normalizeDbTime(punch.punchTime)}|${punch.direction}`;
-      if (seen.has(key)) return;
-      seen.add(key);
+      const key = `${punch.empCode}|${normalizeDbDate(punch.punchDate)}|${normalizeDbTime(punch.punchTime)}`;
+      if (seenTimes.has(key)) return;
+      seenTimes.add(key);
       punches.push(punch);
     };
 
@@ -521,11 +523,14 @@ export async function fetchEtimePunchDataMerged(c, empCode, fromValue, toValue) 
     throw new HttpError(502, msg, { endpoints });
   }
 
+  // Merged InOut + PunchData endpoints often repeat the same punch times.
+  const { records: uniqueRecords } = dedupeApiPunchRecords(records);
+
   return {
     endpoint: endpointsUsed[0] || c.punchEndpoint,
     endpointsUsed,
     providerRes: { ok: true, status: 200 },
-    records,
+    records: uniqueRecords,
   };
 }
 
@@ -568,7 +573,8 @@ export async function fetchEtimePunchesForIsoRange(c, empCode, fromIso, toIso) {
     allRecords.push(...(result.records || []));
   }
 
-  return { records: allRecords, endpointsUsed: [...endpointsUsed], chunks: chunks.length };
+  const { records: uniqueRecords } = dedupeApiPunchRecords(allRecords);
+  return { records: uniqueRecords, endpointsUsed: [...endpointsUsed], chunks: chunks.length };
 }
 
 export function getSupabaseServiceClient(getSupabaseUrl, getServiceKey) {

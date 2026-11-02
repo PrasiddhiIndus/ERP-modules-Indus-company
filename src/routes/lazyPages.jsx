@@ -13,8 +13,8 @@ function lazyNamed(importFn, exportName) {
 export { default as demoTenders } from "../pages/projects/demoTenders";
 export { default as demoQuotations } from "../pages/projects/demoQuotations";
 
-// Shell & auth (loaded with app shell)
-export { default as Layout } from "../contexts/Layout";
+// Shell — lazy so the public Login route does not download the entire ERP chrome
+export const Layout = lazy(() => import("../contexts/Layout"));
 
 // Public — Login is eager so its CSS is not a separate preload that can time out on slow prod
 export { default as Login } from "../pages/Login";
