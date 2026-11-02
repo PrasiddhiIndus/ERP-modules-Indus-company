@@ -1468,9 +1468,14 @@ const UserManagement = () => {
     );
   }
 
+  const actionBtnCls =
+    "inline-flex h-10 items-center justify-center gap-2 px-3 rounded-lg text-sm font-semibold whitespace-nowrap";
+  const filterControlCls =
+    "w-full h-10 px-3 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent";
+
   return (
-    <div className="p-4 sm:p-6 w-full space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+    <div className="px-4 sm:px-6 pb-4 sm:pb-6 pt-3 w-full space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h1 className="type-page-title text-ink">User Management</h1>
           <p className="type-meta text-ink-secondary mt-1.5 max-w-3xl">
@@ -1478,49 +1483,51 @@ const UserManagement = () => {
             come from Employee Master by employee code.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setCreateOpen(true);
-            setError("");
-            setCreateForm({
-              email: "",
-              password: "",
-              username: "",
-              employee_code: "",
-              team: "",
-              role: ROLES.EXECUTIVE,
-              allowed_modules: [],
-              allowed_sub_modules: [],
-            });
-          }}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm font-semibold"
-        >
-          <Plus className="w-4 h-4" />
-          Create user
-        </button>
-        {canBulkManageUsers ? (
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={() => {
-              setBulkImportOpen(true);
+              setCreateOpen(true);
               setError("");
+              setCreateForm({
+                email: "",
+                password: "",
+                username: "",
+                employee_code: "",
+                team: "",
+                role: ROLES.EXECUTIVE,
+                allowed_modules: [],
+                allowed_sub_modules: [],
+              });
             }}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-600 text-emerald-700 hover:bg-emerald-50 text-sm font-semibold"
+            className={`${actionBtnCls} bg-emerald-600 text-white hover:bg-emerald-700`}
           >
-            <FileSpreadsheet className="w-4 h-4" />
-            Bulk import
+            <Plus className="w-4 h-4" />
+            Create user
           </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={handleExportExcel}
-          disabled={loading || exportBusy || total === 0}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Download className="w-4 h-4" />
-          {exportBusy ? "Exporting…" : "Export Excel"}
-        </button>
+          {canBulkManageUsers ? (
+            <button
+              type="button"
+              onClick={() => {
+                setBulkImportOpen(true);
+                setError("");
+              }}
+              className={`${actionBtnCls} border border-emerald-600 text-emerald-700 hover:bg-emerald-50`}
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Bulk import
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            disabled={loading || exportBusy || total === 0}
+            className={`${actionBtnCls} border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            <Download className="w-4 h-4" />
+            {exportBusy ? "Exporting…" : "Export Excel"}
+          </button>
+        </div>
       </div>
 
       {empCodeSupported === false && (
@@ -1571,7 +1578,7 @@ const UserManagement = () => {
                 Search
               </label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="text"
                   name="user-management-directory-search"
@@ -1582,7 +1589,7 @@ const UserManagement = () => {
                   autoCorrect="off"
                   autoCapitalize="off"
                   spellCheck={false}
-                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className={`${filterControlCls} pl-9`}
                 />
               </div>
             </div>
@@ -1593,7 +1600,7 @@ const UserManagement = () => {
               <select
                 value={filters.role}
                 onChange={(e) => updateFilter({ role: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className={filterControlCls}
               >
                 <option value="">All roles</option>
                 <option value={ROLES.EXECUTIVE}>Executive</option>
@@ -1610,7 +1617,7 @@ const UserManagement = () => {
               <select
                 value={filters.team}
                 onChange={(e) => updateFilter({ team: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className={filterControlCls}
               >
                 <option value="">{teamDepartmentsLoading ? "Loading departments…" : "All teams"}</option>
                 {teamFilterDepartments.map((dept) => (
@@ -1628,7 +1635,7 @@ const UserManagement = () => {
                 <select
                   value={filters.linkStatus}
                   onChange={(e) => updateFilter({ linkStatus: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className={filterControlCls}
                 >
                   {linkFilterOptions.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -1645,7 +1652,7 @@ const UserManagement = () => {
               <select
                 value={filters.sort}
                 onChange={(e) => updateFilter({ sort: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className={filterControlCls}
               >
                 {sortOptions.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -1654,12 +1661,12 @@ const UserManagement = () => {
                 ))}
               </select>
             </div>
-            <div className="flex items-center gap-2 pb-0.5">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={resetFilters}
                 disabled={!filtersActive && !searchInput}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex h-10 items-center gap-1.5 px-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <RotateCcw className="w-4 h-4" />
                 Clear
@@ -1668,7 +1675,7 @@ const UserManagement = () => {
                 type="button"
                 onClick={() => loadProfiles({ silent: false })}
                 disabled={loading}
-                className="px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                className="inline-flex h-10 items-center px-3 rounded-lg border border-indigo-200 bg-indigo-50 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
               >
                 Refresh
               </button>

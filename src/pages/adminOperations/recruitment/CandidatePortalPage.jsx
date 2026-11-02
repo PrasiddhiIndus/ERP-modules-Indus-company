@@ -16,7 +16,13 @@ async function portalRequest(token, path = "", options = {}) {
   } catch {
     body = null;
   }
-  if (!res.ok) throw new Error(body?.message || "Something went wrong. Please try again.");
+  if (!res.ok) {
+    // nginx default body limit is 1mb → bare 413 HTML before Node/multer can respond.
+    if (res.status === 413) {
+      throw new Error("This file is too large for the server. Please upload a smaller file (under 25 MB).");
+    }
+    throw new Error(body?.message || "Something went wrong. Please try again.");
+  }
   return body;
 }
 

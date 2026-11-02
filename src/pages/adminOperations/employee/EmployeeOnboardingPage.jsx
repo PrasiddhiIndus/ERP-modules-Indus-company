@@ -53,6 +53,11 @@ import {
   presignJoiningR2Get,
   uploadJoiningFileToR2,
 } from "../../../lib/adminJoiningR2";
+import {
+  fetchEmployeeKycDocumentCountsByEmployee,
+  getEmployeeDocumentFileUrl,
+  listEmployeeDocuments,
+} from "../../../lib/adminEmployeeDocuments";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 const JOINING_ACCEPT = ".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp";
@@ -256,6 +261,7 @@ export function EmployeeOnboardingPage() {
       const list = data || [];
       let counts = new Map();
       let joiningCounts = new Map();
+      let kycCounts = new Map();
       try {
         counts = await fetchPolicyAssignmentCountsByEmployee(list.map((r) => r.id));
         setPoliciesUnavailable(false);
@@ -270,10 +276,17 @@ export function EmployeeOnboardingPage() {
         console.error(joinErr);
         if (isMissingJoiningTableError(joinErr)) setJoiningUnavailable(true);
       }
+      try {
+        kycCounts = await fetchEmployeeKycDocumentCountsByEmployee(list.map((r) => r.id));
+      } catch (kycErr) {
+        console.error(kycErr);
+        kycCounts = new Map();
+      }
 
       const mapped = list.map((row) => {
         const docsAssigned = counts.get(String(row.id)) || 0;
-        const joiningDocsCount = joiningCounts.get(String(row.id)) || 0;
+        const idKey = String(row.id);
+        const joiningDocsCount = (joiningCounts.get(idKey) || 0) + (kycCounts.get(idKey) || 0);
         return {
           ...row,
           ...evaluateOnboarding(row, docsAssigned, joiningDocsCount),
@@ -314,13 +327,37 @@ export function EmployeeOnboardingPage() {
       setDocsLoading(false);
     }
     try {
-      const list = await fetchJoiningDocumentsForEmployee(employeeId);
-      setJoiningDocs(list);
-      setJoiningUnavailable(false);
-    } catch (err) {
-      console.error(err);
-      setJoiningDocs([]);
-      if (isMissingJoiningTableError(err)) setJoiningUnavailable(true);
+      let legacy = [];
+      try {
+        legacy = await fetchJoiningDocumentsForEmployee(employeeId);
+        setJoiningUnavailable(false);
+      } catch (err) {
+        console.error(err);
+        legacy = [];
+        if (isMissingJoiningTableError(err)) setJoiningUnavailable(true);
+      }
+
+      let kycMapped = [];
+      try {
+        const kycDocs = await listEmployeeDocuments(employeeId);
+        kycMapped = (kycDocs || [])
+          .filter((doc) => doc?.file)
+          .map((doc) => ({
+            id: `kyc-${doc.id}`,
+            source: "employee_master_kyc",
+            title: doc.docLabel || doc.docKey || "Document",
+            doc_kind: doc.docKey,
+            file_name: doc.file?.fileName || null,
+            object_key: doc.file?.objectKey || null,
+            kycEmployeeMasterId: employeeId,
+            kycFile: doc.file,
+          }));
+      } catch (kycErr) {
+        console.error(kycErr);
+        kycMapped = [];
+      }
+
+      setJoiningDocs([...kycMapped, ...(legacy || [])]);
     } finally {
       setJoiningLoading(false);
     }
@@ -604,14 +641,19 @@ export function EmployeeOnboardingPage() {
   };
 
   const handleOpenJoiningFile = async (doc) => {
-    if (!doc?.object_key) {
+    if (!doc?.object_key && !doc?.kycFile) {
       toast.warning("No file is attached yet.");
       return;
     }
     setOpeningJoiningId(doc.id);
     try {
-      const url = await presignJoiningR2Get(doc.object_key, { fileName: doc.file_name });
-      window.open(url, "_blank", "noopener,noreferrer");
+      if (doc.source === "employee_master_kyc") {
+        const url = await getEmployeeDocumentFileUrl(doc.kycEmployeeMasterId || selected?.id, doc.kycFile);
+        window.open(url, "_blank", "noopener,noreferrer");
+      } else {
+        const url = await presignJoiningR2Get(doc.object_key, { fileName: doc.file_name });
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
     } catch (err) {
       console.error(err);
       toast.error(err?.message || "Could not open the file.");
@@ -622,6 +664,10 @@ export function EmployeeOnboardingPage() {
 
   const handleDeleteJoining = async (doc) => {
     if (!doc || !selected) return;
+    if (doc.source === "employee_master_kyc") {
+      toast.warning("Manage this document from Employee Master.");
+      return;
+    }
     const ok = window.confirm(`Remove “${doc.title}”?`);
     if (!ok) return;
     setSaving(true);
@@ -860,7 +906,7 @@ export function EmployeeOnboardingPage() {
         open={Boolean(selected) && !assignOpen && !joiningUploadOpen}
         onClose={() => setSelected(null)}
         title={selected?.full_name || "Joiner"}
-        widthClass="max-w-lg"
+        widthClass="max-w-[50vw]"
       >
         {selected ? (
           <div className="space-y-4 text-xs">
@@ -890,7 +936,7 @@ export function EmployeeOnboardingPage() {
               ) : joiningDocs.length === 0 ? (
                 <p className="text-[11px] text-amber-800 font-medium">No joining documents uploaded yet.</p>
               ) : (
-                <ul className="rounded-md border border-gray-200 bg-white divide-y divide-gray-100 max-h-44 overflow-y-auto">
+                <ul className="rounded-md border border-gray-200 bg-white divide-y divide-gray-100">
                   {joiningDocs.map((doc) => (
                     <li key={doc.id} className="px-2.5 py-1.5 flex items-center justify-between gap-2">
                       <button
@@ -902,18 +948,23 @@ export function EmployeeOnboardingPage() {
                         <span className="font-medium text-gray-900">{doc.title}</span>
                         <span className="text-gray-500">
                           {" "}
-                          · {joiningDocKindLabel(doc.doc_kind)}
+                          ·{" "}
+                          {doc.source === "employee_master_kyc"
+                            ? "Employee Master"
+                            : joiningDocKindLabel(doc.doc_kind)}
                           {openingJoiningId === doc.id ? " · Opening…" : ""}
                         </span>
                       </button>
-                      <button
-                        type="button"
-                        disabled={saving}
-                        onClick={() => handleDeleteJoining(doc)}
-                        className="text-[11px] text-red-600 hover:underline disabled:opacity-50 shrink-0"
-                      >
-                        Remove
-                      </button>
+                      {doc.source === "employee_master_kyc" ? null : (
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => handleDeleteJoining(doc)}
+                          className="text-[11px] text-red-600 hover:underline disabled:opacity-50 shrink-0"
+                        >
+                          Remove
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ul>

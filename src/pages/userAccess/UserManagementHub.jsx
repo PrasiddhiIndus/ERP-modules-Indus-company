@@ -21,13 +21,13 @@ export default function UserManagementHub() {
 
   return (
     <>
-      <div className="px-6 pt-5 max-w-7xl mx-auto">
+      <div className="px-4 sm:px-6 pt-4 sm:pt-5">
         <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-          <span className="font-medium">Users</span>
+          <span className="font-medium shrink-0">Users</span>
           <select
             value={view}
             onChange={(e) => setView(e.target.value)}
-            className="h-9 border border-gray-300 rounded-lg px-3 text-sm bg-white font-medium text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="h-10 border border-gray-300 rounded-lg px-3 text-sm bg-white font-medium text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
           >
             {VIEWS.map((v) => (
               <option key={v.value} value={v.value}>
