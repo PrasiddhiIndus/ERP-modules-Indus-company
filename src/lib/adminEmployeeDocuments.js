@@ -92,6 +92,33 @@ export async function listEmployeeDocuments(employeeMasterId) {
   return (data || []).map(mapEmployeeDocument);
 }
 
+function chunkIds(list, size) {
+  const out = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+/** Map employee_master_id → count of Joining/KYC docs that have an uploaded file. */
+export async function fetchEmployeeKycDocumentCountsByEmployee(employeeMasterIds = []) {
+  const ids = [...new Set((employeeMasterIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id)))];
+  const counts = new Map(ids.map((id) => [String(id), 0]));
+  if (!ids.length) return counts;
+
+  for (const batch of chunkIds(ids, 200)) {
+    const { data, error } = await supabase
+      .from(EMPLOYEE_DOCUMENTS_TABLE)
+      .select('employee_master_id')
+      .in('employee_master_id', batch)
+      .not('file', 'is', null);
+    if (error) throw new Error(friendly(error, 'Could not load Joining / KYC document counts.'));
+    for (const row of data || []) {
+      const key = String(row.employee_master_id);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  return counts;
+}
+
 export async function seedEmployeeDocuments(employeeMasterId) {
   return api(
     '/api/admin-employee-documents/seed',

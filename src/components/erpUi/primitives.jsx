@@ -461,20 +461,40 @@ export const DenseTable = ({
 };
 
 export function Drawer({ open, title, onClose, children, widthClass = "max-w-lg" }) {
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const shells = Array.from(document.querySelectorAll(".erp-app-shell"));
+    const prevBody = document.body.style.overflow;
+    const prevShells = shells.map((el) => el.style.overflow);
+    document.body.style.overflow = "hidden";
+    shells.forEach((el) => {
+      el.style.overflow = "hidden";
+    });
+    return () => {
+      document.body.style.overflow = prevBody;
+      shells.forEach((el, i) => {
+        el.style.overflow = prevShells[i] || "";
+      });
+    };
+  }, [open]);
+
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[100] flex erp-overlay-enter">
+    <div className="fixed inset-0 z-[100] flex overflow-hidden erp-overlay-enter">
       <button type="button" className="absolute inset-0 bg-scrim" aria-label="Close drawer" onClick={onClose} />
       <div
-        className={`relative ml-auto h-full w-full ${widthClass} bg-surface shadow-modal border-l border-border flex flex-col erp-drawer-enter`}
+        className={`relative ml-auto h-full max-h-screen w-full ${widthClass} bg-surface shadow-modal border-l border-border flex flex-col min-h-0 erp-drawer-enter`}
+        onWheel={(e) => e.stopPropagation()}
       >
-        <div className="erp-card-header border-b border-border flex items-center justify-between">
+        <div className="erp-card-header border-b border-border flex items-center justify-between shrink-0">
           <h4 className="type-card-title text-ink-strong">{title}</h4>
           <button type="button" onClick={onClose} className="text-ink-muted hover:text-ink text-lg leading-none px-1">
             ×
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto erp-card-body text-sm">{children}</div>
+        <div className="flex-1 min-h-0 !overflow-y-auto overscroll-contain erp-card-body text-sm">
+          {children}
+        </div>
       </div>
     </div>
   );
