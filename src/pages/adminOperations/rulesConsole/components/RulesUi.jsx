@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef } from "react";
 import { Loader2, X } from "lucide-react";
-import { InlineAlert } from "../../components/AdminUi";
+import { InlineAlert } from "../../../../components/erpUi";
 
 /**
  * Same look as AdminUi `Drawer`, plus dialog semantics: role, Escape to close, labelled close

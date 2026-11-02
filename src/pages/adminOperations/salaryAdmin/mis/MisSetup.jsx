@@ -9,7 +9,7 @@ import {
   StatusChip,
   TinyInput,
   TinySelect,
-} from '../../components/AdminUi';
+} from '../../../../components/erpUi';
 import toast from '../../../../lib/toast';
 import { MIS_VERTICALS, monthLabel, verticalLabel } from './misMetrics';
 import TagFields from './TagFields';

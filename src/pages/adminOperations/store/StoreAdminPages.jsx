@@ -11,7 +11,7 @@ import {
   Drawer,
   LinkedChip,
   Timeline,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import {
   mockStoreItems,
   mockStores,

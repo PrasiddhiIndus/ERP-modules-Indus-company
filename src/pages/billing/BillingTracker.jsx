@@ -9,7 +9,7 @@ import {
   Modal,
   CollapsibleHelp,
   TinyInput,
-} from '../adminOperations/components/AdminUi';
+} from '../../components/erpUi';
 import FormDateInput from '../../components/FormDateInput';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import {

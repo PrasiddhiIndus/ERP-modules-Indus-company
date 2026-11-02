@@ -29,7 +29,7 @@ import {
   SectionCard,
   StatusChip,
   TinySelect,
-} from "../../adminOperations/components/AdminUi";
+} from "../../../components/erpUi";
 import {
   CALL_OUTCOME_OPTIONS,
   CALLING_MASTER_FILTER_KEYS,

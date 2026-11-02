@@ -6,7 +6,7 @@ import { getHistoryForApi, chartDataFromHistory } from "../services/apiHealthSer
 import {
   StatusBadge,
   UptimeProgressBar,
-  SectionCard,
+  MonitoringSectionCard,
   MetaBadges,
 } from "./ApiMonitoringUi";
 import { formatMs } from "./apiMonitoringUtils";
@@ -187,22 +187,22 @@ export default function ApiDetailPanel({
       ) : null}
 
       <div className="grid sm:grid-cols-2 gap-3">
-        <SectionCard title="Response time trend" t={t} className="!shadow-none">
+        <MonitoringSectionCard title="Response time trend" t={t} className="!shadow-none">
           <LatencyTrendChart data={chartData} t={t} reducedMotion={reducedMotion} compact={compact} />
-        </SectionCard>
-        <SectionCard title="Availability trend" t={t} className="!shadow-none">
+        </MonitoringSectionCard>
+        <MonitoringSectionCard title="Availability trend" t={t} className="!shadow-none">
           <AvailabilityTrendChart data={chartData} t={t} reducedMotion={reducedMotion} compact={compact} />
-        </SectionCard>
+        </MonitoringSectionCard>
       </div>
 
-      <SectionCard
+      <MonitoringSectionCard
         title="Check history"
         t={t}
         right={<span className={`text-[11px] ${t.muted}`}>{history.length} entries (session)</span>}
         className="!shadow-none"
       >
         <HistoryTable history={history} t={t} />
-      </SectionCard>
+      </MonitoringSectionCard>
 
       <div className={`text-[11px] space-y-1 border-t pt-3 ${t.border} ${t.muted}`}>
         <p>

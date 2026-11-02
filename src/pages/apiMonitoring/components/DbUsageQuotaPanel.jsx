@@ -20,7 +20,7 @@ import {
   YAxis,
 } from "recharts";
 import { formatDateDdMmYyyy, formatDateTimeDdMmYyyy } from "../../../utils/dateDisplay";
-import { SectionCard } from "./ApiMonitoringUi";
+import { MonitoringSectionCard } from "./ApiMonitoringUi";
 import {
   REALTIME_INCLUDED_MONTHLY,
   analyzeDbUsageTrend,
@@ -216,7 +216,7 @@ export default function DbUsageQuotaPanel({ t, reducedMotion }) {
       ) : null}
 
       <div className="grid lg:grid-cols-3 gap-3">
-        <SectionCard
+        <MonitoringSectionCard
           title="Supabase quota early warning"
           t={t}
           right={
@@ -300,9 +300,9 @@ export default function DbUsageQuotaPanel({ t, reducedMotion }) {
               </div>
             </div>
           )}
-        </SectionCard>
+        </MonitoringSectionCard>
 
-        <SectionCard
+        <MonitoringSectionCard
           title="Daily trend"
           t={t}
           className="lg:col-span-2"
@@ -421,10 +421,10 @@ export default function DbUsageQuotaPanel({ t, reducedMotion }) {
               </table>
             </div>
           ) : null}
-        </SectionCard>
+        </MonitoringSectionCard>
       </div>
 
-      <SectionCard
+      <MonitoringSectionCard
         title="Weekly bill check (Upcoming Invoice)"
         t={t}
         right={
@@ -459,7 +459,7 @@ export default function DbUsageQuotaPanel({ t, reducedMotion }) {
             {checklist.lastCheckedOn ? formatDateDdMmYyyy(checklist.lastCheckedOn) : "Never on this browser"}
           </span>
         </div>
-      </SectionCard>
+      </MonitoringSectionCard>
     </div>
   );
 }

@@ -9,7 +9,7 @@ import {
   Table2,
   Users,
 } from "lucide-react";
-import { TinySelect } from "../../adminOperations/components/AdminUi";
+import { TinySelect } from "../../../components/erpUi";
 import {
   SITE_TYPES,
   getSelectedSiteType,

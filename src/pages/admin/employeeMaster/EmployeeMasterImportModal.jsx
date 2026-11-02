@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Modal } from "../../adminOperations/components/AdminUi";
+import { Modal } from "../../../components/erpUi";
 
 function displayVal(v) {
   const s = v == null ? "" : String(v).trim();

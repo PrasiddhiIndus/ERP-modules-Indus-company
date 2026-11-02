@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Badge, SectionCard } from "../components/StoreUi";
+import { Badge, SectionCard } from "../../../components/erpUi";
 
 export default function SiteStockPage({ data }) {
   const { sites, stores, items, stockByStoreItem, planner } = data;

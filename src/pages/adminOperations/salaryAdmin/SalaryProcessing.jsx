@@ -8,7 +8,7 @@ import {
   StatusChip,
   Modal,
   CollapsibleHelp,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import { formatINRPlain } from "./salaryData";
 import { MASKED_SECRET, salaryFiguresHidden } from "./salaryPrivacy";
 import { departmentInSelection } from "../../../lib/employeeMasterDepartments";

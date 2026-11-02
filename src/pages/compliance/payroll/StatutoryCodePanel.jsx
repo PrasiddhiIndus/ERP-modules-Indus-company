@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Eye, FileSpreadsheet, FileText, Filter, Pencil, Plus, Search, Trash2 } from "lucide-react";
-import { Modal } from "../../adminOperations/components/AdminUi";
+import { Modal } from "../../../components/erpUi";
 import { toast } from "../../../lib/toast";
 import { WageFormStep } from "./WageStatutoryForm";
 import NominationDocument from "./NominationDocument";

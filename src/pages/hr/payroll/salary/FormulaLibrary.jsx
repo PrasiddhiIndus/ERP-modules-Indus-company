@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
-import { Badge } from '../../../adminOperations/components/AdminUi';
+import { Badge } from '../../../../components/erpUi';
 import SiteCalculationFormulas from './SiteCalculationFormulas';
 import DatawizardReport from './DatawizardReport';
 import { formulaGroupItemCount } from './formulaLibraryData';

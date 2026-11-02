@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { SectionCard } from "../components/StoreUi";
+import { SectionCard } from "../../../components/erpUi";
 import { formatDateTimeDdMmYyyy } from "../../../utils/dateDisplay";
 
 function toCsv(rows) {

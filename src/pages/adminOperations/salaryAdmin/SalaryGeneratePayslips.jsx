@@ -8,7 +8,7 @@ import {
   SectionCard,
   StatusChip,
   TinyInput,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import { RegisterDepartmentFilter } from "../employee/RegisterDepartmentFilter";
 import { departmentInSelection } from "../../../lib/employeeMasterDepartments";
 import {

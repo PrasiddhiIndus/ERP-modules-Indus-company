@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, RefreshCw, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { KpiTile, PageTaskHeader, StatusChip } from '../adminOperations/components/AdminUi';
+import { KpiTile, PageTaskHeader, StatusChip } from '../../components/erpUi';
 import {
   AreaTrendChart,
   BarCompareChart,

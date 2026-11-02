@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { SectionCard, Badge, DenseTable } from '../../../adminOperations/components/AdminUi';
+import { SectionCard, Badge, DenseTable } from '../../../../components/erpUi';
 import { listManualInputs, upsertManualInput } from '../../../../services/payrollApi';
 import { fetchActiveEmployeesForPayroll } from '../../../../services/attendancePayrollApi';
 import { supabase } from '../../../../lib/supabase';

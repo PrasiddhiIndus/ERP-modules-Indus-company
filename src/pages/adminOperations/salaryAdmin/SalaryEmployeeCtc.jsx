@@ -6,7 +6,7 @@ import { toast } from "../../../lib/toast";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import { employmentTypeLabel } from "../../../utils/employeeMasterReminders";
 import FormDateInput from "../../../components/FormDateInput";
-import { Drawer } from "../components/AdminUi";
+import { Drawer } from "../../../components/erpUi";
 import {
   BASIC_GROSS_PERCENT,
   BASIC_SLAB_MIN,

@@ -37,6 +37,9 @@ dist-ssr
 .envserver
 .env.production.local
 .env.staging.local
+# Accidental local copies of env files (not matched by .env* rules)
+/env
+/env.server
 *.pem
 
 # Security audits — never publish to a remote

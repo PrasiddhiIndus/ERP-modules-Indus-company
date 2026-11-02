@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Mail, PenSquare, Plus, RotateCcw } from "lucide-react";
-import { Drawer } from "../components/AdminUi";
+import { Drawer } from "../../../components/erpUi";
 import { toast } from "../../../lib/toast";
 import { DELIVERY_STATUSES, TEMPLATE_CATEGORIES, TEMPLATE_PLACEHOLDERS, deliveryStatusMeta } from "./recruitmentConfig";
 import { listCandidates, listCommunications, listTemplates, retryCommunication, saveTemplate } from "./recruitmentService";

@@ -37,7 +37,7 @@ import {
   StatusChip,
   TinyInput,
   TinySelect,
-} from "./components/AdminUi";
+} from "../../components/erpUi";
 
 const REALTIME_DEBOUNCE_MS = 450;
 const EMPLOYEE_PAGE_SIZE = 1000;

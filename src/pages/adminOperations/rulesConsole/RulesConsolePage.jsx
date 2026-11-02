@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { ChevronRight, Search } from "lucide-react";
-import { CollapsibleHelp, PageTaskHeader, SectionCard, StatusChip } from "../components/AdminUi";
+import { CollapsibleHelp, PageTaskHeader, SectionCard, StatusChip } from "../../../components/erpUi";
 import { useRulesConsoleData } from "./useRulesConsoleData";
 import { RULE_MODULES, departmentListLabel, formatRuleValue, summarizeRule, todayIso } from "./rulesModel";
 import RuleDrawer from "./components/RuleDrawer";

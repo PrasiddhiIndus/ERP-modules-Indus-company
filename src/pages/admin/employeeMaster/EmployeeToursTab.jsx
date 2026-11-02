@@ -8,7 +8,7 @@ import {
   tourLocationLabel,
   tourReasonLabel,
 } from "../../../lib/adminTourRequests";
-import { SectionCard, StatusChip } from "../../adminOperations/components/AdminUi";
+import { SectionCard, StatusChip } from "../../../components/erpUi";
 import { inputClass, PrimaryButton, ShellBanner } from "./deductions/deductionsUi";
 
 const YEAR_DEFAULT = new Date().getFullYear();

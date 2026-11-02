@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { CalendarCheck, CalendarClock, CalendarX, Mail, Star, XCircle } from "lucide-react";
-import { Drawer } from "../components/AdminUi";
+import { Drawer } from "../../../components/erpUi";
 import { toast } from "../../../lib/toast";
 import { EVALUATION_CRITERIA, INTERVIEW_RECOMMENDATIONS, interviewStatusMeta, recommendationMeta } from "./recruitmentConfig";
 import { evaluateInterview, setInterviewStatus } from "./recruitmentService";

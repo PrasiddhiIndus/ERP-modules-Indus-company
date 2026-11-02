@@ -10,7 +10,7 @@ import {
   Badge,
   LinkedChip,
   Modal,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import { mockGateEmployeeMoves, mockVisitors, mockVehicles, mockDeliveries } from "../data/mockAdminData";
 
 export function GateEmployeeMovementPage() {

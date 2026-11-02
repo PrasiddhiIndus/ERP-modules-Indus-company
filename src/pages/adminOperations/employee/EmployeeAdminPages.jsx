@@ -13,7 +13,7 @@ import {
   LinkedChip,
   Timeline,
   CollapsibleHelp,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import { supabase } from "../../../lib/supabase";
 import {
   fetchAttendancePunchesPage,

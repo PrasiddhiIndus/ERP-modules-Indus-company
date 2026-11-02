@@ -1,6 +1,6 @@
 import React from 'react';
 import { Send, UsersRound } from 'lucide-react';
-import { CollapsibleHelp, PageTaskHeader } from '../../adminOperations/components/AdminUi';
+import { CollapsibleHelp, PageTaskHeader } from '../../../components/erpUi';
 import EmployeePicker from './EmployeePicker';
 import { useInHouseOutreach } from './InHouseOutreachContext';
 

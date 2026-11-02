@@ -1,6 +1,6 @@
 import React from 'react';
 import { Mail, Plus } from 'lucide-react';
-import { PageTaskHeader } from '../adminOperations/components/AdminUi';
+import { PageTaskHeader } from '../../components/erpUi';
 import { useCrmOutreach } from './contexts/CrmOutreachContext';
 
 export default function MailTemplates() {

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { SectionCard, DenseTable } from '../../../adminOperations/components/AdminUi';
+import { SectionCard, DenseTable } from '../../../../components/erpUi';
 import { listPayrollRuns, listRegisterForRun } from '../../../../services/payrollApi';
 import { supabase } from '../../../../lib/supabase';
 import { EMPLOYEE_MASTER_TABLE } from '../../../../modules/payroll/integrations';

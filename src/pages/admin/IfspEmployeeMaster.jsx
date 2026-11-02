@@ -73,7 +73,7 @@ import {
   isFullEmployeeMasterSheet,
   EMPLOYEE_MASTER_SHEET_FIELDS,
 } from './employeeMaster/employeeMasterSheetImport';
-import { Modal } from '../adminOperations/components/AdminUi';
+import { Modal } from '../../components/erpUi';
 
 function isInHouseEmployeeType(row) {
   const value = String(row?.employee_type ?? "").trim().toLowerCase();

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { SectionCard, Badge } from '../../../adminOperations/components/AdminUi';
+import { SectionCard, Badge } from '../../../../components/erpUi';
 import { salaryAppPath } from './salaryNav';
 
 const COMPLIANCE_ITEMS = [

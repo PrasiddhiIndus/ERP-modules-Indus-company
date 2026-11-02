@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Check, Loader2, Trash2, X } from 'lucide-react';
-import { Modal } from '../../adminOperations/components/AdminUi';
+import { Modal } from '../../../components/erpUi';
 import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
 import { decideEnquiryDeletion, deletionErrorMessage } from './enquiryDeletionApi';
 

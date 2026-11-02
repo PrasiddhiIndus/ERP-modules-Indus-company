@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { SectionCard } from "../../../adminOperations/components/AdminUi";
+import { SectionCard } from "../../../../components/erpUi";
 import { currentYm, newId, parseMoney, round2 } from "./deductionsStore";
 import {
   DangerButton,

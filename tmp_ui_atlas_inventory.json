@@ -1,0 +1,6925 @@
+{
+  "generated": "2026-10-31T11:32:55.109614+00:00",
+  "routeCount": 330,
+  "routes": [
+    {
+      "path": "/",
+      "component": "Login",
+      "source": "src/pages/Login.jsx",
+      "lines": 692,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/register",
+      "component": "Register",
+      "source": "src/pages/Register.jsx",
+      "lines": 196,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/forgot-password",
+      "component": "ForgotPassword",
+      "source": "src/pages/ForgotPassword.jsx",
+      "lines": 119,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/reset-password",
+      "component": "ResetPassword",
+      "source": "src/pages/ResetPassword.jsx",
+      "lines": 258,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/candidate-portal/:token",
+      "component": "CandidatePortal",
+      "source": "src/pages/adminOperations/recruitment/CandidatePortalPage.jsx",
+      "lines": 269,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/r/:token",
+      "component": "CandidatePortal",
+      "source": "src/pages/adminOperations/recruitment/CandidatePortalPage.jsx",
+      "lines": 269,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app",
+      "component": "Layout",
+      "source": "src/contexts/Layout.jsx",
+      "lines": 1684,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/dashboard; index",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/dashboard",
+      "component": "Dashboard",
+      "source": "src/pages/Dashboard.jsx",
+      "lines": 1196,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender",
+      "component": "FireTenderDashboard",
+      "source": "src/pages/projects/FireTenderDashboard.jsx",
+      "lines": 385,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender/costing-hub",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/fire-tender/costing-hub/tender",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/fire-tender/costing-hub/:tab",
+      "component": "FireTenderCostingHub",
+      "source": "src/pages/projects/FireTenderCostingHub.jsx",
+      "lines": 60,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender/new",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/fire-tender/costing-hub/tender",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/fire-tender/list",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/fire-tender/costing-hub/tender",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/fire-tender/costing",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/fire-tender/costing-hub/costing",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/fire-tender/costing/:id",
+      "component": "CostingSheet",
+      "source": "src/pages/projects/CostingSheet.jsx",
+      "lines": 209,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender/quotation",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/fire-tender/costing-hub/quotation",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/fire-tender/:id",
+      "component": "FireTender",
+      "source": "src/pages/projects/FireTender.jsx",
+      "lines": 1179,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender/quotation/:id",
+      "component": "QuotationDetail",
+      "source": "src/pages/projects/QuotationDetail.jsx",
+      "lines": 1240,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender/configuration/main-component",
+      "component": "MainComponentPage",
+      "source": "src/pages/projects/configurationTender/MainComponentPage.jsx",
+      "lines": 425,
+      "erpUi": "N",
+      "notes": "guard: IevConfigGuard",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender/configuration/manual-sub-category",
+      "component": "ManualSubCategoryPage",
+      "source": "src/pages/projects/configurationTender/ManualSubCategoryPage.jsx",
+      "lines": 116,
+      "erpUi": "N",
+      "notes": "guard: IevConfigGuard",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender/configuration/fire-tender-mail-template",
+      "component": "FireTenderMailTemplatePage",
+      "source": "src/pages/projects/configurationTender/FireTenderMailTemplatePage.jsx",
+      "lines": 418,
+      "erpUi": "N",
+      "notes": "guard: IevConfigGuard",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender/configuration/price-master",
+      "component": "PriceMasterPage",
+      "source": "src/pages/projects/configurationTender/PriceMasterPage.jsx",
+      "lines": 626,
+      "erpUi": "N",
+      "notes": "guard: IevConfigGuard",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender/configuration/accessories",
+      "component": "AccessoriesPage",
+      "source": "src/pages/projects/configurationTender/AccessoriesPage.jsx",
+      "lines": 344,
+      "erpUi": "N",
+      "notes": "guard: IevConfigGuard",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender/configuration/final-components",
+      "component": "FinalComponentsPage",
+      "source": "src/pages/projects/configurationTender/FinalComponentsPage.jsx",
+      "lines": 205,
+      "erpUi": "N",
+      "notes": "guard: IevConfigGuard",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender/configuration/vehicle-type",
+      "component": "VehicleTypePage",
+      "source": "src/pages/projects/configurationTender/VehicleTypePage.jsx",
+      "lines": 86,
+      "erpUi": "N",
+      "notes": "guard: IevConfigGuard",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender/configuration/oc-sign-off",
+      "component": "OcSignoffAssignmentPage",
+      "source": "src/pages/projects/configurationTender/OcSignoffAssignmentPage.jsx",
+      "lines": 174,
+      "erpUi": "N",
+      "notes": "guard: IevConfigGuard",
+      "type": "component"
+    },
+    {
+      "path": "/app/manpower",
+      "component": "ManpowerManagement",
+      "source": "src/pages/manpowerProject/ManpowerManagement.jsx",
+      "lines": 1098,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/manpower/list",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/manpower",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/manpower/internal-quotation",
+      "component": "InternalQuotationList",
+      "source": "src/pages/manpowerProject/enquiryProjects/InternalQuotationList.jsx",
+      "lines": 165,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/manpower/internal-quotation/:id",
+      "component": "InternalQuotationForm",
+      "source": "src/pages/manpowerProject/enquiryProjects/InternalQuotationForm.jsx",
+      "lines": 1766,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/manpower/quotation",
+      "component": "ManpowerQuotationList",
+      "source": "src/pages/manpowerProject/quotation/ManpowerQuotationList.jsx",
+      "lines": 63,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/manpower/configuration",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/manpower/configuration/roles",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/manpower/configuration/:section",
+      "component": "ManpowerConfiguration",
+      "source": "src/pages/manpowerProject/configuration/ManpowerConfiguration.jsx",
+      "lines": 219,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/manpower/:id",
+      "component": "ManpowerManagement",
+      "source": "src/pages/manpowerProject/ManpowerManagement.jsx",
+      "lines": 1098,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/manpower-training/manpower-management/dashboard",
+      "component": "ManpowerManagement",
+      "source": "src/pages/manpowerProject/ManpowerManagement.jsx",
+      "lines": 1098,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/manpower-training/manpower-management",
+      "component": "ManpowerManagement",
+      "source": "src/pages/manpowerProject/ManpowerManagement.jsx",
+      "lines": 1098,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/manpower-training/manpower-management/:id",
+      "component": "ManpowerManagement",
+      "source": "src/pages/manpowerProject/ManpowerManagement.jsx",
+      "lines": 1098,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/manpower-training/internal-quotation",
+      "component": "InternalQuotationList",
+      "source": "src/pages/manpowerProject/enquiryProjects/InternalQuotationList.jsx",
+      "lines": 165,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/manpower-training/internal-quotation/:id",
+      "component": "InternalQuotationForm",
+      "source": "src/pages/manpowerProject/enquiryProjects/InternalQuotationForm.jsx",
+      "lines": 1766,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/dashboard",
+      "component": "HrDashboard",
+      "source": "src/pages/hr/HrDashboard.jsx",
+      "lines": 142,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/calling-master",
+      "component": "HrCallingMaster",
+      "source": "src/pages/hr/callingMaster/CallingMasterLayout.jsx",
+      "lines": 187,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/calling-master",
+      "component": "HrCallingMasterEntry",
+      "source": "src/pages/hr/callingMaster/CallingMasterEntry.jsx",
+      "lines": 45,
+      "erpUi": "N",
+      "notes": "index",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/calling-master/candidates",
+      "component": "HrCallingMasterCandidates",
+      "source": "src/pages/hr/callingMaster/CallingMasterPage.jsx",
+      "lines": 1526,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/calling-master/referral",
+      "component": "HrCallingMasterReferral",
+      "source": "src/pages/hr/callingMaster/CallingMasterReferralPage.jsx",
+      "lines": 423,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/calling-master/offer-generation",
+      "component": "HrCallingMasterOffers",
+      "source": "src/pages/hr/callingMaster/CallingMasterOfferPage.jsx",
+      "lines": 685,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/calling-master/offer-response",
+      "component": "HrCallingMasterOfferResponse",
+      "source": "src/pages/hr/callingMaster/CallingMasterOfferResponsePage.jsx",
+      "lines": 375,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/calling-master/joining",
+      "component": "HrCallingMasterJoining",
+      "source": "src/pages/hr/callingMaster/CallingMasterJoiningPage.jsx",
+      "lines": 553,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/calling-master/iom",
+      "component": "HrCallingMasterIom",
+      "source": "src/pages/hr/callingMaster/CallingMasterIomPage.jsx",
+      "lines": 782,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/calling-master/conversion",
+      "component": "HrCallingMasterConversion",
+      "source": "src/pages/hr/callingMaster/CallingMasterConversionPage.jsx",
+      "lines": 270,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/calling-master/dropdown-master",
+      "component": "HrCallingMasterDropdowns",
+      "source": "src/pages/hr/callingMaster/CallingMasterDropdownPage.jsx",
+      "lines": 380,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/calling-master/database",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/hr/calling-master",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr",
+      "component": "HR",
+      "source": "src/pages/hr/HR.jsx",
+      "lines": 22,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 employee-master; index",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/employee-master",
+      "component": "HrEmployeeMaster",
+      "source": "src/pages/hr/HrEmployeeMaster.jsx",
+      "lines": 74,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/salary-inputs",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/hr/employee-master",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/attendance",
+      "component": "Attendance",
+      "source": "src/pages/attendance/Attendance.jsx",
+      "lines": 734,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/salary",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/hr/payroll/salary/dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/payroll",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/hr/payroll/salary/dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/hr/payroll/salary/dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/dashboard",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/hr/payroll/salary/dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/entry",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/hr/payroll/salary/dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/year",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/hr/payroll/salary/dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/formula",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/hr/payroll/salary/dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary",
+      "component": "SalaryManagementLayout",
+      "source": "src/pages/hr/payroll/salary/SalaryLayout.jsx",
+      "lines": 16,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/payroll/salary",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 dashboard; index",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/dashboard",
+      "component": "SalaryManagementDashboard",
+      "source": "src/pages/hr/payroll/salary/module/screens.jsx",
+      "lines": 1210,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/payroll/salary/components",
+      "component": "SalaryComponentsPage",
+      "source": "src/pages/hr/payroll/salary/module/screens.jsx",
+      "lines": 1210,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/payroll/salary/sites",
+      "component": "SalarySiteSetupPage",
+      "source": "src/pages/hr/payroll/salary/module/screens.jsx",
+      "lines": 1210,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/payroll/salary/employees",
+      "component": "SalaryEmployeesPage",
+      "source": "src/pages/hr/payroll/salary/module/screens.jsx",
+      "lines": 1210,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/payroll/salary/employees/:id",
+      "component": "SalaryEmployeeDetailPage",
+      "source": "src/pages/hr/payroll/salary/module/screens.jsx",
+      "lines": 1210,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/payroll/salary/process",
+      "component": "SalaryProcessPage",
+      "source": "src/pages/hr/payroll/salary/module/screens.jsx",
+      "lines": 1210,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/payroll/salary/slips",
+      "component": "SalarySlipsPage",
+      "source": "src/pages/hr/payroll/salary/module/screens.jsx",
+      "lines": 1210,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/payroll/salary/revisions",
+      "component": "SalaryRevisionsPage",
+      "source": "src/pages/hr/payroll/salary/module/screens.jsx",
+      "lines": 1210,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/payroll/salary/reports",
+      "component": "SalaryReportsPage",
+      "source": "src/pages/hr/payroll/salary/module/screens.jsx",
+      "lines": 1210,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/payroll/salary/site-master",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../sites",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/formula-library",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../components",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/payroll-package-builder",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../sites",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/people-master",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../employees",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/people-master/new",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../employees",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/people-master/:id",
+      "component": "RedirectEmployeeMasterId",
+      "source": "src/App.jsx",
+      "lines": 812,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/payroll/salary/attendance-integration",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../employees",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/compliance-management",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../components",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/compliance/pf",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../components",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/compliance/esic",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../components",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/compliance/pt",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../components",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/compliance/tds",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../components",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/compliance/loans",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../components",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/payroll-processing",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../process",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/payroll-approval",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../process",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/payslips",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../slips",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/reports-exports",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../reports",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/employee-exit",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../employees",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/full-final-settlement",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../revisions",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/settings",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/employee-master",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../employees",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/employee-master/new",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../employees",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/employee-master/:id",
+      "component": "RedirectEmployeeMasterId",
+      "source": "src/App.jsx",
+      "lines": 812,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/payroll/salary/run",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../process",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/site-formulas",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../components",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/manual-inputs",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../employees",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/pf",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../components",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/esic",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../components",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/pt",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../components",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/tds",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../components",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/loans",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../components",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/register",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../reports",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/payroll/salary/outputs",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 ../slips",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/site-attendance",
+      "component": "HrSiteAttendance",
+      "source": "src/pages/hr/siteAttendance/SiteAttendanceLayout.jsx",
+      "lines": 188,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/site-attendance",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 dashboard; index",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/hr/site-attendance/dashboard",
+      "component": "HrSiteAttendanceDashboard",
+      "source": "src/pages/hr/siteAttendance/DashboardPage.jsx",
+      "lines": 166,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/site-attendance/sites",
+      "component": "HrSiteAttendanceSites",
+      "source": "src/pages/hr/siteAttendance/SiteMasterPage.jsx",
+      "lines": 718,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/site-attendance/people",
+      "component": "HrSiteAttendancePeople",
+      "source": "src/pages/hr/siteAttendance/PeopleMasterPage.jsx",
+      "lines": 792,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/site-attendance/attendance",
+      "component": "HrSiteAttendanceEntry",
+      "source": "src/pages/hr/siteAttendance/AttendanceEntryPage.jsx",
+      "lines": 467,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/site-attendance/admin-view",
+      "component": "HrSiteAttendanceAdminView",
+      "source": "src/pages/hr/siteAttendance/AdminAttendanceViewPage.jsx",
+      "lines": 6,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/site-attendance/summary",
+      "component": "HrSiteAttendanceSummary",
+      "source": "src/pages/hr/siteAttendance/SummaryPage.jsx",
+      "lines": 237,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/hr/site-attendance/hr-managers",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 sites",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/people-management",
+      "component": "PeopleManagement",
+      "source": "src/pages/peopleManagement/PeopleManagement.jsx",
+      "lines": 338,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/people-management/:personId",
+      "component": "PeoplePersonProfile",
+      "source": "src/pages/peopleManagement/PersonProfile.jsx",
+      "lines": 692,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/ifsp-employee-compliance",
+      "component": "IfspEmployeeCompliance",
+      "source": "src/pages/compliance/IfspEmployeeCompliance.jsx",
+      "lines": 22,
+      "erpUi": "N",
+      "notes": "guard: ComplianceGuard",
+      "type": "component"
+    },
+    {
+      "path": "/app/general-compliance",
+      "component": "GeneralCompliance",
+      "source": "src/pages/compliance/GeneralCompliance.jsx",
+      "lines": 22,
+      "erpUi": "N",
+      "notes": "guard: ComplianceGuard",
+      "type": "component"
+    },
+    {
+      "path": "/app/compliance",
+      "component": "CompliancePayrollLayoutPage",
+      "source": "src/pages/compliance/payroll/CompliancePayrollLayout.jsx",
+      "lines": 14,
+      "erpUi": "N",
+      "notes": "guard: ComplianceGuard",
+      "type": "component"
+    },
+    {
+      "path": "/app/compliance",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 dashboard; index",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/compliance/dashboard",
+      "component": "ComplianceDashboardPage",
+      "source": "src/pages/compliance/payroll/ComplianceDashboard.jsx",
+      "lines": 368,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/compliance/forms",
+      "component": "ComplianceFormsPage",
+      "source": "src/pages/compliance/payroll/ComplianceForms.jsx",
+      "lines": 95,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/compliance/forms/:formKey",
+      "component": "WageStatutoryFormPage",
+      "source": "src/pages/compliance/payroll/WageStatutoryForm.jsx",
+      "lines": 273,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/compliance/payroll-process",
+      "component": "CompliancePayrollProcessPage",
+      "source": "src/pages/compliance/payroll/CompliancePayrollProcess.jsx",
+      "lines": 1143,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/compliance/*",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/compliance/dashboard; splat",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/ifsp-employee-master",
+      "component": "IfspEmployeeMaster",
+      "source": "src/pages/admin/IfspEmployeeMaster.jsx",
+      "lines": 2100,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/ifsp-employee-attendance",
+      "component": "IfspEmployeeAttendance",
+      "source": "src/pages/admin/IfspEmployeeAttendance.jsx",
+      "lines": 22,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/ifsp-employee-payroll",
+      "component": "IfspEmployeePayroll",
+      "source": "src/pages/admin/IfspEmployeePayroll.jsx",
+      "lines": 7,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/ifsp-employee-leaves",
+      "component": "IfspEmployeeLeaves",
+      "source": "src/pages/admin/IfspEmployeeLeaves.jsx",
+      "lines": 22,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/store-inventory",
+      "component": "StoreInventory",
+      "source": "src/pages/store/StoreInventory.jsx",
+      "lines": 122,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/gate-pass",
+      "component": "GatePass",
+      "source": "src/pages/admin/GatePass.jsx",
+      "lines": 22,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/dashboard",
+      "component": "AdminOpsDashboard",
+      "source": "src/pages/adminOperations/AdminOpsDashboard.jsx",
+      "lines": 1273,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/recruitment",
+      "component": "AdminRecruitmentLayout",
+      "source": "src/pages/adminOperations/recruitment/RecruitmentLayout.jsx",
+      "lines": 113,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/recruitment",
+      "component": "AdminRecruitmentDashboard",
+      "source": "src/pages/adminOperations/recruitment/RecruitmentDashboard.jsx",
+      "lines": 161,
+      "erpUi": "N",
+      "notes": "index",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/recruitment/requisitions",
+      "component": "AdminRecruitmentRequisitions",
+      "source": "src/pages/adminOperations/recruitment/RequisitionsPage.jsx",
+      "lines": 512,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/recruitment/candidates",
+      "component": "AdminRecruitmentCandidates",
+      "source": "src/pages/adminOperations/recruitment/CandidatesPage.jsx",
+      "lines": 436,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/recruitment/candidates/:candidateId",
+      "component": "AdminRecruitmentCandidate360",
+      "source": "src/pages/adminOperations/recruitment/Candidate360Page.jsx",
+      "lines": 833,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/recruitment/interviews",
+      "component": "AdminRecruitmentInterviews",
+      "source": "src/pages/adminOperations/recruitment/InterviewsPage.jsx",
+      "lines": 268,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/recruitment/offers",
+      "component": "AdminRecruitmentOffers",
+      "source": "src/pages/adminOperations/recruitment/OffersPage.jsx",
+      "lines": 424,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/recruitment/documents",
+      "component": "AdminRecruitmentDocuments",
+      "source": "src/pages/adminOperations/recruitment/DocumentsPage.jsx",
+      "lines": 179,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/recruitment/joining",
+      "component": "AdminRecruitmentJoining",
+      "source": "src/pages/adminOperations/recruitment/JoiningPage.jsx",
+      "lines": 152,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/recruitment/conversion",
+      "component": "AdminRecruitmentConversion",
+      "source": "src/pages/adminOperations/recruitment/ConversionPage.jsx",
+      "lines": 112,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/recruitment/communication",
+      "component": "AdminRecruitmentCommunication",
+      "source": "src/pages/adminOperations/recruitment/CommunicationPage.jsx",
+      "lines": 269,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/recruitment/reports",
+      "component": "AdminRecruitmentReports",
+      "source": "src/pages/adminOperations/recruitment/ReportsPage.jsx",
+      "lines": 189,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/recruitment/settings",
+      "component": "AdminRecruitmentSettings",
+      "source": "src/pages/adminOperations/recruitment/SettingsPage.jsx",
+      "lines": 304,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/recruitment/referral",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/recruitment/candidates",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/recruitment/offer-generation",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/recruitment/offers",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/recruitment/offer-response",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/recruitment/offers",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/recruitment/iom",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/recruitment/joining",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/recruitment/dropdown-master",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/recruitment/settings",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/recruitment/classic/*",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/recruitment; splat",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/payroll/*",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/dashboard; splat",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/employee/master",
+      "component": "IfspEmployeeMaster",
+      "source": "src/pages/admin/IfspEmployeeMaster.jsx",
+      "lines": 2100,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/employee/master/:employeeId",
+      "component": "IfspEmployeeMasterDetail",
+      "source": "src/pages/admin/IfspEmployeeMasterDetail.jsx",
+      "lines": 586,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/employee/all",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/all-employees",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/employee/onboarding",
+      "component": "EmployeeOnboardingPage",
+      "source": "src/pages/adminOperations/employee/EmployeeOnboardingPage.jsx",
+      "lines": 1168,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/employee/attendance-inputs",
+      "component": "EmployeeAttendanceInputsPage",
+      "source": "src/pages/adminOperations/employee/EmployeeAdminPages.jsx",
+      "lines": 1022,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/employee/attendance-daily",
+      "component": "EmployeeAttendanceDailyPage",
+      "source": "src/pages/adminOperations/employee/EmployeeAttendanceDailyPage.jsx",
+      "lines": 2375,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/employee/national-holidays",
+      "component": "NationalPublicHolidaysPage",
+      "source": "src/pages/adminOperations/employee/NationalPublicHolidaysPage.jsx",
+      "lines": 589,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/employee/leave-management",
+      "component": "EmployeeLeaveManagementPage",
+      "source": "src/pages/adminOperations/employee/EmployeeLeaveManagementPage.jsx",
+      "lines": 1277,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/employee/attendance-sheets",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/employee/leaves-permissions",
+      "component": "EmployeeLeavesPage",
+      "source": "src/pages/adminOperations/employee/EmployeeLeaveInboxPage.jsx",
+      "lines": 588,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/employee/tour-approvals",
+      "component": "EmployeeTourApprovalsPage",
+      "source": "src/pages/adminOperations/employee/EmployeeTourInboxPage.jsx",
+      "lines": 546,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/employee/compliance-documents",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/employee/salary-inputs",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/employee/exit-ff",
+      "component": "EmployeeFnfPage",
+      "source": "src/pages/adminOperations/employee/EmployeeFnfPage.jsx",
+      "lines": 505,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/employee/policies",
+      "component": "EmployeePoliciesPage",
+      "source": "src/pages/adminOperations/employee/EmployeePoliciesPage.jsx",
+      "lines": 1070,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/employee/official-letters",
+      "component": "OfficialLettersPage",
+      "source": "src/pages/adminOperations/employee/OfficialLettersPage.jsx",
+      "lines": 1821,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/employee/inactive",
+      "component": "InactiveEmployeesPage",
+      "source": "src/pages/adminOperations/employee/InactiveEmployeesPage.jsx",
+      "lines": 789,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/store/*",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/dashboard; splat",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/gate/*",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/dashboard; splat",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/salary-admin",
+      "component": "SalaryAdminLayoutPage",
+      "source": "src/pages/adminOperations/salaryAdmin/SalaryAdminLayout.jsx",
+      "lines": 120,
+      "erpUi": "N",
+      "notes": "guard: SalaryAdminGuard",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/salary-admin",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 dashboard; index",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/salary-admin/dashboard",
+      "component": "SalaryDashboardPage",
+      "source": "src/pages/adminOperations/salaryAdmin/SalaryDashboard.jsx",
+      "lines": 466,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/salary-admin/salary-components",
+      "component": "SalaryComponentsMasterPage",
+      "source": "src/pages/adminOperations/salaryAdmin/SalaryComponentsMaster.jsx",
+      "lines": 831,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/salary-admin/payroll-rules",
+      "component": "PayrollRuleMasterPage",
+      "source": "src/pages/adminOperations/salaryAdmin/PayrollRuleMaster.jsx",
+      "lines": 502,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/salary-admin/ctc-calculator",
+      "component": "CtcCalculatorPage",
+      "source": "src/pages/adminOperations/salaryAdmin/CtcCalculator.jsx",
+      "lines": 555,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/salary-admin/salary-processing",
+      "component": "SalaryProcessingPage",
+      "source": "src/pages/adminOperations/salaryAdmin/SalaryProcessing.jsx",
+      "lines": 3187,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/salary-admin/reports",
+      "component": "SalaryProcessReportPage",
+      "source": "src/pages/adminOperations/salaryAdmin/SalaryProcessReport.jsx",
+      "lines": 435,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/salary-admin/mis",
+      "component": "PayrollMisRoutePage",
+      "source": "src/pages/adminOperations/salaryAdmin/mis/PayrollMisRoute.jsx",
+      "lines": 50,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/payroll-mis",
+      "component": "PayrollMisRoutePage",
+      "source": "src/pages/adminOperations/salaryAdmin/mis/PayrollMisRoute.jsx",
+      "lines": 50,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/salary-admin/salary-master",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/salary-admin/dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/salary-admin/salary-master/:employeeId",
+      "component": "SalaryMasterCtcRedirect",
+      "source": "src/App.jsx",
+      "lines": 812,
+      "erpUi": "N",
+      "notes": "guard: SalaryAdminGuard",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/rules-console",
+      "component": "RulesConsolePage",
+      "source": "src/pages/adminOperations/rulesConsole/RulesConsolePage.jsx",
+      "lines": 166,
+      "erpUi": "Y",
+      "notes": "guard: RulesConsoleGuard",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/misc/*",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/dashboard; splat",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin/alerts-notifications",
+      "component": "AdminOpsAlerts",
+      "source": "src/pages/adminOperations/AdminOpsAlerts.jsx",
+      "lines": 269,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/reports-analytics",
+      "component": "AdminOpsReports",
+      "source": "src/pages/adminOperations/AdminOpsReports.jsx",
+      "lines": 617,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/admin/settings-masters",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/admin-operations/*",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/admin/dashboard; splat",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/commercial/manpower-training",
+      "component": "Commercial",
+      "source": "src/pages/sales/Commercial.jsx",
+      "lines": 94,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/manpower-training/dashboard",
+      "component": "Commercial",
+      "source": "src/pages/sales/Commercial.jsx",
+      "lines": 94,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/manpower-training/po-entry",
+      "component": "Commercial",
+      "source": "src/pages/sales/Commercial.jsx",
+      "lines": 94,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/manpower-training/contact-log",
+      "component": "Commercial",
+      "source": "src/pages/sales/Commercial.jsx",
+      "lines": 94,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/rm-mm-amc-iev",
+      "component": "CommercialRmMmAmcIev",
+      "source": "src/pages/commercial-rm-mm-amc-iev/CommercialRmMmAmcIev.jsx",
+      "lines": 117,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/rm-mm-amc-iev/dashboard",
+      "component": "CommercialRmMmAmcIev",
+      "source": "src/pages/commercial-rm-mm-amc-iev/CommercialRmMmAmcIev.jsx",
+      "lines": 117,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/rm-mm-amc-iev/po-entry",
+      "component": "CommercialRmMmAmcIev",
+      "source": "src/pages/commercial-rm-mm-amc-iev/CommercialRmMmAmcIev.jsx",
+      "lines": 117,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/rm-mm-amc-iev/contact-log",
+      "component": "CommercialRmMmAmcIev",
+      "source": "src/pages/commercial-rm-mm-amc-iev/CommercialRmMmAmcIev.jsx",
+      "lines": 117,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/rm-mm-amc-iev/manpower-management",
+      "component": "CommercialRmManpowerManagement",
+      "source": "src/pages/commercial-rm-mm-amc-iev/ManpowerManagement.jsx",
+      "lines": 1,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/rm-mm-amc-iev/manpower-management/:id",
+      "component": "CommercialRmManpowerManagement",
+      "source": "src/pages/commercial-rm-mm-amc-iev/ManpowerManagement.jsx",
+      "lines": 1,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/rm-mm-amc-iev/internal-quotation",
+      "component": "CommercialRmInternalQuotation",
+      "source": "src/pages/commercial-rm-mm-amc-iev/InternalQuotation.jsx",
+      "lines": 11,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial/rm-mm-amc-iev/internal-quotation/:id",
+      "component": "CommercialRmInternalQuotation",
+      "source": "src/pages/commercial-rm-mm-amc-iev/InternalQuotation.jsx",
+      "lines": 11,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/commercial",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/commercial/manpower-training/po-entry",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/commercial/dashboard",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/commercial/manpower-training/dashboard",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/commercial/po-entry",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/commercial/manpower-training/po-entry",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/commercial/contact-log",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/commercial/manpower-training/contact-log",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/billing/*",
+      "component": "Billing",
+      "source": "src/pages/billing/Billing.jsx",
+      "lines": 179,
+      "erpUi": "N",
+      "notes": "splat",
+      "type": "component"
+    },
+    {
+      "path": "/app/tracking",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/billing/tracking",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/tracking/pa-worklist",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/billing/tracking/pa-worklist",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/tracking/penalty-logs",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/billing/tracking/penalty-logs",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/reports",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/billing/reports",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/reports/outstanding",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/billing/reports",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/reports/deduction-analysis",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/billing/reports",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/operations",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/expenses",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/expenses/summary",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/expenses/site-dashboard",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/advances",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/advances/approval",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/advances/settlement",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/advances/outstanding",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/medical",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/medical/due",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/medical/centers",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/medical/:id",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/accommodation",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/accommodation/rent-entry",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/accommodation/dashboard",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/accommodation/history",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/accommodation/:id",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/dahej-expenses",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /app/operations/dahej-expenses/register",
+      "type": "Navigate"
+    },
+    {
+      "path": "/app/operations/dahej-expenses/register",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/dahej-expenses/dashboard",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/dahej-expenses/monthly-register",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/dahej-expenses/vehicle-master",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/dahej-expenses/booking-locations",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/operations/dahej-expenses/reports",
+      "component": "Operations",
+      "source": "src/pages/operations/Operations.jsx",
+      "lines": 135,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender-vehicle-management",
+      "component": "FireTenderVehicleManagement",
+      "source": "src/pages/fireTenderVehicle/FireTenderVehicleManagement.jsx",
+      "lines": 105,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects-management",
+      "component": "ProjectsManagement",
+      "source": "src/pages/projectsManagement/ProjectsManagement.jsx",
+      "lines": 22,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects-billing",
+      "component": "ProjectsBilling",
+      "source": "src/pages/projectsBilling/ProjectsBilling.jsx",
+      "lines": 22,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/po",
+      "component": "ProjectsPoHub",
+      "source": "src/pages/projects/ProjectsPoHub.jsx",
+      "lines": 93,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/po/po-entry",
+      "component": "ProjectsPoHub",
+      "source": "src/pages/projects/ProjectsPoHub.jsx",
+      "lines": 93,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/po/contact-log",
+      "component": "ProjectsPoHub",
+      "source": "src/pages/projects/ProjectsPoHub.jsx",
+      "lines": 93,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/enquiry",
+      "component": "ProjectsEnquiryHub",
+      "source": "src/pages/projects/enquiry/ProjectsEnquiryHub.jsx",
+      "lines": 92,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/enquiry/enquiry-dashboard",
+      "component": "ProjectsEnquiryHub",
+      "source": "src/pages/projects/enquiry/ProjectsEnquiryHub.jsx",
+      "lines": 92,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/enquiry/enquiry-entry",
+      "component": "ProjectsEnquiryHub",
+      "source": "src/pages/projects/enquiry/ProjectsEnquiryHub.jsx",
+      "lines": 92,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/enquiry/enquiry-database",
+      "component": "ProjectsEnquiryHub",
+      "source": "src/pages/projects/enquiry/ProjectsEnquiryHub.jsx",
+      "lines": 92,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/enquiry/enquiry-kpi",
+      "component": "ProjectsEnquiryHub",
+      "source": "src/pages/projects/enquiry/ProjectsEnquiryHub.jsx",
+      "lines": 92,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/enquiry/enquiry-dropdown",
+      "component": "ProjectsEnquiryHub",
+      "source": "src/pages/projects/enquiry/ProjectsEnquiryHub.jsx",
+      "lines": 92,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/quotation",
+      "component": "ProjectsQuotationHub",
+      "source": "src/pages/projects/quotation/ProjectsQuotationHub.jsx",
+      "lines": 83,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/quotation/quotation-dashboard",
+      "component": "ProjectsQuotationHub",
+      "source": "src/pages/projects/quotation/ProjectsQuotationHub.jsx",
+      "lines": 83,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/quotation/quotation-entry",
+      "component": "ProjectsQuotationHub",
+      "source": "src/pages/projects/quotation/ProjectsQuotationHub.jsx",
+      "lines": 83,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/quotation/quotation-summary",
+      "component": "ProjectsQuotationHub",
+      "source": "src/pages/projects/quotation/ProjectsQuotationHub.jsx",
+      "lines": 83,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/quotation/quotation-list",
+      "component": "ProjectsQuotationHub",
+      "source": "src/pages/projects/quotation/ProjectsQuotationHub.jsx",
+      "lines": 83,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/quotation/quotation-board",
+      "component": "ProjectsQuotationHub",
+      "source": "src/pages/projects/quotation/ProjectsQuotationHub.jsx",
+      "lines": 83,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/quotation/quotation-dropdown",
+      "component": "ProjectsQuotationHub",
+      "source": "src/pages/projects/quotation/ProjectsQuotationHub.jsx",
+      "lines": 83,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/projects/quotation/quotation-templates",
+      "component": "ProjectsQuotationHub",
+      "source": "src/pages/projects/quotation/ProjectsQuotationHub.jsx",
+      "lines": 83,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/procurement",
+      "component": "Procurement",
+      "source": "src/pages/procurement/Procurement.jsx",
+      "lines": 22,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/fire-tender-manufacturing",
+      "component": "FireTenderManufacturing",
+      "source": "src/pages/fireTenderManufacturing/FireTenderManufacturing.jsx",
+      "lines": 22,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/amc",
+      "component": "AMC",
+      "source": "src/pages/amc/AMC.jsx",
+      "lines": 87,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/amc/customers",
+      "component": "AMC",
+      "source": "src/pages/amc/AMC.jsx",
+      "lines": 87,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/amc/contracts",
+      "component": "AMC",
+      "source": "src/pages/amc/AMC.jsx",
+      "lines": 87,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/amc/sites",
+      "component": "AMC",
+      "source": "src/pages/amc/AMC.jsx",
+      "lines": 87,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/amc/assets",
+      "component": "AMC",
+      "source": "src/pages/amc/AMC.jsx",
+      "lines": 87,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/amc/pm-schedule",
+      "component": "AMC",
+      "source": "src/pages/amc/AMC.jsx",
+      "lines": 87,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/amc/complaints",
+      "component": "AMC",
+      "source": "src/pages/amc/AMC.jsx",
+      "lines": 87,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/amc/visits",
+      "component": "AMC",
+      "source": "src/pages/amc/AMC.jsx",
+      "lines": 87,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/amc/technicians",
+      "component": "AMC",
+      "source": "src/pages/amc/AMC.jsx",
+      "lines": 87,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/amc/service-reports",
+      "component": "AMC",
+      "source": "src/pages/amc/AMC.jsx",
+      "lines": 87,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/amc/alerts",
+      "component": "AMC",
+      "source": "src/pages/amc/AMC.jsx",
+      "lines": 87,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/amc/reports",
+      "component": "AMC",
+      "source": "src/pages/amc/AMC.jsx",
+      "lines": 87,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/amc/settings",
+      "component": "AMC",
+      "source": "src/pages/amc/AMC.jsx",
+      "lines": 87,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/accounts-finance",
+      "component": "AccountsFinance",
+      "source": "src/pages/finance/Finance.jsx",
+      "lines": 104,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/accounts-finance/sites",
+      "component": "AccountsFinance",
+      "source": "src/pages/finance/Finance.jsx",
+      "lines": 104,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/accounts-finance/revenue-heads",
+      "component": "AccountsFinance",
+      "source": "src/pages/finance/Finance.jsx",
+      "lines": 104,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/accounts-finance/expense-heads",
+      "component": "AccountsFinance",
+      "source": "src/pages/finance/Finance.jsx",
+      "lines": 104,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/accounts-finance/budget-versions",
+      "component": "AccountsFinance",
+      "source": "src/pages/finance/Finance.jsx",
+      "lines": 104,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/accounts-finance/revenue",
+      "component": "AccountsFinance",
+      "source": "src/pages/finance/Finance.jsx",
+      "lines": 104,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/accounts-finance/expenses",
+      "component": "AccountsFinance",
+      "source": "src/pages/finance/Finance.jsx",
+      "lines": 104,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/accounts-finance/budget-vs-actual",
+      "component": "AccountsFinance",
+      "source": "src/pages/finance/Finance.jsx",
+      "lines": 104,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/accounts-finance/cost-allocation",
+      "component": "AccountsFinance",
+      "source": "src/pages/finance/Finance.jsx",
+      "lines": 104,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/accounts-finance/import-export",
+      "component": "AccountsFinance",
+      "source": "src/pages/finance/Finance.jsx",
+      "lines": 104,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/accounts-finance/reports",
+      "component": "AccountsFinance",
+      "source": "src/pages/finance/Finance.jsx",
+      "lines": 104,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/accounts-finance/reports/site-ledger",
+      "component": "AccountsFinance",
+      "source": "src/pages/finance/Finance.jsx",
+      "lines": 104,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/accounts-finance/bank-formats",
+      "component": "AccountsFinance",
+      "source": "src/pages/finance/Finance.jsx",
+      "lines": 104,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/accounts-finance/settings",
+      "component": "AccountsFinance",
+      "source": "src/pages/finance/Finance.jsx",
+      "lines": 104,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/indus-lms-trainings",
+      "component": "IndusLmsTrainings",
+      "source": "src/pages/IndusLmsTrainings.jsx",
+      "lines": 143,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing",
+      "component": "MarketingDashboard",
+      "source": "src/pages/marketing/MarketingDashboard.jsx",
+      "lines": 716,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/lead-dashboard",
+      "component": "LeadDashboard",
+      "source": "src/pages/marketing/LeadDashboard.jsx",
+      "lines": 376,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/lead-master",
+      "component": "LeadMaster",
+      "source": "src/pages/marketing/LeadMaster.jsx",
+      "lines": 780,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/enquiry-master",
+      "component": "EnquiryMaster",
+      "source": "src/pages/marketing/EnquiryMaster.jsx",
+      "lines": 1980,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/quotation-tracker",
+      "component": "QuotationTracker",
+      "source": "src/pages/marketing/QuotationTracker.jsx",
+      "lines": 2900,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/quotation-tracker/costing",
+      "component": "CostingSheetList",
+      "source": "src/pages/marketing/CostingSheetList.jsx",
+      "lines": 114,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/quotation-tracker/costing/:id",
+      "component": "CostingSheetDetail",
+      "source": "src/pages/marketing/CostingSheetDetail.jsx",
+      "lines": 101,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/quotation-tracker/internal-quotation",
+      "component": "MarketingInternalQuotationList",
+      "source": "src/pages/marketing/InternalQuotationList.jsx",
+      "lines": 285,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/quotation-tracker/internal-quotation/:id",
+      "component": "MarketingInternalQuotationForm",
+      "source": "src/pages/marketing/InternalQuotationForm.jsx",
+      "lines": 572,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/mail-templates",
+      "component": "QuotationTemplatePage",
+      "source": "src/pages/marketing/QuotationTemplatePage.jsx",
+      "lines": 497,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/follow-up-planner",
+      "component": "FollowUpPlanner",
+      "source": "src/pages/marketing/FollowUpPlanner.jsx",
+      "lines": 1617,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/client-master",
+      "component": "ClientMaster",
+      "source": "src/pages/marketing/ClientMaster.jsx",
+      "lines": 718,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/product-catalog",
+      "component": "ProductCatalog",
+      "source": "src/pages/marketing/ProductCatalog.jsx",
+      "lines": 1587,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/purchase-orders",
+      "component": "PurchaseOrders",
+      "source": "src/pages/marketing/PurchaseOrders.jsx",
+      "lines": 641,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/expo-seminar",
+      "component": "ExpoSeminar",
+      "source": "src/pages/marketing/ExpoSeminar.jsx",
+      "lines": 2357,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/gst-upload",
+      "component": "GSTUpload",
+      "source": "src/pages/marketing/GSTUpload.jsx",
+      "lines": 828,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/marketing/reports-analytics",
+      "component": "MarketingReports",
+      "source": "src/pages/marketing/MarketingReports.jsx",
+      "lines": 600,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance",
+      "component": "MaintenanceDashboard",
+      "source": "src/pages/maintenance/MaintenanceDashboard.jsx",
+      "lines": 716,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/enquiry-master",
+      "component": "MaintenanceEnquiryMaster",
+      "source": "src/pages/maintenance/EnquiryMaster.jsx",
+      "lines": 1815,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/quotation-tracker",
+      "component": "MaintenanceQuotationTracker",
+      "source": "src/pages/maintenance/QuotationTracker.jsx",
+      "lines": 2717,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/quotation-tracker/costing",
+      "component": "MaintenanceCostingSheetList",
+      "source": "src/pages/maintenance/CostingSheetList.jsx",
+      "lines": 114,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/quotation-tracker/costing/:id",
+      "component": "MaintenanceCostingSheetDetail",
+      "source": "src/pages/maintenance/CostingSheetDetail.jsx",
+      "lines": 101,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/quotation-tracker/internal-quotation",
+      "component": "MaintenanceInternalQuotationList",
+      "source": "src/pages/maintenance/InternalQuotationList.jsx",
+      "lines": 285,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/quotation-tracker/internal-quotation/:id",
+      "component": "MaintenanceInternalQuotationForm",
+      "source": "src/pages/maintenance/InternalQuotationForm.jsx",
+      "lines": 572,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/mail-templates",
+      "component": "MaintenanceQuotationTemplatePage",
+      "source": "src/pages/maintenance/QuotationTemplatePage.jsx",
+      "lines": 497,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/follow-up-planner",
+      "component": "MaintenanceFollowUpPlanner",
+      "source": "src/pages/maintenance/FollowUpPlanner.jsx",
+      "lines": 1617,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/client-master",
+      "component": "MaintenanceClientMaster",
+      "source": "src/pages/maintenance/ClientMaster.jsx",
+      "lines": 713,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/product-catalog",
+      "component": "MaintenanceProductCatalog",
+      "source": "src/pages/maintenance/ProductCatalog.jsx",
+      "lines": 1587,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/purchase-orders",
+      "component": "MaintenancePurchaseOrders",
+      "source": "src/pages/maintenance/PurchaseOrders.jsx",
+      "lines": 641,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/mm-po-entry",
+      "component": "MaintenanceMmPoEntry",
+      "source": "src/pages/maintenance/MaintenanceMmPoEntry.jsx",
+      "lines": 52,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/expo-seminar",
+      "component": "MaintenanceExpoSeminar",
+      "source": "src/pages/maintenance/ExpoSeminar.jsx",
+      "lines": 2357,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/gst-upload",
+      "component": "MaintenanceGSTUpload",
+      "source": "src/pages/maintenance/GSTUpload.jsx",
+      "lines": 828,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/maintenance/reports-analytics",
+      "component": "MaintenanceReports",
+      "source": "src/pages/maintenance/MaintenanceReports.jsx",
+      "lines": 600,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/crm-outreach",
+      "component": "CrmOutreach",
+      "source": "src/pages/crmOutreach/CrmOutreach.jsx",
+      "lines": 174,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/user-management",
+      "component": "UserManagement",
+      "source": "src/pages/userAccess/UserManagementHub.jsx",
+      "lines": 43,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/all-employees",
+      "component": "AllEmployeesDirectoryPage",
+      "source": "src/pages/adminOperations/employee/AllEmployeesDirectoryPage.jsx",
+      "lines": 607,
+      "erpUi": "Y",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/software-subscriptions-reminders",
+      "component": "SoftwareSubscriptions",
+      "source": "src/pages/SoftwareSubscriptions.jsx",
+      "lines": 1500,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/api-health",
+      "component": "ApiHealthDashboard",
+      "source": "src/pages/apiMonitoring/ApiHealthDashboard.jsx",
+      "lines": 371,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/app/settings",
+      "component": "Settings",
+      "source": "src/pages/Settings.jsx",
+      "lines": 81,
+      "erpUi": "N",
+      "notes": "",
+      "type": "component"
+    },
+    {
+      "path": "/*",
+      "component": "Navigate",
+      "source": "",
+      "lines": "",
+      "erpUi": "N",
+      "notes": "redirect \u2192 /; splat",
+      "type": "Navigate"
+    }
+  ],
+  "navModules": [
+    {
+      "value": "hr",
+      "label": "HR",
+      "children": [
+        {
+          "value": "hr.dashboard",
+          "label": "Dashboard",
+          "path": "/app/hr/dashboard"
+        },
+        {
+          "value": "hr.employee-master",
+          "label": "HR Management",
+          "path": "/app/hr/employee-master"
+        },
+        {
+          "value": "hr.calling-master",
+          "label": "Recruitment",
+          "path": "/app/hr/calling-master"
+        },
+        {
+          "value": "hr.attendance",
+          "label": "Attendance",
+          "path": "/app/attendance"
+        },
+        {
+          "value": "hr.salary-management",
+          "label": "Salary Management",
+          "path": "/app/hr/payroll/salary"
+        },
+        {
+          "value": "hr.people-management",
+          "label": "People Management",
+          "path": "/app/people-management"
+        },
+        {
+          "value": "hr.site-attendance",
+          "label": "Site Attendance",
+          "path": "/app/hr/site-attendance"
+        }
+      ]
+    },
+    {
+      "value": "compliance",
+      "label": "Compliance",
+      "children": [
+        {
+          "value": "compliance.ifspl",
+          "label": "IFSPL Employee Compliance",
+          "path": "/app/ifsp-employee-compliance"
+        },
+        {
+          "value": "compliance.general",
+          "label": "General Compliance",
+          "path": "/app/general-compliance"
+        },
+        {
+          "value": "compliance.payroll",
+          "label": "Payroll Compliance",
+          "path": "/app/compliance"
+        }
+      ]
+    },
+    {
+      "value": "admin",
+      "label": "Admin",
+      "children": [
+        {
+          "value": "admin.dashboard",
+          "label": "Dashboard",
+          "path": "/app/admin/dashboard"
+        },
+        {
+          "value": "admin.recruitment",
+          "label": "Recruitment",
+          "path": "/app/admin/recruitment"
+        },
+        {
+          "value": "admin.employee-master",
+          "label": "Employee Master",
+          "path": "/app/admin/employee/master"
+        },
+        {
+          "value": "admin.employee",
+          "label": "Employee Administration",
+          "path": "/app/admin/employee"
+        },
+        {
+          "value": "admin.salary-admin",
+          "label": "Salary Admin",
+          "path": "/app/admin/salary-admin"
+        },
+        {
+          "value": "admin.rules-console",
+          "label": "Rules Console",
+          "path": "/app/admin/rules-console"
+        },
+        {
+          "value": "admin.store",
+          "label": "Store & Issue Control",
+          "path": "/app/admin/store"
+        },
+        {
+          "value": "admin.gate",
+          "label": "Gate Pass & Movement",
+          "path": "/app/admin/gate"
+        },
+        {
+          "value": "admin.misc",
+          "label": "Miscellaneous Admin",
+          "path": "/app/admin/misc"
+        },
+        {
+          "value": "admin.alerts",
+          "label": "Alerts & Notifications",
+          "path": "/app/admin/alerts-notifications"
+        },
+        {
+          "value": "admin.reports",
+          "label": "Reports & Analytics",
+          "path": "/app/admin/reports-analytics"
+        },
+        {
+          "value": "admin.settings",
+          "label": "Settings / Masters",
+          "path": "/app/admin/settings-masters"
+        }
+      ]
+    },
+    {
+      "value": "commercialMt",
+      "label": "Commercial \u2014 Manpower / Training",
+      "children": [
+        {
+          "value": "commercialMt.dashboard",
+          "label": "Dashboard",
+          "path": "/app/commercial/manpower-training/dashboard"
+        },
+        {
+          "value": "commercialMt.enquiry",
+          "label": "Enquiry",
+          "path": "/app/manpower"
+        },
+        {
+          "value": "commercialMt.internal-quotation",
+          "label": "Internal Quotation",
+          "path": "/app/manpower/internal-quotation"
+        },
+        {
+          "value": "commercialMt.quotation",
+          "label": "Quotation",
+          "path": "/app/manpower/quotation"
+        },
+        {
+          "value": "commercialMt.configuration",
+          "label": "Manpower Configuration",
+          "path": "/app/manpower/configuration"
+        },
+        {
+          "value": "commercialMt.po-entry",
+          "label": "Contract Management",
+          "path": "/app/commercial/manpower-training/po-entry"
+        },
+        {
+          "value": "commercialMt.contact-log",
+          "label": "Contact Log",
+          "path": "/app/commercial/manpower-training/contact-log"
+        }
+      ]
+    },
+    {
+      "value": "commercialRm",
+      "label": "Commercial \u2014 R&M / AMC / IEV",
+      "children": [
+        {
+          "value": "commercialRm.dashboard",
+          "label": "Dashboard",
+          "path": "/app/commercial/rm-mm-amc-iev/dashboard"
+        },
+        {
+          "value": "commercialRm.enquiry",
+          "label": "Enquiry",
+          "path": "/app/commercial/rm-mm-amc-iev/manpower-management"
+        },
+        {
+          "value": "commercialRm.internal-quotation",
+          "label": "Internal Quotation",
+          "path": "/app/commercial/rm-mm-amc-iev/internal-quotation"
+        },
+        {
+          "value": "commercialRm.po-entry",
+          "label": "PO Entry",
+          "path": "/app/commercial/rm-mm-amc-iev/po-entry"
+        },
+        {
+          "value": "commercialRm.contact-log",
+          "label": "Contact Log",
+          "path": "/app/commercial/rm-mm-amc-iev/contact-log"
+        }
+      ]
+    },
+    {
+      "value": "marketing",
+      "label": "Marketing",
+      "children": [
+        {
+          "value": "marketing.dashboard",
+          "label": "Marketing Dashboard",
+          "path": "/app/marketing"
+        },
+        {
+          "value": "marketing.lead-dashboard",
+          "label": "Lead Dashboard",
+          "path": "/app/marketing/lead-dashboard"
+        },
+        {
+          "value": "marketing.lead-master",
+          "label": "Lead Master",
+          "path": "/app/marketing/lead-master"
+        },
+        {
+          "value": "marketing.client-master",
+          "label": "Client Master",
+          "path": "/app/marketing/client-master"
+        },
+        {
+          "value": "marketing.enquiry-master",
+          "label": "Enquiry Master",
+          "path": "/app/marketing/enquiry-master"
+        },
+        {
+          "value": "marketing.quotation",
+          "label": "Quotation Tracker",
+          "path": "/app/marketing/quotation-tracker"
+        },
+        {
+          "value": "marketing.purchase-orders",
+          "label": "Purchase Orders",
+          "path": "/app/marketing/purchase-orders"
+        },
+        {
+          "value": "marketing.follow-up",
+          "label": "Follow-up Planner",
+          "path": "/app/marketing/follow-up-planner"
+        },
+        {
+          "value": "marketing.product-catalog",
+          "label": "Product Catalogs",
+          "path": "/app/marketing/product-catalog"
+        },
+        {
+          "value": "marketing.expo-seminar",
+          "label": "Expo & Seminar",
+          "path": "/app/marketing/expo-seminar"
+        },
+        {
+          "value": "marketing.gst",
+          "label": "GST Documents",
+          "path": "/app/marketing/gst-upload"
+        },
+        {
+          "value": "marketing.mail-template",
+          "label": "Marketing Mail Template",
+          "path": "/app/marketing/mail-templates"
+        },
+        {
+          "value": "marketing.reports",
+          "label": "Reports & Analytics",
+          "path": "/app/marketing/reports-analytics"
+        }
+      ]
+    },
+    {
+      "value": "maintenance",
+      "label": "Maintenance",
+      "children": [
+        {
+          "value": "maintenance.dashboard",
+          "label": "Maintenance Dashboard",
+          "path": "/app/maintenance"
+        },
+        {
+          "value": "maintenance.enquiry-master",
+          "label": "Enquiry Master",
+          "path": "/app/maintenance/enquiry-master"
+        },
+        {
+          "value": "maintenance.quotation",
+          "label": "Quotation Tracker",
+          "path": "/app/maintenance/quotation-tracker"
+        },
+        {
+          "value": "maintenance.follow-up",
+          "label": "Follow-up Planner",
+          "path": "/app/maintenance/follow-up-planner"
+        },
+        {
+          "value": "maintenance.client-master",
+          "label": "Client Master",
+          "path": "/app/maintenance/client-master"
+        },
+        {
+          "value": "maintenance.product-catalog",
+          "label": "Product Catalog",
+          "path": "/app/maintenance/product-catalog"
+        },
+        {
+          "value": "maintenance.purchase-orders",
+          "label": "Purchase Orders",
+          "path": "/app/maintenance/purchase-orders"
+        },
+        {
+          "value": "maintenance.mm-po-entry",
+          "label": "M&M PO Entry",
+          "path": "/app/maintenance/mm-po-entry"
+        },
+        {
+          "value": "maintenance.expo-seminar",
+          "label": "Expo & Seminar",
+          "path": "/app/maintenance/expo-seminar"
+        },
+        {
+          "value": "maintenance.gst",
+          "label": "GST Documents",
+          "path": "/app/maintenance/gst-upload"
+        },
+        {
+          "value": "maintenance.mail-template",
+          "label": "Mail Template",
+          "path": "/app/maintenance/mail-templates"
+        },
+        {
+          "value": "maintenance.reports",
+          "label": "Reports & Analytics",
+          "path": "/app/maintenance/reports-analytics"
+        }
+      ]
+    },
+    {
+      "value": "billing",
+      "label": "Billing",
+      "children": [
+        {
+          "value": "billing.dashboard",
+          "label": "Billing Dashboard",
+          "path": "/app/billing"
+        },
+        {
+          "value": "billing.create",
+          "label": "Create Invoice",
+          "path": "/app/billing/create-invoice"
+        },
+        {
+          "value": "billing.add-on",
+          "label": "Add-On Invoices",
+          "path": "/app/billing/add-on-invoices"
+        },
+        {
+          "value": "billing.manage",
+          "label": "Manage Invoices",
+          "path": "/app/billing/manage-invoices"
+        },
+        {
+          "value": "billing.e-invoice",
+          "label": "Generated E-Invoice",
+          "path": "/app/billing/generated-e-invoice"
+        },
+        {
+          "value": "billing.credit-notes",
+          "label": "Credit/Debit Notes",
+          "path": "/app/billing/credit-notes"
+        },
+        {
+          "value": "billing.reports",
+          "label": "Reports",
+          "path": "/app/billing/reports"
+        },
+        {
+          "value": "billing.tracking",
+          "label": "Tracking",
+          "path": "/app/billing/tracking"
+        },
+        {
+          "value": "billing.notifications",
+          "label": "Notifications",
+          "path": "/app/billing/notifications"
+        }
+      ]
+    },
+    {
+      "value": "operations",
+      "label": "Operations",
+      "children": [
+        {
+          "value": "operations.fleet",
+          "label": "Fleet Management",
+          "path": "/app/fire-tender-vehicle-management"
+        },
+        {
+          "value": "operations.manpower",
+          "label": "Manpower Operations",
+          "path": "/app/operations"
+        }
+      ]
+    },
+    {
+      "value": "projects",
+      "label": "Projects",
+      "children": [
+        {
+          "value": "projects.management",
+          "label": "Projects Management",
+          "path": "/app/projects-management"
+        },
+        {
+          "value": "projects.billing",
+          "label": "Projects Billing",
+          "path": "/app/projects-billing"
+        },
+        {
+          "value": "projects.enquiry",
+          "label": "Enquiry Master",
+          "path": "/app/projects/enquiry"
+        },
+        {
+          "value": "projects.quotation-master",
+          "label": "Quotation Maker",
+          "path": "/app/projects/quotation"
+        },
+        {
+          "value": "projects.po",
+          "label": "PO / WO Entry",
+          "path": "/app/projects/po"
+        }
+      ]
+    },
+    {
+      "value": "procurement",
+      "label": "Procurement",
+      "children": []
+    },
+    {
+      "value": "amc",
+      "label": "AMC Management",
+      "children": [
+        {
+          "value": "amc.dashboard",
+          "label": "Dashboard",
+          "path": "/app/amc"
+        },
+        {
+          "value": "amc.customers",
+          "label": "Customers",
+          "path": "/app/amc/customers"
+        },
+        {
+          "value": "amc.contracts",
+          "label": "Contracts",
+          "path": "/app/amc/contracts"
+        },
+        {
+          "value": "amc.sites",
+          "label": "Covered Sites",
+          "path": "/app/amc/sites"
+        },
+        {
+          "value": "amc.assets",
+          "label": "Covered Assets",
+          "path": "/app/amc/assets"
+        },
+        {
+          "value": "amc.pm-schedule",
+          "label": "PM Schedule",
+          "path": "/app/amc/pm-schedule"
+        },
+        {
+          "value": "amc.complaints",
+          "label": "Complaint Calls",
+          "path": "/app/amc/complaints"
+        },
+        {
+          "value": "amc.visits",
+          "label": "Service Visits",
+          "path": "/app/amc/visits"
+        },
+        {
+          "value": "amc.technicians",
+          "label": "Technician Allocation",
+          "path": "/app/amc/technicians"
+        },
+        {
+          "value": "amc.service-reports",
+          "label": "Service Reports",
+          "path": "/app/amc/service-reports"
+        },
+        {
+          "value": "amc.alerts",
+          "label": "Alerts & SLA",
+          "path": "/app/amc/alerts"
+        },
+        {
+          "value": "amc.reports",
+          "label": "Reports",
+          "path": "/app/amc/reports"
+        },
+        {
+          "value": "amc.settings",
+          "label": "Settings",
+          "path": "/app/amc/settings"
+        }
+      ]
+    },
+    {
+      "value": "finance",
+      "label": "Finance/Accounts",
+      "children": [
+        {
+          "value": "finance.pl",
+          "label": "P&L",
+          "path": "/app/accounts-finance"
+        }
+      ]
+    },
+    {
+      "value": "fireTender",
+      "label": "IEV",
+      "children": [
+        {
+          "value": "fireTender.dashboard",
+          "label": "IEV Dashboard",
+          "path": "/app/fire-tender"
+        },
+        {
+          "value": "fireTender.costing",
+          "label": "IEV Costing",
+          "path": "/app/fire-tender/costing-hub"
+        },
+        {
+          "value": "fireTender.manufacturing",
+          "label": "IEV Manufacturing",
+          "path": "/app/fire-tender-manufacturing"
+        }
+      ]
+    },
+    {
+      "value": "itIs",
+      "label": "IT/IS",
+      "children": [
+        {
+          "value": "itIs.subscriptions",
+          "label": "Software Subscriptions (View / Update / Delete)",
+          "path": "/app/software-subscriptions-reminders"
+        },
+        {
+          "value": "itIs.api-health",
+          "label": "API Health",
+          "path": "/app/api-health"
+        }
+      ]
+    },
+    {
+      "value": "crmOutreach",
+      "label": "Client/In-House Mail Outreach",
+      "children": [
+        {
+          "value": "crmOutreach.client",
+          "label": "Client Mail Outreach",
+          "path": "/app/crm-outreach"
+        },
+        {
+          "value": "crmOutreach.inhouse",
+          "label": "In-House Mail Outreach",
+          "path": "/app/crm-outreach"
+        }
+      ]
+    }
+  ],
+  "sidebarNavLinks": [
+    {
+      "label": "Dashboard",
+      "path": "/app/dashboard"
+    },
+    {
+      "label": "Dashboard",
+      "path": "/app/hr/dashboard"
+    },
+    {
+      "label": "HR Management",
+      "path": "/app/hr/employee-master"
+    },
+    {
+      "label": "Attendance",
+      "path": "/app/attendance"
+    },
+    {
+      "label": "Site Attendance",
+      "path": "/app/hr/site-attendance"
+    },
+    {
+      "label": "People Management",
+      "path": "/app/people-management"
+    },
+    {
+      "label": "Dashboard",
+      "path": "/app/compliance/dashboard"
+    },
+    {
+      "label": "Compliance Forms",
+      "path": "/app/compliance/forms"
+    },
+    {
+      "label": "Payroll Compliance",
+      "path": "/app/compliance/payroll-process"
+    },
+    {
+      "label": "IFSPL Employee Compliance",
+      "path": "/app/ifsp-employee-compliance"
+    },
+    {
+      "label": "General Compliance",
+      "path": "/app/general-compliance"
+    },
+    {
+      "label": "Payroll reports",
+      "path": "/app/admin/payroll-mis"
+    },
+    {
+      "label": "Dashboard",
+      "path": "/app/admin/dashboard"
+    },
+    {
+      "label": "Employee Master",
+      "path": "/app/admin/employee/master"
+    },
+    {
+      "label": "Onboarding",
+      "path": "/app/admin/employee/onboarding"
+    },
+    {
+      "label": "Policies & Terms",
+      "path": "/app/admin/employee/policies"
+    },
+    {
+      "label": "Official Letters",
+      "path": "/app/admin/employee/official-letters"
+    },
+    {
+      "label": "Raw Attendance Data",
+      "path": "/app/admin/employee/attendance-inputs"
+    },
+    {
+      "label": "Daily Attendance Register",
+      "path": "/app/admin/employee/attendance-daily"
+    },
+    {
+      "label": "National / Public Holidays",
+      "path": "/app/admin/employee/national-holidays"
+    },
+    {
+      "label": "Leave Approvals",
+      "path": "/app/admin/employee/leaves-permissions"
+    },
+    {
+      "label": "Tour Approvals",
+      "path": "/app/admin/employee/tour-approvals"
+    },
+    {
+      "label": "Leave Management",
+      "path": "/app/admin/employee/leave-management"
+    },
+    {
+      "label": "Inactive Employees",
+      "path": "/app/admin/employee/inactive"
+    },
+    {
+      "label": "F & F",
+      "path": "/app/admin/employee/exit-ff"
+    },
+    {
+      "label": "Salary Admin",
+      "path": "/app/admin/salary-admin/dashboard"
+    },
+    {
+      "label": "Rules Console",
+      "path": "/app/admin/rules-console"
+    },
+    {
+      "label": "Item Master",
+      "path": "/app/admin/store/item-master"
+    },
+    {
+      "label": "Store Master",
+      "path": "/app/admin/store/store-master"
+    },
+    {
+      "label": "Site Stock",
+      "path": "/app/admin/store/site-stock"
+    },
+    {
+      "label": "Issue Entry",
+      "path": "/app/admin/store/issue-entry"
+    },
+    {
+      "label": "Return Entry",
+      "path": "/app/admin/store/return-entry"
+    },
+    {
+      "label": "Transfer / Transit",
+      "path": "/app/admin/store/transfer-transit"
+    },
+    {
+      "label": "Requirement Planner",
+      "path": "/app/admin/store/requirement-planner"
+    },
+    {
+      "label": "Reconciliation",
+      "path": "/app/admin/store/reconciliation"
+    },
+    {
+      "label": "Employee Movement",
+      "path": "/app/admin/gate/employee-movement"
+    },
+    {
+      "label": "Goods In / Out",
+      "path": "/app/admin/gate/goods-in-out"
+    },
+    {
+      "label": "Visitor / Guest Passes",
+      "path": "/app/admin/gate/visitor-guest-passes"
+    },
+    {
+      "label": "Vehicle Passes",
+      "path": "/app/admin/gate/vehicle-passes"
+    },
+    {
+      "label": "Delivery / Courier / Post",
+      "path": "/app/admin/gate/delivery-courier-post"
+    },
+    {
+      "label": "Security Console",
+      "path": "/app/admin/gate/security-console"
+    },
+    {
+      "label": "Events Coordination",
+      "path": "/app/admin/misc/events-coordination"
+    },
+    {
+      "label": "Tour / Travel Details",
+      "path": "/app/admin/misc/tour-travel-details"
+    },
+    {
+      "label": "Admin Tasks / Other Requests",
+      "path": "/app/admin/misc/admin-tasks-other-requests"
+    },
+    {
+      "label": "Alerts & Notifications",
+      "path": "/app/admin/alerts-notifications"
+    },
+    {
+      "label": "Reports & Analytics",
+      "path": "/app/admin/reports-analytics"
+    },
+    {
+      "label": "Settings / Masters",
+      "path": "/app/admin/settings-masters"
+    },
+    {
+      "label": "Dashboard",
+      "path": "/app/commercial/manpower-training/dashboard"
+    },
+    {
+      "label": "Enquiry",
+      "path": "/app/manpower"
+    },
+    {
+      "label": "Internal Quotation",
+      "path": "/app/manpower/internal-quotation"
+    },
+    {
+      "label": "Quotation",
+      "path": "/app/manpower/quotation"
+    },
+    {
+      "label": "Roles",
+      "path": "/app/manpower/configuration/roles"
+    },
+    {
+      "label": "Price Master",
+      "path": "/app/manpower/configuration/price-master"
+    },
+    {
+      "label": "Mail Template",
+      "path": "/app/manpower/configuration/mail-template"
+    },
+    {
+      "label": "Employee Type",
+      "path": "/app/manpower/configuration/employee-type"
+    },
+    {
+      "label": "Departments",
+      "path": "/app/manpower/configuration/departments"
+    },
+    {
+      "label": "Contract Management",
+      "path": "/app/commercial/manpower-training/po-entry"
+    },
+    {
+      "label": "Contact Log",
+      "path": "/app/commercial/manpower-training/contact-log"
+    },
+    {
+      "label": "Dashboard",
+      "path": "/app/commercial/rm-mm-amc-iev/dashboard"
+    },
+    {
+      "label": "Enquiry (R&M / AMC / IEV)",
+      "path": "/app/commercial/rm-mm-amc-iev/manpower-management"
+    },
+    {
+      "label": "Internal Quotation",
+      "path": "/app/commercial/rm-mm-amc-iev/internal-quotation"
+    },
+    {
+      "label": "PO Entry",
+      "path": "/app/commercial/rm-mm-amc-iev/po-entry"
+    },
+    {
+      "label": "Contact Log",
+      "path": "/app/commercial/rm-mm-amc-iev/contact-log"
+    },
+    {
+      "label": "Maintenance Dashboard",
+      "path": "/app/maintenance"
+    },
+    {
+      "label": "Enquiry Master",
+      "path": "/app/maintenance/enquiry-master"
+    },
+    {
+      "label": "Quotation Tracker",
+      "path": "/app/maintenance/quotation-tracker"
+    },
+    {
+      "label": "Follow-up Planner",
+      "path": "/app/maintenance/follow-up-planner"
+    },
+    {
+      "label": "Client Master",
+      "path": "/app/maintenance/client-master"
+    },
+    {
+      "label": "Product Catalog",
+      "path": "/app/maintenance/product-catalog"
+    },
+    {
+      "label": "Purchase Orders",
+      "path": "/app/maintenance/purchase-orders"
+    },
+    {
+      "label": "PO Entry",
+      "path": "/app/maintenance/mm-po-entry"
+    },
+    {
+      "label": "Expo & Seminar",
+      "path": "/app/maintenance/expo-seminar"
+    },
+    {
+      "label": "GST Documents",
+      "path": "/app/maintenance/gst-upload"
+    },
+    {
+      "label": "Maintenance Mail Template",
+      "path": "/app/maintenance/mail-templates"
+    },
+    {
+      "label": "Reports & Analytics",
+      "path": "/app/maintenance/reports-analytics"
+    },
+    {
+      "label": "Billing Dashboard",
+      "path": "/app/billing"
+    },
+    {
+      "label": "Create Invoice",
+      "path": "/app/billing/create-invoice"
+    },
+    {
+      "label": "Add-On Invoices",
+      "path": "/app/billing/add-on-invoices"
+    },
+    {
+      "label": "Manage Invoices",
+      "path": "/app/billing/manage-invoices"
+    },
+    {
+      "label": "Generated E-Invoice",
+      "path": "/app/billing/generated-e-invoice"
+    },
+    {
+      "label": "Credit/Debit Notes",
+      "path": "/app/billing/credit-notes"
+    },
+    {
+      "label": "Reports",
+      "path": "/app/billing/reports"
+    },
+    {
+      "label": "Tracking",
+      "path": "/app/billing/tracking"
+    },
+    {
+      "label": "Notifications",
+      "path": "/app/billing/notifications"
+    },
+    {
+      "label": "Billing Tracker",
+      "path": "/app/billing/tracker"
+    },
+    {
+      "label": "Fleet Management",
+      "path": "/app/fire-tender-vehicle-management"
+    },
+    {
+      "label": "Manpower Operations",
+      "path": "/app/operations"
+    },
+    {
+      "label": "Projects Management",
+      "path": "/app/projects-management"
+    },
+    {
+      "label": "Projects Billing",
+      "path": "/app/projects-billing"
+    },
+    {
+      "label": "Quotation Maker",
+      "path": "/app/projects/quotation"
+    },
+    {
+      "label": "PO / WO Entry",
+      "path": "/app/projects/po"
+    },
+    {
+      "label": "PO Contact Log",
+      "path": "/app/projects/po/contact-log"
+    },
+    {
+      "label": "Procurement",
+      "path": "/app/procurement"
+    },
+    {
+      "label": "Dashboard",
+      "path": "/app/amc"
+    },
+    {
+      "label": "Customers",
+      "path": "/app/amc/customers"
+    },
+    {
+      "label": "Contracts",
+      "path": "/app/amc/contracts"
+    },
+    {
+      "label": "Covered Sites",
+      "path": "/app/amc/sites"
+    },
+    {
+      "label": "Covered Assets",
+      "path": "/app/amc/assets"
+    },
+    {
+      "label": "PM Schedule",
+      "path": "/app/amc/pm-schedule"
+    },
+    {
+      "label": "Complaint Calls",
+      "path": "/app/amc/complaints"
+    },
+    {
+      "label": "Service Visits",
+      "path": "/app/amc/visits"
+    },
+    {
+      "label": "Technician Allocation",
+      "path": "/app/amc/technicians"
+    },
+    {
+      "label": "Service Reports",
+      "path": "/app/amc/service-reports"
+    },
+    {
+      "label": "Alerts & SLA",
+      "path": "/app/amc/alerts"
+    },
+    {
+      "label": "Reports",
+      "path": "/app/amc/reports"
+    },
+    {
+      "label": "Settings",
+      "path": "/app/amc/settings"
+    },
+    {
+      "label": "P&L",
+      "path": "/app/accounts-finance/reports/site-ledger"
+    },
+    {
+      "label": "Bank formats",
+      "path": "/app/accounts-finance/bank-formats"
+    },
+    {
+      "label": "Indus LMS / trainings",
+      "path": "/app/indus-lms-trainings"
+    },
+    {
+      "label": "IEV Dashboard",
+      "path": "/app/fire-tender"
+    },
+    {
+      "label": "IEV Manufacturing",
+      "path": "/app/fire-tender-manufacturing"
+    },
+    {
+      "label": "All Employees",
+      "path": "/app/all-employees"
+    },
+    {
+      "label": "Client/In-House Mail Outreach",
+      "path": "/app/crm-outreach"
+    },
+    {
+      "label": "User Management",
+      "path": "/app/user-management"
+    },
+    {
+      "label": "Software subscriptions/reminders",
+      "path": "/app/software-subscriptions-reminders"
+    },
+    {
+      "label": "API Health",
+      "path": "/app/api-health"
+    },
+    {
+      "label": "Settings",
+      "path": "/app/settings"
+    }
+  ],
+  "pageFileCount": 519,
+  "byModule": {
+    "Dashboard.jsx": [
+      {
+        "file": "src/pages/Dashboard.jsx",
+        "lines": 1196,
+        "erpUi": "N"
+      }
+    ],
+    "ForgotPassword.jsx": [
+      {
+        "file": "src/pages/ForgotPassword.jsx",
+        "lines": 119,
+        "erpUi": "N"
+      }
+    ],
+    "IndusLmsTrainings.jsx": [
+      {
+        "file": "src/pages/IndusLmsTrainings.jsx",
+        "lines": 143,
+        "erpUi": "N"
+      }
+    ],
+    "Login.jsx": [
+      {
+        "file": "src/pages/Login.jsx",
+        "lines": 692,
+        "erpUi": "N"
+      }
+    ],
+    "Register.jsx": [
+      {
+        "file": "src/pages/Register.jsx",
+        "lines": 196,
+        "erpUi": "N"
+      }
+    ],
+    "ResetPassword.jsx": [
+      {
+        "file": "src/pages/ResetPassword.jsx",
+        "lines": 258,
+        "erpUi": "N"
+      }
+    ],
+    "Settings.jsx": [
+      {
+        "file": "src/pages/Settings.jsx",
+        "lines": 81,
+        "erpUi": "N"
+      }
+    ],
+    "SoftwareSubscriptions.jsx": [
+      {
+        "file": "src/pages/SoftwareSubscriptions.jsx",
+        "lines": 1500,
+        "erpUi": "N"
+      }
+    ],
+    "UserManagement.jsx": [
+      {
+        "file": "src/pages/UserManagement.jsx",
+        "lines": 2585,
+        "erpUi": "N"
+      }
+    ],
+    "accountsFinance": [
+      {
+        "file": "src/pages/accountsFinance/AccountsFinance.jsx",
+        "lines": 22,
+        "erpUi": "N"
+      }
+    ],
+    "admin": [
+      {
+        "file": "src/pages/admin/GatePass.jsx",
+        "lines": 22,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/admin/IfspEmployeeAttendance.jsx",
+        "lines": 22,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/admin/IfspEmployeeLeaves.jsx",
+        "lines": 22,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/admin/IfspEmployeeMaster.jsx",
+        "lines": 2100,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/IfspEmployeeMasterDetail.jsx",
+        "lines": 586,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/IfspEmployeePayroll.jsx",
+        "lines": 7,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/EmployeeAssignedPoliciesPanel.jsx",
+        "lines": 124,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/EmployeeLeavesTab.jsx",
+        "lines": 521,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/EmployeeMasterHistoryDrawer.jsx",
+        "lines": 108,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/EmployeeMasterImportModal.jsx",
+        "lines": 248,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/EmployeeMasterPersonalForm.jsx",
+        "lines": 1222,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/EmployeePayslipsTab.jsx",
+        "lines": 236,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/EmployeeSalaryHistoryTab.jsx",
+        "lines": 239,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/EmployeeSalaryRevisionsTab.jsx",
+        "lines": 117,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/EmployeeToursTab.jsx",
+        "lines": 189,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/PayslipPreviewModal.jsx",
+        "lines": 146,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/PayslipTemplate.jsx",
+        "lines": 656,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/deductions/EmployeeForm16Tab.jsx",
+        "lines": 378,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/deductions/EmployeeLoanTab.jsx",
+        "lines": 500,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/deductions/EmployeeSalAdvTab.jsx",
+        "lines": 501,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/deductions/EmployeeTdsTab.jsx",
+        "lines": 241,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/deductions/EmployeeUnpaidPaidTab.jsx",
+        "lines": 589,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/admin/employeeMaster/deductions/deductionsUi.jsx",
+        "lines": 105,
+        "erpUi": "Y"
+      }
+    ],
+    "adminOperations": [
+      {
+        "file": "src/pages/adminOperations/AdminOperationsLayout.jsx",
+        "lines": 241,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/AdminOpsAlerts.jsx",
+        "lines": 269,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/AdminOpsDashboard.jsx",
+        "lines": 1273,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/AdminOpsReports.jsx",
+        "lines": 617,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/AdminOpsSettings.jsx",
+        "lines": 68,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/components/AdminUi.jsx",
+        "lines": 26,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/AllEmployeesDirectoryPage.jsx",
+        "lines": 607,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/BulkMarkEmployeePicker.jsx",
+        "lines": 190,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/EmployeeAdminPages.jsx",
+        "lines": 1022,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/EmployeeAttendanceDailyPage.jsx",
+        "lines": 2375,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/EmployeeCoBalanceTab.jsx",
+        "lines": 435,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/EmployeeFnfPage.jsx",
+        "lines": 505,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/EmployeeLeaveInboxPage.jsx",
+        "lines": 588,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/EmployeeLeaveManagementPage.jsx",
+        "lines": 1277,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/EmployeeOnboardingPage.jsx",
+        "lines": 1168,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/EmployeePoliciesPage.jsx",
+        "lines": 1070,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/EmployeeTourInboxPage.jsx",
+        "lines": 546,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/InactiveEmployeesPage.jsx",
+        "lines": 789,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/LeaveBalanceImportModal.jsx",
+        "lines": 222,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/NationalPublicHolidaysPage.jsx",
+        "lines": 589,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/OfficialLettersPage.jsx",
+        "lines": 1821,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/RegisterDepartmentFilter.jsx",
+        "lines": 204,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/employee/RegisterMarkPicker.jsx",
+        "lines": 396,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/gate/GateAdminPages.jsx",
+        "lines": 270,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/misc/MiscAdminPages.jsx",
+        "lines": 136,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/payroll/PayrollFormulaPage.jsx",
+        "lines": 268,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/payroll/PayrollLayout.jsx",
+        "lines": 51,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/payroll/PayrollViews.jsx",
+        "lines": 1294,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/payroll/payrollScope.jsx",
+        "lines": 25,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/ActivityTimeline.jsx",
+        "lines": 86,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/Candidate360Page.jsx",
+        "lines": 833,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/CandidatePortalPage.jsx",
+        "lines": 269,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/CandidatesPage.jsx",
+        "lines": 436,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/CommunicationPage.jsx",
+        "lines": 269,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/ConversionPage.jsx",
+        "lines": 112,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/DocumentsPage.jsx",
+        "lines": 179,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/InterviewDetailDrawer.jsx",
+        "lines": 329,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/InterviewsPage.jsx",
+        "lines": 268,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/JoiningPage.jsx",
+        "lines": 152,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/OffersPage.jsx",
+        "lines": 424,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/RecruitmentDashboard.jsx",
+        "lines": 161,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/RecruitmentForms.jsx",
+        "lines": 929,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/RecruitmentLayout.jsx",
+        "lines": 113,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/RecruitmentUi.jsx",
+        "lines": 820,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/ReportsPage.jsx",
+        "lines": 189,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/RequisitionsPage.jsx",
+        "lines": 512,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/ScheduleInterviewModal.jsx",
+        "lines": 343,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/recruitment/SettingsPage.jsx",
+        "lines": 304,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/rulesConsole/RulesConsoleGuard.jsx",
+        "lines": 37,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/rulesConsole/RulesConsolePage.jsx",
+        "lines": 166,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/rulesConsole/components/RuleDrawer.jsx",
+        "lines": 448,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/rulesConsole/components/RulesUi.jsx",
+        "lines": 139,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/AnnexureCtcPanel.jsx",
+        "lines": 2204,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/CtcCalculator.jsx",
+        "lines": 555,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/CtcFormulaPanel.jsx",
+        "lines": 241,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/CtcMigrationPanel.jsx",
+        "lines": 400,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/CtcRuleUpdatePanel.jsx",
+        "lines": 320,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/PayrollRuleMaster.jsx",
+        "lines": 502,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/PersonSalaryComponentsPanel.jsx",
+        "lines": 464,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/SalaryAdminGuard.jsx",
+        "lines": 38,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/SalaryAdminLayout.jsx",
+        "lines": 120,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/SalaryBankImportModal.jsx",
+        "lines": 284,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/SalaryComponentsMaster.jsx",
+        "lines": 831,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/SalaryDashboard.jsx",
+        "lines": 466,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/SalaryEmployeeCtc.jsx",
+        "lines": 3036,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/SalaryGeneratePayslips.jsx",
+        "lines": 784,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/SalaryMaster.jsx",
+        "lines": 368,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/SalaryProcessReport.jsx",
+        "lines": 435,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/SalaryProcessing.jsx",
+        "lines": 3187,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/SalaryRevisionHistory.jsx",
+        "lines": 163,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/mis/EmployeePayrollTagsSection.jsx",
+        "lines": 65,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/mis/MisCharts.jsx",
+        "lines": 76,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/mis/MisReports.jsx",
+        "lines": 570,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/mis/MisSetup.jsx",
+        "lines": 619,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/mis/PayrollMisPage.jsx",
+        "lines": 473,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/mis/PayrollMisRoute.jsx",
+        "lines": 50,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/adminOperations/salaryAdmin/mis/TagFields.jsx",
+        "lines": 31,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/adminOperations/store/StoreAdminPages.jsx",
+        "lines": 351,
+        "erpUi": "Y"
+      }
+    ],
+    "amc": [
+      {
+        "file": "src/pages/amc/AMC.jsx",
+        "lines": 87,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/Alerts.jsx",
+        "lines": 84,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/Assets.jsx",
+        "lines": 93,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/Complaints.jsx",
+        "lines": 102,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/Contracts.jsx",
+        "lines": 134,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/Customers.jsx",
+        "lines": 132,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/Dashboard.jsx",
+        "lines": 221,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/PMSchedule.jsx",
+        "lines": 154,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/Reports.jsx",
+        "lines": 95,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/ServiceReports.jsx",
+        "lines": 55,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/Settings.jsx",
+        "lines": 48,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/Sites.jsx",
+        "lines": 113,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/TechnicianAllocation.jsx",
+        "lines": 61,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/Visits.jsx",
+        "lines": 116,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/components/AmcFilterBar.jsx",
+        "lines": 29,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/components/AmcUi.jsx",
+        "lines": 133,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/amc/components/EntityListPage.jsx",
+        "lines": 75,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/components/LinkedRecord.jsx",
+        "lines": 21,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/components/RelatedRecordsTable.jsx",
+        "lines": 65,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/amc/contexts/AmcContext.jsx",
+        "lines": 273,
+        "erpUi": "N"
+      }
+    ],
+    "apiMonitoring": [
+      {
+        "file": "src/pages/apiMonitoring/ApiHealthDashboard.jsx",
+        "lines": 371,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/apiMonitoring/components/ApiDetailPanel.jsx",
+        "lines": 223,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/apiMonitoring/components/ApiHealthCharts.jsx",
+        "lines": 127,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/apiMonitoring/components/ApiHealthTable.jsx",
+        "lines": 416,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/apiMonitoring/components/ApiMonitoringUi.jsx",
+        "lines": 924,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/apiMonitoring/components/DbUsageQuotaPanel.jsx",
+        "lines": 465,
+        "erpUi": "N"
+      }
+    ],
+    "attendance": [
+      {
+        "file": "src/pages/attendance/Attendance.jsx",
+        "lines": 734,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/attendance/AttendanceFilters.jsx",
+        "lines": 168,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/attendance/AttendanceRegisterTable.jsx",
+        "lines": 126,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/attendance/attendanceTableHelpers.jsx",
+        "lines": 231,
+        "erpUi": "N"
+      }
+    ],
+    "billing": [
+      {
+        "file": "src/pages/billing/AddOnInvoices.jsx",
+        "lines": 533,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/Billing.jsx",
+        "lines": 179,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/BillingDashboard.jsx",
+        "lines": 1464,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/billing/BillingNotifications.jsx",
+        "lines": 234,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/BillingReports.jsx",
+        "lines": 760,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/BillingTracker.jsx",
+        "lines": 550,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/billing/BillingTracking.jsx",
+        "lines": 64,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/CreateInvoice.jsx",
+        "lines": 4782,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/billing/CreditNotes.jsx",
+        "lines": 679,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/EInvoice.jsx",
+        "lines": 137,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/GenerateEInvoiceModal.jsx",
+        "lines": 110,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/GeneratedEInvoice.jsx",
+        "lines": 388,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/ManageInvoices.jsx",
+        "lines": 2419,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/billing/ManagePAModal.jsx",
+        "lines": 133,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/WOPOManagement.jsx",
+        "lines": 1000,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/components/BillingFlowNav.jsx",
+        "lines": 116,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/components/BillingKeepAlivePanels.jsx",
+        "lines": 32,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/components/BillingPlainEnglishGuide.jsx",
+        "lines": 117,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/components/BillingPoNotificationBar.jsx",
+        "lines": 79,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/components/BillingScopeFilters.jsx",
+        "lines": 124,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/components/InvoiceHtmlPreview.jsx",
+        "lines": 644,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/billing/components/RequestCnDnApprovalSection.jsx",
+        "lines": 391,
+        "erpUi": "N"
+      }
+    ],
+    "commercial": [
+      {
+        "file": "src/pages/commercial/Commercial.jsx",
+        "lines": 77,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/commercial/ContactLog.jsx",
+        "lines": 233,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/commercial/POEntry.jsx",
+        "lines": 1027,
+        "erpUi": "Y"
+      }
+    ],
+    "commercial-rm-mm-amc-iev": [
+      {
+        "file": "src/pages/commercial-rm-mm-amc-iev/CommercialRmMmAmcIev.jsx",
+        "lines": 117,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/commercial-rm-mm-amc-iev/ContactLog.jsx",
+        "lines": 1,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/commercial-rm-mm-amc-iev/InternalQuotation.jsx",
+        "lines": 11,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/commercial-rm-mm-amc-iev/ManpowerManagement.jsx",
+        "lines": 1,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/commercial-rm-mm-amc-iev/POEntry.jsx",
+        "lines": 1,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/commercial-rm-mm-amc-iev/contact-log/ContactLogRm.jsx",
+        "lines": 237,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/commercial-rm-mm-amc-iev/dashboard/CommercialDashboardRmMmAmcIev.jsx",
+        "lines": 156,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/commercial-rm-mm-amc-iev/internal-quotation/InternalQuotationFormRm.jsx",
+        "lines": 202,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/commercial-rm-mm-amc-iev/internal-quotation/InternalQuotationListRm.jsx",
+        "lines": 115,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/commercial-rm-mm-amc-iev/manpower-management/ManpowerManagementRm.jsx",
+        "lines": 415,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/commercial-rm-mm-amc-iev/manpower-management/ManpowerNavbarRm.jsx",
+        "lines": 73,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/commercial-rm-mm-amc-iev/manpower-management/components/ManpowerEnquiryFormPanelRm.jsx",
+        "lines": 879,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/commercial-rm-mm-amc-iev/po-entry/POEntryRm.jsx",
+        "lines": 2308,
+        "erpUi": "N"
+      }
+    ],
+    "compliance": [
+      {
+        "file": "src/pages/compliance/GeneralCompliance.jsx",
+        "lines": 22,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/compliance/IfspEmployeeCompliance.jsx",
+        "lines": 22,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/compliance/payroll/ComplianceDashboard.jsx",
+        "lines": 368,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/compliance/payroll/ComplianceForms.jsx",
+        "lines": 95,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/compliance/payroll/ComplianceGuard.jsx",
+        "lines": 20,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/compliance/payroll/CompliancePayrollLayout.jsx",
+        "lines": 14,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/compliance/payroll/CompliancePayrollProcess.jsx",
+        "lines": 1143,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/compliance/payroll/NominationDocument.jsx",
+        "lines": 425,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/compliance/payroll/OshSpecialForms.jsx",
+        "lines": 241,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/compliance/payroll/StatutoryCodePanel.jsx",
+        "lines": 463,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/compliance/payroll/WageStatutoryForm.jsx",
+        "lines": 273,
+        "erpUi": "Y"
+      }
+    ],
+    "crmOutreach": [
+      {
+        "file": "src/pages/crmOutreach/CampaignLog.jsx",
+        "lines": 59,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/crmOutreach/CrmOutreach.jsx",
+        "lines": 174,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/crmOutreach/MailTemplates.jsx",
+        "lines": 48,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/crmOutreach/OutreachClientMaster.jsx",
+        "lines": 436,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/crmOutreach/SenderMailboxes.jsx",
+        "lines": 93,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/crmOutreach/components/ComposeSendModal.jsx",
+        "lines": 346,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/crmOutreach/components/EmailBodyEditor.jsx",
+        "lines": 167,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/crmOutreach/components/EmailPreviewFrame.jsx",
+        "lines": 29,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/crmOutreach/components/MergeTokenChips.jsx",
+        "lines": 19,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/crmOutreach/components/OutreachClientBulkImportModal.jsx",
+        "lines": 280,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/crmOutreach/components/OutreachClientEditorModal.jsx",
+        "lines": 255,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/crmOutreach/components/OutreachTabBar.jsx",
+        "lines": 46,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/crmOutreach/components/SenderEditorModal.jsx",
+        "lines": 164,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/crmOutreach/components/TemplateEditorModal.jsx",
+        "lines": 190,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/crmOutreach/contexts/CrmOutreachContext.jsx",
+        "lines": 310,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/crmOutreach/inHouse/EmployeePicker.jsx",
+        "lines": 207,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/crmOutreach/inHouse/InHouseComposeModal.jsx",
+        "lines": 406,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/crmOutreach/inHouse/InHouseEmployees.jsx",
+        "lines": 74,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/crmOutreach/inHouse/InHouseGroupEditorModal.jsx",
+        "lines": 127,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/crmOutreach/inHouse/InHouseGroups.jsx",
+        "lines": 80,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/crmOutreach/inHouse/InHouseMailHistory.jsx",
+        "lines": 146,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/crmOutreach/inHouse/InHouseOutreach.jsx",
+        "lines": 107,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/crmOutreach/inHouse/InHouseOutreachContext.jsx",
+        "lines": 265,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/crmOutreach/inHouse/InHouseTemplateEditorModal.jsx",
+        "lines": 152,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/crmOutreach/inHouse/InHouseTemplates.jsx",
+        "lines": 46,
+        "erpUi": "Y"
+      }
+    ],
+    "dashboard": [
+      {
+        "file": "src/pages/dashboard/components/CommandCenterUi.jsx",
+        "lines": 350,
+        "erpUi": "N"
+      }
+    ],
+    "finance": [
+      {
+        "file": "src/pages/finance/BudgetVersions.jsx",
+        "lines": 161,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/BudgetVsActual.jsx",
+        "lines": 159,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/CostAllocation.jsx",
+        "lines": 156,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/ExpenseEntries.jsx",
+        "lines": 144,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/ExpenseHeads.jsx",
+        "lines": 197,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/Finance.jsx",
+        "lines": 104,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/FinanceReports.jsx",
+        "lines": 39,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/ImportExport.jsx",
+        "lines": 128,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/PlDashboard.jsx",
+        "lines": 525,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/RevenueEntries.jsx",
+        "lines": 118,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/RevenueHeads.jsx",
+        "lines": 103,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/Settings.jsx",
+        "lines": 101,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/SiteLedgerApp.jsx",
+        "lines": 5834,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/finance/SitesMaster.jsx",
+        "lines": 207,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/bankFormats/BankFormats.jsx",
+        "lines": 488,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/finance/components/FinanceDashboardStyles.jsx",
+        "lines": 79,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/components/FinanceDateInput.jsx",
+        "lines": 41,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/components/FinanceTabNav.jsx",
+        "lines": 126,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/components/FinanceTypographyStyles.jsx",
+        "lines": 105,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/components/FinanceUi.jsx",
+        "lines": 111,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/finance/components/PeriodDateSelect.jsx",
+        "lines": 33,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/components/PeriodMonthSelect.jsx",
+        "lines": 77,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/components/PlAuditPanel.jsx",
+        "lines": 32,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/components/SiteClientAutocomplete.jsx",
+        "lines": 123,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/finance/contexts/FinanceContext.jsx",
+        "lines": 284,
+        "erpUi": "N"
+      }
+    ],
+    "fireTenderManufacturing": [
+      {
+        "file": "src/pages/fireTenderManufacturing/FireTenderManufacturing.jsx",
+        "lines": 22,
+        "erpUi": "N"
+      }
+    ],
+    "fireTenderVehicle": [
+      {
+        "file": "src/pages/fireTenderVehicle/DriverManagement.jsx",
+        "lines": 783,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/fireTenderVehicle/FireTenderVehicleManagement.jsx",
+        "lines": 105,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/fireTenderVehicle/FleetAttachmentUploader.jsx",
+        "lines": 181,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/fireTenderVehicle/VehicleDocuments.jsx",
+        "lines": 812,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/fireTenderVehicle/VehicleMaintenance.jsx",
+        "lines": 685,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/fireTenderVehicle/VehicleManagementDashboard.jsx",
+        "lines": 357,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/fireTenderVehicle/VehicleMaster.jsx",
+        "lines": 1149,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/fireTenderVehicle/VehicleTrips.jsx",
+        "lines": 2398,
+        "erpUi": "N"
+      }
+    ],
+    "hr": [
+      {
+        "file": "src/pages/hr/HR.jsx",
+        "lines": 22,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/HrDashboard.jsx",
+        "lines": 142,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/HrEmployeeMaster.jsx",
+        "lines": 74,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/HrSalaryInputs.jsx",
+        "lines": 13,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/callingMaster/CallingMasterConversionPage.jsx",
+        "lines": 270,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/callingMaster/CallingMasterDatabasePage.jsx",
+        "lines": 649,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/callingMaster/CallingMasterDropdownPage.jsx",
+        "lines": 380,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/callingMaster/CallingMasterEntry.jsx",
+        "lines": 45,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/callingMaster/CallingMasterIomPage.jsx",
+        "lines": 782,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/callingMaster/CallingMasterJoiningPage.jsx",
+        "lines": 553,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/callingMaster/CallingMasterLayout.jsx",
+        "lines": 187,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/callingMaster/CallingMasterOfferPage.jsx",
+        "lines": 685,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/callingMaster/CallingMasterOfferResponsePage.jsx",
+        "lines": 375,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/callingMaster/CallingMasterPage.jsx",
+        "lines": 1526,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/callingMaster/CallingMasterReferralPage.jsx",
+        "lines": 423,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/callingMaster/CallingTableActions.jsx",
+        "lines": 160,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/callingMaster/OfferDetailsFields.jsx",
+        "lines": 233,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/callingMaster/recruitmentUiContext.jsx",
+        "lines": 31,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/HrPayrollFormulaPage.jsx",
+        "lines": 268,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/HrPayrollLayout.jsx",
+        "lines": 50,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/HrPayrollViews.jsx",
+        "lines": 1294,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/hrPayrollScope.jsx",
+        "lines": 23,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/AttendanceIntegration.jsx",
+        "lines": 147,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/ComplianceManagement.jsx",
+        "lines": 37,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/Dashboard.jsx",
+        "lines": 331,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/DatawizardReport.jsx",
+        "lines": 551,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/EmployeeExit.jsx",
+        "lines": 45,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/EmployeeMaster.jsx",
+        "lines": 190,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/EmployeeMasterProfile.jsx",
+        "lines": 330,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/EmployeePayrollList.jsx",
+        "lines": 142,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/EmployeePayrollProfile.jsx",
+        "lines": 186,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/FormulaLibrary.jsx",
+        "lines": 309,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/FullFinalSettlement.jsx",
+        "lines": 38,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/HRSalaryModule.jsx",
+        "lines": 2147,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/LoansRecoveries.jsx",
+        "lines": 51,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/ManualInputs.jsx",
+        "lines": 94,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/Outputs.jsx",
+        "lines": 36,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/PayrollApproval.jsx",
+        "lines": 227,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/PayrollPackageBuilder.jsx",
+        "lines": 45,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/PayrollRun.jsx",
+        "lines": 117,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/Register.jsx",
+        "lines": 104,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/ReportsExports.jsx",
+        "lines": 45,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/SalaryLayout.jsx",
+        "lines": 16,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/Settings.jsx",
+        "lines": 53,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/SiteCalculationFormulas.jsx",
+        "lines": 377,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/SiteFormulaSetup.jsx",
+        "lines": 1,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/SiteMaster.jsx",
+        "lines": 350,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/components/ActiveEmployeesModal.jsx",
+        "lines": 157,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/components/CompliancePageHeader.jsx",
+        "lines": 23,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/components/FormulaBuilder.jsx",
+        "lines": 409,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/components/SalaryPageHeader.jsx",
+        "lines": 13,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/components/SiteMasterSetupForm.jsx",
+        "lines": 345,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/module/SalaryModuleContext.jsx",
+        "lines": 222,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/module/chrome.jsx",
+        "lines": 132,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/module/screens.jsx",
+        "lines": 1210,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/statutory/ESIC.jsx",
+        "lines": 50,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/statutory/PF.jsx",
+        "lines": 55,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/statutory/PT.jsx",
+        "lines": 24,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/payroll/salary/statutory/TDS.jsx",
+        "lines": 24,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/siteAttendance/AdminAttendanceViewPage.jsx",
+        "lines": 6,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/hr/siteAttendance/AttendanceEntryPage.jsx",
+        "lines": 467,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/siteAttendance/DashboardPage.jsx",
+        "lines": 166,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/siteAttendance/PeopleMasterPage.jsx",
+        "lines": 792,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/siteAttendance/SiteAttendanceLayout.jsx",
+        "lines": 188,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/siteAttendance/SiteMasterPage.jsx",
+        "lines": 718,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/siteAttendance/SummaryPage.jsx",
+        "lines": 237,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/siteAttendance/TablePager.jsx",
+        "lines": 57,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/hr/siteAttendance/import/AttendanceImportModal.jsx",
+        "lines": 430,
+        "erpUi": "Y"
+      }
+    ],
+    "maintenance": [
+      {
+        "file": "src/pages/maintenance/ClientMaster.jsx",
+        "lines": 713,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/CostingSheetDetail.jsx",
+        "lines": 101,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/CostingSheetList.jsx",
+        "lines": 114,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/EnquiryMaster.jsx",
+        "lines": 1815,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/ExpoSeminar.jsx",
+        "lines": 2357,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/FollowUpPlanner.jsx",
+        "lines": 1617,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/GSTUpload.jsx",
+        "lines": 828,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/InternalQuotationForm.jsx",
+        "lines": 572,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/InternalQuotationList.jsx",
+        "lines": 285,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/MaintenanceDashboard.jsx",
+        "lines": 716,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/MaintenanceMmPoEntry.jsx",
+        "lines": 52,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/MaintenanceReports.jsx",
+        "lines": 600,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/ProductCatalog.jsx",
+        "lines": 1587,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/PurchaseOrders.jsx",
+        "lines": 641,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/QuotationTemplatePage.jsx",
+        "lines": 497,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/QuotationTracker.jsx",
+        "lines": 2717,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/maintenance/QuotationTrackerNavbar.jsx",
+        "lines": 94,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/components/CostingSheet.jsx",
+        "lines": 240,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/components/CostingSheetForm.jsx",
+        "lines": 399,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/components/DateRangeCalendar.jsx",
+        "lines": 219,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/components/ExcelCostingSheet.jsx",
+        "lines": 1345,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/components/InternalQuotationFormModal.jsx",
+        "lines": 1181,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/components/MaintenanceNavbar.jsx",
+        "lines": 63,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/components/MaintenanceReportsUi.jsx",
+        "lines": 11,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/maintenance/components/NumberInput.jsx",
+        "lines": 79,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/maintenance/components/QuotationForm.jsx",
+        "lines": 1025,
+        "erpUi": "N"
+      }
+    ],
+    "manpowerProject": [
+      {
+        "file": "src/pages/manpowerProject/CommercialMtDashboard.jsx",
+        "lines": 658,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/manpowerProject/ManpowerEnquiry.jsx",
+        "lines": 1,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/manpowerProject/ManpowerEnquiryDashboard.jsx",
+        "lines": 606,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/manpowerProject/ManpowerManagement.jsx",
+        "lines": 1098,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/manpowerProject/ManpowerNavbar.jsx",
+        "lines": 128,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/manpowerProject/components/ManpowerEnquiryFormPanel.jsx",
+        "lines": 1626,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/manpowerProject/components/ManpowerEnquiryPreviewModal.jsx",
+        "lines": 610,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/manpowerProject/configuration/ManpowerConfiguration.jsx",
+        "lines": 219,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/manpowerProject/enquiryProjects/InternalQuotationForm.jsx",
+        "lines": 1766,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/manpowerProject/enquiryProjects/InternalQuotationList.jsx",
+        "lines": 165,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/manpowerProject/enquiryProjects/ManpowerEnquiryList.jsx",
+        "lines": 199,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/manpowerProject/quotation/ManpowerQuotationList.jsx",
+        "lines": 63,
+        "erpUi": "N"
+      }
+    ],
+    "marketing": [
+      {
+        "file": "src/pages/marketing/ClientMaster.jsx",
+        "lines": 718,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/CostingSheetDetail.jsx",
+        "lines": 101,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/CostingSheetList.jsx",
+        "lines": 114,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/EnquiryMaster.jsx",
+        "lines": 1980,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/ExpoSeminar.jsx",
+        "lines": 2357,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/FollowUpPlanner.jsx",
+        "lines": 1617,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/GSTUpload.jsx",
+        "lines": 828,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/InternalQuotationForm.jsx",
+        "lines": 572,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/InternalQuotationList.jsx",
+        "lines": 285,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/LeadDashboard.jsx",
+        "lines": 376,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/marketing/LeadMaster.jsx",
+        "lines": 780,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/marketing/MarketingDashboard.jsx",
+        "lines": 716,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/MarketingReports.jsx",
+        "lines": 600,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/ProductCatalog.jsx",
+        "lines": 1587,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/PurchaseOrders.jsx",
+        "lines": 641,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/QuotationTemplatePage.jsx",
+        "lines": 497,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/QuotationTracker.jsx",
+        "lines": 2900,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/marketing/QuotationTrackerNavbar.jsx",
+        "lines": 94,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/components/ColumnFilterMenu.jsx",
+        "lines": 202,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/components/CostingSheet.jsx",
+        "lines": 240,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/components/CostingSheetForm.jsx",
+        "lines": 399,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/components/DateRangeCalendar.jsx",
+        "lines": 219,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/components/ExcelCostingSheet.jsx",
+        "lines": 1438,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/components/InternalQuotationFormModal.jsx",
+        "lines": 1181,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/components/LeadCompanyAutocomplete.jsx",
+        "lines": 178,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/components/MarketingNavbar.jsx",
+        "lines": 42,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/components/MarketingReportsUi.jsx",
+        "lines": 11,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/marketing/components/NumberInput.jsx",
+        "lines": 79,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/components/QuotationForm.jsx",
+        "lines": 1107,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/marketing/components/WorkingCostSheetFilter.jsx",
+        "lines": 46,
+        "erpUi": "N"
+      }
+    ],
+    "operations": [
+      {
+        "file": "src/pages/operations/Operations.jsx",
+        "lines": 135,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/components/OperationsUi.jsx",
+        "lines": 570,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/operations/contexts/OperationsContext.jsx",
+        "lines": 184,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/dahej/components/DahejExpenseGrid.jsx",
+        "lines": 256,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/dahej/contexts/DahejExpensesContext.jsx",
+        "lines": 273,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/dahej/pages/DahejBookingLocationMaster.jsx",
+        "lines": 104,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/dahej/pages/DahejDashboard.jsx",
+        "lines": 106,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/dahej/pages/DahejExpenseRegister.jsx",
+        "lines": 193,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/dahej/pages/DahejExpensesHub.jsx",
+        "lines": 86,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/dahej/pages/DahejMonthlyRegister.jsx",
+        "lines": 92,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/dahej/pages/DahejReports.jsx",
+        "lines": 166,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/dahej/pages/DahejVehicleMaster.jsx",
+        "lines": 102,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/Dashboard.jsx",
+        "lines": 173,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/accommodation/PropertyDetails.jsx",
+        "lines": 114,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/accommodation/PropertyList.jsx",
+        "lines": 77,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/accommodation/RentMonthlyDashboard.jsx",
+        "lines": 83,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/accommodation/RentPaymentEntry.jsx",
+        "lines": 114,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/accommodation/RentPaymentHistory.jsx",
+        "lines": 91,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/advances/AdvanceApproval.jsx",
+        "lines": 128,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/advances/AdvanceList.jsx",
+        "lines": 153,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/advances/AdvanceOutstandingDashboard.jsx",
+        "lines": 88,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/advances/AdvanceSettlement.jsx",
+        "lines": 125,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/expenses/ExpenseList.jsx",
+        "lines": 259,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/expenses/ExpenseMonthlySummary.jsx",
+        "lines": 107,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/expenses/ExpenseSiteDashboard.jsx",
+        "lines": 97,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/medical/MedicalCenterSelect.jsx",
+        "lines": 93,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/medical/MedicalRecordDetails.jsx",
+        "lines": 105,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/medical/PmeDueDashboard.jsx",
+        "lines": 68,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/operations/pages/medical/PmeTracker.jsx",
+        "lines": 88,
+        "erpUi": "N"
+      }
+    ],
+    "payroll": [
+      {
+        "file": "src/pages/payroll/Payroll.jsx",
+        "lines": 22,
+        "erpUi": "N"
+      }
+    ],
+    "peopleManagement": [
+      {
+        "file": "src/pages/peopleManagement/CreateSiteLoginModal.jsx",
+        "lines": 255,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/peopleManagement/HrLeadsAssignModal.jsx",
+        "lines": 133,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/peopleManagement/LoginAccessSection.jsx",
+        "lines": 218,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/peopleManagement/PeopleManagement.jsx",
+        "lines": 338,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/peopleManagement/PeopleMasterList.jsx",
+        "lines": 568,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/peopleManagement/PersonProfile.jsx",
+        "lines": 692,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/peopleManagement/SiteAssignmentsFilters.jsx",
+        "lines": 125,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/peopleManagement/siteAssignmentsTableHelpers.jsx",
+        "lines": 92,
+        "erpUi": "N"
+      }
+    ],
+    "procurement": [
+      {
+        "file": "src/pages/procurement/Procurement.jsx",
+        "lines": 22,
+        "erpUi": "N"
+      }
+    ],
+    "projects": [
+      {
+        "file": "src/pages/projects/AccessoriesTable.jsx",
+        "lines": 735,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/CostingList.jsx",
+        "lines": 267,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/CostingSheet.jsx",
+        "lines": 209,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/CostingSummary.jsx",
+        "lines": 1163,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/CostingTable.jsx",
+        "lines": 1196,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/DuplicateCostingSheetModal.jsx",
+        "lines": 216,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/FireTender.jsx",
+        "lines": 1179,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/FireTenderCostingHub.jsx",
+        "lines": 60,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/FireTenderDashboard.jsx",
+        "lines": 385,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/FireTenderNavbar.jsx",
+        "lines": 137,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/MocTable.jsx",
+        "lines": 184,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/ProjectsPoHub.jsx",
+        "lines": 93,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/QuotationDetail.jsx",
+        "lines": 1240,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/QuotationDocument.jsx",
+        "lines": 190,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/QuotationList.jsx",
+        "lines": 197,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/configurationTender/AccessoriesPage.jsx",
+        "lines": 344,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/configurationTender/ExcelUploadPage.jsx",
+        "lines": 102,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/configurationTender/FinalComponentsPage.jsx",
+        "lines": 205,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/configurationTender/FireTenderMailTemplatePage.jsx",
+        "lines": 418,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/configurationTender/IevConfigGuard.jsx",
+        "lines": 24,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/configurationTender/MainComponentPage.jsx",
+        "lines": 425,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/configurationTender/MainContainer.jsx",
+        "lines": 60,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/configurationTender/ManualSubCategoryPage.jsx",
+        "lines": 116,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/configurationTender/OcSignoffAssignmentPage.jsx",
+        "lines": 174,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/configurationTender/PriceMasterPage.jsx",
+        "lines": 626,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/configurationTender/VehicleTypePage.jsx",
+        "lines": 86,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/demoTenders.jsx",
+        "lines": 34,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/enquiry/EnquiryChangeHistory.jsx",
+        "lines": 110,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/projects/enquiry/EnquiryCompletedPopup.jsx",
+        "lines": 126,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/enquiry/EnquiryDashboard.jsx",
+        "lines": 800,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/enquiry/EnquiryDatabase.jsx",
+        "lines": 897,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/projects/enquiry/EnquiryDeletionRequests.jsx",
+        "lines": 90,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/projects/enquiry/EnquiryDropdown.jsx",
+        "lines": 473,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/enquiry/EnquiryDueSoonPopup.jsx",
+        "lines": 141,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/enquiry/EnquiryEditRequests.jsx",
+        "lines": 112,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/projects/enquiry/EnquiryEntry.jsx",
+        "lines": 253,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/enquiry/EnquiryExportModal.jsx",
+        "lines": 106,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/enquiry/EnquiryFieldInput.jsx",
+        "lines": 96,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/enquiry/EnquiryImportPanel.jsx",
+        "lines": 190,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/enquiry/EnquiryKpi.jsx",
+        "lines": 332,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/enquiry/EnquiryOverduePopup.jsx",
+        "lines": 145,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/enquiry/ProjectsEnquiryHub.jsx",
+        "lines": 92,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/oc/OcCreationForm.jsx",
+        "lines": 820,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/oc/OcCreationTab.jsx",
+        "lines": 168,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/ConvertToProjectModal.jsx",
+        "lines": 112,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/FetchFromSummaryModal.jsx",
+        "lines": 280,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/FollowupModal.jsx",
+        "lines": 109,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/ProjectsQuotationHub.jsx",
+        "lines": 83,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/QuotationBoard.jsx",
+        "lines": 224,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/QuotationDashboard.jsx",
+        "lines": 397,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/QuotationDetailDrawer.jsx",
+        "lines": 739,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/QuotationDraftContext.jsx",
+        "lines": 143,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/QuotationDropdown.jsx",
+        "lines": 255,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/QuotationEntry.jsx",
+        "lines": 1140,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/QuotationImportPanel.jsx",
+        "lines": 202,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/QuotationList.jsx",
+        "lines": 587,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/QuotationPreview.jsx",
+        "lines": 122,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/QuotationSummary.jsx",
+        "lines": 384,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/QuotationTemplates.jsx",
+        "lines": 284,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/StatusBadge.jsx",
+        "lines": 15,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/maker/BoqImportModal.jsx",
+        "lines": 618,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/maker/QuotationMaker.jsx",
+        "lines": 1251,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/maker/QuotationMakerList.jsx",
+        "lines": 280,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/maker/QuotationMakerPreview.jsx",
+        "lines": 351,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/summary/ChildHeadSection.jsx",
+        "lines": 144,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/summary/ItemRow.jsx",
+        "lines": 165,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/summary/MainHeadSection.jsx",
+        "lines": 173,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/summary/export/ExportPreviewLayouts.jsx",
+        "lines": 191,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/summary/export/mainHeadExport.jsx",
+        "lines": 152,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/projects/quotation/summary/export/overallSummaryExport.jsx",
+        "lines": 103,
+        "erpUi": "N"
+      }
+    ],
+    "projectsBilling": [
+      {
+        "file": "src/pages/projectsBilling/ProjectsBilling.jsx",
+        "lines": 22,
+        "erpUi": "N"
+      }
+    ],
+    "projectsManagement": [
+      {
+        "file": "src/pages/projectsManagement/ProjectsManagement.jsx",
+        "lines": 22,
+        "erpUi": "N"
+      }
+    ],
+    "reports": [
+      {
+        "file": "src/pages/reports/Reports.jsx",
+        "lines": 180,
+        "erpUi": "N"
+      }
+    ],
+    "salary": [
+      {
+        "file": "src/pages/salary/Salary.jsx",
+        "lines": 81,
+        "erpUi": "N"
+      }
+    ],
+    "sales": [
+      {
+        "file": "src/pages/sales/Commercial.jsx",
+        "lines": 94,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/sales/ContactLog.jsx",
+        "lines": 228,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/sales/POEntry.jsx",
+        "lines": 4868,
+        "erpUi": "Y"
+      }
+    ],
+    "store": [
+      {
+        "file": "src/pages/store/StoreInventory.jsx",
+        "lines": 122,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/store/components/StoreUi.jsx",
+        "lines": 22,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/store/pages/AlertsPage.jsx",
+        "lines": 31,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/store/pages/DashboardPage.jsx",
+        "lines": 150,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/store/pages/ItemMasterPage.jsx",
+        "lines": 81,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/store/pages/PlannerPage.jsx",
+        "lines": 92,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/store/pages/ReconciliationPage.jsx",
+        "lines": 67,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/store/pages/ReportsPage.jsx",
+        "lines": 100,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/store/pages/SiteStockPage.jsx",
+        "lines": 71,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/store/pages/StoreMasterPage.jsx",
+        "lines": 75,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/store/pages/TransactionPages.jsx",
+        "lines": 151,
+        "erpUi": "Y"
+      }
+    ],
+    "tracking": [
+      {
+        "file": "src/pages/tracking/PAWorklist.jsx",
+        "lines": 146,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/tracking/PenaltyLogs.jsx",
+        "lines": 73,
+        "erpUi": "N"
+      },
+      {
+        "file": "src/pages/tracking/Tracking.jsx",
+        "lines": 68,
+        "erpUi": "N"
+      }
+    ],
+    "userAccess": [
+      {
+        "file": "src/pages/userAccess/SiteEmployeeLoginsPanel.jsx",
+        "lines": 237,
+        "erpUi": "Y"
+      },
+      {
+        "file": "src/pages/userAccess/UserManagementHub.jsx",
+        "lines": 43,
+        "erpUi": "N"
+      }
+    ],
+    "userManagement": [
+      {
+        "file": "src/pages/userManagement/UserManagementBulkImportModal.jsx",
+        "lines": 225,
+        "erpUi": "N"
+      }
+    ]
+  },
+  "lazyMap": {
+    "demoTenders": "src/pages/projects/demoTenders",
+    "demoQuotations": "src/pages/projects/demoQuotations",
+    "Layout": "src/contexts/Layout.jsx",
+    "Login": "src/pages/Login.jsx",
+    "Register": "src/pages/Register",
+    "ForgotPassword": "src/pages/ForgotPassword",
+    "ResetPassword": "src/pages/ResetPassword",
+    "Dashboard": "src/pages/Dashboard",
+    "FireTender": "src/pages/projects/FireTender",
+    "FireTenderDashboard": "src/pages/projects/FireTenderDashboard",
+    "FireTenderCostingHub": "src/pages/projects/FireTenderCostingHub",
+    "CostingList": "src/pages/projects/CostingList",
+    "CostingSheet": "src/pages/projects/CostingSheet",
+    "QuotationList": "src/pages/projects/QuotationList",
+    "QuotationDetail": "src/pages/projects/QuotationDetail",
+    "MainComponentPage": "src/pages/projects/configurationTender/MainComponentPage",
+    "ManualSubCategoryPage": "src/pages/projects/configurationTender/ManualSubCategoryPage",
+    "FireTenderMailTemplatePage": "src/pages/projects/configurationTender/FireTenderMailTemplatePage",
+    "PriceMasterPage": "src/pages/projects/configurationTender/PriceMasterPage",
+    "AccessoriesPage": "src/pages/projects/configurationTender/AccessoriesPage",
+    "FinalComponentsPage": "src/pages/projects/configurationTender/FinalComponentsPage",
+    "VehicleTypePage": "src/pages/projects/configurationTender/VehicleTypePage",
+    "OcSignoffAssignmentPage": "src/pages/projects/configurationTender/OcSignoffAssignmentPage",
+    "ManpowerManagement": "src/pages/manpowerProject/ManpowerManagement",
+    "ManpowerEnquiryDashboard": "src/pages/manpowerProject/ManpowerEnquiryDashboard",
+    "InternalQuotationList": "src/pages/manpowerProject/enquiryProjects/InternalQuotationList",
+    "InternalQuotationForm": "src/pages/manpowerProject/enquiryProjects/InternalQuotationForm",
+    "ManpowerQuotationList": "src/pages/manpowerProject/quotation/ManpowerQuotationList",
+    "ManpowerConfiguration": "src/pages/manpowerProject/configuration/ManpowerConfiguration",
+    "Billing": "src/pages/billing/Billing",
+    "Commercial": "src/pages/sales/Commercial",
+    "CommercialRmMmAmcIev": "src/pages/commercial-rm-mm-amc-iev/CommercialRmMmAmcIev",
+    "CommercialRmManpowerManagement": "src/pages/commercial-rm-mm-amc-iev/ManpowerManagement",
+    "CommercialRmInternalQuotation": "src/pages/commercial-rm-mm-amc-iev/InternalQuotation",
+    "FireTenderVehicleManagement": "src/pages/fireTenderVehicle/FireTenderVehicleManagement",
+    "Attendance": "src/pages/attendance/Attendance",
+    "Salary": "src/pages/salary/Salary",
+    "StoreInventory": "src/pages/store/StoreInventory",
+    "HR": "src/pages/hr/HR",
+    "HrDashboard": "src/pages/hr/HrDashboard",
+    "HrEmployeeMaster": "src/pages/hr/HrEmployeeMaster",
+    "HrCallingMaster": "src/pages/hr/callingMaster/CallingMasterLayout",
+    "HrCallingMasterCandidates": "src/pages/hr/callingMaster/CallingMasterPage",
+    "HrCallingMasterReferral": "src/pages/hr/callingMaster/CallingMasterReferralPage",
+    "HrCallingMasterOffers": "src/pages/hr/callingMaster/CallingMasterOfferPage",
+    "HrCallingMasterOfferResponse": "src/pages/hr/callingMaster/CallingMasterOfferResponsePage",
+    "HrCallingMasterJoining": "src/pages/hr/callingMaster/CallingMasterJoiningPage",
+    "HrCallingMasterIom": "src/pages/hr/callingMaster/CallingMasterIomPage",
+    "HrCallingMasterConversion": "src/pages/hr/callingMaster/CallingMasterConversionPage",
+    "HrCallingMasterDropdowns": "src/pages/hr/callingMaster/CallingMasterDropdownPage",
+    "HrCallingMasterEntry": "src/pages/hr/callingMaster/CallingMasterEntry",
+    "AdminRecruitmentLayout": "src/pages/adminOperations/recruitment/RecruitmentLayout",
+    "AdminRecruitmentDashboard": "src/pages/adminOperations/recruitment/RecruitmentDashboard",
+    "AdminRecruitmentRequisitions": "src/pages/adminOperations/recruitment/RequisitionsPage",
+    "AdminRecruitmentCandidates": "src/pages/adminOperations/recruitment/CandidatesPage",
+    "AdminRecruitmentCandidate360": "src/pages/adminOperations/recruitment/Candidate360Page",
+    "AdminRecruitmentInterviews": "src/pages/adminOperations/recruitment/InterviewsPage",
+    "AdminRecruitmentOffers": "src/pages/adminOperations/recruitment/OffersPage",
+    "AdminRecruitmentDocuments": "src/pages/adminOperations/recruitment/DocumentsPage",
+    "AdminRecruitmentJoining": "src/pages/adminOperations/recruitment/JoiningPage",
+    "AdminRecruitmentConversion": "src/pages/adminOperations/recruitment/ConversionPage",
+    "AdminRecruitmentCommunication": "src/pages/adminOperations/recruitment/CommunicationPage",
+    "AdminRecruitmentReports": "src/pages/adminOperations/recruitment/ReportsPage",
+    "AdminRecruitmentSettings": "src/pages/adminOperations/recruitment/SettingsPage",
+    "CandidatePortal": "src/pages/adminOperations/recruitment/CandidatePortalPage",
+    "HrSiteAttendance": "src/pages/hr/siteAttendance/SiteAttendanceLayout",
+    "HrSiteAttendanceDashboard": "src/pages/hr/siteAttendance/DashboardPage",
+    "HrSiteAttendanceSites": "src/pages/hr/siteAttendance/SiteMasterPage",
+    "HrSiteAttendancePeople": "src/pages/hr/siteAttendance/PeopleMasterPage",
+    "HrSiteAttendanceEntry": "src/pages/hr/siteAttendance/AttendanceEntryPage",
+    "HrSiteAttendanceAdminView": "src/pages/hr/siteAttendance/AdminAttendanceViewPage",
+    "HrSiteAttendanceSummary": "src/pages/hr/siteAttendance/SummaryPage",
+    "Procurement": "src/pages/procurement/Procurement",
+    "Operations": "src/pages/operations/Operations",
+    "ProjectsBilling": "src/pages/projectsBilling/ProjectsBilling",
+    "ProjectsManagement": "src/pages/projectsManagement/ProjectsManagement",
+    "ProjectsPoHub": "src/pages/projects/ProjectsPoHub",
+    "ProjectsEnquiryHub": "src/pages/projects/enquiry/ProjectsEnquiryHub",
+    "ProjectsQuotationHub": "src/pages/projects/quotation/ProjectsQuotationHub",
+    "AccountsFinance": "src/pages/finance/Finance",
+    "PeopleManagement": "src/pages/peopleManagement/PeopleManagement",
+    "PeoplePersonProfile": "src/pages/peopleManagement/PersonProfile",
+    "IfspEmployeeCompliance": "src/pages/compliance/IfspEmployeeCompliance",
+    "GeneralCompliance": "src/pages/compliance/GeneralCompliance",
+    "IfspEmployeeAttendance": "src/pages/admin/IfspEmployeeAttendance",
+    "IfspEmployeePayroll": "src/pages/admin/IfspEmployeePayroll",
+    "IfspEmployeeLeaves": "src/pages/admin/IfspEmployeeLeaves",
+    "IfspEmployeeMaster": "src/pages/admin/IfspEmployeeMaster",
+    "IfspEmployeeMasterDetail": "src/pages/admin/IfspEmployeeMasterDetail",
+    "GatePass": "src/pages/admin/GatePass",
+    "AdminOpsDashboard": "src/pages/adminOperations/AdminOpsDashboard",
+    "AdminOpsAlerts": "src/pages/adminOperations/AdminOpsAlerts",
+    "AdminOpsReports": "src/pages/adminOperations/AdminOpsReports",
+    "AdminOpsSettings": "src/pages/adminOperations/AdminOpsSettings",
+    "SalaryManagementLayout": "src/pages/hr/payroll/salary/SalaryLayout",
+    "EmployeePayrollList": "src/pages/hr/payroll/salary/EmployeePayrollList",
+    "SalaryEmployeeMaster": "src/pages/hr/payroll/salary/EmployeeMaster",
+    "SalaryEmployeeMasterProfile": "src/pages/hr/payroll/salary/EmployeeMasterProfile",
+    "EmployeePayrollProfile": "src/pages/hr/payroll/salary/EmployeePayrollProfile",
+    "PayrollRunPage": "src/pages/hr/payroll/salary/PayrollRun",
+    "SiteFormulaSetup": "src/pages/hr/payroll/salary/SiteFormulaSetup",
+    "FormulaLibrary": "src/pages/hr/payroll/salary/FormulaLibrary",
+    "PayrollManualInputs": "src/pages/hr/payroll/salary/ManualInputs",
+    "StatutoryPF": "src/pages/hr/payroll/salary/statutory/PF",
+    "StatutoryESIC": "src/pages/hr/payroll/salary/statutory/ESIC",
+    "StatutoryPT": "src/pages/hr/payroll/salary/statutory/PT",
+    "StatutoryTDS": "src/pages/hr/payroll/salary/statutory/TDS",
+    "LoansRecoveries": "src/pages/hr/payroll/salary/LoansRecoveries",
+    "PayrollRegister": "src/pages/hr/payroll/salary/Register",
+    "PayrollOutputs": "src/pages/hr/payroll/salary/Outputs",
+    "SalaryManagementSettings": "src/pages/hr/payroll/salary/Settings",
+    "SalarySiteMaster": "src/pages/hr/payroll/salary/SiteMaster",
+    "SalaryPayrollPackageBuilder": "src/pages/hr/payroll/salary/PayrollPackageBuilder",
+    "SalaryAttendanceIntegration": "src/pages/hr/payroll/salary/AttendanceIntegration",
+    "SalaryComplianceManagement": "src/pages/hr/payroll/salary/ComplianceManagement",
+    "SalaryPayrollApproval": "src/pages/hr/payroll/salary/PayrollApproval",
+    "SalaryReportsExports": "src/pages/hr/payroll/salary/ReportsExports",
+    "SalaryEmployeeExit": "src/pages/hr/payroll/salary/EmployeeExit",
+    "SalaryFullFinalSettlement": "src/pages/hr/payroll/salary/FullFinalSettlement",
+    "HrSalaryLayout": "src/pages/hr/payroll/salary/SalaryLayout",
+    "HrSalaryEmployeeList": "src/pages/hr/payroll/salary/EmployeePayrollList",
+    "HrSalaryEmployeeProfile": "src/pages/hr/payroll/salary/EmployeePayrollProfile",
+    "HrSalaryPayrollRun": "src/pages/hr/payroll/salary/PayrollRun",
+    "HrSalarySiteFormulas": "src/pages/hr/payroll/salary/SiteFormulaSetup",
+    "HrSalaryManualInputs": "src/pages/hr/payroll/salary/ManualInputs",
+    "HrSalaryPF": "src/pages/hr/payroll/salary/statutory/PF",
+    "HrSalaryESIC": "src/pages/hr/payroll/salary/statutory/ESIC",
+    "HrSalaryPT": "src/pages/hr/payroll/salary/statutory/PT",
+    "HrSalaryTDS": "src/pages/hr/payroll/salary/statutory/TDS",
+    "HrSalaryLoans": "src/pages/hr/payroll/salary/LoansRecoveries",
+    "HrSalaryRegister": "src/pages/hr/payroll/salary/Register",
+    "HrSalaryOutputs": "src/pages/hr/payroll/salary/Outputs",
+    "HrSalarySettings": "src/pages/hr/payroll/salary/Settings",
+    "SalaryDashboardPage": "src/pages/adminOperations/salaryAdmin/SalaryDashboard",
+    "SalaryAdminLayoutPage": "src/pages/adminOperations/salaryAdmin/SalaryAdminLayout",
+    "RulesConsolePage": "src/pages/adminOperations/rulesConsole/RulesConsolePage",
+    "SalaryMasterPage": "src/pages/adminOperations/salaryAdmin/SalaryMaster",
+    "SalaryEmployeeCtcPage": "src/pages/adminOperations/salaryAdmin/SalaryEmployeeCtc",
+    "SalaryProcessingPage": "src/pages/adminOperations/salaryAdmin/SalaryProcessing",
+    "SalaryProcessReportPage": "src/pages/adminOperations/salaryAdmin/SalaryProcessReport.jsx",
+    "PayrollMisRoutePage": "src/pages/adminOperations/salaryAdmin/mis/PayrollMisRoute.jsx",
+    "PayrollRuleMasterPage": "src/pages/adminOperations/salaryAdmin/PayrollRuleMaster.jsx",
+    "SalaryComponentsMasterPage": "src/pages/adminOperations/salaryAdmin/SalaryComponentsMaster.jsx",
+    "CtcCalculatorPage": "src/pages/adminOperations/salaryAdmin/CtcCalculator.jsx",
+    "CompliancePayrollLayoutPage": "src/pages/compliance/payroll/CompliancePayrollLayout",
+    "ComplianceDashboardPage": "src/pages/compliance/payroll/ComplianceDashboard",
+    "ComplianceFormsPage": "src/pages/compliance/payroll/ComplianceForms",
+    "WageStatutoryFormPage": "src/pages/compliance/payroll/WageStatutoryForm",
+    "CompliancePayrollProcessPage": "src/pages/compliance/payroll/CompliancePayrollProcess",
+    "FireTenderManufacturing": "src/pages/fireTenderManufacturing/FireTenderManufacturing",
+    "AMC": "src/pages/amc/AMC",
+    "Settings": "src/pages/Settings",
+    "CrmOutreach": "src/pages/crmOutreach/CrmOutreach",
+    "UserManagement": "src/pages/userAccess/UserManagementHub",
+    "SoftwareSubscriptions": "src/pages/SoftwareSubscriptions",
+    "ApiHealthDashboard": "src/pages/apiMonitoring/ApiHealthDashboard",
+    "IndusLmsTrainings": "src/pages/IndusLmsTrainings",
+    "MarketingDashboard": "src/pages/marketing/MarketingDashboard",
+    "LeadDashboard": "src/pages/marketing/LeadDashboard",
+    "LeadMaster": "src/pages/marketing/LeadMaster",
+    "EnquiryMaster": "src/pages/marketing/EnquiryMaster",
+    "QuotationTracker": "src/pages/marketing/QuotationTracker",
+    "CostingSheetList": "src/pages/marketing/CostingSheetList",
+    "CostingSheetDetail": "src/pages/marketing/CostingSheetDetail",
+    "MarketingInternalQuotationList": "src/pages/marketing/InternalQuotationList",
+    "MarketingInternalQuotationForm": "src/pages/marketing/InternalQuotationForm",
+    "QuotationTemplatePage": "src/pages/marketing/QuotationTemplatePage",
+    "FollowUpPlanner": "src/pages/marketing/FollowUpPlanner",
+    "ClientMaster": "src/pages/marketing/ClientMaster",
+    "ProductCatalog": "src/pages/marketing/ProductCatalog",
+    "PurchaseOrders": "src/pages/marketing/PurchaseOrders",
+    "ExpoSeminar": "src/pages/marketing/ExpoSeminar",
+    "GSTUpload": "src/pages/marketing/GSTUpload",
+    "MarketingReports": "src/pages/marketing/MarketingReports",
+    "MaintenanceDashboard": "src/pages/maintenance/MaintenanceDashboard",
+    "MaintenanceEnquiryMaster": "src/pages/maintenance/EnquiryMaster",
+    "MaintenanceQuotationTracker": "src/pages/maintenance/QuotationTracker",
+    "MaintenanceCostingSheetList": "src/pages/maintenance/CostingSheetList",
+    "MaintenanceCostingSheetDetail": "src/pages/maintenance/CostingSheetDetail",
+    "MaintenanceInternalQuotationList": "src/pages/maintenance/InternalQuotationList",
+    "MaintenanceInternalQuotationForm": "src/pages/maintenance/InternalQuotationForm",
+    "MaintenanceQuotationTemplatePage": "src/pages/maintenance/QuotationTemplatePage",
+    "MaintenanceFollowUpPlanner": "src/pages/maintenance/FollowUpPlanner",
+    "MaintenanceClientMaster": "src/pages/maintenance/ClientMaster",
+    "MaintenanceProductCatalog": "src/pages/maintenance/ProductCatalog",
+    "MaintenancePurchaseOrders": "src/pages/maintenance/PurchaseOrders",
+    "MaintenanceMmPoEntry": "src/pages/maintenance/MaintenanceMmPoEntry",
+    "MaintenanceExpoSeminar": "src/pages/maintenance/ExpoSeminar",
+    "MaintenanceGSTUpload": "src/pages/maintenance/GSTUpload",
+    "MaintenanceReports": "src/pages/maintenance/MaintenanceReports",
+    "SalaryManagementDashboard": "src/pages/hr/payroll/salary/module/screens",
+    "SalaryComponentsPage": "src/pages/hr/payroll/salary/module/screens",
+    "SalarySiteSetupPage": "src/pages/hr/payroll/salary/module/screens",
+    "SalaryEmployeesPage": "src/pages/hr/payroll/salary/module/screens",
+    "SalaryEmployeeDetailPage": "src/pages/hr/payroll/salary/module/screens",
+    "SalaryProcessPage": "src/pages/hr/payroll/salary/module/screens",
+    "SalarySlipsPage": "src/pages/hr/payroll/salary/module/screens",
+    "SalaryRevisionsPage": "src/pages/hr/payroll/salary/module/screens",
+    "SalaryReportsPage": "src/pages/hr/payroll/salary/module/screens",
+    "EmployeeOnboardingPage": "src/pages/adminOperations/employee/EmployeeOnboardingPage",
+    "EmployeeFnfPage": "src/pages/adminOperations/employee/EmployeeFnfPage",
+    "EmployeePoliciesPage": "src/pages/adminOperations/employee/EmployeePoliciesPage",
+    "EmployeeAttendanceInputsPage": "src/pages/adminOperations/employee/EmployeeAdminPages",
+    "EmployeeLeavesPage": "src/pages/adminOperations/employee/EmployeeLeaveInboxPage",
+    "AllEmployeesDirectoryPage": "src/pages/adminOperations/employee/AllEmployeesDirectoryPage",
+    "EmployeeTourApprovalsPage": "src/pages/adminOperations/employee/EmployeeTourInboxPage",
+    "EmployeeAttendanceDailyPage": "src/pages/adminOperations/employee/EmployeeAttendanceDailyPage",
+    "EmployeeLeaveManagementPage": "src/pages/adminOperations/employee/EmployeeLeaveManagementPage",
+    "InactiveEmployeesPage": "src/pages/adminOperations/employee/InactiveEmployeesPage",
+    "OfficialLettersPage": "src/pages/adminOperations/employee/OfficialLettersPage",
+    "NationalPublicHolidaysPage": "src/pages/adminOperations/employee/NationalPublicHolidaysPage",
+    "RedirectEmployeeMasterId": "src/App.jsx",
+    "SalaryMasterCtcRedirect": "src/App.jsx",
+    "IevConfigGuard": "src/pages/projects/configurationTender/IevConfigGuard.jsx",
+    "SalaryAdminGuard": "src/pages/adminOperations/salaryAdmin/SalaryAdminGuard.jsx",
+    "RulesConsoleGuard": "src/pages/adminOperations/rulesConsole/RulesConsoleGuard.jsx",
+    "ComplianceGuard": "src/pages/compliance/payroll/ComplianceGuard.jsx",
+    "ProtectedRoute": "src/components/ProtectedRoute.jsx"
+  }
+}

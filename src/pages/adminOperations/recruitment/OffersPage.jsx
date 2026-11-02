@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { FileSignature, Send, Upload, UserRound, XCircle } from "lucide-react";
-import { Drawer } from "../components/AdminUi";
+import { Drawer } from "../../../components/erpUi";
 import { toast } from "../../../lib/toast";
 import { APPOINTMENT_STATUSES, OFFER_STATUSES, appointmentStatusMeta, offerStatusMeta } from "./recruitmentConfig";
 import { cancelAppointment, listAppointments, listOffers, prepareAppointmentLetter, prepareOfferLetter, withdrawOffer } from "./recruitmentService";

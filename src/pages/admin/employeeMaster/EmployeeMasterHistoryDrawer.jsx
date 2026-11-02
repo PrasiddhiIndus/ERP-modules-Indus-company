@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { History, RefreshCw } from "lucide-react";
-import { Drawer } from "../../adminOperations/components/AdminUi";
+import { Drawer } from "../../../components/erpUi";
 import {
   fetchEmployeeMasterFieldHistory,
   formatEmployeeHistorySentence,

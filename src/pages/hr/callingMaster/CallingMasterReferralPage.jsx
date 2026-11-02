@@ -14,7 +14,7 @@ import {
   PageTaskHeader,
   SectionCard,
   TinySelect,
-} from "../../adminOperations/components/AdminUi";
+} from "../../../components/erpUi";
 import { getCallingMasterFields } from "./callingMasterConfig";
 import { useRecruitmentUi } from "./recruitmentUiContext";
 import OfferDetailsFields, { emptyOfferDetailValues } from "./OfferDetailsFields";

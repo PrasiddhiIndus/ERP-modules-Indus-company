@@ -9,7 +9,7 @@ import {
   SectionCard,
   StatusChip,
   TinyInput,
-} from '../../components/AdminUi';
+} from '../../../../components/erpUi';
 import { MASKED_SECRET, salaryFiguresHidden } from '../salaryPrivacy';
 import toast from '../../../../lib/toast';
 import {

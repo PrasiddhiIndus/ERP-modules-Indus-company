@@ -12,7 +12,7 @@ import {
   Drawer,
   KpiTile,
   CollapsibleHelp,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import { supabase } from "../../../lib/supabase";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import toast from "../../../lib/toast";

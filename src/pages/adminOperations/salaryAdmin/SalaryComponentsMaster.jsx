@@ -9,7 +9,7 @@ import {
   StatusChip,
   Modal,
   CollapsibleHelp,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import {
   collectPersonComponentsDirectory,
   evalComponentFormula,

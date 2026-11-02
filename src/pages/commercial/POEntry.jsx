@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { FileCheck, Plus, Search, Pencil, Trash2, History, Send } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, History, Send } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { isValidDateInputValue, normalizeDateInputValue } from '../../utils/dateInput';;
 import FormDateInput from "../../components/FormDateInput";
-
+import { PageTaskHeader, PageShell, PrimaryButton } from "../../components/erpUi";
 
 /** OC middle segment (shown after IFSPL- … -OC-YY/YY). Legacy PO rows may still use MANP etc. */
 const OC_LINE_OPTIONS = ['Manpower', 'Training', 'R&M', 'M&M', 'AMC', 'IEV'];
@@ -432,26 +432,15 @@ const POEntry = () => {
   const poForHistory = viewHistoryPoId ? commercialPOs.find((p) => p.id === viewHistoryPoId) : null;
 
   return (
-    <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center space-x-3">
-          <div className="bg-blue-100 p-3 rounded-lg shrink-0">
-            <FileCheck className="w-6 h-6 text-blue-600" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">PO / WO Management</h2>
-            <p className="text-sm text-gray-600">Contract details – master source for Billing (no manual re-entry there)</p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={handleOpenAdd}
-          className="bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
-        >
-          <Plus className="h-5 w-5" />
+    <PageShell className="w-full overflow-y-auto p-4 sm:p-6">
+      <PageTaskHeader
+        title="PO / WO Management"
+        subtitle="Contract details – master source for Billing (no manual re-entry there)"
+      >
+        <PrimaryButton type="button" onClick={handleOpenAdd} icon={Plus}>
           Add PO/WO
-        </button>
-      </div>
+        </PrimaryButton>
+      </PageTaskHeader>
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1 min-w-0">
@@ -1031,7 +1020,7 @@ const POEntry = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

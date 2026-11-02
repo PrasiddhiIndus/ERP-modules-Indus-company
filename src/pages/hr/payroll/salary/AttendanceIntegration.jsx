@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CheckCircle2, ClipboardList, Lock, RefreshCw } from 'lucide-react';
-import { KpiTile } from '../../../adminOperations/components/AdminUi';
+import { KpiTile } from '../../../../components/erpUi';
 
 const ATTENDANCE_ROWS = [
   { id: 'e1', employee: 'Amit Shah', site: 'Delhi NCR', present: 22, absent: 0, halfDays: 0, lop: 0, status: 'ok' },

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SectionCard, Badge } from '../../../adminOperations/components/AdminUi';
+import { SectionCard, Badge } from '../../../../components/erpUi';
 import { runPayrollPreview, finalizePayrollRun } from '../../../../services/payrollApi';
 
 import { toast } from "../../../../lib/toast";

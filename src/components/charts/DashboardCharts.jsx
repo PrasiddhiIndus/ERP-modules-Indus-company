@@ -19,10 +19,19 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { CHART_SERIES, CHART_SERIES_AREA, TOKENS } from "../../theme/tokens";
+import { CHART_SERIES, CHART_SERIES_AREA, CHART_SERIES_DARK, TOKENS, chartSeriesForDocument } from "../../theme/tokens";
 
 const AXIS = { fontSize: 11, fill: TOKENS.textMuted, fontFamily: "IBM Plex Mono, ui-monospace, monospace" };
 const GRID = TOKENS.chartGrid;
+
+/** Prefer theme-aware series; fall back to light CHART_SERIES. */
+export function resolveChartSeries() {
+  try {
+    return chartSeriesForDocument() || CHART_SERIES;
+  } catch {
+    return CHART_SERIES;
+  }
+}
 const TIP_STYLE = {
   background: TOKENS.surface,
   border: `1px solid ${TOKENS.border}`,
@@ -91,7 +100,7 @@ export function ChartTooltip({ active, payload, label, formatter, titleKey = "fu
         const shown = formatter ? formatter(raw, p.name, p) : raw;
         return (
           <div key={i} className="flex items-center gap-2 type-table-cell text-ink py-0.5">
-            <span className="h-2 w-2 rounded-sm shrink-0" style={{ background: p.color || CHART_SERIES[i % CHART_SERIES.length] }} />
+            <span className="h-2 w-2 rounded-sm shrink-0" style={{ background: p.color || resolveChartSeries()[i % resolveChartSeries().length] }} />
             <span className="text-ink-secondary">{p.name}</span>
             <span className="type-num ml-auto tabular-nums">{shown}</span>
           </div>
@@ -141,7 +150,7 @@ export function SparkKpi({
   value,
   sub,
   series = [],
-  color = CHART_SERIES[0],
+  color = resolveChartSeries()[0],
   onClick,
   className = "",
 }) {
@@ -189,7 +198,7 @@ export function SparkKpi({
 export function AreaTrendChart({
   data = [],
   xKey = "name",
-  series = [{ key: "value", name: "Value", color: CHART_SERIES[0] }],
+  series = [{ key: "value", name: "Value", color: resolveChartSeries()[0] }],
   height = 220,
   formatter,
   yTickFormatter = compactInrTick,
@@ -202,8 +211,8 @@ export function AreaTrendChart({
         <defs>
           {series.map((s, i) => (
             <linearGradient key={s.key} id={`area-${gid}-${i}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={s.color || CHART_SERIES[i % CHART_SERIES.length]} stopOpacity={0.28} />
-              <stop offset="100%" stopColor={s.color || CHART_SERIES[i % CHART_SERIES.length]} stopOpacity={0.02} />
+              <stop offset="0%" stopColor={s.color || resolveChartSeries()[i % resolveChartSeries().length]} stopOpacity={0.28} />
+              <stop offset="100%" stopColor={s.color || resolveChartSeries()[i % resolveChartSeries().length]} stopOpacity={0.02} />
             </linearGradient>
           ))}
         </defs>
@@ -225,7 +234,7 @@ export function AreaTrendChart({
             type="monotone"
             dataKey={s.key}
             name={s.name || s.key}
-            stroke={s.color || CHART_SERIES[i % CHART_SERIES.length]}
+            stroke={s.color || resolveChartSeries()[i % resolveChartSeries().length]}
             fill={`url(#area-${gid}-${i})`}
             strokeWidth={2}
             isAnimationActive
@@ -249,7 +258,7 @@ export function AreaTrendChart({
 export function BarCompareChart({
   data = [],
   xKey = "name",
-  series = [{ key: "value", name: "Value", color: CHART_SERIES[0] }],
+  series = [{ key: "value", name: "Value", color: resolveChartSeries()[0] }],
   height = 220,
   layout = "vertical",
   formatter,
@@ -322,7 +331,7 @@ export function BarCompareChart({
             key={s.key}
             dataKey={s.key}
             name={s.name || s.key}
-            fill={s.color || CHART_SERIES[i % CHART_SERIES.length]}
+            fill={s.color || resolveChartSeries()[i % resolveChartSeries().length]}
             radius={horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]}
             stackId={stacked ? "a" : undefined}
             isAnimationActive
@@ -335,7 +344,7 @@ export function BarCompareChart({
               ? data.map((d, di) => (
                   <Cell
                     key={di}
-                    fill={s.color || CHART_SERIES[i % CHART_SERIES.length]}
+                    fill={s.color || resolveChartSeries()[i % resolveChartSeries().length]}
                     fillOpacity={d[xKey] === activeName ? 1 : 0.3}
                   />
                 ))
@@ -385,7 +394,7 @@ export function DonutChart({
             {rows.map((row, i) => (
               <Cell
                 key={i}
-                fill={CHART_SERIES[i % CHART_SERIES.length]}
+                fill={resolveChartSeries()[i % resolveChartSeries().length]}
                 fillOpacity={activeName != null && row[nameKey] !== activeName ? 0.3 : 1}
               />
             ))}
@@ -407,7 +416,7 @@ export function RadialScoreChart({
   value = 0,
   max = 100,
   label = "Score",
-  color = CHART_SERIES[0],
+  color = resolveChartSeries()[0],
   height = 180,
   onClick,
 }) {
@@ -454,8 +463,8 @@ export function ComposedTrendChart({
         <defs>
           {areas.map((s, i) => (
             <linearGradient key={s.key} id={`cmp-${gid}-${i}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={s.color || CHART_SERIES[i % CHART_SERIES.length]} stopOpacity={0.22} />
-              <stop offset="100%" stopColor={s.color || CHART_SERIES[i % CHART_SERIES.length]} stopOpacity={0.02} />
+              <stop offset="0%" stopColor={s.color || resolveChartSeries()[i % resolveChartSeries().length]} stopOpacity={0.22} />
+              <stop offset="100%" stopColor={s.color || resolveChartSeries()[i % resolveChartSeries().length]} stopOpacity={0.02} />
             </linearGradient>
           ))}
         </defs>
@@ -477,7 +486,7 @@ export function ComposedTrendChart({
             type="monotone"
             dataKey={s.key}
             name={s.name || s.key}
-            stroke={s.color || CHART_SERIES[i % CHART_SERIES.length]}
+            stroke={s.color || resolveChartSeries()[i % resolveChartSeries().length]}
             fill={`url(#cmp-${gid}-${i})`}
             strokeWidth={2}
             activeDot={
@@ -492,7 +501,7 @@ export function ComposedTrendChart({
             key={s.key}
             dataKey={s.key}
             name={s.name || s.key}
-            fill={s.color || CHART_SERIES[(i + 2) % CHART_SERIES.length]}
+            fill={s.color || resolveChartSeries()[(i + 2) % resolveChartSeries().length]}
             radius={[4, 4, 0, 0]}
             maxBarSize={28}
             cursor={onPointClick ? "pointer" : "default"}
@@ -505,7 +514,7 @@ export function ComposedTrendChart({
             type="monotone"
             dataKey={s.key}
             name={s.name || s.key}
-            stroke={s.color || CHART_SERIES[(i + 1) % CHART_SERIES.length]}
+            stroke={s.color || resolveChartSeries()[(i + 1) % resolveChartSeries().length]}
             strokeWidth={2}
             dot={{ r: 3 }}
             activeDot={
@@ -573,4 +582,4 @@ export function countByKey(rows, keyFn) {
     .sort((a, b) => b.value - a.value);
 }
 
-export { CHART_SERIES, CHART_SERIES_AREA, TOKENS };
+export { CHART_SERIES, CHART_SERIES_DARK, CHART_SERIES_AREA, TOKENS };

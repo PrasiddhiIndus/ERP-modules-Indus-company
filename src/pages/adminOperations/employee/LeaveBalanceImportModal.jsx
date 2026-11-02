@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState } from "react";
 import { Download, Upload } from "lucide-react";
-import { Modal } from "../components/AdminUi";
+import { Modal } from "../../../components/erpUi";
 import { supabase } from "../../../lib/supabase";
 import { toast } from "../../../lib/toast";
 import { normalizeAttendanceEmpCode } from "../../../lib/attendanceDaily";

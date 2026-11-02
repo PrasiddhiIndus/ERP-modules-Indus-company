@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { ITEM_CATEGORIES, ISSUE_TYPES } from "../constants";
-import { SectionCard, TinyInput } from "../components/StoreUi";
+import { SectionCard, TinyInput, PageTaskHeader, PrimaryButton } from "../../../components/erpUi";
 
 const initialForm = {
   itemCode: "",
@@ -30,18 +30,19 @@ export default function ItemMasterPage({ data }) {
 
   return (
     <div className="space-y-4">
+      <PageTaskHeader title="Item Master" subtitle="Create catalogue items and review the item list." />
       <SectionCard title="Create Item">
         <div className="grid grid-cols-2 xl:grid-cols-6 gap-2">
           <TinyInput placeholder="Item Code" value={form.itemCode} onChange={(e) => setForm((p) => ({ ...p, itemCode: e.target.value }))} />
           <TinyInput placeholder="Item Name" value={form.itemName} onChange={(e) => setForm((p) => ({ ...p, itemName: e.target.value }))} />
-          <select className="h-9 border border-gray-300 rounded px-2 text-sm" value={form.category} onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}>
+          <select className="h-9 border border-border rounded-control px-2 text-sm bg-surface" value={form.category} onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}>
             {ITEM_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
           </select>
-          <select className="h-9 border border-gray-300 rounded px-2 text-sm" value={form.issueType} onChange={(e) => setForm((p) => ({ ...p, issueType: e.target.value }))}>
+          <select className="h-9 border border-border rounded-control px-2 text-sm bg-surface" value={form.issueType} onChange={(e) => setForm((p) => ({ ...p, issueType: e.target.value }))}>
             {ISSUE_TYPES.map((c) => <option key={c}>{c}</option>)}
           </select>
           <TinyInput type="number" placeholder="Annual Qty/Person" value={form.defaultAnnualQtyPerPerson} onChange={(e) => setForm((p) => ({ ...p, defaultAnnualQtyPerPerson: Number(e.target.value) }))} />
-          <button onClick={submit} className="h-9 rounded bg-accent text-white text-sm">Add Item</button>
+          <PrimaryButton onClick={submit} className="h-9">Add Item</PrimaryButton>
         </div>
       </SectionCard>
 

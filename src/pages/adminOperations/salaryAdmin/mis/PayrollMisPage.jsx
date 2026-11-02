@@ -9,7 +9,7 @@ import {
   InlineAlert,
   PageTaskHeader,
   TinySelect,
-} from '../../components/AdminUi';
+} from '../../../../components/erpUi';
 import toast from '../../../../lib/toast';
 import {
   MIS_VERTICALS,

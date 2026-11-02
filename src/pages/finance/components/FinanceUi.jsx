@@ -8,90 +8,84 @@ import {
   TinyInput,
   TinySelect,
   StatusChip,
-} from "../../adminOperations/components/AdminUi";
+  PageTaskHeader,
+  PrimaryButton as ErpPrimaryButton,
+  EmptyState as ErpEmptyState,
+  InlineAlert,
+} from "../../../components/erpUi";
 
-export { SectionCard, KpiTile, Badge, Modal, TinyInput, TinySelect, StatusChip };
+export {
+  SectionCard,
+  KpiTile,
+  Badge,
+  Modal,
+  TinyInput,
+  TinySelect,
+  StatusChip,
+  PageTaskHeader,
+  InlineAlert,
+};
 export { PeriodMonthSelect } from "./PeriodMonthSelect";
 export { FinanceDateInput } from "./FinanceDateInput";
 
+/** Finance page chrome — prefers erpUi PageTaskHeader; keeps refresh/export affordances. */
 export function PageHeader({ title, subtitle, onRefresh, onExport, primaryAction, children }) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-      <div>
-        <h2 className="text-lg font-bold text-gray-900">{title}</h2>
-        {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {children}
-        {onRefresh && (
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="inline-flex items-center gap-1.5 h-8 px-3 text-xs border border-gray-300 rounded-lg bg-white hover:bg-gray-50"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Refresh
-          </button>
-        )}
-        {onExport && (
-          <button
-            type="button"
-            onClick={onExport}
-            className="inline-flex items-center gap-1.5 h-8 px-3 text-xs border border-gray-300 rounded-lg bg-white hover:bg-gray-50"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Export
-          </button>
-        )}
-        {primaryAction}
-      </div>
-    </div>
+    <PageTaskHeader title={title} subtitle={subtitle}>
+      {children}
+      {onRefresh && (
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="erp-btn-secondary inline-flex items-center gap-1.5 h-8 px-3 text-xs rounded-control"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Refresh
+        </button>
+      )}
+      {onExport && (
+        <button
+          type="button"
+          onClick={onExport}
+          className="erp-btn-secondary inline-flex items-center gap-1.5 h-8 px-3 text-xs rounded-control"
+        >
+          <Download className="w-3.5 h-3.5" />
+          Export
+        </button>
+      )}
+      {primaryAction}
+    </PageTaskHeader>
   );
 }
 
 export function PrimaryButton({ children, onClick, disabled, className = "" }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-accent text-white hover:bg-accent-deep disabled:opacity-50 ${className}`}
-    >
-      <Plus className="w-3.5 h-3.5" />
+    <ErpPrimaryButton onClick={onClick} disabled={disabled} className={className} icon={Plus}>
       {children}
-    </button>
+    </ErpPrimaryButton>
   );
 }
 
-export function EmptyState({ icon: Icon, title, message, action }) {
-  return (
-    <div className="fin-empty">
-      {Icon && <Icon size={34} />}
-      <h3>{title}</h3>
-      <p>{message}</p>
-      {action}
-    </div>
-  );
+export function EmptyState({ icon, title, message, action }) {
+  return <ErpEmptyState icon={icon} title={title} message={message} action={action} />;
 }
 
 export function LoadingState({ message = "Loading finance data…" }) {
   return (
-    <div className="flex items-center justify-center py-20 text-sm text-gray-500">
-      {message}
-    </div>
+    <div className="flex items-center justify-center py-20 text-sm text-ink-muted">{message}</div>
   );
 }
 
 export function ErrorState({ message, onRetry }) {
   return (
-    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+    <InlineAlert tone="error">
       <p>{message}</p>
-      {onRetry && (
+      {onRetry ? (
         <button type="button" onClick={onRetry} className="mt-2 text-xs font-semibold underline">
           Retry
         </button>
-      )}
-    </div>
+      ) : null}
+    </InlineAlert>
   );
 }
 

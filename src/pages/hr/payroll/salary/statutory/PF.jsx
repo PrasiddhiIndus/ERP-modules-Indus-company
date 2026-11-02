@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { SectionCard } from '../../../../adminOperations/components/AdminUi';
+import { SectionCard } from '../../../../../components/erpUi';
 import CompliancePageHeader from '../components/CompliancePageHeader';
 import { listPayrollRuns } from '../../../../../services/payrollApi';
 import { supabase } from '../../../../../lib/supabase';

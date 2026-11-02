@@ -8,7 +8,7 @@ import {
   DenseTable,
   Badge,
   KpiTile,
-} from "../adminOperations/components/AdminUi";
+} from "../../components/erpUi";
 import { supabase } from "../../lib/supabase";
 import { listSites } from "../../lib/peopleAttendanceApi";
 import {

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
-import { Modal } from "../components/AdminUi";
+import { Modal } from "../../../components/erpUi";
 import {
   flattenComponentTree,
   hydratePersonComponents,

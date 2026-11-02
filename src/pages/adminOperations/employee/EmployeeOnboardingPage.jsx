@@ -23,7 +23,7 @@ import {
   Modal,
   KpiTile,
   CollapsibleHelp,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import { supabase } from "../../../lib/supabase";
 import { useAuth } from "../../../contexts/AuthContext";
 import { toast } from "../../../lib/toast";

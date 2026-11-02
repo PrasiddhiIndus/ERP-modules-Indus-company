@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { STORE_NAV_ITEMS } from "./constants";
 import { useStoreModuleData } from "./hooks/useStoreModuleData";
-import { Badge, SectionCard } from "./components/StoreUi";
+import { Badge, SectionCard, PageTaskHeader, PageShell } from "../../components/erpUi";
 import DashboardPage from "./pages/DashboardPage";
 import ItemMasterPage from "./pages/ItemMasterPage";
 import StoreMasterPage from "./pages/StoreMasterPage";
@@ -43,19 +43,19 @@ const StoreInventory = () => {
   };
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto">
+    <PageShell className="p-6 max-w-[1600px] mx-auto">
       <div className="grid grid-cols-1 xl:grid-cols-[220px_1fr_300px] gap-6 min-h-[calc(100vh-210px)]">
-      <aside className="bg-white rounded-xl shadow-sm border border-gray-100 p-2 h-fit">
-        <p className="px-2 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Inventory Module</p>
+      <aside className="bg-surface rounded-card shadow-card border border-border p-2 h-fit">
+        <p className="px-2 py-2 type-mono-caption text-ink-muted">Inventory Module</p>
         <div className="space-y-1">
           {STORE_NAV_ITEMS.map((item) => (
             <button
               key={item}
               onClick={() => setActivePage(item)}
-              className={`w-full text-left px-3 py-2 rounded text-xs border ${
+              className={`w-full text-left px-3 py-2 rounded-control text-xs border ${
                 activePage === item
                   ? "bg-accent text-white border-accent"
-                  : "bg-white text-gray-700 border-transparent hover:bg-gray-100"
+                  : "bg-surface text-ink border-transparent hover:bg-row-hover"
               }`}
             >
               {item}
@@ -65,23 +65,18 @@ const StoreInventory = () => {
       </aside>
 
       <div className="space-y-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
-            <div>
-              <h2 className="text-2xl font-bold text-ink">Inventory Intelligence Module</h2>
-              <p className="text-sm text-gray-600 mt-1">
-                SAP Fiori + Palantir + AI ERP style operations for multi-store, lifecycle and predictive control.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
-              {["Global Search", "Store Selector", "Alerts", "Profile", "System Status", "Scan Mode"].map((f) => (
-                <button key={f} className="h-9 px-3 rounded-lg border border-gray-300 bg-white text-xs text-gray-700 hover:bg-gray-50">
-                  {f}
-                </button>
-              ))}
-            </div>
+        <PageTaskHeader
+          title="Store inventory"
+          subtitle={`${activePage} — multi-store stock, planners, and alerts.`}
+        >
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+            {["Global Search", "Store Selector", "Alerts", "Profile", "System Status", "Scan Mode"].map((f) => (
+              <button key={f} className="h-9 px-3 rounded-control border border-border bg-surface text-xs text-ink hover:bg-row-hover">
+                {f}
+              </button>
+            ))}
           </div>
-        </div>
+        </PageTaskHeader>
 
         {renderPage()}
       </div>
@@ -120,7 +115,7 @@ const StoreInventory = () => {
         </SectionCard>
       </aside>
       </div>
-    </div>
+    </PageShell>
   );
 };
 

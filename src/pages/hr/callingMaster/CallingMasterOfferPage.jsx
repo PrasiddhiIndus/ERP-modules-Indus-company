@@ -22,7 +22,7 @@ import {
   StatusChip,
   TinyInput,
   TinySelect,
-} from "../../adminOperations/components/AdminUi";
+} from "../../../components/erpUi";
 import { CALLING_MASTER_RECORDS_EVENT, journeyStatusSeverity } from "./callingMasterConfig";
 import { CallingActionBar, CallingActionBtn, CallingActionMenu } from "./CallingTableActions";
 import { useRecruitmentUi } from "./recruitmentUiContext";

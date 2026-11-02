@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "../../../lib/toast";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { FilterBar, KpiTile, PageTaskHeader, SectionCard, TinySelect } from "../../adminOperations/components/AdminUi";
+import { FilterBar, KpiTile, PageTaskHeader, SectionCard, TinySelect } from "../../../components/erpUi";
 import { categorizeAttendanceRecord, emptyMetrics } from "../../../lib/siteAttendance/attendanceRules";
 import { filterSitesByType } from "../../../lib/siteAttendance/siteTypes";
 import { getSite, listAllSites, listAttendance, listSiteDesignations, userFriendlyError } from "../../../lib/siteAttendance/siteAttendanceApi";

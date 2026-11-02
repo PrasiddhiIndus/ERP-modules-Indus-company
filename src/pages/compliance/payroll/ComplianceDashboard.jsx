@@ -6,7 +6,7 @@ import {
   KpiTile,
   PageTaskHeader,
   SectionCard,
-} from "../../adminOperations/components/AdminUi";
+} from "../../../components/erpUi";
 import { listMonthRuns, monthLabel } from "../../adminOperations/salaryAdmin/salaryMonthProcessing";
 import {
   USE_MOCK_SALARY_PROCESSING,

@@ -12,7 +12,7 @@ import ComposeSendModal from './components/ComposeSendModal';
 import TemplateEditorModal from './components/TemplateEditorModal';
 import SenderEditorModal from './components/SenderEditorModal';
 import OutreachClientEditorModal from './components/OutreachClientEditorModal';
-import { InlineAlert, PageTaskHeader } from '../adminOperations/components/AdminUi';
+import { InlineAlert, PageTaskHeader } from '../../components/erpUi';
 import PageLoader from '../../components/PageLoader';
 
 const InHouseOutreach = lazy(() => import('./inHouse/InHouseOutreach'));

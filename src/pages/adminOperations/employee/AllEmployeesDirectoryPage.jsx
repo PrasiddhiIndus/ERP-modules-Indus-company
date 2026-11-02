@@ -15,7 +15,7 @@ import {
   SectionCard,
   TinyInput,
   TinySelect,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 const IN_HOUSE_TAB = "inHouse";
