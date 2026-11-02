@@ -303,7 +303,7 @@ function App() {
       debounceId = window.setTimeout(() => {
         debounceId = null;
         applyRulesToAllDateInputs();
-      }, 100);
+      }, 220);
     };
     const observer = new MutationObserver(scheduleApplyRules);
     observer.observe(document.body, { childList: true, subtree: true });
