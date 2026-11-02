@@ -4,12 +4,12 @@ import {
   ArrowRight,
   Building2,
   Check,
-  ChevronDown,
+  // ChevronDown, // language switcher
   CircleDollarSign,
   Eye,
   EyeOff,
-  Globe,
-  HardHat,
+  // Globe, // language switcher
+  // HardHat, // site login option
   Layers,
   LineChart,
   Lock,
@@ -437,6 +437,7 @@ const Login = () => {
             </button>
           </div>
 
+          {/* Language switcher temporarily hidden
           <div className="login-lang" ref={langMenuRef}>
             <button
               type="button"
@@ -466,6 +467,7 @@ const Login = () => {
               </ul>
             ) : null}
           </div>
+          */}
         </div>
       </header>
 
@@ -593,7 +595,7 @@ const Login = () => {
                   </p>
                 ) : null}
 
-                <div className="login-audience" role="tablist" aria-label="Login type">
+                <div className="login-audience login-audience--office-only" role="tablist" aria-label="Login type">
                   <button
                     type="button"
                     role="tab"
@@ -604,6 +606,7 @@ const Login = () => {
                     <Building2 className="w-4 h-4" strokeWidth={2} aria-hidden />
                     <span>IFSPL (Office)</span>
                   </button>
+                  {/* Site login option temporarily hidden
                   <button
                     type="button"
                     role="tab"
@@ -614,6 +617,7 @@ const Login = () => {
                     <HardHat className="w-4 h-4" strokeWidth={2} aria-hidden />
                     <span>Site</span>
                   </button>
+                  */}
                 </div>
 
                 <label className="login-field">

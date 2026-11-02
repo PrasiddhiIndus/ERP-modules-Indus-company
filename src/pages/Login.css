@@ -375,6 +375,10 @@
   overflow: hidden;
 }
 
+.login-card-head {
+  text-align: center;
+}
+
 .login-card-head h2 {
   margin: 0;
   font-size: 1.75rem;
@@ -409,6 +413,17 @@
   border-radius: 999px;
   background: #eef2f6;
   border: 1px solid #e3e9f0;
+}
+
+.login-audience--office-only {
+  grid-template-columns: 1fr;
+  width: 100%;
+  margin: 0.85rem 0 0.15rem;
+  justify-items: stretch;
+}
+
+.login-audience--office-only button {
+  width: 100%;
 }
 
 .login-hero.is-dark .login-audience {
