@@ -5,7 +5,7 @@ import {
   InlineAlert,
   PageTaskHeader,
   StatusChip,
-} from '../../adminOperations/components/AdminUi';
+} from '../../../components/erpUi';
 import { formatDateTimeAmPmDdMmYyyy } from '../../../utils/dateDisplay';
 import { crmOutreachErrorMsg } from '../../../services/crmOutreachApi';
 import { fetchInHouseCampaignRecipients } from '../../../services/crmInHouseMailApi';

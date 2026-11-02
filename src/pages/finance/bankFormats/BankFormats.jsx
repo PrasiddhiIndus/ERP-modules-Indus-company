@@ -7,7 +7,7 @@ import {
   KpiTile,
   CollapsibleHelp,
   StatusChip,
-} from "../../adminOperations/components/AdminUi";
+} from "../../../components/erpUi";
 import {
   getMonthRunByKey,
   getMonthRunWithLines,

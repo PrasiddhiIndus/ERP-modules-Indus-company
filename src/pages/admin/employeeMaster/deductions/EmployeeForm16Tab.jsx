@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { SectionCard } from "../../../adminOperations/components/AdminUi";
+import { SectionCard } from "../../../../components/erpUi";
 import { newId, parseMoney, round2 } from "./deductionsStore";
 import {
   DangerButton,

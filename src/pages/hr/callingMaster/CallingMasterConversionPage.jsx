@@ -9,7 +9,7 @@ import {
   StatusChip,
   TinyInput,
   TinySelect,
-} from "../../adminOperations/components/AdminUi";
+} from "../../../components/erpUi";
 import { CALLING_MASTER_RECORDS_EVENT, journeyStatusSeverity } from "./callingMasterConfig";
 import { CallingActionBar, CallingActionBtn, CallingActionHint } from "./CallingTableActions";
 import { convertToEmployeeMaster, loadConversionCandidates } from "./callingMasterStorage";

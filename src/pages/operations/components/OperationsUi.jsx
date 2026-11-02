@@ -25,7 +25,12 @@ import {
   TinyInput,
   TinySelect,
   StatusChip,
-} from "../../adminOperations/components/AdminUi";
+  PageTaskHeader,
+  PrimaryButton as ErpPrimaryButton,
+  SecondaryButton as ErpSecondaryButton,
+  EmptyState as ErpEmptyState,
+  FormField as ErpFormField,
+} from "../../../components/erpUi";
 import { formatStatus, statusTone } from "../data/mockOperationsData";
 
 export {
@@ -39,6 +44,7 @@ export {
   Timeline,
   TinyInput,
   TinySelect,
+  PageTaskHeader,
 };
 
 const toneMap = {
@@ -104,76 +110,53 @@ export function Breadcrumbs({ items, theme }) {
 export function PageHeader({ title, subtitle, onRefresh, onExport, primaryAction, theme = "light" }) {
   const t = useThemeClasses(theme);
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-      <div>
-        <h2 className={`text-lg font-bold ${t.dark ? "text-slate-100" : "text-gray-900"}`}>{title}</h2>
-        {subtitle && <p className={`text-xs mt-0.5 ${t.muted}`}>{subtitle}</p>}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {onRefresh && (
-          <button
-            type="button"
-            onClick={onRefresh}
-            className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs border rounded-lg ${t.input}`}
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Refresh
-          </button>
-        )}
-        {onExport && (
-          <button
-            type="button"
-            onClick={onExport}
-            className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs border rounded-lg ${t.input}`}
-          >
-            <Download className="w-3.5 h-3.5" />
-            Export
-          </button>
-        )}
-        {primaryAction}
-      </div>
-    </div>
+    <PageTaskHeader title={title} subtitle={subtitle} className={t.dark ? "[&_h1]:text-slate-100 [&_p]:text-slate-400" : ""}>
+      {onRefresh && (
+        <button
+          type="button"
+          onClick={onRefresh}
+          className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs border rounded-control ${t.input}`}
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Refresh
+        </button>
+      )}
+      {onExport && (
+        <button
+          type="button"
+          onClick={onExport}
+          className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs border rounded-control ${t.input}`}
+        >
+          <Download className="w-3.5 h-3.5" />
+          Export
+        </button>
+      )}
+      {primaryAction}
+    </PageTaskHeader>
   );
 }
 
 export function PrimaryButton({ children, onClick, icon: Icon, disabled, type = "button" }) {
   return (
-    <button
-      type={type}
-      onClick={onClick}
-      disabled={disabled}
-      className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium text-white bg-accent rounded-lg hover:bg-accent-deep disabled:opacity-50"
-    >
-      {Icon && <Icon className="w-3.5 h-3.5" />}
+    <ErpPrimaryButton type={type} onClick={onClick} disabled={disabled} icon={Icon}>
       {children}
-    </button>
+    </ErpPrimaryButton>
   );
 }
 
 export function SecondaryButton({ children, onClick, disabled, type = "button" }) {
   return (
-    <button
-      type={type}
-      onClick={onClick}
-      disabled={disabled}
-      className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium border border-gray-300 rounded-lg bg-white hover:bg-gray-50 disabled:opacity-50"
-    >
+    <ErpSecondaryButton type={type} onClick={onClick} disabled={disabled}>
       {children}
-    </button>
+    </ErpSecondaryButton>
   );
 }
 
 export function FormField({ label, error, required, children, hint }) {
   return (
-    <label className="block">
-      <span className="text-[11px] font-medium text-gray-600">
-        {label}
-        {required && <span className="text-red-500 ml-0.5">*</span>}
-      </span>
-      <div className="mt-1">{children}</div>
-      {hint && !error && <p className="text-[10px] text-gray-400 mt-0.5">{hint}</p>}
-      {error && <p className="text-[10px] text-red-600 mt-0.5">{error}</p>}
-    </label>
+    <ErpFormField label={label} error={error} required={required} hint={hint}>
+      {children}
+    </ErpFormField>
   );
 }
 
@@ -240,14 +223,7 @@ export function LoadingSkeleton({ rows = 4, theme = "light" }) {
 }
 
 export function EmptyState({ icon: Icon, title, description, action }) {
-  return (
-    <div className="text-center py-12 px-4">
-      {Icon && <Icon className="w-10 h-10 mx-auto text-gray-300 mb-3" />}
-      <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-      {description && <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">{description}</p>}
-      {action && <div className="mt-4">{action}</div>}
-    </div>
-  );
+  return <ErpEmptyState icon={Icon} title={title} description={description} action={action} />;
 }
 
 export function ErrorState({ message, onRetry }) {

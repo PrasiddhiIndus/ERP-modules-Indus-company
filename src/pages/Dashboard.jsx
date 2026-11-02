@@ -31,6 +31,7 @@ import {
   makeMoneyAxisFormatter,
   CHART_SERIES,
 } from "../components/charts/DashboardCharts";
+import { PageTaskHeader, PageShell } from "../components/erpUi";
 
 const LEDGER_BASE = "/app/accounts-finance/reports/site-ledger";
 const BILLING_BASE = "/app/billing";
@@ -710,16 +711,17 @@ const Dashboard = () => {
   );
 
   return (
-    <div className="erp-page-stack max-w-[1600px] mx-auto">
-      <div className="bg-surface rounded-card border border-border shadow-card p-5 sm:p-6">
-        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-          <div>
-            <h1 className="type-page-title text-ink">Executive P&amp;L</h1>
-            <p className="type-meta text-ink-muted mt-1.5">
-              P&amp;L and commercial book · ERP footprint across Admin, Manpower, Marketing, Projects and more
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+    <PageShell className="erp-page-stack max-w-[1600px] mx-auto erp-stagger">
+      <div className="bg-surface rounded-card border border-border/80 shadow-card p-5 sm:p-6 relative overflow-hidden">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-accent via-accent-electric to-teal"
+          aria-hidden
+        />
+        <PageTaskHeader
+          title="Executive P&L"
+          subtitle="P&L and commercial book · ERP footprint across Admin, Manpower, Marketing, Projects and more"
+          className="mb-4"
+        >
             <label className="type-mono-caption text-ink-muted inline-flex items-center gap-2">
               From
               <select
@@ -729,7 +731,7 @@ const Dashboard = () => {
                   setFromKey(next);
                   if (comparePeriodKeys(next, toKey) > 0) setToKey(next);
                 }}
-                className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+                className="h-9 rounded-control border border-border bg-surface px-2 text-sm text-ink"
               >
                 {monthChoices.map((m) => (
                   <option key={`from-${m.key}`} value={m.key}>
@@ -747,7 +749,7 @@ const Dashboard = () => {
                   setToKey(next);
                   if (comparePeriodKeys(fromKey, next) > 0) setFromKey(next);
                 }}
-                className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+                className="h-9 rounded-control border border-border bg-surface px-2 text-sm text-ink"
               >
                 {monthChoices.map((m) => (
                   <option key={`to-${m.key}`} value={m.key}>
@@ -767,12 +769,11 @@ const Dashboard = () => {
             </button>
             <Link
               to={ledgerUrl({ month: toKey })}
-              className="h-9 px-3 rounded-lg border border-accent-border bg-accent-soft text-sm inline-flex items-center text-accent font-medium"
+              className="h-9 px-3 rounded-control border border-accent-border bg-accent-soft text-sm inline-flex items-center text-accent font-medium"
             >
               Open site ledger
             </Link>
-          </div>
-        </div>
+        </PageTaskHeader>
         {financeError ? (
           <p className="mt-3 text-sm text-warning bg-warning-soft border border-warning-border rounded-lg px-3 py-2">
             {financeError}. Billing figures below still load from commercial data.
@@ -781,8 +782,8 @@ const Dashboard = () => {
       </div>
 
       <section>
-        <h2 className="type-card-title text-ink mb-3">P&amp;L · {rangeLabel}</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+        <h2 className="type-card-title text-ink-strong mb-3">P&amp;L · {rangeLabel}</h2>
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 erp-stagger">
           <SparkKpi
             label="Revenue"
             value={loading ? "—" : inrShort(pl.revenue)}
@@ -1189,7 +1190,7 @@ const Dashboard = () => {
           </ChartPanel>
         </section>
       ) : null}
-    </div>
+    </PageShell>
   );
 };
 

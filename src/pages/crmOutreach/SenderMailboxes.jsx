@@ -4,7 +4,7 @@ import {
   DenseTable,
   PageTaskHeader,
   StatusChip,
-} from '../adminOperations/components/AdminUi';
+} from '../../components/erpUi';
 import { useCrmOutreach } from './contexts/CrmOutreachContext';
 
 function senderStatusSeverity(status) {

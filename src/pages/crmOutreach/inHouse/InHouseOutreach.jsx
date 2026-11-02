@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { History, Mail, RefreshCw, Users, UsersRound } from 'lucide-react';
 import PageLoader from '../../../components/PageLoader';
-import { InlineAlert } from '../../adminOperations/components/AdminUi';
+import { InlineAlert } from '../../../components/erpUi';
 import { InHouseOutreachProvider, useInHouseOutreach } from './InHouseOutreachContext';
 import InHouseEmployees from './InHouseEmployees';
 import InHouseGroups from './InHouseGroups';

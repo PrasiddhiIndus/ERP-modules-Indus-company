@@ -5,7 +5,7 @@ import { History, RefreshCw, Search } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import { employmentTypeLabel } from "../../../utils/employeeMasterReminders";
-import { Drawer } from "../components/AdminUi";
+import { Drawer } from "../../../components/erpUi";
 import { fetchSalaryStructureMap, formatINR } from "./salaryData";
 import SalaryRevisionHistory from "./SalaryRevisionHistory";
 

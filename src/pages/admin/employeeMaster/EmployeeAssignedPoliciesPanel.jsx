@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { SectionCard, StatusChip } from "../../adminOperations/components/AdminUi";
+import { SectionCard, StatusChip } from "../../../components/erpUi";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import {
   agreementStatusLabel,

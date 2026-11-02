@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { SectionCard, Badge, DenseTable } from '../../../adminOperations/components/AdminUi';
+import { SectionCard, Badge, DenseTable } from '../../../../components/erpUi';
 import { supabase } from '../../../../lib/supabase';
 import { EMPLOYEE_MASTER_TABLE } from '../../../../modules/payroll/integrations';
 import { listEmployeePayrollProfiles, listComponentsMaster, resolveFormulasForSite } from '../../../../services/payrollApi';

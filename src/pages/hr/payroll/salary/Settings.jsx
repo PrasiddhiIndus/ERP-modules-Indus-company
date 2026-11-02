@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { SectionCard } from '../../../adminOperations/components/AdminUi';
+import { SectionCard } from '../../../../components/erpUi';
 import { listComponentsMaster } from '../../../../services/payrollApi';
 import { FORMULA_VARIABLES } from '../../../../modules/payroll/formula/variables';
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from '../../../lib/toast';
 import { crmOutreachErrorMsg } from '../../../services/crmOutreachApi';
-import { Modal } from '../../adminOperations/components/AdminUi';
+import { Modal } from '../../../components/erpUi';
 import EmployeePicker from './EmployeePicker';
 import { useInHouseOutreach } from './InHouseOutreachContext';
 

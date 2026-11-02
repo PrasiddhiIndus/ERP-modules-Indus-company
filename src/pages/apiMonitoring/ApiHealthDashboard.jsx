@@ -24,7 +24,7 @@ import {
   ErrorBanner,
   PlatformStatusOverview,
   FilterPanel,
-  SectionCard,
+  MonitoringSectionCard,
 } from "./components/ApiMonitoringUi";
 import { ApiHealthTableSection } from "./components/ApiHealthTable";
 import DbUsageQuotaPanel from "./components/DbUsageQuotaPanel";
@@ -335,7 +335,7 @@ export default function ApiHealthDashboard() {
         snapshots={snapshots}
       />
 
-      <SectionCard
+      <MonitoringSectionCard
         title="What we cannot check automatically"
         t={t}
         right={
@@ -365,7 +365,7 @@ export default function ApiHealthDashboard() {
             ))}
           </ul>
         </div>
-      </SectionCard>
+      </MonitoringSectionCard>
     </MonitoringShell>
   );
 }

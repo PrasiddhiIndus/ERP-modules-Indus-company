@@ -18,7 +18,7 @@ import {
   EmptyState,
   SkeletonTable,
   MonitoringDrawer,
-  SectionCard,
+  MonitoringSectionCard,
 } from "./ApiMonitoringUi";
 import { formatMs } from "./apiMonitoringUtils";
 
@@ -375,7 +375,7 @@ export function ApiHealthTableSection({
   snapshots,
 }) {
   return (
-    <SectionCard
+    <MonitoringSectionCard
       title="API status"
       t={t}
       right={
@@ -411,6 +411,6 @@ export function ApiHealthTableSection({
         onMobileDrawerClose={onMobileDrawerClose}
         snapshots={snapshots}
       />
-    </SectionCard>
+    </MonitoringSectionCard>
   );
 }

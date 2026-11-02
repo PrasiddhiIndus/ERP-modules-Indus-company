@@ -1461,7 +1461,7 @@ const UserManagement = () => {
   if (!canUseUserManagement) {
     return (
       <div className="p-6">
-        <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-amber-800">
+        <div className="rounded-card border border-warning-border bg-warning-soft p-4 text-warning">
           Only Super Admin can access User Management.
         </div>
       </div>
@@ -1469,16 +1469,13 @@ const UserManagement = () => {
   }
 
   return (
-    <div className="p-4 sm:p-6 w-full">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="p-2 rounded-lg bg-indigo-100">
-          <Users className="w-6 h-6 text-indigo-600" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-          <p className="text-sm text-gray-500">
-            Team and Extra modules are editable for executives and managers. L1/L2 managers are read
-            from Employee Master (<span className="font-mono">admin_ifsp_employee_master</span>) by emp code.
+    <div className="p-4 sm:p-6 w-full space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+        <div className="min-w-0">
+          <h1 className="type-page-title text-ink">User Management</h1>
+          <p className="type-meta text-ink-secondary mt-1.5 max-w-3xl">
+            Assign teams and extra modules for executives and managers. Reporting managers (L1/L2)
+            come from Employee Master by employee code.
           </p>
         </div>
         <button

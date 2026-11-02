@@ -17,7 +17,7 @@ import {
   upsertPlEncashPrefs,
   fetchPlEncashPrefs,
 } from "../../../lib/leaveManagement";
-import { SectionCard } from "../../adminOperations/components/AdminUi";
+import { SectionCard } from "../../../components/erpUi";
 import { toast } from "../../../lib/toast";
 import {
   PrimaryButton,

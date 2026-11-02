@@ -22,7 +22,7 @@ import {
   Modal,
   KpiTile,
   CollapsibleHelp,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import { useAuth } from "../../../contexts/AuthContext";
 import { toast } from "../../../lib/toast";
 import { ERP_TIMEZONE, formatDateDdMmYyyy } from "../../../utils/dateDisplay";

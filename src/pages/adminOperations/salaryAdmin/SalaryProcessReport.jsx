@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Download, Eye, RefreshCw, Search } from "lucide-react";
-import { KpiTile, PageTaskHeader, SectionCard } from "../components/AdminUi";
+import { KpiTile, PageTaskHeader, SectionCard } from "../../../components/erpUi";
 import { formatINRPlain } from "./salaryData";
 import {
   buildSalaryProcessReport,

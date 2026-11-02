@@ -18,7 +18,7 @@ import {
   StatusChip,
   TinyInput,
   TinySelect,
-} from "../../adminOperations/components/AdminUi";
+} from "../../../components/erpUi";
 import { monthKey, monthLabel } from "../../adminOperations/salaryAdmin/salaryMonthProcessing";
 import { persistComplianceMonth } from "./complianceDb";
 import { loadComplianceMonthEmployees } from "./complianceData";

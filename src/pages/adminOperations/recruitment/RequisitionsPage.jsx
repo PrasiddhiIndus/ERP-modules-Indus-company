@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Check, Download, Pencil, Plus, Users } from "lucide-react";
-import { Drawer } from "../components/AdminUi";
+import { Drawer } from "../../../components/erpUi";
 import { toast } from "../../../lib/toast";
 import { ACTIVITY_TYPES, REQUISITION_STATUSES, requisitionStatusMeta } from "./recruitmentConfig";
 import { getRequisitionHistory, listRequisitions, saveRequisition, transitionRequisition } from "./recruitmentService";

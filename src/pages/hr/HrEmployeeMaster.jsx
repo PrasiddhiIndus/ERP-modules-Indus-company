@@ -1,5 +1,5 @@
 import React from "react";
-import { DenseTable } from "../adminOperations/components/AdminUi";
+import { DenseTable } from "../../components/erpUi";
 
 const HR_EMPLOYEE_MASTER_COLUMNS = [
   { key: "id", label: "id" },

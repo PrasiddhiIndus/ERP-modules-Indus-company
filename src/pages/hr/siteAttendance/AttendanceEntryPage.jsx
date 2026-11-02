@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "../../../lib/toast";
 import * as XLSX from "xlsx";
-import { FilterBar, KpiTile, Modal, PageTaskHeader, SectionCard, StatusChip, TinyInput, TinySelect } from "../../adminOperations/components/AdminUi";
+import { FilterBar, KpiTile, Modal, PageTaskHeader, SectionCard, StatusChip, TinyInput, TinySelect } from "../../../components/erpUi";
 import { formatSalaryRangeLabel, isCalendarMonth } from "../../../lib/siteAttendance/salaryCycle";
 import { filterSitesByType } from "../../../lib/siteAttendance/siteTypes";
 import { useSiteAttendanceAccess, useSiteAttendanceType } from "./SiteAttendanceLayout";

@@ -10,7 +10,7 @@ import {
   Wallet,
   Building2,
 } from "lucide-react";
-import { PageTaskHeader, SectionCard } from "../adminOperations/components/AdminUi";
+import { PageTaskHeader, SectionCard } from "../../components/erpUi";
 
 const HR_MODULES = [
   {

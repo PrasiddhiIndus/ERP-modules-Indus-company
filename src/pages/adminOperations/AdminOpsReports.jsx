@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { SectionCard, FilterBar, TinySelect, TinyInput, Badge, DenseTable } from "./components/AdminUi";
+import { SectionCard, FilterBar, TinySelect, TinyInput, Badge, DenseTable } from "../../components/erpUi";
 import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 import { supabase } from "../../lib/supabase";
 import {

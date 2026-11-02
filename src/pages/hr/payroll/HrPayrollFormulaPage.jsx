@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback } from "react";
-import { SectionCard, Badge } from "../../adminOperations/components/AdminUi";
+import { SectionCard, Badge } from "../../../components/erpUi";
 import {
   PAYROLL_ENTRY_COLUMNS,
   PAYROLL_ATTENDANCE_FORMULA_DOCS,

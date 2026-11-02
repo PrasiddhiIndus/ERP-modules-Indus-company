@@ -5,7 +5,7 @@ import {
   SectionCard,
   TinyInput,
   TinySelect,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import { supabase } from "../../../lib/supabase";
 import { toast } from "../../../lib/toast";
 import {

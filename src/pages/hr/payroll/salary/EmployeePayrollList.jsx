@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SectionCard, FilterBar, TinySelect, DenseTable, Badge } from '../../../adminOperations/components/AdminUi';
+import { SectionCard, FilterBar, TinySelect, DenseTable, Badge } from '../../../../components/erpUi';
 import { fetchActiveEmployeesForPayroll } from '../../../../services/attendancePayrollApi';
 import { listEmployeePayrollProfiles, listPayrollSites } from '../../../../services/payrollApi';
 import { fetchPresentDaysByEmployeeCode } from '../../../../services/attendancePayrollApi';

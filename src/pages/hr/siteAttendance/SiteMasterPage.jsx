@@ -11,7 +11,7 @@ import {
   StatusChip,
   TinyInput,
   TinySelect,
-} from "../../adminOperations/components/AdminUi";
+} from "../../../components/erpUi";
 import { SITE_TYPES, isValidSiteType } from "../../../lib/siteAttendance/siteTypes";
 import { formatDateDisplay } from "../../../lib/siteAttendance/dateFormat";
 import {

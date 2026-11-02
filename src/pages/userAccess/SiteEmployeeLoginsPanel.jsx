@@ -9,7 +9,7 @@ import {
   SectionCard,
   StatusChip,
   TinySelect,
-} from "../adminOperations/components/AdminUi";
+} from "../../components/erpUi";
 import { supabase } from "../../lib/supabase";
 import {
   fetchCanManageSiteLogins,

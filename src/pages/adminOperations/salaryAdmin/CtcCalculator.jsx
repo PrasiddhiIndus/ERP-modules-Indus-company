@@ -8,7 +8,7 @@ import {
   StatusChip,
   TinyInput,
   TinySelect,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import {
   CATEGORY_NEW_JOINER_NEW_SCHEME,
   CATEGORY_NEW_PROBATION,

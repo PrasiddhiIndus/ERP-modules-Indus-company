@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Modal } from "../../../../adminOperations/components/AdminUi";
+import { Modal } from "../../../../../components/erpUi";
 import { toast } from "../../../../../lib/toast";
 import { salaryAppPath } from "../salaryNav";
 import { useSalaryModule } from "./SalaryModuleContext";

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Plus } from 'lucide-react';
-import { SectionCard, DenseTable, Badge } from '../../../adminOperations/components/AdminUi';
+import { SectionCard, DenseTable, Badge } from '../../../../components/erpUi';
 
 const DEMO_EXITS = [
   { id: 'e1', employee: 'Rajesh Kumar', code: '0042', lastWorkingDay: '30/06/2026', reason: 'Resignation', status: 'In progress' },

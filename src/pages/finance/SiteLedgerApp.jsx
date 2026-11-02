@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 
 import { toast } from "../../lib/toast";
+import { PageTaskHeader } from "../../components/erpUi";
 function contractPeriodFromDateInput(dateStr) {
   return dateToPeriodKey(dateStr) || null;
 }
@@ -1515,10 +1516,11 @@ export default function SiteLedgerApp({ embedded = true }) {
         )}
         <header className="topbar">
           <div className="topbar-left">
-            <div>
-              <h1>{pageTitle}</h1>
-              <p>{embedded ? `Finance · ${activeSiteCount} active site${activeSiteCount === 1 ? "" : "s"}` : `Income–Expenditure monitoring · ${activeSiteCount} active site${activeSiteCount === 1 ? "" : "s"}`}</p>
-            </div>
+            <PageTaskHeader
+              title={pageTitle}
+              subtitle={embedded ? `Finance · ${activeSiteCount} active site${activeSiteCount === 1 ? "" : "s"}` : `Income–Expenditure monitoring · ${activeSiteCount} active site${activeSiteCount === 1 ? "" : "s"}`}
+              className="mb-0"
+            />
             {embedded && (
               <div className="sl-view-nav">
                 {ledgerNavItems.map((item) => {

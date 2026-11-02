@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Bell, Building2, CalendarDays, ChevronDown, LayoutDashboard, Search } from "lucide-react";
 import { ADMIN_OPS_QUICK_ACTIONS } from "../../config/quickActionRoutes";
 import { ADMIN_OPS_NAV } from "./navConfig";
-import { FilterBar, TinyInput, TinySelect } from "./components/AdminUi";
+import { FilterBar, TinyInput, TinySelect } from "../../components/erpUi";
 import { mockAlerts } from "./data/mockAdminData";
 import { useAuth } from "../../contexts/AuthContext";
 import { canAccessSalaryAdmin } from "./salaryAdmin/salaryAccess";

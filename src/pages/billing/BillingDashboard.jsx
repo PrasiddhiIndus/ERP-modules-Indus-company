@@ -2,7 +2,6 @@ import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import {
   CalendarDays,
   FileDigit,
-  LayoutDashboard,
   Wallet,
   AlertTriangle,
   TrendingUp,
@@ -25,6 +24,7 @@ import {
   ComposedTrendChart,
   CHART_SERIES,
 } from '../../components/charts/DashboardCharts';
+import { PageTaskHeader, PageShell } from '../../components/erpUi';
 
 
 const APPROVAL_APPROVED = 'approved';
@@ -912,16 +912,9 @@ const BillingDashboard = () => {
   };
 
   return (
-    <div className="w-full overflow-y-auto min-h-[80vh] px-4 sm:px-6 pt-2 pb-6 bg-gradient-to-b from-slate-50/70 to-white">
-      <div className="mb-6 rounded-2xl border border-slate-200 bg-white/95 shadow-sm p-4 sm:p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="p-2.5 rounded-xl bg-red-50 ring-1 ring-red-100 border border-red-100/80 shadow-sm shrink-0">
-              <LayoutDashboard className="w-6 h-6 text-red-600" />
-            </div>
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Billing</h1>
-          </div>
-
+    <PageShell className="w-full overflow-y-auto min-h-[80vh] px-4 sm:px-6 pt-2 pb-6 bg-canvas">
+      <div className="mb-6 rounded-card border border-border bg-surface shadow-card p-4 sm:p-5">
+        <PageTaskHeader title="Billing" subtitle="Overview of bills, collections, and site comparisons.">
           <div className="relative shrink-0" ref={filterDropdownRef}>
               <button
                 type="button"
@@ -990,10 +983,10 @@ const BillingDashboard = () => {
                 </div>
               ) : null}
           </div>
-        </div>
+        </PageTaskHeader>
 
         <BillingScopeFilters
-          className="mt-3 pt-3 border-t border-slate-100"
+          className="mt-3 pt-3 border-t border-divider"
           billingVerticalFilter={billingVerticalFilter}
           setBillingVerticalFilter={setBillingVerticalFilter}
           billingVerticalOptions={billingVerticalOptions}
@@ -1464,7 +1457,7 @@ const BillingDashboard = () => {
           </div>
         </div>
       ) : null}
-    </div>
+    </PageShell>
   );
 };
 

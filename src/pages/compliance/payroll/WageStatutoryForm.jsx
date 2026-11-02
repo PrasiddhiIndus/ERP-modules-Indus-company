@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { PageTaskHeader, SectionCard } from "../../adminOperations/components/AdminUi";
+import { PageTaskHeader, SectionCard } from "../../../components/erpUi";
 import { toast } from "../../../lib/toast";
 import {
   WAGE_FORMS,

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { SectionCard, DenseTable, StatusChip, Badge, FilterBar, TinySelect } from "./components/AdminUi";
+import { SectionCard, DenseTable, StatusChip, Badge, FilterBar, TinySelect } from "../../components/erpUi";
 import { mockAlerts } from "./data/mockAdminData";
 import { supabase } from "../../lib/supabase";
 import {

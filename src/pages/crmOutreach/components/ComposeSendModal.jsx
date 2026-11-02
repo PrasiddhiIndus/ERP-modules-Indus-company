@@ -7,7 +7,7 @@ import { useCrmOutreach } from '../contexts/CrmOutreachContext';
 import MergeTokenChips from './MergeTokenChips';
 import EmailPreviewFrame from './EmailPreviewFrame';
 import { escapeTokenValues, looksLikeHtmlEmail } from '../../../../shared/emailHtml.mjs';
-import { InlineAlert } from '../../adminOperations/components/AdminUi';
+import { InlineAlert } from '../../../components/erpUi';
 
 const inputCls =
   'h-9 w-full border border-slate-200 rounded-md px-2.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-accent/30';

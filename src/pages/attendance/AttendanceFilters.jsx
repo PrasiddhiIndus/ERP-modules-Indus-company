@@ -1,6 +1,6 @@
 import React from "react";
 import { RefreshCw, Search } from "lucide-react";
-import { FilterBar, TinyInput, TinySelect } from "../adminOperations/components/AdminUi";
+import { FilterBar, TinyInput, TinySelect } from "../../components/erpUi";
 import { PERIOD_PRESETS, yearOptions } from "./attendanceTableHelpers.jsx";
 
 const ATT_CODE_OPTIONS = [

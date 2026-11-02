@@ -21,7 +21,7 @@ import {
   KpiTile,
   PageTaskHeader,
   CollapsibleHelp,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import { RegisterDepartmentFilter } from "./RegisterDepartmentFilter";
 import {
   ALL_MONTHS,

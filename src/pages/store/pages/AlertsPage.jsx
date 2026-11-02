@@ -1,5 +1,5 @@
 import React from "react";
-import { Badge, SectionCard } from "../components/StoreUi";
+import { Badge, SectionCard } from "../../../components/erpUi";
 
 function severityTone(type) {
   if (type.includes("shortage")) return "bg-red-50 text-red-700";

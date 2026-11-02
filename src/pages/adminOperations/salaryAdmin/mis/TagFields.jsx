@@ -1,5 +1,5 @@
 import React from 'react';
-import { TinyInput, TinySelect } from '../../components/AdminUi';
+import { TinyInput, TinySelect } from '../../../../components/erpUi';
 import { MIS_VERTICALS } from './misMetrics';
 
 /** Payroll reporting tags for one employee. */

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SectionCard, DenseTable, Badge } from '../../../adminOperations/components/AdminUi';
+import { SectionCard, DenseTable, Badge } from '../../../../components/erpUi';
 
 const DEMO_FNF = [
   { id: 'f1', employee: 'Sunita Patel', code: '0031', settlementDate: '20/05/2026', amount: '₹1,85,400', status: 'Settled' },

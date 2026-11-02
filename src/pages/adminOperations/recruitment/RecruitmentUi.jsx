@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, ChevronDown, ChevronUp, ChevronsUpDown, FileText, Inbox, Loader2, RefreshCw, Search, X } from "lucide-react";
-import { Modal } from "../components/AdminUi";
+import { Modal } from "../../../components/erpUi";
 import { toast } from "../../../lib/toast";
 import { TONE_CLASSES, TONE_DOT } from "./recruitmentConfig";
 import { RECRUITMENT_DATA_EVENT, getCapabilities, getFileUrl, searchEmployees } from "./recruitmentService";

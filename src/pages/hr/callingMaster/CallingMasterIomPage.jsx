@@ -27,7 +27,7 @@ import {
   StatusChip,
   TinyInput,
   TinySelect,
-} from "../../adminOperations/components/AdminUi";
+} from "../../../components/erpUi";
 import {
   buildRecruitmentIomEntryFromCandidate,
   CALLING_MASTER_RECORDS_EVENT,
