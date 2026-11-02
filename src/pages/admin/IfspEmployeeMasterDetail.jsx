@@ -30,7 +30,7 @@ import EmployeeTdsTab from "./employeeMaster/deductions/EmployeeTdsTab";
 import EmployeeForm16Tab from "./employeeMaster/deductions/EmployeeForm16Tab";
 import EmployeeLeavesTab from "./employeeMaster/EmployeeLeavesTab";
 import EmployeeToursTab from "./employeeMaster/EmployeeToursTab";
-import EmployeeAssignedPoliciesPanel from "./employeeMaster/EmployeeAssignedPoliciesPanel";
+import EmployeeMasterDocumentsPanel from "./employeeMaster/EmployeeMasterDocumentsPanel";
 import EmployeeSalaryHistoryTab from "./employeeMaster/EmployeeSalaryHistoryTab";
 import EmployeePayslipsTab from "./employeeMaster/EmployeePayslipsTab";
 import { fetchOpenVariancesForEmployee } from "../adminOperations/salaryAdmin/salaryMonthProcessing";
@@ -549,7 +549,7 @@ export default function IfspEmployeeMasterDetail() {
             ) : null}
 
             {activeTab === "documents" ? (
-              <EmployeeAssignedPoliciesPanel employeeId={employee.id} />
+              <EmployeeMasterDocumentsPanel employee={employee} />
             ) : null}
 
             {activeTab === "fnf" ? (

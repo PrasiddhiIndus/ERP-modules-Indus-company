@@ -45,6 +45,7 @@ import {
   startInHouseCampaign,
 } from './crmInHouseMailApi.js';
 import { registerAdminRecruitmentRoutes, startAdminRecruitmentAutomation } from './adminRecruitmentApi.js';
+import { registerAdminEmployeeDocumentsRoutes } from './adminEmployeeDocumentsApi.js';
 import { startPayrollMisAlerts } from './payrollMisAlerts.js';
 import { startProbationReviewReminders } from './probationReviewReminders.js';
 import {
@@ -521,6 +522,16 @@ const r2CommercialPoUpload = multer({
 });
 
 const adminRecruitment = registerAdminRecruitmentRoutes(app, {
+  requireAuth,
+  getSupabaseUrl: getSupabaseUrlForServer,
+  getServiceKey: getSupabaseServiceRoleKeyForServer,
+  getAnonKey: getSupabaseAnonKeyForServer,
+  getR2Client: getR2S3Client,
+  getR2Bucket: getR2BucketName,
+  upload: r2InvoiceUpload,
+});
+
+registerAdminEmployeeDocumentsRoutes(app, {
   requireAuth,
   getSupabaseUrl: getSupabaseUrlForServer,
   getServiceKey: getSupabaseServiceRoleKeyForServer,
@@ -1776,6 +1787,44 @@ app.post('/api/maintenance/oc/signoff-notify', einvoiceRateLimit, requireAuth, a
   } catch (err) {
     const status = Number(err?.status) || 500;
     if (status >= 500) console.error('[maintenance/oc/signoff-notify]', err?.message || err);
+    const message = err?.message || 'Could not send the sign-off notification.';
+    return res.status(status).json({ error: message, message });
+  }
+});
+
+app.post('/api/projects/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
+  try {
+    const result = await notifyOcSignoffAssignees({
+      db: crmInHouseServiceClient(),
+      ocId: req.body?.ocId,
+      signatures: req.body?.signatures,
+      senderMailboxId: req.body?.senderMailboxId,
+      signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
+      department: 'projects',
+    });
+    return res.json(result);
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    if (status >= 500) console.error('[projects/oc/signoff-notify]', err?.message || err);
+    const message = err?.message || 'Could not send the sign-off notification.';
+    return res.status(status).json({ error: message, message });
+  }
+});
+
+app.post('/api/rm/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
+  try {
+    const result = await notifyOcSignoffAssignees({
+      db: crmInHouseServiceClient(),
+      ocId: req.body?.ocId,
+      signatures: req.body?.signatures,
+      senderMailboxId: req.body?.senderMailboxId,
+      signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
+      department: 'rm',
+    });
+    return res.json(result);
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    if (status >= 500) console.error('[rm/oc/signoff-notify]', err?.message || err);
     const message = err?.message || 'Could not send the sign-off notification.';
     return res.status(status).json({ error: message, message });
   }

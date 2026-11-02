@@ -3,7 +3,7 @@ import PageLoader from "../components/PageLoader";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
-import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, isAdminRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath, getOpenableIevCostingTabs, getOpenableProjectsEnquiryTabs } from "../config/roles";
+import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, isAdminRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath, getOpenableIevCostingTabs, getOpenableProjectsEnquiryTabs, FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY } from "../config/roles";
 import {
   canAccessSalaryAdmin,
   EMPLOYEE_MASTER_SUBMODULE_KEY,
@@ -161,7 +161,7 @@ function resolveWorkspaceContext(pathname) {
     [/\/app\/admin\/salary-admin/, "Admin", "Salary administration"],
     [/\/app\/admin/, "Admin", "Operations"],
     [/\/app\/store-inventory|\/app\/gate-pass/, "Admin", "Store & gate pass"],
-    [/\/app\/commercial\/rm-mm-amc-iev/, "Commercial", "R&M / AMC / IEV"],
+    [/\/app\/commercial\/rm-mm-amc-iev/, "R&M", "R&M"],
     [/\/app\/commercial|\/app\/manpower/, "Commercial", "Manpower & training"],
     [/\/app\/marketing/, "Go-to-market", "Marketing"],
     [/\/app\/crm-outreach/, "Go-to-market", "Client/In-House Mail Outreach"],
@@ -433,7 +433,8 @@ const Layout = () => {
       pathname.startsWith("/app/projects/enquiry") ||
       pathname.startsWith("/app/projects/quotation") ||
       pathname.startsWith("/app/projects-management") ||
-      pathname.startsWith("/app/projects-billing")
+      pathname.startsWith("/app/projects-billing") ||
+      pathname.startsWith("/app/projects-po-at-glance")
     ) {
       setProjectsOpen(true);
     }
@@ -1153,7 +1154,7 @@ const Layout = () => {
             </div>
             )}
 
-            {/* Commercial — R&M / AMC / IEV */}
+            {/* R&M */}
             {(can("commercialRm") || can("sales")) && (
             <div>
               <button
@@ -1165,10 +1166,7 @@ const Layout = () => {
               >
                 <span className="flex items-center space-x-2.5 min-w-0">
                   <Briefcase className="w-4 h-4 shrink-0" />
-                  <span className="min-w-0 text-left leading-tight">
-                    <span className="block text-sm font-medium">Commercial</span>
-                    <span className="block text-xs">R&amp;M / AMC / IEV</span>
-                  </span>
+                  <span className="type-body-medium type-truncate">R&amp;M</span>
                 </span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${commercialRmOpen ? "rotate-180" : ""}`}
@@ -1183,7 +1181,7 @@ const Layout = () => {
                   </NavLink>
                   <NavLink to="/app/commercial/rm-mm-amc-iev/manpower-management" className={subNavClass}>
                     <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Enquiry (R&amp;M / AMC / IEV)</span>
+                    <span className="type-meta type-truncate">Enquiry</span>
                   </NavLink>
                   <NavLink to="/app/commercial/rm-mm-amc-iev/internal-quotation" className={subNavClass}>
                     <Calculator className="w-4 h-4 shrink-0 text-sidebar-accent" />
@@ -1196,6 +1194,10 @@ const Layout = () => {
                   <NavLink to="/app/commercial/rm-mm-amc-iev/contact-log" className={subNavClass}>
                     <ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Contact Log</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial/rm-mm-amc-iev/po-at-glance" end className={subNavClass}>
+                    <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span className="type-meta type-truncate">PO At Glance</span>
                   </NavLink>
                 </div>
               )}
@@ -1491,7 +1493,8 @@ const Layout = () => {
                   pathname.startsWith("/app/projects/enquiry") ||
                   pathname.startsWith("/app/projects/quotation") ||
                   pathname.startsWith("/app/projects-management") ||
-                  pathname.startsWith("/app/projects-billing")
+                  pathname.startsWith("/app/projects-billing") ||
+                  pathname.startsWith("/app/projects-po-at-glance")
                     ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent"
                     : "text-sidebar-strong"
                 }`}
@@ -1535,6 +1538,10 @@ const Layout = () => {
                   <NavLink to="projects/po/contact-log" className={subNavClass}>
                     <History className="w-4 h-4 shrink-0 text-ink-muted" />
                     <span className="type-meta type-truncate">PO Contact Log</span>
+                  </NavLink>
+                  <NavLink to="/app/projects-po-at-glance" end className={subNavClass}>
+                    <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span className="type-meta type-truncate">PO At Glance</span>
                   </NavLink>
                 </div>
               )}
@@ -1634,6 +1641,11 @@ const Layout = () => {
                   <NavLink to="/app/accounts-finance/bank-formats" className={subNavClass}>
                     <span className="type-meta type-truncate">Bank formats</span>
                   </NavLink>
+                  {canSub(FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY) && (
+                  <NavLink to="/app/accounts-finance/po-at-glance" className={subNavClass}>
+                    <span className="type-meta type-truncate">Master PO At Glance</span>
+                  </NavLink>
+                  )}
                 </div>
               )}
             </div>

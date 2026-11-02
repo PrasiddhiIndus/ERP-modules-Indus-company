@@ -1,5 +1,8 @@
 export const COMMERCIAL_MODULE_MANPOWER_TRAINING = "manpower-training";
+/** Legacy shared bag (Maintenance M&M still uses this marker). */
 export const COMMERCIAL_MODULE_RM_MM_AMC_IEV = "rm-mm-amc-iev";
+/** R&M module only — exclusive of Manpower/Training, Maintenance M&M, AMC, IEV, Projects. */
+export const COMMERCIAL_MODULE_RM = "rm";
 /** Projects module PO Entry — same billing.po_wo row shape as R&M family; scoped by update_history marker. */
 export const COMMERCIAL_MODULE_PROJECTS = "projects";
 
@@ -40,22 +43,42 @@ export function isCommercialModuleMarker(entry) {
   return !!(entry && typeof entry === "object" && typeof entry.summary === "string" && entry.summary.startsWith(MODULE_MARKER_PREFIX));
 }
 
-export function getCommercialPoModuleType(po) {
-  const explicit = po?.moduleType;
-  if (explicit) return explicit;
-  const fromMarker = getCommercialModuleTypeFromUpdateHistory(po?.updateHistory);
-  if (fromMarker) return fromMarker;
-  // Fallback: infer from PO vertical when markers are missing (legacy rows / older DB data).
-  const v = String(po?.vertical || po?.poVertical || '')
+function normalizeVerticalKey(po) {
+  return String(po?.vertical || po?.poVertical || "")
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, '');
-  if (v === 'projects' || v === 'project') return COMMERCIAL_MODULE_PROJECTS;
-  const rmSet = new Set(['rm', 'mm', 'amc', 'iev', 'rm&m', 'm&m']);
-  if (rmSet.has(v)) return COMMERCIAL_MODULE_RM_MM_AMC_IEV;
-  // DB stores MANP/TRAIN as vertical segments too
-  const mtSet = new Set(['manp', 'manpower', 'train', 'training', 'bill']);
+    .replace(/\s+/g, "");
+}
+
+/** Infer module from OC / vertical when markers are missing or still on the legacy shared bag. */
+function moduleTypeFromVertical(v) {
+  if (v === "projects" || v === "project") return COMMERCIAL_MODULE_PROJECTS;
+  if (v === "rm" || v === "r&m" || v === "rm&m") return COMMERCIAL_MODULE_RM;
+  if (v === "mm" || v === "m&m" || v === "amc" || v === "iev") return COMMERCIAL_MODULE_RM_MM_AMC_IEV;
+  const mtSet = new Set(["manp", "manpower", "train", "training", "bill"]);
   if (mtSet.has(v)) return COMMERCIAL_MODULE_MANPOWER_TRAINING;
+  return null;
+}
+
+export function getCommercialPoModuleType(po) {
+  const explicit = po?.moduleType;
+  if (explicit === COMMERCIAL_MODULE_RM) return COMMERCIAL_MODULE_RM;
+  if (explicit && explicit !== COMMERCIAL_MODULE_RM_MM_AMC_IEV) return explicit;
+
+  const fromMarker = getCommercialModuleTypeFromUpdateHistory(po?.updateHistory);
+  const v = normalizeVerticalKey(po);
+
+  // Legacy shared marker: split by vertical so R&M no longer shares Maintenance/AMC/IEV scope.
+  if (fromMarker === COMMERCIAL_MODULE_RM_MM_AMC_IEV || explicit === COMMERCIAL_MODULE_RM_MM_AMC_IEV) {
+    const inferred = moduleTypeFromVertical(v);
+    if (inferred) return inferred;
+    return COMMERCIAL_MODULE_RM_MM_AMC_IEV;
+  }
+  if (fromMarker === COMMERCIAL_MODULE_RM) return COMMERCIAL_MODULE_RM;
+  if (fromMarker) return fromMarker;
+
+  const inferred = moduleTypeFromVertical(v);
+  if (inferred) return inferred;
   return COMMERCIAL_MODULE_MANPOWER_TRAINING;
 }
 

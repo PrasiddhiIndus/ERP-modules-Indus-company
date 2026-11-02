@@ -32,6 +32,7 @@ import {
   isCustomWorkingHours,
 } from "../utils/manpowerEnquiryExcelFields";
 import { toast } from "../../../lib/toast";
+import { fetchCommercialAssigneeOptions } from "../utils/commercialInquiryAssignees";
 
 const emptyForm = {
   enquiryNumber: "",
@@ -278,18 +279,56 @@ function AttachmentFileRow({ label, onRemove, onPreview, onDownload, tone = "sla
   );
 }
 
-function MultiAssigneeField({ label, required, values, draft, onDraftChange, onAdd, onRemove, inputClass }) {
+function MultiAssigneeField({ label, required, values, draft, onDraftChange, onAdd, onRemove, suggestions = [], inputClass }) {
+  const [open, setOpen] = useState(false);
+  const skipBlurCommitRef = useRef(false);
+
+  const selectedLower = new Set((values || []).map((v) => String(v || "").trim().toLowerCase()).filter(Boolean));
+  const query = String(draft || "").trim().toLowerCase();
+  const filteredSuggestions = (suggestions || [])
+    .filter((opt) => {
+      const label = String(opt?.label || "").trim();
+      const value = String(opt?.value || "").trim();
+      const name = String(opt?.name || "").trim();
+      if (!label && !value) return false;
+      if (selectedLower.has(label.toLowerCase()) || selectedLower.has(value.toLowerCase())) return false;
+      if (!query) return true;
+      return (
+        label.toLowerCase().includes(query) ||
+        value.toLowerCase().includes(query) ||
+        name.toLowerCase().includes(query)
+      );
+    })
+    .slice(0, 8);
+
   const commitDraft = () => {
     const next = String(draft || "").trim();
     if (!next) return;
     onAdd(next);
     onDraftChange("");
+    setOpen(false);
+  };
+
+  const pickSuggestion = (opt) => {
+    const next = String(opt?.label || opt?.value || "").trim();
+    if (!next) return;
+    onAdd(next);
+    onDraftChange("");
+    setOpen(false);
   };
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
+      if (filteredSuggestions.length === 1 && query) {
+        pickSuggestion(filteredSuggestions[0]);
+        return;
+      }
       commitDraft();
+      return;
+    }
+    if (e.key === "Escape") {
+      setOpen(false);
       return;
     }
     if (e.key === "Backspace" && !draft && values.length) {
@@ -298,7 +337,7 @@ function MultiAssigneeField({ label, required, values, draft, onDraftChange, onA
   };
 
   return (
-    <div>
+    <div className="relative">
       <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1.5">
         {label}
         {required && <span className="text-red-500 normal-case tracking-normal ml-0.5">*</span>}
@@ -325,13 +364,47 @@ function MultiAssigneeField({ label, required, values, draft, onDraftChange, onA
         <input
           type="text"
           value={draft}
-          onChange={(e) => onDraftChange(e.target.value)}
+          onChange={(e) => {
+            onDraftChange(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
           onKeyDown={handleKeyDown}
-          onBlur={commitDraft}
+          onBlur={() => {
+            if (skipBlurCommitRef.current) {
+              skipBlurCommitRef.current = false;
+              return;
+            }
+            commitDraft();
+            setOpen(false);
+          }}
           className="min-w-[140px] flex-1 border-0 bg-transparent px-1 py-1 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
           placeholder={values.length ? "Add another name…" : "Type name and press Enter"}
+          autoComplete="off"
         />
       </div>
+      {open && filteredSuggestions.length > 0 ? (
+        <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+          {filteredSuggestions.map((opt) => (
+            <li key={`${opt.value}-${opt.label}`}>
+              <button
+                type="button"
+                className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-purple-50"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  skipBlurCommitRef.current = true;
+                }}
+                onClick={() => pickSuggestion(opt)}
+              >
+                <span className="text-sm font-medium text-slate-800">{opt.name || opt.label}</span>
+                {opt.value && opt.name && opt.value !== opt.name ? (
+                  <span className="text-xs text-slate-500">{opt.value}</span>
+                ) : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <p className="mt-1.5 text-xs text-slate-500">Press Enter or comma to add each person. Click × to remove.</p>
     </div>
   );
@@ -341,6 +414,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const [formData, setFormData] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
   const [assignedToDraft, setAssignedToDraft] = useState("");
+  const [commercialAssigneeOptions, setCommercialAssigneeOptions] = useState([]);
   const [srNoLoading, setSrNoLoading] = useState(false);
   const defaultAssigneeRef = useRef("");
   const existingScopeAttachmentPathsRef = useRef([]);
@@ -350,6 +424,21 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const existingMetaRef = useRef({});
   const scopeFileInputRef = useRef(null);
   const enquiryFileInputRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const options = await fetchCommercialAssigneeOptions(supabase);
+        if (!cancelled) setCommercialAssigneeOptions(options);
+      } catch (err) {
+        console.error("Failed to load commercial assignees:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const isOnlineTender = formData.sourceType === "Online Tender";
   const isTenderFeeApplicable = formData.tenderFeeApplicable === "Applicable";
@@ -575,7 +664,6 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       ["vertical", "Vertical"],
       ["sourceType", "Source Type"],
       ["clientName", "Client Name"],
-      ["siteName", "Site Name"],
       ["siteState", "State"],
       ["siteCity", "City"],
       ["industrySector", "Industry / Sector"],
@@ -669,7 +757,6 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       }
       const tenderRequired = [
         ["tenderNumber", "Tender Number"],
-        ["estimatedValueClient", "Estimated Value (Client)"],
       ];
       for (const [field, label] of tenderRequired) {
         if (!String(formData[field] || "").trim()) {
@@ -860,7 +947,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             placeholder="As per portal"
           />
         </Field>
-        <Field label="Estimated Value (Client)" required>
+        <Field label="Estimated Value (Client)">
           <CurrencyInput
             name="estimatedValueClient"
             value={formData.estimatedValueClient}
@@ -1000,6 +1087,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
               onDraftChange={setAssignedToDraft}
               onAdd={addAssignedToName}
               onRemove={removeAssignedToName}
+              suggestions={commercialAssigneeOptions}
             />
           </div>
           <div>
@@ -1054,7 +1142,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             <input name="siteCity" value={formData.siteCity} onChange={handleChange} className={inputClass} />
           </div>
           <div>
-            <label className={labelClass}>Site Name {req}</label>
+            <label className={labelClass}>Site Name</label>
             <input name="siteName" value={formData.siteName} onChange={handleChange} className={inputClass} />
           </div>
         </div>

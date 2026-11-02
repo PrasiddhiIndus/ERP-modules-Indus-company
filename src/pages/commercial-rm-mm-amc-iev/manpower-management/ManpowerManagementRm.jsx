@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Search, Plus, FileText, X, CheckCircle2, XCircle, Pencil, Trash2 } from "lucide-react";
-import { supabase } from "../../../lib/supabase";
 import { useAuth } from "../../../contexts/AuthContext";
 import { COMMERCIAL_RM_APPROVER_MODULE_KEYS, userCanApproveInModules } from "../../../config/roles";
 import ManpowerNavbarRm from "./ManpowerNavbarRm";
 import ManpowerEnquiryFormPanelRm from "./components/ManpowerEnquiryFormPanelRm";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
+import { deleteRmEnquiry, listRmEnquiries, rmEnquiriesTable } from "../rmEnquiryApi";
 
 const RM_MANPOWER_BASE = "/app/commercial/rm-mm-amc-iev/manpower-management";
 
@@ -67,17 +67,12 @@ const ManpowerManagementRm = () => {
   const fetchEnquiries = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.from("manpower_enquiries").select("*").order("created_at", { ascending: false });
-      if (error) {
-        console.error(error);
-        setListError(error.message || String(error));
-        setEnquiries([]);
-      } else {
-        setListError(null);
-        setEnquiries(data || []);
-      }
+      const data = await listRmEnquiries();
+      setListError(null);
+      setEnquiries(data);
     } catch (e) {
       console.error(e);
+      setListError(e?.message || String(e));
       setEnquiries([]);
     } finally {
       setLoading(false);
@@ -156,8 +151,7 @@ const ManpowerManagementRm = () => {
   const handleApprove = async (rowId) => {
     if (!canApproveEnquiries) return;
     try {
-      const { data: currentRow, error: rowError } = await supabase
-        .from("manpower_enquiries")
+      const { data: currentRow, error: rowError } = await rmEnquiriesTable()
         .select("id, authorization_to")
         .eq("id", rowId)
         .single();
@@ -167,8 +161,7 @@ const ManpowerManagementRm = () => {
       let ifslNumber = currentParsed.meta.ifslNumber || "";
 
       if (!ifslNumber) {
-        const { data: allRows, error: allError } = await supabase
-          .from("manpower_enquiries")
+        const { data: allRows, error: allError } = await rmEnquiriesTable()
           .select("authorization_to, duration");
         if (allError) throw allError;
 
@@ -192,8 +185,7 @@ const ManpowerManagementRm = () => {
         ifslNumber,
       };
 
-      const { error } = await supabase
-        .from("manpower_enquiries")
+      const { error } = await rmEnquiriesTable()
         .update({
           status: "Approved",
           authorization_to: buildAuthorizationValue(nextMeta, currentParsed.rawText),
@@ -208,15 +200,18 @@ const ManpowerManagementRm = () => {
 
   const handleReject = async (rowId) => {
     if (!canApproveEnquiries) return;
-    const { error } = await supabase.from("manpower_enquiries").update({ status: "Rejected" }).eq("id", rowId);
+    const { error } = await rmEnquiriesTable().update({ status: "Rejected" }).eq("id", rowId);
     if (error) console.error(error);
     fetchEnquiries();
   };
 
   const handleDelete = async (rowId) => {
     if (!confirm("Delete this enquiry?")) return;
-    const { error } = await supabase.from("manpower_enquiries").delete().eq("id", rowId);
-    if (error) console.error(error);
+    try {
+      await deleteRmEnquiry(rowId);
+    } catch (error) {
+      console.error(error);
+    }
     fetchEnquiries();
   };
 
@@ -227,12 +222,13 @@ const ManpowerManagementRm = () => {
       <div className="mt-4 bg-white shadow p-3 sm:p-4 md:p-6 rounded-lg mb-4 md:mb-6 max-w-[1600px] mx-auto">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 md:mb-6">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Manpower Management</h1>
-            <p className="text-sm sm:text-base text-gray-600 mt-1">Enquiries, approval, and IFSL reference — same database as before</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">R&amp;M Enquiry</h1>
+            <p className="text-sm sm:text-base text-gray-600 mt-1">R&amp;M enquiries, approval, and IFSL reference</p>
             {listError && (
               <p className="mt-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
-                Could not load enquiries: {listError}. If the table is missing, run the migration{" "}
-                <code className="text-xs">20260414120000_manpower_enquiries_and_storage.sql</code> in Supabase SQL Editor.
+                Could not load enquiries: {listError}. Apply migration{" "}
+                <code className="text-xs">20261102180000_rm_schema_enquiries.sql</code> and expose schema{" "}
+                <code className="text-xs">rm</code> in Supabase API settings.
               </p>
             )}
           </div>

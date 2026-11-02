@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { BillingProvider, useBilling } from "../../contexts/BillingContext";
-import { COMMERCIAL_MODULE_RM_MM_AMC_IEV } from "../../constants/commercialModuleType";
+import { COMMERCIAL_MODULE_RM } from "../../constants/commercialModuleType";
 import POEntry from "./POEntry";
 import ContactLog from "./ContactLog";
 import CommercialDashboardRmMmAmcIev from "./dashboard/CommercialDashboardRmMmAmcIev";
@@ -9,13 +9,14 @@ import CommercialDashboardRmMmAmcIev from "./dashboard/CommercialDashboardRmMmAm
 const TAB_IDS = ["po-entry", "contact-log"];
 const RM_BASE = "/app/commercial/rm-mm-amc-iev";
 
-function isMmCommercialPo(p) {
+/** Commercial R&M module shows only R&M vertical (AMC / IEV / M&M stay in their own modules). */
+function isRmCommercialPo(p) {
   const oc = String(p?.ocNumber || "").trim();
   if (oc.startsWith("IFSPL-")) {
     const seg = oc.split("-")[1];
-    if (seg) return seg === "M&M";
+    if (seg) return seg === "R&M";
   }
-  return String(p?.vertical || "").trim() === "M&M";
+  return String(p?.vertical || "").trim() === "R&M";
 }
 
 const CommercialInnerRm = () => {
@@ -41,10 +42,10 @@ const CommercialInnerRm = () => {
     if (TAB_IDS.includes(rest)) setActiveTab(rest);
   }, [location.pathname]);
 
-  // M&M POs are managed under Maintenance; keep them out of Commercial list UIs.
-  // PO Entry still receives the full module slice so save/approve merges stay correct.
-  const commercialPOsWithoutMm = useMemo(
-    () => commercialPOs.filter((p) => !isMmCommercialPo(p)),
+  // Dashboard / Contact Log: R&M rows only.
+  // PO Entry still receives the full module slice so save/approve merges stay correct; vertical is locked to R&M.
+  const commercialPOsRmOnly = useMemo(
+    () => commercialPOs.filter((p) => isRmCommercialPo(p)),
     [commercialPOs]
   );
 
@@ -62,7 +63,8 @@ const CommercialInnerRm = () => {
     navigate(`${RM_BASE}/${tabId}`);
   };
 
-  const posForUi = ActiveComponent === POEntry ? commercialPOs : commercialPOsWithoutMm;
+  const isPoEntry = ActiveComponent === POEntry;
+  const posForUi = isPoEntry ? commercialPOs : commercialPOsRmOnly;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -76,8 +78,8 @@ const CommercialInnerRm = () => {
       )}
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="px-6 py-4">
-          <h1 className="text-2xl font-bold text-gray-900">Commercial - R&amp;M / AMC / IEV</h1>
-          <p className="text-gray-600 mt-1">PO/WO Management - Contract details (same source as Manpower/Training)</p>
+          <h1 className="text-2xl font-bold text-gray-900">R&amp;M</h1>
+          <p className="text-gray-600 mt-1">PO/WO management for R&amp;M contracts</p>
         </div>
         {!isDashboardRoute && (
           <div className="px-6 flex gap-2 border-t border-gray-100">
@@ -102,6 +104,7 @@ const CommercialInnerRm = () => {
           commercialPOs={posForUi}
           setCommercialPOs={setCommercialPOs}
           setInvoices={setInvoices}
+          {...(isPoEntry ? { fixedVertical: "R&M" } : {})}
         />
       </div>
     </div>
@@ -109,7 +112,7 @@ const CommercialInnerRm = () => {
 };
 
 const CommercialRmMmAmcIev = () => (
-  <BillingProvider commercialModuleScope={COMMERCIAL_MODULE_RM_MM_AMC_IEV}>
+  <BillingProvider commercialModuleScope={COMMERCIAL_MODULE_RM}>
     <CommercialInnerRm />
   </BillingProvider>
 );

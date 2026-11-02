@@ -17,6 +17,7 @@ import { ensureAttendanceRulesLoaded } from '../lib/attendanceRules';
 
 import {
   COMMERCIAL_MODULE_PROJECTS,
+  COMMERCIAL_MODULE_RM,
   COMMERCIAL_MODULE_RM_MM_AMC_IEV,
   getCommercialPoModuleType,
 } from '../constants/commercialModuleType';
@@ -71,7 +72,9 @@ function writeSeen(userId, keys) {
 
 function approverKeysForPo(po) {
   const moduleType = getCommercialPoModuleType(po);
-  if (moduleType === COMMERCIAL_MODULE_RM_MM_AMC_IEV) return COMMERCIAL_RM_APPROVER_MODULE_KEYS;
+  if (moduleType === COMMERCIAL_MODULE_RM || moduleType === COMMERCIAL_MODULE_RM_MM_AMC_IEV) {
+    return COMMERCIAL_RM_APPROVER_MODULE_KEYS;
+  }
   if (moduleType === COMMERCIAL_MODULE_PROJECTS) return PROJECTS_PO_APPROVER_MODULE_KEYS;
   return COMMERCIAL_MT_APPROVER_MODULE_KEYS;
 }
@@ -79,7 +82,8 @@ function approverKeysForPo(po) {
 function routeForPo(po) {
   const query = `highlightPoId=${encodeURIComponent(po?.id || '')}`;
   const moduleType = getCommercialPoModuleType(po);
-  if (moduleType === COMMERCIAL_MODULE_RM_MM_AMC_IEV) return `/app/commercial/rm-mm-amc-iev/po-entry?${query}`;
+  if (moduleType === COMMERCIAL_MODULE_RM) return `/app/commercial/rm-mm-amc-iev/po-entry?${query}`;
+  if (moduleType === COMMERCIAL_MODULE_RM_MM_AMC_IEV) return `/app/maintenance/mm-po-entry?${query}`;
   if (moduleType === COMMERCIAL_MODULE_PROJECTS) return `/app/projects/po/po-entry?${query}`;
   return `/app/commercial/manpower-training/po-entry?${query}`;
 }
