@@ -9,7 +9,7 @@ import {
 import { formatDateDdMmYyyy, formatDateTimeDdMmYyyy } from "../../../utils/dateDisplay";
 import { isValidDateInputValue, normalizeDateInputValue } from '../../../utils/dateInput';
 import {
-  COMMERCIAL_MODULE_RM_MM_AMC_IEV,
+  COMMERCIAL_MODULE_RM,
   isCommercialModuleMarker,
 } from '../../../constants/commercialModuleType';
 import { buildCommercialClientProfiles } from '../../../utils/commercialClientProfiles';
@@ -42,7 +42,8 @@ const PO_FIELD_LABEL = 'block text-sm font-medium text-gray-700 mb-1';
 const PO_FIELD_INPUT = 'w-full min-w-0 border border-gray-300 rounded-lg px-3 py-2 bg-white';
 const PO_FIELD_HINT = 'text-[11px] text-gray-500 mt-1 leading-snug';
 
-const VERTICALS = ['R&M', 'AMC', 'IEV'];
+/** Commercial R&M module verticals only. Maintenance / Projects pass fixedVertical instead. */
+const VERTICALS = ['R&M'];
 const BILLING_TYPES = ['Supply', 'Service'];
 const ALLOWED_RM_PO_TYPES = new Set(BILLING_TYPES);
 const BILLING_CYCLES = ['30', '45', '60'];
@@ -360,14 +361,14 @@ const POEntry = ({
   setCommercialPOs,
   setInvoices,
   fixedVertical = null,
-  moduleType = COMMERCIAL_MODULE_RM_MM_AMC_IEV,
+  moduleType = COMMERCIAL_MODULE_RM,
   approverModuleKeys = COMMERCIAL_RM_APPROVER_MODULE_KEYS,
 }) => {
   const location = useLocation();
   const { user, userProfile, accessibleModules } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: 'modified', direction: 'desc' });
-  /** OC segment / vertical — R&M, AMC, IEV (locked when fixedVertical is set, e.g. M&M from Maintenance) */
+  /** OC segment / vertical — R&M (locked when fixedVertical is set, e.g. M&M from Maintenance) */
   const [departmentFilter, setDepartmentFilter] = useState(() => fixedVertical || '');
   const [listPoBasisFilter, setListPoBasisFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -535,9 +536,9 @@ const POEntry = ({
   const filteredList = useMemo(() => {
     // Hide supplementary/mock POs from PO Entry UI — only manage the parent PO here.
     let list = commercialPOs.filter((p) => !p.isSupplementary);
-    // Commercial R&M / AMC / IEV: M&M POs live under Maintenance → M&M PO Entry.
+    // Commercial R&M: show R&M only. AMC / IEV / M&M are handled in their own modules.
     if (!fixedVertical) {
-      list = list.filter((p) => poDepartmentLabel(p) !== 'M&M');
+      list = list.filter((p) => poDepartmentLabel(p) === 'R&M');
     }
     if (departmentFilter) {
       list = list.filter((p) => poDepartmentLabel(p) === departmentFilter);
@@ -1166,7 +1167,7 @@ const POEntry = ({
           {fixedVertical ? (
             <> (<strong>{fixedVertical}</strong>)</>
           ) : (
-            <> (R&amp;M / AMC / IEV)</>
+            <> (R&amp;M)</>
           )}
           , then <strong>Create Invoice</strong>.
         </p>
@@ -2215,7 +2216,7 @@ const POEntry = ({
                             <option value="quarterly">Quarterly (Indian FY)</option>
                           </select>
                           <p className="mt-1 text-[11px] text-gray-500">
-                            Used by Billing Tracker for cycle due dates. Required for AMC — do not leave as monthly if the contract bills quarterly.
+                            Used by Billing Tracker for cycle due dates. Use quarterly when the contract bills by quarter.
                           </p>
                         </>
                       )}

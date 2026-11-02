@@ -1,34 +1,46 @@
 import {
   COMMERCIAL_MODULE_MANPOWER_TRAINING,
   COMMERCIAL_MODULE_PROJECTS,
+  COMMERCIAL_MODULE_RM,
   COMMERCIAL_MODULE_RM_MM_AMC_IEV,
   getCommercialPoModuleType,
 } from '../constants/commercialModuleType';
 import { deriveBillToShipToPinSameFromPo, normalizePoPincode } from './poPincodeFields';
 
-const RM_VERTICAL_LABELS = new Set(['R&M', 'M&M', 'AMC', 'IEV']);
+const RM_ONLY_VERTICAL_LABELS = new Set(['R&M']);
+const LEGACY_RM_FAMILY_VERTICAL_LABELS = new Set(['R&M', 'M&M', 'AMC', 'IEV']);
 
-/** Align with Commercial PO Entry department filters (vertical / OC segment). */
-function isRmFamilyPo(po) {
+function verticalOrOcSegment(po) {
   const v = String(po.vertical || po.poVertical || '').trim();
-  if (RM_VERTICAL_LABELS.has(v)) return true;
+  if (v) return v;
   const oc = String(po.ocNumber || po.oc_number || '');
-  if (oc.startsWith('IFSPL-')) {
-    const seg = oc.split('-')[1];
-    if (RM_VERTICAL_LABELS.has(seg)) return true;
-  }
-  return getCommercialPoModuleType(po) === COMMERCIAL_MODULE_RM_MM_AMC_IEV;
+  if (oc.startsWith('IFSPL-')) return oc.split('-')[1] || '';
+  return '';
+}
+
+/** R&M module POs only. */
+function isRmOnlyPo(po) {
+  if (RM_ONLY_VERTICAL_LABELS.has(verticalOrOcSegment(po))) return true;
+  return getCommercialPoModuleType(po) === COMMERCIAL_MODULE_RM;
+}
+
+/** Legacy shared bag (Maintenance M&M / old AMC·IEV). */
+function isLegacyRmFamilyPo(po) {
+  if (LEGACY_RM_FAMILY_VERTICAL_LABELS.has(verticalOrOcSegment(po))) return true;
+  const t = getCommercialPoModuleType(po);
+  return t === COMMERCIAL_MODULE_RM_MM_AMC_IEV || t === COMMERCIAL_MODULE_RM;
 }
 
 function isManpowerTrainingFamilyPo(po) {
-  if (isRmFamilyPo(po)) return false;
+  if (isLegacyRmFamilyPo(po)) return false;
   return getCommercialPoModuleType(po) === COMMERCIAL_MODULE_MANPOWER_TRAINING;
 }
 
-/** PO rows visible on this Commercial PO Entry screen (Manpower/Training vs R&M family). */
+/** PO rows visible on this Commercial PO Entry screen (Manpower/Training vs R&M). */
 function filterPOsByCommercialModule(commercialPOs, moduleType) {
   return (commercialPOs || []).filter((po) => {
-    if (moduleType === COMMERCIAL_MODULE_RM_MM_AMC_IEV) return isRmFamilyPo(po);
+    if (moduleType === COMMERCIAL_MODULE_RM) return isRmOnlyPo(po);
+    if (moduleType === COMMERCIAL_MODULE_RM_MM_AMC_IEV) return isLegacyRmFamilyPo(po) && !isRmOnlyPo(po);
     if (moduleType === COMMERCIAL_MODULE_MANPOWER_TRAINING) return isManpowerTrainingFamilyPo(po);
     if (moduleType === COMMERCIAL_MODULE_PROJECTS) return getCommercialPoModuleType(po) === COMMERCIAL_MODULE_PROJECTS;
     return getCommercialPoModuleType(po) === moduleType;

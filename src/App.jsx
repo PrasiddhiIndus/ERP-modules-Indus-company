@@ -77,6 +77,7 @@ import {
   AdminRecruitmentReports,
   AdminRecruitmentSettings,
   CandidatePortal,
+  EmployeeDocumentPortal,
   HrSiteAttendance,
   HrSiteAttendanceDashboard,
   HrSiteAttendanceSites,
@@ -92,6 +93,7 @@ import {
   ProjectsEnquiryHub,
   ProjectsQuotationHub,
   AccountsFinance,
+  FinanceMasterPoAtGlance,
   PeopleManagement,
   PeoplePersonProfile,
   IfspEmployeeCompliance,
@@ -207,6 +209,10 @@ import {
   MaintenanceMmPoEntry,
   MaintenancePoAtGlance,
   MaintenanceSignatureConfig,
+  ProjectsPoAtGlance,
+  ProjectsSignatureConfig,
+  RmPoAtGlance,
+  RmSignatureConfig,
   MaintenanceExpoSeminar,
   MaintenanceGSTUpload,
   MaintenanceReports,
@@ -366,6 +372,9 @@ function App() {
           <Route path="/candidate-portal/:token" element={<CandidatePortal />} />
           {/* Opaque sealed offer/appointment link used in emails (hides /candidate-portal path). */}
           <Route path="/r/:token" element={<CandidatePortal />} />
+          {/* Employee Master document upload (also accepted via /r/:token — same public path as recruitment). */}
+          <Route path="/e/:token" element={<EmployeeDocumentPortal />} />
+          <Route path="/employee-docs/:token" element={<EmployeeDocumentPortal />} />
 
           {/* Protected with Layout */}
           <Route
@@ -631,11 +640,13 @@ function App() {
             <Route path="commercial/manpower-training/po-entry" element={<Commercial />} />
             <Route path="commercial/manpower-training/contact-log" element={<Commercial />} />
 
-            {/* Commercial — R&M / AMC / IEV */}
+            {/* Commercial — R&M */}
             <Route path="commercial/rm-mm-amc-iev" element={<CommercialRmMmAmcIev />} />
             <Route path="commercial/rm-mm-amc-iev/dashboard" element={<CommercialRmMmAmcIev />} />
             <Route path="commercial/rm-mm-amc-iev/po-entry" element={<CommercialRmMmAmcIev />} />
             <Route path="commercial/rm-mm-amc-iev/contact-log" element={<CommercialRmMmAmcIev />} />
+            <Route path="commercial/rm-mm-amc-iev/po-at-glance" element={<RmPoAtGlance />} />
+            <Route path="commercial/rm-mm-amc-iev/po-at-glance/signature-config" element={<RmSignatureConfig />} />
             <Route path="commercial/rm-mm-amc-iev/manpower-management" element={<CommercialRmManpowerManagement />} />
             <Route path="commercial/rm-mm-amc-iev/manpower-management/:id" element={<CommercialRmManpowerManagement />} />
             <Route path="commercial/rm-mm-amc-iev/internal-quotation" element={<CommercialRmInternalQuotation />} />
@@ -742,6 +753,7 @@ function App() {
             <Route path="accounts-finance/reports/site-ledger" element={<AccountsFinance />} />
             <Route path="accounts-finance/bank-formats" element={<AccountsFinance />} />
             <Route path="accounts-finance/settings" element={<AccountsFinance />} />
+            <Route path="accounts-finance/po-at-glance" element={<FinanceMasterPoAtGlance />} />
 
             {/* Indus LMS / Trainings */}
             <Route path="indus-lms-trainings" element={<IndusLmsTrainings />} />
@@ -781,6 +793,8 @@ function App() {
             <Route path="maintenance/mm-po-entry" element={<MaintenanceMmPoEntry />} />
             <Route path="maintenance/po-at-glance" element={<MaintenancePoAtGlance />} />
             <Route path="maintenance/po-at-glance/signature-config" element={<MaintenanceSignatureConfig />} />
+            <Route path="projects-po-at-glance" element={<ProjectsPoAtGlance />} />
+            <Route path="projects-po-at-glance/signature-config" element={<ProjectsSignatureConfig />} />
             <Route path="maintenance/expo-seminar" element={<MaintenanceExpoSeminar />} />
             <Route path="maintenance/gst-upload" element={<MaintenanceGSTUpload />} />
             <Route path="maintenance/reports-analytics" element={<MaintenanceReports />} />

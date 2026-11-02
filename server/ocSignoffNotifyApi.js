@@ -32,6 +32,31 @@ export const OC_NOTIFY_PROFILES = {
     configPath: 'Maintenance → PO At Glance Sign-off Assignment',
     assigneeCount: 'three',
   },
+  projects: {
+    masterTable: 'pj_oc_master',
+    assigneesTable: 'pj_oc_signoff_assignees',
+    slotLabels: {
+      PROJECT_USER: 'User (Project Dept.)',
+      PLANNING: 'Planning Department',
+      VERTICAL_HEAD: 'Vertical Head',
+      FINANCE: 'Finance Department',
+    },
+    reviewPath: 'Projects → PO At Glance',
+    configPath: 'Projects → PO At Glance Sign-off Assignment',
+    assigneeCount: 'four',
+  },
+  rm: {
+    masterTable: 'rm_oc_master',
+    assigneesTable: 'rm_oc_signoff_assignees',
+    slotLabels: {
+      RM_USER: 'User (R&M Dept.)',
+      VERTICAL_HEAD: 'Vertical Head',
+      FINANCE: 'Finance Department',
+    },
+    reviewPath: 'R&M → PO At Glance',
+    configPath: 'R&M → PO At Glance Sign-off Assignment',
+    assigneeCount: 'three',
+  },
 };
 
 function httpError(status, message) {
@@ -157,7 +182,7 @@ function buildEmail({ profile, master, signatures, signerName }) {
 
 /**
  * Notify the assigned sign-off users that one or more PO slots were signed.
- * `department` picks the records and assignees ('iev' by default, or 'maintenance').
+ * `department` picks the records and assignees ('iev' by default, 'maintenance', 'projects' or 'rm').
  * @returns {{ ok: true, from: string|null, sent: string[], skipped: {name:string,code:string,reason:string}[], failed: {email:string,error:string}[] }}
  */
 export async function notifyOcSignoffAssignees({

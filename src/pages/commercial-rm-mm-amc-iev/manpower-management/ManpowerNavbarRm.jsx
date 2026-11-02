@@ -4,7 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 const BASE = "/app/commercial/rm-mm-amc-iev/manpower-management";
 const IQ = "/app/commercial/rm-mm-amc-iev/internal-quotation";
 
-/** Independent nav for R&M / AMC / IEV manpower enquiries (same UI pattern as legacy Manpower navbar). */
+/** Independent nav for Commercial R&M enquiries (same UI pattern as legacy Manpower navbar). */
 const ManpowerNavbarRm = () => {
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const location = useLocation();
@@ -20,7 +20,7 @@ const ManpowerNavbarRm = () => {
 
   return (
     <div className="flex items-center justify-between mb-6 border-b pb-3">
-      <h2 className="text-2xl font-semibold">Manpower Management</h2>
+      <h2 className="text-2xl font-semibold">R&amp;M Enquiry</h2>
 
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 ml-auto">
         <Link

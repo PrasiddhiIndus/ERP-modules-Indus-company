@@ -63,7 +63,11 @@ function table(name) {
 }
 
 function toModuleContext(moduleType) {
-  if (moduleType === 'rm-mm-amc-iev' || moduleType === COMMERCIAL_MODULE_PROJECTS) {
+  if (
+    moduleType === 'rm'
+    || moduleType === 'rm-mm-amc-iev'
+    || moduleType === COMMERCIAL_MODULE_PROJECTS
+  ) {
     return MODULE_CONTEXT.RM_MM_AMC_IEV;
   }
   return MODULE_CONTEXT.MANPOWER_TRAINING;

@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
-import { supabase } from "../../../lib/supabase";
 import { useState, useEffect } from "react";
+import { fetchRmEnquiryStats } from "../rmEnquiryApi";
 import {
   SparkKpi,
   ChartPanel,
@@ -27,20 +27,14 @@ const CommercialDashboardRmMmAmcIev = ({ commercialPOs = [] }) => {
     let cancelled = false;
     const loadManpowerStats = async () => {
       try {
-        const { data: rows, error: queryError } = await supabase.from("manpower_enquiries").select("id, duration, status");
-        if (queryError) throw queryError;
-        const allRows = rows || [];
-        const total = allRows.length;
-        const approved = allRows.filter((r) => r.status === "Approved").length;
-        const rejected = allRows.filter((r) => r.status === "Rejected").length;
-        const pending = Math.max(0, total - approved - rejected);
+        const stats = await fetchRmEnquiryStats();
         if (!cancelled) {
-          setManpowerStats({ total, approved, rejected, pending });
+          setManpowerStats(stats);
           setManpowerError("");
         }
       } catch (error) {
         if (!cancelled) {
-          setManpowerError(error?.message || "Could not load manpower data");
+          setManpowerError(error?.message || "Could not load R&M enquiry data");
           setManpowerStats({ total: 0, approved: 0, rejected: 0, pending: 0 });
         }
       }
@@ -102,8 +96,8 @@ const CommercialDashboardRmMmAmcIev = ({ commercialPOs = [] }) => {
   return (
     <div className="p-4 sm:p-6 erp-page-stack">
       <div className="bg-surface border border-border rounded-card shadow-card p-5 sm:p-6">
-        <h2 className="type-page-title text-ink">Commercial Dashboard</h2>
-        <p className="type-meta text-ink-muted mt-1">Live PO/WO and manpower approval pulse.</p>
+        <h2 className="type-page-title text-ink">R&amp;M Dashboard</h2>
+        <p className="type-meta text-ink-muted mt-1">Live R&amp;M PO/WO and enquiry approval pulse.</p>
         {manpowerError && (
           <p className="mt-3 text-sm text-warning bg-warning-soft border border-warning-border rounded-md px-3 py-2">
             Manpower dashboard data is unavailable: {manpowerError}

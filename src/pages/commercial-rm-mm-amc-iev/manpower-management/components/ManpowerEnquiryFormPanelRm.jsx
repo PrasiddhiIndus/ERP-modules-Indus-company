@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "../../../../lib/supabase";;
+import { supabase } from "../../../../lib/supabase";
 import FormDateInput from "../../../../components/FormDateInput";
-
-
 import { toast } from "../../../../lib/toast";
+import { rmEnquiriesTable } from "../../rmEnquiryApi";
 const META_PREFIX = "__META__:";
 const INDUSTRY_OPTIONS = ["Oil & Gas", "Refinery", "Chemical", "Power", "Construction", "Port", "Other"];
 const WORKING_HOURS_OPTIONS = ["8 hrs", "12 hrs", "As per client"];
@@ -150,7 +149,7 @@ const ManpowerEnquiryFormPanelRm = ({ enquiryId, onSaved, onCancel }) => {
     }
 
     const fetchEnquiry = async () => {
-      const { data, error } = await supabase.from("manpower_enquiries").select("*").eq("id", enquiryId).single();
+      const { data, error } = await rmEnquiriesTable().select("*").eq("id", enquiryId).single();
       if (error) {
         console.error("Error fetching enquiry:", error);
         return;
@@ -273,7 +272,7 @@ const ManpowerEnquiryFormPanelRm = ({ enquiryId, onSaved, onCancel }) => {
 
   const getNextEnquiryNumber = async () => {
     const year = new Date().getFullYear();
-    const { data, error } = await supabase.from("manpower_enquiries").select("enquiry_number").not("enquiry_number", "is", null);
+    const { data, error } = await rmEnquiriesTable().select("enquiry_number").not("enquiry_number", "is", null);
     if (error) throw error;
     let maxSequence = 0;
     (data || []).forEach((row) => {
@@ -383,10 +382,11 @@ const ManpowerEnquiryFormPanelRm = ({ enquiryId, onSaved, onCancel }) => {
         contacts: Array.isArray(formData.contacts) ? formData.contacts : [],
         rfq_available: isOnlineTender || Boolean(formData.rfqAvailable),
         fire_tender_required: Boolean(formData.fireTenderRequired),
+        vertical: "R&M",
       };
 
       if (enquiryId) {
-        const { error } = await supabase.from("manpower_enquiries").update(payload).eq("id", enquiryId);
+        const { error } = await rmEnquiriesTable().update(payload).eq("id", enquiryId);
         if (error) throw error;
         toast.success("Enquiry updated successfully.");
       } else {
@@ -397,7 +397,7 @@ const ManpowerEnquiryFormPanelRm = ({ enquiryId, onSaved, onCancel }) => {
           status: "Pending",
         };
         if (user?.id) insertPayload.user_id = user.id;
-        const { error } = await supabase.from("manpower_enquiries").insert([insertPayload]);
+        const { error } = await rmEnquiriesTable().insert([insertPayload]);
         if (error) throw error;
         toast.success(`Enquiry saved successfully! Enquiry ID: ${enquiryNumber}`);
         resetForm();

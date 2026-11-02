@@ -87,6 +87,7 @@ export const AdminRecruitmentCommunication = lazy(() => import("../pages/adminOp
 export const AdminRecruitmentReports = lazy(() => import("../pages/adminOperations/recruitment/ReportsPage"));
 export const AdminRecruitmentSettings = lazy(() => import("../pages/adminOperations/recruitment/SettingsPage"));
 export const CandidatePortal = lazy(() => import("../pages/adminOperations/recruitment/CandidatePortalPage"));
+export const EmployeeDocumentPortal = lazy(() => import("../pages/admin/employeeMaster/EmployeeDocumentPortalPage"));
 export const HrSiteAttendance = lazy(() => import("../pages/hr/siteAttendance/SiteAttendanceLayout"));
 export const HrSiteAttendanceDashboard = lazy(() => import("../pages/hr/siteAttendance/DashboardPage"));
 export const HrSiteAttendanceSites = lazy(() => import("../pages/hr/siteAttendance/SiteMasterPage"));
@@ -102,6 +103,7 @@ export const ProjectsPoHub = lazy(() => import("../pages/projects/ProjectsPoHub"
 export const ProjectsEnquiryHub = lazy(() => import("../pages/projects/enquiry/ProjectsEnquiryHub"));
 export const ProjectsQuotationHub = lazy(() => import("../pages/projects/quotation/ProjectsQuotationHub"));
 export const AccountsFinance = lazy(() => import("../pages/finance/Finance"));
+export const FinanceMasterPoAtGlance = lazy(() => import("../pages/finance/poAtGlance/MasterPoAtGlance"));
 
 // HR / admin / compliance
 export const PeopleManagement = lazy(() => import("../pages/peopleManagement/PeopleManagement"));
@@ -418,6 +420,10 @@ export const MaintenancePurchaseOrders = lazy(() => import("../pages/maintenance
 export const MaintenanceMmPoEntry = lazy(() => import("../pages/maintenance/MaintenanceMmPoEntry"));
 export const MaintenancePoAtGlance = lazy(() => import("../pages/maintenance/poAtGlance/MaintenancePoAtGlance"));
 export const MaintenanceSignatureConfig = lazy(() => import("../pages/maintenance/poAtGlance/MaintenanceSignatureConfig"));
+export const ProjectsPoAtGlance = lazy(() => import("../pages/projects/poAtGlance/ProjectsPoAtGlance"));
+export const ProjectsSignatureConfig = lazy(() => import("../pages/projects/poAtGlance/ProjectsSignatureConfig"));
+export const RmPoAtGlance = lazy(() => import("../pages/commercial-rm-mm-amc-iev/poAtGlance/RmPoAtGlance"));
+export const RmSignatureConfig = lazy(() => import("../pages/commercial-rm-mm-amc-iev/poAtGlance/RmSignatureConfig"));
 export const MaintenanceExpoSeminar = lazy(() => import("../pages/maintenance/ExpoSeminar"));
 export const MaintenanceGSTUpload = lazy(() => import("../pages/maintenance/GSTUpload"));
 export const MaintenanceReports = lazy(() => import("../pages/maintenance/MaintenanceReports"));

@@ -469,6 +469,22 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
               <FieldError msg={err("delivery_date")} />
             </Value>
 
+            {department.key === "iev" ? (
+              <>
+                <Label>No. of Fire Tenders</Label>
+                <Value full>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    className={inputCls}
+                    value={form.no_of_fire_tenders}
+                    onChange={(e) => set("no_of_fire_tenders", e.target.value.replace(/[^\d]/g, ""))}
+                  />
+                </Value>
+              </>
+            ) : null}
+
             <Label required>Contract Value (Excluding Taxes)</Label>
             <Value>
               <div className="relative">

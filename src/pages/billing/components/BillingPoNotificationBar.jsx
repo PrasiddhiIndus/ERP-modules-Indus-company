@@ -6,6 +6,7 @@ import { useBilling } from '../../../contexts/BillingContext';
 import { ROLES } from '../../../config/roles';
 import {
   COMMERCIAL_MODULE_PROJECTS,
+  COMMERCIAL_MODULE_RM,
   COMMERCIAL_MODULE_RM_MM_AMC_IEV,
   getCommercialPoModuleType,
 } from '../../../constants/commercialModuleType';
@@ -13,8 +14,11 @@ import {
 function routeForPo(po) {
   const q = `highlightPoId=${encodeURIComponent(po?.id || '')}`;
   const moduleType = getCommercialPoModuleType(po);
-  if (moduleType === COMMERCIAL_MODULE_RM_MM_AMC_IEV) {
+  if (moduleType === COMMERCIAL_MODULE_RM) {
     return `/app/commercial/rm-mm-amc-iev/po-entry?${q}`;
+  }
+  if (moduleType === COMMERCIAL_MODULE_RM_MM_AMC_IEV) {
+    return `/app/maintenance/mm-po-entry?${q}`;
   }
   if (moduleType === COMMERCIAL_MODULE_PROJECTS) {
     return `/app/projects/po/po-entry?${q}`;
