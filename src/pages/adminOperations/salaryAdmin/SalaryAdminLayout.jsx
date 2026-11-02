@@ -73,7 +73,7 @@ export default function SalaryAdminLayout() {
 
   return (
     <div className="space-y-3 max-w-[1600px] w-full mx-auto">
-      <div className="bg-surface rounded-card shadow-card border border-border overflow-hidden">
+      <div className="bg-surface rounded-card shadow-card border border-border overflow-visible">
         <div className="erp-card-header border-b border-divider flex flex-wrap items-center justify-between gap-2 min-h-[48px] bg-surface-raised px-3 sm:px-4">
           <div className="min-w-0">
             <p className="type-mono-caption text-ink-muted">Admin</p>

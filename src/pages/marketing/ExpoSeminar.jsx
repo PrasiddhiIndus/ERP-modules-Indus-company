@@ -933,7 +933,7 @@ const ExpoSeminar = () => {
                             <MoreVertical className="w-4 h-4" />
                           </button>
                           {menuOpen === expo.id && (
-                            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
+                            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-[80] border border-gray-200">
                               <button
                                 onClick={() => {
                                   setViewingExpo(expo);
@@ -1615,7 +1615,7 @@ const ExpoSeminar = () => {
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                       />
                       {executives.length > 0 && executiveNameInput.trim() && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        <div className="absolute z-[80] w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                           {executives
                             .filter(exec => 
                               exec.name.toLowerCase().includes(executiveNameInput.toLowerCase()) &&

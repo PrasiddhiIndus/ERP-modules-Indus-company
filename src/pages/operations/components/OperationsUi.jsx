@@ -341,7 +341,7 @@ export function EnterpriseDataTable({
   }
 
   return (
-    <div className={`rounded-xl border overflow-hidden ${t.card}`}>
+    <div className={`rounded-xl border overflow-visible ${t.card}`}>
       <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b ${t.dark ? "border-slate-700" : "border-gray-200"}`}>
         <div className="flex items-center gap-2">
           {enableBulk && selected.size > 0 && (

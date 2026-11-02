@@ -28,19 +28,51 @@ export default defineConfig({
     dedupe: ['react', 'react-dom'],
   },
   build: {
+    target: 'es2020',
+    cssCodeSplit: true,
+    sourcemap: false,
+    reportCompressedSize: false,
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (!id.includes('node_modules')) return;
-          if (id.includes('react-dom') || id.includes('react-router')) return 'vendor-react';
-          if (id.includes('@supabase')) return 'vendor-supabase';
-          if (id.includes('xlsx')) return 'vendor-xlsx';
-          if (id.includes('jspdf')) return 'vendor-pdf';
-          if (id.includes('lucide-react')) return 'vendor-icons';
+          const path = id.replace(/\\/g, '/');
+          if (!path.includes('/node_modules/')) return;
+          if (
+            path.includes('/node_modules/react-dom/') ||
+            path.includes('/node_modules/react/') ||
+            path.includes('/node_modules/scheduler/') ||
+            path.includes('/node_modules/react-router') ||
+            path.includes('/node_modules/react-router-dom/')
+          ) {
+            return 'vendor-react';
+          }
+          if (path.includes('/node_modules/@supabase/')) return 'vendor-supabase';
+          if (path.includes('/node_modules/recharts/') || path.includes('/node_modules/d3-')) {
+            return 'vendor-charts';
+          }
+          if (
+            path.includes('/node_modules/exceljs/') ||
+            path.includes('/node_modules/xlsx/') ||
+            path.includes('/node_modules/file-saver/') ||
+            path.includes('/node_modules/papaparse/')
+          ) {
+            return 'vendor-xlsx';
+          }
+          if (
+            path.includes('/node_modules/jspdf') ||
+            path.includes('/node_modules/html2canvas/') ||
+            path.includes('/node_modules/pdf-lib/') ||
+            path.includes('/node_modules/@signpdf/')
+          ) {
+            return 'vendor-pdf';
+          }
+          if (path.includes('/node_modules/lucide-react/') || path.includes('/node_modules/react-icons/')) {
+            return 'vendor-icons';
+          }
         },
       },
     },
-    chunkSizeWarningLimit: 600,
+    chunkSizeWarningLimit: 700,
   },
   server: {
     proxy: {
