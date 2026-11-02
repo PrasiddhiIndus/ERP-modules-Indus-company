@@ -29,6 +29,7 @@ import { netAfterCnDn } from '../../utils/cnDn';
 import { enrichInvoiceWithPo, findPoForInvoice } from '../../utils/billingPoInvoiceFields';
 import { fetchSignatureFromUsbToken, listUsbDscCertificates, buildFoxitDscAppearance, signInvoicePdfWithUsbToken } from '../../lib/usbDscToken';
 import { toast } from "../../lib/toast";
+import { PageTaskHeader, PageShell } from '../../components/erpUi';
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
@@ -1325,21 +1326,21 @@ const ManageInvoices = ({ onNavigateTab }) => {
   }, [showBillingTypeColumn]);
 
   return (
-    <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-4">
+    <PageShell className="w-full overflow-y-auto p-4 sm:p-6">
       {verticalNotSelected ? (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
-          <p className="text-lg font-semibold text-gray-900">Pick a team first</p>
+        <div className="bg-surface rounded-card border border-border shadow-card p-8 text-center text-ink-secondary">
+          <p className="text-lg font-semibold text-ink-strong">Pick a team first</p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <button
               type="button"
               onClick={() => onNavigateTab && onNavigateTab('create-invoice')}
-              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              className="rounded-control bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-deep"
             >
               Make a bill
             </button>
             <Link
               to="/app/commercial/manpower-training/po-entry"
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-control border border-border bg-surface px-4 py-2 text-sm font-medium text-ink hover:bg-row-hover"
             >
               New job in Commercial
             </Link>
@@ -1347,7 +1348,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
         </div>
       ) : null}
 
-      <h2 className="text-xl font-bold text-gray-900">All bills</h2>
+      <PageTaskHeader title="All bills" subtitle="Search, preview, and manage invoices for the selected team." />
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200/90 ring-1 ring-slate-900/5 overflow-hidden">
         {verticalNotSelected ? (
@@ -2411,7 +2412,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
           </div>
         </div>
       ) : null}
-    </div>
+    </PageShell>
   );
 };
 

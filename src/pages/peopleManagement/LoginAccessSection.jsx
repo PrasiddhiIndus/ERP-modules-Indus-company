@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Plus } from "lucide-react";
-import { SectionCard, StatusChip, Timeline } from "../adminOperations/components/AdminUi";
+import { SectionCard, StatusChip, Timeline } from "../../components/erpUi";
 import { supabase } from "../../lib/supabase";
 import { toast } from "../../lib/toast";
 import {

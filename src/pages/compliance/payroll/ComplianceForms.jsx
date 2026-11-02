@@ -1,6 +1,6 @@
 import React from "react";
 import { useSearchParams } from "react-router-dom";
-import { PageTaskHeader } from "../../adminOperations/components/AdminUi";
+import { PageTaskHeader } from "../../../components/erpUi";
 import StatutoryCodePanel from "./StatutoryCodePanel";
 import { exportWagePackExcel, exportWagePackPdf } from "./wageFormExport";
 import { WAGE_FORM_LIST, createWagePack, deleteWagePack, listWagePacks, saveWagePack } from "./wageFormCatalog";

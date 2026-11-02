@@ -1,5 +1,5 @@
 import React from "react";
-import { StatusChip } from "../../../adminOperations/components/AdminUi";
+import { StatusChip } from "../../../../components/erpUi";
 import { formatINR } from "./deductionsStore";
 
 export const inputClass =

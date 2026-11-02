@@ -5,7 +5,7 @@ import {
   PageTaskHeader,
   SectionCard,
   TinySelect,
-} from "../../adminOperations/components/AdminUi";
+} from "../../../components/erpUi";
 import { pushToast } from "../../../lib/toast";
 import { getCallingDropdownMasters, CALLING_MASTER_DROPDOWNS_EVENT, isLinkedDropdownMaster } from "./callingMasterConfig";
 import { useRecruitmentUi } from "./recruitmentUiContext";

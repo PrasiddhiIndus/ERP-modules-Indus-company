@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { History, RefreshCw } from "lucide-react";
 import { formatINR, formatSalaryDate, getSalaryStructure } from "../../adminOperations/salaryAdmin/salaryData";
 import SalaryRevisionHistory from "../../adminOperations/salaryAdmin/SalaryRevisionHistory";
-import { Drawer } from "../../adminOperations/components/AdminUi";
+import { Drawer } from "../../../components/erpUi";
 
 /**
  * Employee Master → Salary revisions (CTC change history for this person).

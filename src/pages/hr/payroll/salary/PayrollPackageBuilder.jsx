@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Plus } from 'lucide-react';
-import { SectionCard, DenseTable, Badge } from '../../../adminOperations/components/AdminUi';
+import { SectionCard, DenseTable, Badge } from '../../../../components/erpUi';
 
 const DEMO_PACKAGES = [
   { id: 'p1', name: 'North region', sites: 4, components: 12, status: 'Active' },

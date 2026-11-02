@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Download, Pencil, Plus } from 'lucide-react';
-import { KpiTile, SectionCard, DenseTable, Badge, Modal } from '../../../adminOperations/components/AdminUi';
+import { KpiTile, SectionCard, DenseTable, Badge, Modal } from '../../../../components/erpUi';
 import { listPayrollSites, payrollSiteRowToForm } from '../../../../services/payrollApi';
 import SiteMasterSetupForm from './components/SiteMasterSetupForm';
 import {

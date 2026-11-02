@@ -59,6 +59,7 @@ import {
 } from '../../utils/taxInvoiceNumber';
 
 import { toast } from "../../lib/toast";
+import { PageTaskHeader, PageShell, PrimaryButton } from "../../components/erpUi";
 /** Proforma series FY start year (calendar year April–March), separate from IFSPL tax format. */
 function getProformaFinancialYearStart(invoiceDate) {
   const d = invoiceDate ? new Date(invoiceDate) : new Date();
@@ -2635,48 +2636,36 @@ const CreateInvoice = ({ onNavigateTab }) => {
   };
 
   return (
-    <div className="w-full overflow-y-auto p-4 sm:p-5 space-y-4">
+    <PageShell className="w-full overflow-y-auto p-4 sm:p-5">
       {verticalNotSelected ? (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
-          <p className="text-lg font-semibold text-gray-900">Select a vertical to start</p>
+        <div className="bg-surface rounded-card border border-border shadow-card p-8 text-center text-ink-secondary">
+          <p className="text-lg font-semibold text-ink-strong">Select a vertical to start</p>
           <p className="text-sm mt-1 max-w-lg mx-auto">
             Choose the same vertical as your OC line above. No PO rows yet? Start in Commercial → PO Entry, then return here.
           </p>
         </div>
       ) : null}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center space-x-3 min-w-0">
-          <div className="bg-emerald-100 p-2.5 rounded-lg shrink-0">
-            <FileText className="w-5 h-5 text-emerald-600" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-xl font-bold text-gray-900">Make a bill</h2>
-            {!verticalNotSelected ? (
-              <p className="text-xs text-slate-600 mt-0.5">
-                Job-type filter (top): <strong>{billingPoBasisLabel}</strong>
-              </p>
-            ) : null}
-          </div>
-        </div>
+      <PageTaskHeader
+        title="Make a bill"
+        subtitle={!verticalNotSelected ? `Job-type filter (top): ${billingPoBasisLabel}` : undefined}
+      >
         {!verticalNotSelected ? (
           <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <button
-              type="button"
+            <PrimaryButton
               onClick={() => onNavigateTab && onNavigateTab('manage-invoices')}
-              className="inline-flex items-center rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-red-700"
             >
               Open all bills
-            </button>
+            </PrimaryButton>
             <button
               type="button"
               onClick={() => onNavigateTab && onNavigateTab('dashboard')}
-              className="text-sm font-medium text-slate-600 underline-offset-2 hover:underline px-1"
+              className="text-sm font-medium text-ink-secondary underline-offset-2 hover:underline px-1"
             >
               Billing home
             </button>
           </div>
         ) : null}
-      </div>
+      </PageTaskHeader>
 
       {!verticalNotSelected ? (
         <p className="text-xs text-slate-600 leading-snug">
@@ -4786,7 +4775,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         onApply={applyFieldCalculator}
         onClose={closeFieldCalculator}
       />
-    </div>
+    </PageShell>
   );
 };
 

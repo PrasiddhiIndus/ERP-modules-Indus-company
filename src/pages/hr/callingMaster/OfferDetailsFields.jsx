@@ -1,7 +1,7 @@
 import React from "react";
 import FormDateInput from "../../../components/FormDateInput";
 import { amountInWords } from "../../../lib/offerLetterDocuments";
-import { TinyInput, TinySelect } from "../../adminOperations/components/AdminUi";
+import { TinyInput, TinySelect } from "../../../components/erpUi";
 
 /** Shared offer-detail fields used on Selected register and Offer Generation. */
 export default function OfferDetailsFields({

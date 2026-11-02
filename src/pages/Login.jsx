@@ -1,6 +1,27 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import {
+  ArrowRight,
+  Building2,
+  Check,
+  // ChevronDown, // language switcher
+  CircleDollarSign,
+  Eye,
+  EyeOff,
+  // Globe, // language switcher
+  // HardHat, // site login option
+  Layers,
+  LineChart,
+  Lock,
+  Mail,
+  Moon,
+  ShieldCheck,
+  Sun,
+  Truck,
+  Users,
+} from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { isStagingSupabaseProject } from '../lib/stagingProject';
 import {
   markSupabaseSessionHydrated,
@@ -16,28 +37,36 @@ import {
   validateTeamLandingPaths,
   resolveSafeLandingPath,
 } from '../lib/loginFlow';
-import { getAccessibleModules, MODULES } from '../config/roles';
-import { checkSupabaseConnection } from '../lib/supabase';
+import { getAccessibleModules } from '../config/roles';
 import { INDUS_LOGO_SRC } from '../constants/branding.js';
 import { isAuthBannedError, ACCOUNT_INACTIVE_MESSAGE } from '../lib/accountInactive';
+import { prefetchAppShell, prefetchAppShellNow } from '../lib/prefetchAppShell';
 import './Login.css';
 
 const REMEMBER_KEY = 'erp_trust_device_until';
+const LOGIN_AUDIENCE_KEY = 'erp_login_audience';
+const LOGIN_LANG_KEY = 'erp_login_lang';
 
-/**
- * Public company facts from indusfiresafety.com / company profiles (not marketing placeholders).
- * ISO 27001 / SOC 2 are not claimed publicly — do not show them here.
- */
-const COMPANY_PUBLIC = {
-  legalName: 'Indus Fire Safety Pvt Ltd',
-  foundedYear: 1993,
-  /** National footprint stated on company site */
-  statesOperated: '26+',
-  headquarters: 'Vadodara',
-  certifications: ['ISO 9001:2015', 'ISO 14001:2015', 'ISO 45001:2018'],
-};
+const PUBLIC_BASE = (import.meta.env.BASE_URL || '/').replace(/\/?$/, '/');
+const CAMPUS_BG_WEBP = `${PUBLIC_BASE}indus-campus-aerial.webp`;
+const CAMPUS_BG_JPG = `${PUBLIC_BASE}indus-campus-aerial.jpg`;
 
-const ERP_MODULE_COUNT = MODULES.length;
+const FEATURE_TILES = [
+  { title: 'People', subtitle: 'HR & Workforce', Icon: Users },
+  { title: 'Operations', subtitle: 'Projects & Sites', Icon: Layers },
+  { title: 'Finance', subtitle: 'Procure to Pay', Icon: CircleDollarSign },
+  { title: 'Compliance', subtitle: 'Audit & Standards', Icon: ShieldCheck },
+  { title: 'Assets', subtitle: 'Fleet & Equipment', Icon: Truck },
+  { title: 'Insights', subtitle: 'Reports & Analytics', Icon: LineChart },
+];
+
+const LANG_OPTIONS = [
+  { code: 'en', label: 'EN' },
+  { code: 'hi', label: 'HI' },
+];
+
+const NETWORK_ERROR_MESSAGE =
+  'Server unreachable. Check your internet, turn off VPN if needed, or restore the project in Supabase Dashboard (free projects pause when inactive).';
 
 const isInvalidCredentialsError = (err) => {
   if (!err?.message) return false;
@@ -54,9 +83,6 @@ const isEmailNotConfirmedError = (err) => {
     msg.includes('confirm your signup')
   );
 };
-
-const NETWORK_ERROR_MESSAGE =
-  'Server unreachable. Check your internet, turn off VPN if needed, or restore the project in Supabase Dashboard (free projects pause when inactive).';
 
 const isNetworkError = (err) => {
   if (!err?.message) return false;
@@ -80,25 +106,6 @@ const isRateLimitError = (err) => {
   );
 };
 
-function formatAuthClock(date = new Date()) {
-  try {
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Kolkata',
-      weekday: 'short',
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).formatToParts(date);
-    const get = (type) => parts.find((p) => p.type === type)?.value || '';
-    return `${get('weekday')}, ${get('day')} ${get('month')} ${get('year')} · ${get('hour')}:${get('minute')} IST`;
-  } catch {
-    return date.toUTCString();
-  }
-}
-
 function readRememberPreference() {
   try {
     const until = Number(localStorage.getItem(REMEMBER_KEY) || 0);
@@ -120,6 +127,40 @@ function writeRememberPreference(on) {
   }
 }
 
+function readLoginAudience() {
+  try {
+    const v = localStorage.getItem(LOGIN_AUDIENCE_KEY);
+    return v === 'site' ? 'site' : 'office';
+  } catch {
+    return 'office';
+  }
+}
+
+function writeLoginAudience(value) {
+  try {
+    localStorage.setItem(LOGIN_AUDIENCE_KEY, value === 'site' ? 'site' : 'office');
+  } catch {
+    /* ignore */
+  }
+}
+
+function readLoginLang() {
+  try {
+    const v = localStorage.getItem(LOGIN_LANG_KEY);
+    return LANG_OPTIONS.some((o) => o.code === v) ? v : 'en';
+  } catch {
+    return 'en';
+  }
+}
+
+function writeLoginLang(code) {
+  try {
+    localStorage.setItem(LOGIN_LANG_KEY, code);
+  } catch {
+    /* ignore */
+  }
+}
+
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -131,13 +172,13 @@ const Login = () => {
   const [verifyCode, setVerifyCode] = useState('');
   const [otpSendStatus, setOtpSendStatus] = useState('idle');
   const [successMessage, setSuccessMessage] = useState('');
-  const [clock, setClock] = useState(() => formatAuthClock());
-  const [platformOk, setPlatformOk] = useState(null);
-  const [platformLatencyMs, setPlatformLatencyMs] = useState(null);
+  const [loginAudience, setLoginAudience] = useState(() => readLoginAudience());
+  const [lang, setLang] = useState(() => readLoginLang());
+  const [langOpen, setLangOpen] = useState(false);
   const emailRef = useRef(null);
+  const langMenuRef = useRef(null);
 
-  const yearsOperating = new Date().getFullYear() - COMPANY_PUBLIC.foundedYear;
-
+  const { theme, setTheme, toggleTheme } = useTheme();
   const {
     signIn,
     verifyEmailOtp,
@@ -151,6 +192,11 @@ const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const activeLang = useMemo(
+    () => LANG_OPTIONS.find((o) => o.code === lang) || LANG_OPTIONS[0],
+    [lang]
+  );
+
   useEffect(() => {
     const message = location.state?.message;
     if (message) {
@@ -162,7 +208,6 @@ const Login = () => {
   useEffect(() => {
     validateTeamLandingPaths();
     if (isCachedAccessTokenExpired()) {
-      // Do not wipe refresh_token — renew access JWT so long-lived sessions stay signed in.
       if (hasCachedRefreshToken()) {
         void ensureFreshCachedSession({ forceRefresh: true });
       } else {
@@ -170,36 +215,12 @@ const Login = () => {
       }
     }
     emailRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const tick = () => setClock(formatAuthClock());
-    tick();
-    const id = window.setInterval(tick, 30000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const probe = async () => {
-      const started = performance.now();
-      const result = await checkSupabaseConnection();
-      if (cancelled) return;
-      setPlatformOk(Boolean(result?.ok));
-      setPlatformLatencyMs(Math.round(performance.now() - started));
-    };
-    probe();
-    const id = window.setInterval(probe, 60000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
+    prefetchAppShell();
   }, []);
 
   useEffect(() => {
     if (!user?.id) return;
     if (!readCachedAccessToken() && !hasCachedRefreshToken()) return;
-    // Wait until access JWT is usable (AuthContext / mount refresh may still be in flight).
     if (isCachedAccessTokenExpired()) return;
     if (!permissionsReady || !userProfile) return;
     const mods = getAccessibleModules(userProfile);
@@ -208,8 +229,35 @@ const Login = () => {
     navigate(path, { replace: true });
   }, [user, userProfile, permissionsReady, navigate]);
 
+  useEffect(() => {
+    if (!langOpen) return undefined;
+    const onDoc = (e) => {
+      if (!langMenuRef.current?.contains(e.target)) setLangOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setLangOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [langOpen]);
+
   const clearError = () => {
     if (error) setError('');
+  };
+
+  const selectAudience = (value) => {
+    setLoginAudience(value);
+    writeLoginAudience(value);
+  };
+
+  const selectLang = (code) => {
+    setLang(code);
+    writeLoginLang(code);
+    setLangOpen(false);
   };
 
   const sendVerificationCode = async () => {
@@ -254,7 +302,11 @@ const Login = () => {
     if (result.warning) {
       logLoginStage('redirect-warning', { warning: result.warning });
     }
-    logLoginStage('navigate', { path: result.path });
+    logLoginStage('navigate', {
+      path: result.path,
+      audience: loginAudience,
+    });
+    prefetchAppShellNow();
     navigate(result.path, { replace: true });
     return true;
   };
@@ -272,6 +324,7 @@ const Login = () => {
     setShowVerifyCode(false);
     setOtpSendStatus('idle');
     writeRememberPreference(remember);
+    writeLoginAudience(loginAudience);
 
     try {
       const { data, error: signInError, profile: quickProfile } = await signIn(trimmed, password);
@@ -332,74 +385,148 @@ const Login = () => {
     setLoading(false);
   };
 
-  const nodeLabel = useMemo(
-    () => (isStagingSupabaseProject() ? 'Region staging' : 'Region ap-south-1'),
-    []
-  );
-
   return (
-    <div className="auth-shell">
-      <header className="auth-header">
-        <div className="auth-header-left">
-          <img className="auth-logo" src={INDUS_LOGO_SRC} alt="Indus Fire Safety" width={46} height={46} />
-          <div className="auth-brand-stack">
-            <p className="auth-brand-name">INDUS ERP</p>
-            <p className="auth-brand-sub">{COMPANY_PUBLIC.legalName}</p>
+    <div className={`login-hero${theme === 'dark' ? ' is-dark' : ''}`}>
+      <div className="login-hero-media" aria-hidden="true">
+        <picture>
+          <source srcSet={CAMPUS_BG_WEBP} type="image/webp" />
+          <img
+            className="login-hero-photo"
+            src={CAMPUS_BG_JPG}
+            alt=""
+            width={1920}
+            height={1080}
+            decoding="async"
+            fetchpriority="high"
+          />
+        </picture>
+        <div className="login-hero-scrim" />
+        <div className="login-hero-vignette" />
+      </div>
+
+      <header className="login-topbar">
+        <div className="login-brand">
+          <img className="login-brand-logo" src={INDUS_LOGO_SRC} alt="Indus Fire Safety" width={56} height={56} />
+          <div className="login-brand-copy">
+            <p className="login-brand-title">
+              INDUS <span>ERP</span>
+            </p>
+            <p className="login-brand-sub">Enterprise Resource Platform</p>
           </div>
-          <span className="auth-header-divider" aria-hidden>
-            |
-          </span>
-          <span className="auth-header-mode">Authentication</span>
         </div>
-        <div className="auth-header-right">
-          <time dateTime={new Date().toISOString()}>{clock}</time>
-          <span aria-hidden>|</span>
-          <span>{nodeLabel}</span>
+
+        <div className="login-top-actions">
+          <div className="login-theme-toggle" role="group" aria-label="Theme">
+            <button
+              type="button"
+              className={theme === 'light' ? 'is-active' : ''}
+              aria-label="Light mode"
+              aria-pressed={theme === 'light'}
+              onClick={() => setTheme('light')}
+            >
+              <Sun className="w-4 h-4" strokeWidth={2} />
+            </button>
+            <button
+              type="button"
+              className={theme === 'dark' ? 'is-active' : ''}
+              aria-label="Dark mode"
+              aria-pressed={theme === 'dark'}
+              onClick={() => setTheme('dark')}
+            >
+              <Moon className="w-4 h-4" strokeWidth={2} />
+            </button>
+          </div>
+
+          {/* Language switcher temporarily hidden
+          <div className="login-lang" ref={langMenuRef}>
+            <button
+              type="button"
+              className="login-lang-btn"
+              aria-haspopup="listbox"
+              aria-expanded={langOpen}
+              onClick={() => setLangOpen((v) => !v)}
+            >
+              <Globe className="w-4 h-4" strokeWidth={2} />
+              <span>{activeLang.label}</span>
+              <ChevronDown className="w-3.5 h-3.5" strokeWidth={2} />
+            </button>
+            {langOpen ? (
+              <ul className="login-lang-menu" role="listbox" aria-label="Language">
+                {LANG_OPTIONS.map((opt) => (
+                  <li key={opt.code}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={opt.code === lang}
+                      onClick={() => selectLang(opt.code)}
+                    >
+                      {opt.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+          */}
         </div>
       </header>
 
-      <div className="auth-body">
-        <aside className="auth-spine" aria-hidden="true">
-          <div className="auth-spine-bars">
-            <span />
-            <span />
-            <span />
-          </div>
-          <p className="auth-spine-label">Enterprise resource platform</p>
-          <p className="auth-spine-ver">v4.2.1</p>
-        </aside>
-
-        <main className="auth-main">
-          <p className="auth-eyebrow">Restricted · credentialed access</p>
-          <h1 className="auth-headline">
-            Open the
+      <div className="login-layout">
+        <section className="login-pitch">
+          <h1 className="login-headline">
+            One Platform.
             <br />
-            command centre.
+            <span className="login-headline-line">
+              Total Operational Control.
+              <span className="login-headline-rule" aria-hidden="true" />
+            </span>
           </h1>
+          <p className="login-lead">
+            Powering people, operations, assets, compliance and growth across Indus.
+          </p>
 
-          {showVerifyCode ? (
-            <form className="auth-ledger" onSubmit={handleVerifyCode} noValidate>
-              <div className="auth-step">
-                <div className="auth-step-num is-input">01</div>
-                <div className="auth-step-body">
-                  <div className="auth-label-row">
-                    <label className="auth-label" htmlFor="verify-code">
-                      Verification code
-                    </label>
-                  </div>
-                  <p className="auth-success-msg" style={{ marginBottom: 12 }}>
-                    {otpSendStatus === 'sent'
-                      ? `Code sent to ${email}. Check inbox and spam.`
-                      : otpSendStatus === 'sending'
-                        ? `Sending code to ${email}…`
-                        : otpSendStatus === 'rate_limited'
-                          ? `Too many OTP requests for ${email}. Wait about 1 minute, then resend.`
-                          : `Enter the 6-digit code for ${email}, or resend once.`}
-                  </p>
-                  <div className="auth-field">
-                    <span className="auth-field-glyph" aria-hidden>
-                      ›
-                    </span>
+          <div className="login-feature-grid">
+            {FEATURE_TILES.map(({ title, subtitle, Icon }, index) => (
+              <article
+                key={title}
+                className="login-feature-tile"
+                style={{ '--tile-delay': `${80 + index * 55}ms` }}
+              >
+                <Icon className="login-feature-icon" strokeWidth={1.75} aria-hidden />
+                <div>
+                  <h2>{title}</h2>
+                  <p>{subtitle}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="login-panel" aria-label="Sign in">
+          <div className="login-card">
+            <div className="login-card-head">
+              <h2>
+                Welcome to INDUS <span>ERP</span>
+              </h2>
+              <p>Sign in to access the Enterprise Resource Platform</p>
+            </div>
+
+            {showVerifyCode ? (
+              <form className="login-form" onSubmit={handleVerifyCode} noValidate>
+                <p className="login-form-note">
+                  {otpSendStatus === 'sent'
+                    ? `Code sent to ${email}. Check inbox and spam.`
+                    : otpSendStatus === 'sending'
+                      ? `Sending code to ${email}…`
+                      : otpSendStatus === 'rate_limited'
+                        ? `Too many OTP requests for ${email}. Wait about 1 minute, then resend.`
+                        : `Enter the 6-digit code for ${email}, or resend once.`}
+                </p>
+
+                <label className="login-field">
+                  <span>Verification code</span>
+                  <div className="login-input">
+                    <Lock className="login-input-icon" strokeWidth={1.75} aria-hidden />
                     <input
                       id="verify-code"
                       type="text"
@@ -415,84 +542,88 @@ const Login = () => {
                       autoFocus
                     />
                   </div>
-                </div>
-              </div>
+                </label>
 
-              {error ? (
-                <div className="auth-step" role="alert" aria-live="polite">
-                  <div className="auth-step-num is-error">!!</div>
-                  <div className="auth-step-body">
-                    <p className="auth-error-msg">{error}</p>
-                  </div>
-                </div>
-              ) : null}
+                {error ? (
+                  <p className="login-error" role="alert" aria-live="polite">
+                    {error}
+                  </p>
+                ) : null}
 
-              <div className="auth-step">
-                <div className="auth-step-num">02</div>
-                <div className="auth-step-body">
+                <button
+                  type="submit"
+                  className="login-submit"
+                  disabled={loading || verifyCode.replace(/\D/g, '').length !== 6}
+                >
+                  <span>{loading ? 'Verifying…' : 'Verify and sign in'}</span>
+                  <ArrowRight className="w-4 h-4" strokeWidth={2.25} aria-hidden />
+                </button>
+
+                <div className="login-otp-actions">
                   <button
-                    type="submit"
-                    className="auth-submit"
-                    disabled={loading || verifyCode.replace(/\D/g, '').length !== 6}
+                    type="button"
+                    className="login-text-btn"
+                    disabled={loading || otpSendStatus === 'sending'}
+                    onClick={async () => {
+                      setLoading(true);
+                      setError('');
+                      await sendVerificationCode();
+                      setLoading(false);
+                    }}
                   >
-                    <span>{loading ? 'Verifying credentials' : 'Verify and sign in'}</span>
-                    <span className="auth-submit-arrow" aria-hidden>
-                      →
-                    </span>
+                    Resend code
                   </button>
-                  <div className="auth-otp-actions">
-                    <button
-                      type="button"
-                      className="auth-text-btn"
-                      disabled={loading || otpSendStatus === 'sending'}
-                      onClick={async () => {
-                        setLoading(true);
-                        setError('');
-                        await sendVerificationCode();
-                        setLoading(false);
-                      }}
-                    >
-                      Resend code
-                    </button>
-                    <button
-                      type="button"
-                      className="auth-text-btn"
-                      onClick={() => {
-                        setShowVerifyCode(false);
-                        setVerifyCode('');
-                        setError('');
-                        setOtpSendStatus('idle');
-                      }}
-                    >
-                      Back to sign in
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    className="login-text-btn"
+                    onClick={() => {
+                      setShowVerifyCode(false);
+                      setVerifyCode('');
+                      setError('');
+                      setOtpSendStatus('idle');
+                    }}
+                  >
+                    Back to sign in
+                  </button>
                 </div>
-              </div>
-            </form>
-          ) : (
-            <form className="auth-ledger" onSubmit={handleSubmit} noValidate>
-              {successMessage ? (
-                <div className="auth-step" role="status" aria-live="polite">
-                  <div className="auth-step-num is-input">··</div>
-                  <div className="auth-step-body">
-                    <p className="auth-success-msg">{successMessage}</p>
-                  </div>
-                </div>
-              ) : null}
+              </form>
+            ) : (
+              <form className="login-form" onSubmit={handleSubmit} noValidate>
+                {successMessage ? (
+                  <p className="login-success" role="status" aria-live="polite">
+                    {successMessage}
+                  </p>
+                ) : null}
 
-              <div className="auth-step">
-                <div className="auth-step-num is-input">01</div>
-                <div className="auth-step-body">
-                  <div className="auth-label-row">
-                    <label className="auth-label" htmlFor="email">
-                      Work email
-                    </label>
-                  </div>
-                  <div className="auth-field">
-                    <span className="auth-field-glyph" aria-hidden>
-                      ›
-                    </span>
+                <div className="login-audience login-audience--office-only" role="tablist" aria-label="Login type">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={loginAudience === 'office'}
+                    className={loginAudience === 'office' ? 'is-active' : ''}
+                    onClick={() => selectAudience('office')}
+                  >
+                    <Building2 className="w-4 h-4" strokeWidth={2} aria-hidden />
+                    <span>IFSPL (Office)</span>
+                  </button>
+                  {/* Site login option temporarily hidden
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={loginAudience === 'site'}
+                    className={loginAudience === 'site' ? 'is-active' : ''}
+                    onClick={() => selectAudience('site')}
+                  >
+                    <HardHat className="w-4 h-4" strokeWidth={2} aria-hidden />
+                    <span>Site</span>
+                  </button>
+                  */}
+                </div>
+
+                <label className="login-field">
+                  <span>Email</span>
+                  <div className="login-input">
+                    <Mail className="login-input-icon" strokeWidth={1.75} aria-hidden />
                     <input
                       ref={emailRef}
                       id="email"
@@ -503,34 +634,17 @@ const Login = () => {
                         clearError();
                         setEmail(e.target.value);
                       }}
-                      placeholder="name@company.com"
+                      placeholder="name@indusfiresafety.com"
                       autoComplete="username"
                       autoFocus
                     />
                   </div>
-                </div>
-              </div>
+                </label>
 
-              <div className="auth-step">
-                <div className="auth-step-num is-input">02</div>
-                <div className="auth-step-body">
-                  <div className="auth-label-row">
-                    <label className="auth-label" htmlFor="password">
-                      Password
-                    </label>
-                    <button
-                      type="button"
-                      className="auth-reveal"
-                      onClick={() => setRevealPassword((v) => !v)}
-                      aria-pressed={revealPassword}
-                    >
-                      {revealPassword ? 'Hide' : 'Show'}
-                    </button>
-                  </div>
-                  <div className="auth-field">
-                    <span className="auth-field-glyph" aria-hidden>
-                      ›
-                    </span>
+                <label className="login-field">
+                  <span>Password</span>
+                  <div className="login-input">
+                    <Lock className="login-input-icon" strokeWidth={1.75} aria-hidden />
                     <input
                       id="password"
                       name="password"
@@ -540,151 +654,80 @@ const Login = () => {
                         clearError();
                         setPassword(e.target.value);
                       }}
-                      placeholder="••••••••••••"
+                      placeholder="••••••••••"
                       autoComplete="current-password"
                     />
-                  </div>
-                </div>
-              </div>
-
-              {error ? (
-                <div className="auth-step" role="alert" aria-live="polite">
-                  <div className="auth-step-num is-error">!!</div>
-                  <div className="auth-step-body">
-                    <p className="auth-error-msg">{error}</p>
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="auth-step">
-                <div className="auth-step-num">03</div>
-                <div className="auth-step-body">
-                  <div className="auth-trust-row">
-                    <label className="auth-check">
-                      <input
-                        type="checkbox"
-                        checked={remember}
-                        onChange={(e) => setRemember(e.target.checked)}
-                      />
-                      Trust this device for 30 days
-                    </label>
-                    <Link className="auth-reset" to="/forgot-password">
-                      Reset password
-                    </Link>
-                  </div>
-                </div>
-              </div>
-
-              <div className="auth-step">
-                <div className="auth-step-num">04</div>
-                <div className="auth-step-body">
-                  <button type="submit" className="auth-submit" disabled={loading}>
-                    <span>{loading ? 'Verifying credentials' : 'Sign in'}</span>
-                    <span className="auth-submit-arrow" aria-hidden>
-                      →
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="auth-step">
-                <div className="auth-step-num">05</div>
-                <div className="auth-step-body">
-                  <div className="auth-sso-row">
-                    <span>Federated identity</span>
                     <button
                       type="button"
-                      className="auth-sso-btn"
-                      onClick={() =>
-                        setError('SSO is not enabled for this tenant. Sign in with work email and password.')
-                      }
+                      className="login-reveal"
+                      onClick={() => setRevealPassword((v) => !v)}
+                      aria-label={revealPassword ? 'Hide password' : 'Show password'}
+                      aria-pressed={revealPassword}
                     >
-                      Continue with SSO
+                      {revealPassword ? (
+                        <EyeOff className="w-4 h-4" strokeWidth={1.75} />
+                      ) : (
+                        <Eye className="w-4 h-4" strokeWidth={1.75} />
+                      )}
                     </button>
                   </div>
+                </label>
+
+                {error ? (
+                  <p className="login-error" role="alert" aria-live="polite">
+                    {error}
+                  </p>
+                ) : null}
+
+                <div className="login-form-row">
+                  <label className="login-remember">
+                    <input
+                      type="checkbox"
+                      checked={remember}
+                      onChange={(e) => setRemember(e.target.checked)}
+                    />
+                    <span className="login-remember-box" aria-hidden>
+                      {remember ? <Check className="w-3 h-3" strokeWidth={3} /> : null}
+                    </span>
+                    <span>Remember me</span>
+                  </label>
+                  <Link className="login-forgot" to="/forgot-password">
+                    Forgot password?
+                  </Link>
                 </div>
-              </div>
-            </form>
-          )}
 
-          <div className="auth-mobile-strip" aria-label="Tenant summary">
-            <div className="auth-cell">
-              <p className="auth-cell-label">Tenant</p>
-              <p className="auth-cell-value">{COMPANY_PUBLIC.legalName}</p>
-            </div>
-            <div className="auth-cell">
-              <p className="auth-cell-label">States</p>
-              <p className="auth-stat">{COMPANY_PUBLIC.statesOperated}</p>
-            </div>
-            <div className="auth-cell">
-              <p className="auth-cell-label">Modules</p>
-              <p className="auth-stat">{ERP_MODULE_COUNT}</p>
-            </div>
-          </div>
-        </main>
+                <button type="submit" className="login-submit" disabled={loading}>
+                  <span>{loading ? 'Signing in…' : 'Sign In'}</span>
+                  <ArrowRight className="w-4 h-4" strokeWidth={2.25} aria-hidden />
+                </button>
+              </form>
+            )}
 
-        <aside className="auth-aside" aria-label="Platform information">
-          <div className="auth-cell">
-            <p className="auth-cell-label">Tenant</p>
-            <p className="auth-cell-value">{COMPANY_PUBLIC.legalName}</p>
-          </div>
-          <div className="auth-cell-split">
-            <div className="auth-cell">
-              <p className="auth-cell-label">States</p>
-              <p className="auth-stat">{COMPANY_PUBLIC.statesOperated}</p>
+            <div className="login-card-skyline" aria-hidden="true">
+              <svg viewBox="0 0 360 56" preserveAspectRatio="none">
+                <rect x="8" y="28" width="18" height="28" rx="2" fill="currentColor" />
+                <rect x="34" y="18" width="18" height="38" rx="2" fill="currentColor" />
+                <rect x="60" y="24" width="18" height="32" rx="2" fill="currentColor" />
+                <rect x="86" y="10" width="22" height="46" rx="2" fill="currentColor" />
+                <rect x="116" y="20" width="18" height="36" rx="2" fill="currentColor" />
+                <rect x="142" y="14" width="20" height="42" rx="2" fill="currentColor" />
+                <rect x="170" y="26" width="16" height="30" rx="2" fill="currentColor" />
+                <rect x="194" y="8" width="24" height="48" rx="2" fill="currentColor" />
+                <rect x="226" y="18" width="18" height="38" rx="2" fill="currentColor" />
+                <rect x="252" y="22" width="16" height="34" rx="2" fill="currentColor" />
+                <rect x="276" y="12" width="22" height="44" rx="2" fill="currentColor" />
+                <rect x="306" y="24" width="18" height="32" rx="2" fill="currentColor" />
+                <rect x="332" y="16" width="20" height="40" rx="2" fill="currentColor" />
+              </svg>
             </div>
-            <div className="auth-cell">
-              <p className="auth-cell-label">Modules</p>
-              <p className="auth-stat">{ERP_MODULE_COUNT}</p>
-            </div>
           </div>
-          <div className="auth-cell">
-            <p className="auth-cell-label">Since</p>
-            <p className="auth-cell-value">
-              {COMPANY_PUBLIC.foundedYear} · {yearsOperating} years
-            </p>
-          </div>
-          <div className="auth-cell">
-            <p className="auth-cell-label">Platform status</p>
-            <p className="auth-status-line">
-              <span
-                className={`auth-status-dot${platformOk === false ? ' is-down' : ''}${platformOk === null ? ' is-pending' : ''}`}
-                aria-hidden
-              />
-              {platformOk === null
-                ? 'Checking auth service…'
-                : platformOk
-                  ? 'Auth service reachable'
-                  : 'Auth service unreachable'}
-            </p>
-            <p className="auth-uptime-caption">
-              {platformLatencyMs != null
-                ? `Live check · ${platformLatencyMs} ms · Asia/Kolkata`
-                : 'Live check · waiting'}
-            </p>
-          </div>
-          <div className="auth-cell">
-            <p className="auth-cell-label">Compliance</p>
-            <ul className="auth-compliance">
-              {COMPANY_PUBLIC.certifications.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-              <li>Headquarters · {COMPANY_PUBLIC.headquarters}</li>
-            </ul>
-          </div>
-        </aside>
+        </section>
       </div>
 
-      <footer className="auth-footer">
-        <p>Unauthorised access is logged and audited.</p>
-        <div className="auth-footer-links">
-          <a href="mailto:support@indusfiresafety.com">Support</a>
-          <span>·</span>
-          <a href="#status">Status</a>
-          <span>·</span>
-          <a href="#privacy">Privacy</a>
-        </div>
-      </footer>
+      {/* Theme toggle helper kept reachable for keyboard users when JS theme state drifts */}
+      <button type="button" className="sr-only" onClick={toggleTheme} tabIndex={-1} aria-hidden>
+        Toggle theme
+      </button>
     </div>
   );
 };

@@ -13,7 +13,7 @@ import {
   Modal,
   KpiTile,
   CollapsibleHelp,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import { useAuth } from "../../../contexts/AuthContext";
 import { toast } from "../../../lib/toast";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";

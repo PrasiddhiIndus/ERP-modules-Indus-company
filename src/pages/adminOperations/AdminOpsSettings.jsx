@@ -1,5 +1,5 @@
 import React from "react";
-import { SectionCard, DenseTable, Badge } from "./components/AdminUi";
+import { SectionCard, DenseTable, Badge } from "../../components/erpUi";
 
 const masterRows = [
   { id: "1", area: "Leave types", count: "6", note: "Casual, sick, earned, unpaid, emergency, comp-off" },

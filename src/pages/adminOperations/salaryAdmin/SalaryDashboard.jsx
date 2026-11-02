@@ -6,7 +6,7 @@ import {
   PageTaskHeader,
   SectionCard,
   FilterBar,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import {
   AreaTrendChart,
   BarCompareChart,

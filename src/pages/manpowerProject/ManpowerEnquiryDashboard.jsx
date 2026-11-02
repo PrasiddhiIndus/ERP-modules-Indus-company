@@ -51,7 +51,7 @@ import {
   KpiTile,
   SectionCard,
   TinySelect,
-} from "../adminOperations/components/AdminUi";
+} from "../../components/erpUi";
 import ManpowerNavbar from "./ManpowerNavbar";
 import "./manpowerEnquiryDashboard.css";
 

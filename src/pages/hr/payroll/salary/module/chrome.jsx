@@ -54,14 +54,14 @@ export function PageHead({ title, subtitle, month = false, children }) {
 export function Card({ title, action, children, className = "" }) {
   const framed = Boolean(title || action);
   return (
-    <section className={`overflow-hidden rounded-card border border-border bg-surface shadow-card ${className}`}>
+    <section className={`overflow-visible rounded-card border border-border bg-surface shadow-card ${className}`}>
       {framed ? (
-        <div className="erp-card-header flex min-h-[52px] items-center justify-between gap-3 border-b border-divider bg-surface-raised">
+        <div className="erp-card-header flex min-h-[52px] items-center justify-between gap-3 border-b border-divider bg-surface-raised overflow-hidden rounded-t-card">
           {title ? <h2 className="type-card-title text-ink type-truncate">{title}</h2> : <span />}
           {action}
         </div>
       ) : null}
-      <div className={framed ? "erp-card-body" : "px-4 py-3.5"}>{children}</div>
+      <div className={`${framed ? "erp-card-body" : "px-4 py-3.5"} overflow-visible relative z-[1]`}>{children}</div>
     </section>
   );
 }

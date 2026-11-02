@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { FileCheck, Plus, Search, Pencil, Trash2, History, ChevronLeft, ChevronRight, Paperclip, Eye, Share2, Link2, Download } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, History, ChevronLeft, ChevronRight, Paperclip, Eye, Share2, Link2, Download } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatDateDdMmYyyy, formatDateTimeDdMmYyyy, normalizeToIsoDate } from "../../utils/dateDisplay";
@@ -51,6 +51,7 @@ import {
 } from '../../utils/poEntryFieldPermissions';
 
 import { toast } from "../../lib/toast";
+import { PageTaskHeader, PageShell, PrimaryButton } from "../../components/erpUi";
 
 /** Add/Edit PO/WO modal — 12-column grid; size fields by span, not leftover stretch. */
 const PO_FORM_SECTION = 'bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm';
@@ -2518,18 +2519,12 @@ const POEntry = () => {
       : '';
 
   return (
-    <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center space-x-3">
-          <div className="bg-blue-100 p-3 rounded-lg shrink-0"><FileCheck className="w-6 h-6 text-blue-600" /></div>
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">PO / WO Management</h2>
-          </div>
-        </div>
-        <button type="button" onClick={handleOpenAdd} className="bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2">
-          <Plus className="h-5 w-5" /> Add PO/WO
-        </button>
-      </div>
+    <PageShell className="w-full overflow-y-auto p-4 sm:p-6">
+      <PageTaskHeader title="PO / WO Management" subtitle="Create and maintain commercial purchase and work orders.">
+        <PrimaryButton type="button" onClick={handleOpenAdd} icon={Plus}>
+          Add PO/WO
+        </PrimaryButton>
+      </PageTaskHeader>
       {billingError ? (
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <p className="min-w-0">{billingError}</p>
@@ -4866,7 +4861,7 @@ const POEntry = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

@@ -7,7 +7,7 @@ import {
   TinyInput,
   TinySelect,
   Modal,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import FormDateInput from "../../../components/FormDateInput";
 import { supabase } from "../../../lib/supabase";
 import { toast } from "../../../lib/toast";

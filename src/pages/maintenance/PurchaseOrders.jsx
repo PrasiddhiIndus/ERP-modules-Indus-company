@@ -382,7 +382,7 @@ const PurchaseOrders = () => {
                           <MoreVertical className="w-4 h-4" />
                         </button>
                         {menuOpen === contract.id && (
-                          <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
+                          <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-[80] border border-gray-200">
                             <button
                               onClick={() => handleEdit(contract)}
                               className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"

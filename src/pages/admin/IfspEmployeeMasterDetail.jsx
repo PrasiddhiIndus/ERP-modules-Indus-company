@@ -5,7 +5,7 @@ import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import { employmentTypeLabel } from "../../utils/employeeMasterReminders";
 import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
-import { PageTaskHeader, SectionCard, StatusChip } from "../adminOperations/components/AdminUi";
+import { PageTaskHeader, SectionCard, StatusChip } from "../../components/erpUi";
 import EmployeeMasterPersonalForm from "./employeeMaster/EmployeeMasterPersonalForm";
 import AnnexureCtcPanel from "../adminOperations/salaryAdmin/AnnexureCtcPanel";
 import { dbListFormulaOverrideEmployeeIds } from "../adminOperations/salaryAdmin/salaryDb";

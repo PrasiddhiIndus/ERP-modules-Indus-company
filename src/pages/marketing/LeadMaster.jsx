@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase';
 import { toast } from '../../lib/toast';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import FormDateInput from '../../components/FormDateInput';
-import { DenseTable } from '../adminOperations/components/AdminUi';
+import { DenseTable, PageTaskHeader, PageShell } from '../../components/erpUi';
 import ColumnFilterMenu, {
   BLANK_FILTER_VALUE,
   BLANK_FILTER_LABEL,
@@ -447,24 +447,22 @@ export default function LeadMaster() {
   };
 
   return (
-    <div className="w-full h-screen overflow-y-auto p-2 sm:p-3 md:p-4 lg:p-6">
-      <div className="bg-white shadow p-3 sm:p-4 md:p-6 rounded-lg mb-4 md:mb-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 md:mb-6">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Lead Master</h1>
-            <p className="text-sm sm:text-base text-gray-600 mt-1">
-              {loading ? 'Loading project leads…' : `${totalCount} project lead${totalCount === 1 ? '' : 's'}`}
-            </p>
-          </div>
+    <PageShell className="w-full h-screen overflow-y-auto p-2 sm:p-3 md:p-4 lg:p-6">
+      <div className="bg-surface shadow-card border border-border p-3 sm:p-4 md:p-6 rounded-card mb-4 md:mb-6">
+        <PageTaskHeader
+          title="Lead Master"
+          subtitle={loading ? 'Loading project leads…' : `${totalCount} project lead${totalCount === 1 ? '' : 's'}`}
+          className="mb-4 md:mb-6"
+        >
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
             <div className="relative w-full sm:w-[260px]">
-              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-ink-muted absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search leads…"
-                className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                className="w-full pl-9 pr-3 py-2 border border-border rounded-control text-sm focus:ring-2 focus:ring-accent/30 focus:border-border-strong"
               />
             </div>
             <input
@@ -501,7 +499,7 @@ export default function LeadMaster() {
               <span>Add lead</span>
             </button>
           </div>
-        </div>
+        </PageTaskHeader>
 
         {loadError ? (
           <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -777,6 +775,6 @@ export default function LeadMaster() {
           </div>
         </div>
       ) : null}
-    </div>
+    </PageShell>
   );
 }

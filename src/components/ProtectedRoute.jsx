@@ -59,10 +59,13 @@ const ProtectedRoute = ({ children }) => {
     return <PageLoader fullScreen label="Loading permissions…" />;
   }
 
-  logLoginStage("route-guard-allow", {
-    path: location.pathname,
-    userId: effectiveUser.id,
-  });
+  // Allow logs only in DEV — hot path on every route paint.
+  if (import.meta.env.DEV) {
+    logLoginStage("route-guard-allow", {
+      path: location.pathname,
+      userId: effectiveUser.id,
+    });
+  }
 
   return children;
 };

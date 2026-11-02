@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Modal } from "../components/AdminUi";
+import { Modal } from "../../../components/erpUi";
 import { formatINR } from "./salaryData";
 import {
   CTC_FORMULA_LINES,

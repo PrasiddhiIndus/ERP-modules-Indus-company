@@ -40,7 +40,7 @@ import {
 } from './enquiryEditApi';
 import { isEnquiryApprover } from './enquiryRoles';
 import { useAuth } from '../../../contexts/AuthContext';
-import { Modal } from '../../adminOperations/components/AdminUi';
+import { Modal } from '../../../components/erpUi';
 import {
   daysLeftBadge,
   orderAssignmentFields,

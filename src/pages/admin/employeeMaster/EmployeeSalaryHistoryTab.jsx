@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { DenseTable, FilterBar, StatusChip } from "../../adminOperations/components/AdminUi";
+import { DenseTable, FilterBar, StatusChip } from "../../../components/erpUi";
 import {
   fetchSalaryHistoryForEmployee,
   formatPayslipMoney,

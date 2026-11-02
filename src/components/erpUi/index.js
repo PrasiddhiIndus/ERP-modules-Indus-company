@@ -1,9 +1,16 @@
 /**
- * Central ERP UI kit — re-exports Admin Ops primitives so every module
- * can import from one place without deep-linking into adminOperations.
+ * Central ERP UI kit — single source of truth for shared chrome.
  *
- * Prefer: import { PageTaskHeader, SectionCard, ... } from "../../components/erpUi";
+ * Prefer:
+ *   import { PageTaskHeader, SectionCard, DenseTable } from "../../components/erpUi";
+ *
+ * Do NOT deep-import adminOperations/components/AdminUi.
+ * Do NOT create parallel SectionCard / DenseTable / Modal forks under pages/.
+ *
+ * Look & spacing: edit src/theme/tokens.css (+ typography.css).
+ * Component structure: edit files in this folder.
  */
+
 export {
   PageTaskHeader,
   CollapsibleHelp,
@@ -20,4 +27,19 @@ export {
   LinkedChip,
   Timeline,
   InlineAlert,
-} from "../../pages/adminOperations/components/AdminUi";
+} from "./primitives";
+
+export {
+  PrimaryButton,
+  SecondaryButton,
+  EmptyState,
+  FormField,
+  PageShell,
+} from "./actions";
+
+export {
+  Skeleton,
+  LoadingBlock,
+  Breadcrumbs,
+  PaginationBar,
+} from "./feedback";

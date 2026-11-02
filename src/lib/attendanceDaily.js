@@ -25,6 +25,7 @@ import {
   isThirdSaturdayWorkingDepartment,
   isWeeklyOffCandidateDate,
   isWeeklyOffDay,
+  ruleDepartmentKey,
 } from "./attendanceRules";
 
 export { timeToMinutes, attendanceTimesFor };
@@ -624,12 +625,47 @@ export function isPaidThirdSaturdayWeekoffCell(mark, { year, month, day, departm
 }
 
 /**
+ * Total present only: blank/WO on a 3rd Saturday that is not a weekly off for this employee
+ * (works that day, e.g. Production sun_only) still credits 1 — salary slab counts Mon–Sat.
+ * Uses employee+department weekly-off resolution only (no department-only gate).
+ * Present marks (P, etc.) are unchanged (they already credit via normal present credit).
+ */
+export function isPaidThirdSaturdayWorkingDeptCell(mark, { year, month, day, department, employeeCode = null } = {}) {
+  const m = String(mark ?? "").trim();
+  if (m && m !== "WO") return false;
+  if (!year || !month || !day) return false;
+  if (!isThirdSaturdayOfMonth(year, month, day)) return false;
+  const iso = registerDateFromDay(monthKeyFromParts(year, month), day);
+  if (!iso) return false;
+  return !isWeeklyOffDate(iso, department, employeeCode);
+}
+
+/** Production (and Production-* variants) for Total present Saturday WO credit only. */
+function isProductionDepartmentForPresentCredit(department) {
+  const key = ruleDepartmentKey(department);
+  return Boolean(key && (key === "production" || key.startsWith("production-")));
+}
+
+/**
+ * Total present only: Production department WO on any Saturday of the month credits 1.
+ * Does not change Sunday WO, other departments, marks, or C/O / auto-WO logic.
+ */
+export function isProductionSaturdayWeekoffPresentCredit(mark, { year, month, day, department } = {}) {
+  if (String(mark ?? "").trim() !== "WO") return false;
+  if (!year || !month || !day) return false;
+  if (!isProductionDepartmentForPresentCredit(department)) return false;
+  return new Date(year, month - 1, day).getDay() === 6;
+}
+
+/**
  * Present credit for register summary Total present column only.
  * P/PL, P/CL, P/SL count as 1 (display); 3rd-Saturday WO counts as 1 (see above).
  * Does not change day-level present/absent logic.
  */
 export function registerPresentDaySummaryCreditForCell(mark, ctx = {}) {
   if (isPaidThirdSaturdayWeekoffCell(mark, ctx)) return 1;
+  if (isPaidThirdSaturdayWorkingDeptCell(mark, ctx)) return 1;
+  if (isProductionSaturdayWeekoffPresentCredit(mark, ctx)) return 1;
   const compositeCredit = registerCompositePaidLeaveSummaryCredit(mark);
   if (compositeCredit > 0) return compositeCredit;
   return registerPresentDayCreditForCell(mark, ctx);
@@ -4130,8 +4166,9 @@ export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { 
 }
 
 /**
- * From this month on, punch / P(OD) / tour / HD worked on a WO or NH/PH date is not
+ * From this month on, P / P(OD) / tour / HD worked on a WO or NH/PH date is not
  * counted in Total present — the day is credited as WO / NH/PH (C/O earning is unchanged).
+ * Sunday work (P on Sunday WO) therefore adds 0 to Total present.
  * Earlier months keep the old totals.
  */
 export const OFF_DAY_WORK_EXCLUDED_FROM_PRESENT_START_MONTH = "2026-10";

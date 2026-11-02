@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from "react";
+import React, { useState, useEffect, useMemo, Suspense, lazy } from "react";
 import PageLoader from "../components/PageLoader";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
@@ -19,6 +19,12 @@ import { SALARY_SUB_NAV, HR_SALARY_BASE, salaryNavIsActive, salaryNavPath } from
 import { OPERATIONS_NAV, operationsNavHref, operationsNavIsActive } from "../pages/operations/navConfig";
 import { MARKETING_NAV_ITEMS } from "../pages/marketing/marketingNav";
 import PoApprovalBell from "../components/PoApprovalBell";
+import CommandPalette from "../components/CommandPalette";
+import { COMMAND_DESTINATIONS } from "../lib/commandDestinations";
+import { prefetchRouteModule } from "../lib/routePrefetch";
+import { prefetchAllDashboards } from "../lib/prefetchDashboards";
+import { useTheme } from "./ThemeContext";
+import { Breadcrumbs } from "../components/erpUi";
 
 const EnquiryDueSoonPopup = lazy(() => import("../pages/projects/enquiry/EnquiryDueSoonPopup"));
 const EnquiryOverduePopup = lazy(() => import("../pages/projects/enquiry/EnquiryOverduePopup"));
@@ -73,6 +79,11 @@ import {
   FileSpreadsheet,
   Mail,
   SlidersHorizontal,
+  Moon,
+  Sun,
+  PanelLeftClose,
+  PanelLeft,
+  Search as SearchIcon,
 } from "lucide-react";
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
@@ -87,12 +98,20 @@ const RupeeIcon = ({ className = '' }) => {
   );
 };
 
-const topLinkBase = "group flex flex-none items-center gap-2.5 px-2.5 py-2 rounded-control hover:bg-surface hover:border-neutral-border transition-[background-color,border-color,box-shadow] duration-theme ease-theme min-h-[2.35rem] border border-transparent";
-const subLinkBase = "group flex flex-none items-center gap-2.5 px-2.5 py-1.5 rounded-control hover:bg-surface hover:border-neutral-border transition-[background-color,border-color,box-shadow] duration-theme ease-theme border border-transparent";
-const activeClass = "bg-surface text-ink-strong border border-accent-border border-l-[3px] border-l-accent shadow-nav-active";
-const sectionOpenClass = "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border";
-const topNavClass = ({ isActive }) => `${topLinkBase} ${isActive ? activeClass : "text-ink-strong"}`;
-const subNavClass = ({ isActive }) => `${subLinkBase} ${isActive ? activeClass : "text-ink-strong"}`;
+const topLinkBase =
+  "group flex flex-none items-center gap-2.5 px-2.5 py-2 rounded-control transition-[background-color,border-color,box-shadow,color,transform] duration-theme ease-theme min-h-[2.35rem] border border-transparent text-sidebar-text hover:bg-sidebar-hover hover:text-sidebar-strong";
+const subLinkBase =
+  "group flex flex-none items-center gap-2.5 px-2.5 py-1.5 rounded-control transition-[background-color,border-color,box-shadow,color] duration-theme ease-theme border border-transparent text-sidebar-text hover:bg-sidebar-hover hover:text-sidebar-strong";
+const activeClass =
+  "bg-sidebar-active text-sidebar-strong border border-transparent border-l-[3px] border-l-sidebar-accent shadow-nav-active";
+const sectionOpenClass =
+  "bg-sidebar-active text-sidebar-strong shadow-nav-active border border-transparent border-l-[3px] border-l-sidebar-accent";
+const topNavClass = ({ isActive }) => `${topLinkBase} ${isActive ? activeClass : ""}`;
+const subNavClass = ({ isActive }) => `${subLinkBase} ${isActive ? activeClass : ""}`;
+const sectionBtnClass = (open) =>
+  `flex items-center justify-between w-full px-2.5 py-2 rounded-control transition-[background-color,color,border-color] duration-theme ease-theme min-h-[2.35rem] border border-transparent text-sidebar-strong hover:bg-sidebar-hover ${
+    open ? sectionOpenClass : ""
+  }`;
 
 /** Parse activity route label (`Module · Page`) into app-bar eyebrow + title. */
 function workspaceFromModuleLabel(label) {
@@ -192,6 +211,16 @@ const Layout = () => {
   const location = useLocation();
   const pathname = location.pathname;
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("indus-erp-sidebar-collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [navFilter, setNavFilter] = useState("");
+  const { theme, toggleTheme } = useTheme();
   const [isAccessDenied, setIsAccessDenied] = useState(false);
   const [pendingRequisitionCount, setPendingRequisitionCount] = useState(0);
   const canSeeActivityLog =
@@ -206,6 +235,63 @@ const Layout = () => {
     .map((p) => p[0]?.toUpperCase() || "")
     .join("") || "U";
   const todayLabel = formatToolbarDate();
+
+  const allowedCommands = useMemo(() => {
+    return COMMAND_DESTINATIONS.filter((d) =>
+      isPathAllowed(d.path, accessibleModules || new Set(), subModulePaths, {
+        ...(userProfile || {}),
+        email: userProfile?.email || user?.email || "",
+      })
+    );
+  }, [accessibleModules, subModulePaths, userProfile, user?.email]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("indus-erp-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (meta && String(e.key || "").toLowerCase() === "k") {
+        e.preventDefault();
+        setCommandOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Warm all dashboard modules as soon as the shell is up.
+  useEffect(() => {
+    prefetchAllDashboards();
+  }, []);
+
+  // Warm likely destination chunks on sidebar hover/focus (no behavior change).
+  useEffect(() => {
+    const onIntent = (e) => {
+      const a = e.target?.closest?.("a[href]");
+      if (!a) return;
+      const href = a.getAttribute("href");
+      if (!href || !href.includes("/app")) return;
+      prefetchRouteModule(href);
+    };
+    document.addEventListener("pointerover", onIntent, { passive: true });
+    document.addEventListener("focusin", onIntent, { passive: true });
+    return () => {
+      document.removeEventListener("pointerover", onIntent);
+      document.removeEventListener("focusin", onIntent);
+    };
+  }, []);
+
+  const navFilterNorm = navFilter.trim().toLowerCase();
+  const navMatch = (label) => {
+    if (!navFilterNorm) return true;
+    return String(label || "").toLowerCase().includes(navFilterNorm);
+  };
 
   // Route guard:
   // - For /app/dashboard, if user doesn't have overview, auto-redirect to their module home.
@@ -402,44 +488,131 @@ const Layout = () => {
     );
   }
 
+  const sidebarWidthClass = sidebarCollapsed ? "lg:w-sidebar-collapsed w-64" : "w-64 lg:w-sidebar";
+  const mainOffsetClass = sidebarCollapsed ? "lg:ml-sidebar-collapsed" : "lg:ml-sidebar";
+
   return (
     <div className="flex min-h-screen bg-canvas">
       {/* Sidebar */}
       <aside
         className={`${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        } lg:translate-x-0 fixed inset-y-0 left-0 z-50 w-64 bg-canvas border-r border-border-strong transition-transform duration-theme ease-theme`}
+        } lg:translate-x-0 fixed inset-y-0 left-0 z-50 ${sidebarWidthClass} bg-sidebar border-r border-sidebar-border transition-[transform,width] duration-theme-slow ease-theme shadow-[4px_0_24px_rgba(23,29,53,0.12)]`}
       >
         <div className="flex flex-col h-full">
           {/* Logo + Close */}
-          <div className="flex items-center justify-between px-3 py-3.5 border-b border-border gap-2 bg-canvas">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <img src={INDUS_LOGO_SRC} alt="" className="h-9 w-9 object-contain shrink-0 rounded-full bg-accent-deep" width={36} height={36} />
-              <h1 className="type-card-title text-ink type-truncate">INDUS OS</h1>
+          <div className="flex items-center justify-between px-3 py-3.5 border-b border-sidebar-border gap-2 bg-sidebar-elevated/40 min-h-topbar">
+            <div className={`flex items-center gap-2.5 min-w-0 flex-1 ${sidebarCollapsed ? "lg:justify-center" : ""}`}>
+              <img
+                src={INDUS_LOGO_SRC}
+                alt=""
+                className="h-9 w-9 object-contain shrink-0 rounded-full ring-2 ring-sidebar-accent/40 bg-sidebar-elevated"
+                width={36}
+                height={36}
+              />
+              {!sidebarCollapsed ? (
+                <div className="min-w-0">
+                  <h1 className="type-card-title text-sidebar-strong type-truncate tracking-tight">INDUS OS</h1>
+                  <p className="type-mono-micro text-sidebar-muted type-truncate">Enterprise ERP</p>
+                </div>
+              ) : (
+                <h1 className="type-card-title text-sidebar-strong type-truncate lg:hidden">INDUS OS</h1>
+              )}
             </div>
             <button
+              type="button"
+              onClick={() => setSidebarCollapsed((v) => !v)}
+              className="hidden lg:inline-flex p-1.5 rounded-control text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-strong border border-transparent"
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {sidebarCollapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+            </button>
+            <button
               onClick={() => setSidebarOpen(false)}
-              className="lg:hidden p-1 rounded-control hover:bg-surface text-ink-muted"
+              className="lg:hidden p-1 rounded-control hover:bg-sidebar-hover text-sidebar-muted"
             >
               ×
             </button>
           </div>
 
+          {!sidebarCollapsed ? (
+            <div className="px-3 pt-3">
+              <div className="relative">
+                <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-sidebar-muted pointer-events-none" />
+                <input
+                  type="search"
+                  value={navFilter}
+                  onChange={(e) => setNavFilter(e.target.value)}
+                  placeholder="Filter menu…"
+                  className="w-full h-9 pl-8 pr-2 rounded-control border border-sidebar-border bg-sidebar-elevated text-sidebar-strong type-meta placeholder:text-sidebar-muted focus:outline-none focus:ring-2 focus:ring-sidebar-accent/40"
+                  aria-label="Filter navigation"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setCommandOpen(true)}
+                className="mt-2 w-full flex items-center justify-between gap-2 h-9 px-2.5 rounded-control border border-sidebar-border bg-sidebar-elevated text-sidebar-muted type-meta hover:bg-sidebar-hover hover:text-sidebar-strong transition-colors duration-theme"
+              >
+                <span>Jump to page</span>
+                <kbd className="type-mono-micro border border-sidebar-border rounded px-1.5 py-0.5 text-sidebar-muted">⌘K</kbd>
+              </button>
+            </div>
+          ) : (
+            <div className="hidden lg:flex px-2 pt-3 justify-center">
+              <button
+                type="button"
+                onClick={() => setCommandOpen(true)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-control border border-sidebar-border bg-sidebar-elevated text-sidebar-muted hover:bg-sidebar-hover"
+                aria-label="Jump to page"
+                title="Jump to page (⌘K)"
+              >
+                <SearchIcon className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {/* Nav Links */}
-          <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto">
-            {can("overview") && (
-              <NavLink to="/app/dashboard" className={topNavClass}>
+          <nav className={`flex-1 p-3 space-y-1.5 overflow-y-auto ${sidebarCollapsed ? "lg:px-2" : ""}`}>
+            {navFilterNorm ? (
+              <div className="space-y-0.5">
+                <p className="px-2 pb-1 type-mono-micro text-sidebar-muted">Matching pages</p>
+                {allowedCommands.filter((d) => navMatch(`${d.label} ${d.group} ${d.keywords}`)).length === 0 ? (
+                  <p className="px-2 py-4 type-meta text-sidebar-muted">No matches</p>
+                ) : (
+                  allowedCommands
+                    .filter((d) => navMatch(`${d.label} ${d.group} ${d.keywords}`))
+                    .map((d) => (
+                      <NavLink
+                        key={d.path}
+                        to={d.path}
+                        className={subNavClass}
+                        onClick={() => setSidebarOpen(false)}
+                      >
+                        <span className="type-meta type-truncate">{d.label}</span>
+                      </NavLink>
+                    ))
+                )}
+              </div>
+            ) : null}
+            {!navFilterNorm && can("overview") && (
+              <NavLink to="/app/dashboard" className={topNavClass} title="Dashboard">
                 <BarChart3 className="w-4 h-4 shrink-0" />
-                <span className="type-body-medium type-truncate">Dashboard</span>
+                {!sidebarCollapsed ? (
+                  <span className="type-body-medium type-truncate">Dashboard</span>
+                ) : (
+                  <span className="type-body-medium type-truncate lg:hidden">Dashboard</span>
+                )}
               </NavLink>
             )}
-
+            {!navFilterNorm && (
+            <div className={sidebarCollapsed ? "lg:hidden space-y-1.5" : "space-y-1.5"}>
             {/* HR */}
             {can("hr") && (
             <div>
               <button
                 onClick={() => setHrAdminOpen(!hrAdminOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/salary") || pathname.startsWith("/app/people-management") || pathname.startsWith("/app/hr/payroll/salary") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/salary") || pathname.startsWith("/app/people-management") || pathname.startsWith("/app/hr/payroll/salary") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <UserCheck className="w-4 h-4 shrink-0" />
@@ -453,10 +626,10 @@ const Layout = () => {
               </button>
 
               {hrAdminOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   {canSub("hr.dashboard") && (
                   <NavLink to="hr/dashboard" className={subNavClass}>
-                    <LayoutDashboard className="w-4 h-4 shrink-0 text-accent" />
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Dashboard</span>
                   </NavLink>
                   )}
@@ -471,7 +644,7 @@ const Layout = () => {
                       return subNavClass({ isActive: active });
                     }}
                   >
-                    <User className="w-4 h-4 shrink-0 text-accent" />
+                    <User className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">HR Management</span>
                   </NavLink>
                   )}
@@ -488,13 +661,13 @@ const Layout = () => {
                       })
                     }
                   >
-                    <PhoneCall className="w-4 h-4 shrink-0 text-sky-600" />
+                    <PhoneCall className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Recruitment</span>
                   </NavLink>
                   )}
                   {canSub("hr.attendance") && (
                   <NavLink to="attendance" className={subNavClass}>
-                    <Clock className="w-4 h-4 shrink-0 text-amber-600" />
+                    <Clock className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Attendance</span>
                   </NavLink>
                   )}
@@ -503,22 +676,22 @@ const Layout = () => {
                   <button
                     type="button"
                     onClick={() => setHrSalaryOpen(!hrSalaryOpen)}
-                    className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${
+                    className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${
                       pathname.startsWith(`/app/${HR_SALARY_BASE}`)
-                        ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border"
-                        : "text-ink-strong"
+                        ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent"
+                        : "text-sidebar-strong"
                     }`}
                     aria-expanded={hrSalaryOpen}
                     aria-label="Toggle salary management menu"
                   >
                     <span className="flex items-center space-x-2.5 min-w-0">
-                      <Wallet className="w-4 h-4 shrink-0 text-emerald-600" />
+                      <Wallet className="w-4 h-4 shrink-0 text-sidebar-accent" />
                       <span className="text-xs font-medium text-left leading-tight">Salary Management</span>
                     </span>
                     <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${hrSalaryOpen ? "rotate-180" : ""}`} />
                   </button>
                   {hrSalaryOpen && (
-                    <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                    <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                       {SALARY_SUB_NAV.map((item) => (
                         <NavLink
                           key={item.to}
@@ -541,13 +714,13 @@ const Layout = () => {
                       })
                     }
                   >
-                    <Building2 className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <Building2 className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Site Attendance</span>
                   </NavLink>
                   )}
                   {canSub("hr.people-management") && (
                   <NavLink to="people-management" className={subNavClass}>
-                    <UserPlus className="w-4 h-4 shrink-0 text-pink-600" />
+                    <UserPlus className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">People Management</span>
                   </NavLink>
                   )}
@@ -561,7 +734,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setComplianceOpen(!complianceOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance") || pathname === "/app/compliance" || pathname.startsWith("/app/compliance/") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance") || pathname === "/app/compliance" || pathname.startsWith("/app/compliance/") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <Shield className="w-4 h-4 shrink-0" />
@@ -575,7 +748,7 @@ const Layout = () => {
               </button>
 
               {complianceOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   {canSub("compliance.payroll") && (
                   <>
                   <NavLink
@@ -586,11 +759,11 @@ const Layout = () => {
                         pathname === "/app/compliance/" ||
                         pathname === "/app/compliance/dashboard"
                           ? activeClass
-                          : "text-ink-strong"
+                          : "text-sidebar-strong"
                       }`
                     }
                   >
-                    <LayoutDashboard className="w-4 h-4 shrink-0 text-accent" />
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Dashboard</span>
                   </NavLink>
                   <NavLink
@@ -599,7 +772,7 @@ const Layout = () => {
                       `${subLinkBase} ${
                         pathname.startsWith("/app/compliance/forms")
                           ? activeClass
-                          : "text-ink-strong"
+                          : "text-sidebar-strong"
                       }`
                     }
                   >
@@ -612,7 +785,7 @@ const Layout = () => {
                       `${subLinkBase} ${
                         pathname.startsWith("/app/compliance/payroll-process")
                           ? activeClass
-                          : "text-ink-strong"
+                          : "text-sidebar-strong"
                       }`
                     }
                   >
@@ -623,13 +796,13 @@ const Layout = () => {
                   )}
                   {canSub("compliance.ifspl") && (
                   <NavLink to="ifsp-employee-compliance" className={subNavClass}>
-                    <CheckCircle className="w-4 h-4 shrink-0 text-green-600" />
+                    <CheckCircle className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">IFSPL Employee Compliance</span>
                   </NavLink>
                   )}
                   {canSub("compliance.general") && (
                   <NavLink to="general-compliance" className={subNavClass}>
-                    <ClipboardCheck className="w-4 h-4 shrink-0 text-accent" />
+                    <ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">General Compliance</span>
                   </NavLink>
                   )}
@@ -641,7 +814,7 @@ const Layout = () => {
             {misScopedOnly && (
               <NavLink
                 to="admin/payroll-mis"
-                className={`flex items-center space-x-2.5 w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/admin/payroll-mis") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"}`}
+                className={`flex items-center space-x-2.5 w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/admin/payroll-mis") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
               >
                 <BarChart3 className="w-4 h-4 shrink-0" />
                 <span className="type-body-medium type-truncate">Payroll reports</span>
@@ -656,7 +829,7 @@ const Layout = () => {
                   if (!adminOpen) collapseAdminSubmodules();
                   setAdminOpen(!adminOpen);
                 }}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <Cog className="w-4 h-4 shrink-0" />
@@ -673,7 +846,7 @@ const Layout = () => {
                 <div className="ml-6 mt-0.5 space-y-1">
                   {canSub("admin.dashboard") && (
                   <NavLink to="admin/dashboard" className={subNavClass}>
-                    <LayoutDashboard className="h-4 w-4 shrink-0 text-accent" />
+                    <LayoutDashboard className="h-4 w-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Dashboard</span>
                   </NavLink>
                   )}
@@ -692,7 +865,7 @@ const Layout = () => {
                       })
                     }
                   >
-                    <PhoneCall className="h-4 w-4 shrink-0 text-sky-600" />
+                    <PhoneCall className="h-4 w-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Recruitment</span>
                     {pendingRequisitionCount > 0 ? (
                       <span className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
@@ -704,7 +877,7 @@ const Layout = () => {
 
                   {canSub(EMPLOYEE_MASTER_SUBMODULE_KEY) && (
                       <NavLink to="admin/employee/master" className={subNavClass}>
-                        <Users className="h-4 w-4 shrink-0 text-accent" />
+                        <Users className="h-4 w-4 shrink-0 text-sidebar-accent" />
                         <span className="type-meta type-truncate">Employee Master</span>
                       </NavLink>
                   )}
@@ -712,7 +885,7 @@ const Layout = () => {
                   {canSub("admin.employee") && (
                   <>
                       <NavLink to="admin/employee/onboarding" className={subNavClass}>
-                        <UserPlus className="h-4 w-4 shrink-0 text-indigo-600" />
+                        <UserPlus className="h-4 w-4 shrink-0 text-sidebar-accent" />
                         <span className="type-meta type-truncate">Onboarding</span>
                       </NavLink>
                       <NavLink to="admin/employee/policies" className={subNavClass}>
@@ -724,32 +897,32 @@ const Layout = () => {
                         <span className="type-meta type-truncate">Official Letters</span>
                       </NavLink>
                       <NavLink to="admin/employee/attendance-inputs" className={subNavClass}>
-                        <Clock className="h-4 w-4 shrink-0 text-amber-600" />
+                        <Clock className="h-4 w-4 shrink-0 text-sidebar-accent" />
                         <span className="type-meta type-truncate">Raw Attendance Data</span>
                       </NavLink>
                       <NavLink to="admin/employee/attendance-daily" className={subNavClass}>
-                        <Calendar className="h-4 w-4 shrink-0 text-teal-600" />
+                        <Calendar className="h-4 w-4 shrink-0 text-sidebar-accent" />
                         <span className="type-meta type-truncate">Daily Attendance Register</span>
                       </NavLink>
                       <NavLink to="admin/employee/national-holidays" className={subNavClass}>
-                        <CalendarDays className="h-4 w-4 shrink-0 text-orange-600" />
+                        <CalendarDays className="h-4 w-4 shrink-0 text-sidebar-accent" />
                         <span className="type-meta type-truncate">National / Public Holidays</span>
                       </NavLink>
                       {/* NAV_HIDDEN: Attendance Sheets */}
                       {/* <NavLink to="admin/employee/attendance-sheets" className={subNavClass}>
-                        <FileText className="h-4 w-4 shrink-0 text-blue-600" />
+                        <FileText className="h-4 w-4 shrink-0 text-sidebar-accent" />
                         <span className="type-meta type-truncate">Attendance Sheets</span>
                       </NavLink> */}
                       <NavLink to="admin/employee/leaves-permissions" className={subNavClass}>
-                        <Calendar className="h-4 w-4 shrink-0 text-purple-600" />
+                        <Calendar className="h-4 w-4 shrink-0 text-sidebar-accent" />
                         <span className="type-meta type-truncate">Leave Approvals</span>
                       </NavLink>
                       <NavLink to="admin/employee/tour-approvals" className={subNavClass}>
-                        <MapPin className="h-4 w-4 shrink-0 text-teal-600" />
+                        <MapPin className="h-4 w-4 shrink-0 text-sidebar-accent" />
                         <span className="type-meta type-truncate">Tour Approvals</span>
                       </NavLink>
                       <NavLink to="admin/employee/leave-management" className={subNavClass}>
-                        <CalendarDays className="h-4 w-4 shrink-0 text-indigo-600" />
+                        <CalendarDays className="h-4 w-4 shrink-0 text-sidebar-accent" />
                         <span className="type-meta type-truncate">Leave Management</span>
                       </NavLink>
                       <NavLink to="admin/employee/inactive" className={subNavClass}>
@@ -771,7 +944,7 @@ const Layout = () => {
                       `${subLinkBase} ${
                         pathname.startsWith("/app/admin/salary-admin")
                           ? activeClass
-                          : "text-ink-strong"
+                          : "text-sidebar-strong"
                       }`
                     }
                   >
@@ -782,7 +955,7 @@ const Layout = () => {
 
                   {canAccessRulesConsole(userProfile, accessibleModules) && (
                   <NavLink to="admin/rules-console" className={subNavClass}>
-                    <SlidersHorizontal className="h-4 w-4 shrink-0 text-accent" />
+                    <SlidersHorizontal className="h-4 w-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Rules Console</span>
                   </NavLink>
                   )}
@@ -793,24 +966,24 @@ const Layout = () => {
                   <button
                     type="button"
                     onClick={() => setAdminStoreOpen(!adminStoreOpen)}
-                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-surface text-ink-strong transition-colors"
+                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-sidebar-hover text-sidebar-strong transition-colors"
                   >
                     <span className="flex items-start space-x-2">
-                      <Package className="w-4 h-4 shrink-0 text-orange-600" />
+                      <Package className="w-4 h-4 shrink-0 text-sidebar-accent" />
                       <span className="text-xs font-medium text-left leading-tight">Store & Issue Control</span>
                     </span>
                     <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${adminStoreOpen ? "rotate-180" : ""}`} />
                   </button>
                   {adminStoreOpen && (
                     <div className="space-y-0.5">
-                      <NavLink to="admin/store/item-master" className={subNavClass}><Package className="w-4 h-4 shrink-0 text-orange-600" /><span className="type-meta type-truncate">Item Master</span></NavLink>
+                      <NavLink to="admin/store/item-master" className={subNavClass}><Package className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Item Master</span></NavLink>
                       <NavLink to="admin/store/store-master" className={subNavClass}><Home className="w-4 h-4 shrink-0 text-ink-muted" /><span className="type-meta type-truncate">Store Master</span></NavLink>
-                      <NavLink to="admin/store/site-stock" className={subNavClass}><MapPin className="w-4 h-4 shrink-0 text-accent" /><span className="type-meta type-truncate">Site Stock</span></NavLink>
-                      <NavLink to="admin/store/issue-entry" className={subNavClass}><FileText className="w-4 h-4 shrink-0 text-indigo-600" /><span className="type-meta type-truncate">Issue Entry</span></NavLink>
-                      <NavLink to="admin/store/return-entry" className={subNavClass}><Receipt className="w-4 h-4 shrink-0 text-emerald-600" /><span className="type-meta type-truncate">Return Entry</span></NavLink>
-                      <NavLink to="admin/store/transfer-transit" className={subNavClass}><Truck className="w-4 h-4 shrink-0 text-amber-600" /><span className="type-meta type-truncate">Transfer / Transit</span></NavLink>
-                      <NavLink to="admin/store/requirement-planner" className={subNavClass}><Calculator className="w-4 h-4 shrink-0 text-purple-600" /><span className="type-meta type-truncate">Requirement Planner</span></NavLink>
-                      <NavLink to="admin/store/reconciliation" className={subNavClass}><CheckCircle className="w-4 h-4 shrink-0 text-teal-600" /><span className="type-meta type-truncate">Reconciliation</span></NavLink>
+                      <NavLink to="admin/store/site-stock" className={subNavClass}><MapPin className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Site Stock</span></NavLink>
+                      <NavLink to="admin/store/issue-entry" className={subNavClass}><FileText className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Issue Entry</span></NavLink>
+                      <NavLink to="admin/store/return-entry" className={subNavClass}><Receipt className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Return Entry</span></NavLink>
+                      <NavLink to="admin/store/transfer-transit" className={subNavClass}><Truck className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Transfer / Transit</span></NavLink>
+                      <NavLink to="admin/store/requirement-planner" className={subNavClass}><Calculator className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Requirement Planner</span></NavLink>
+                      <NavLink to="admin/store/reconciliation" className={subNavClass}><CheckCircle className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Reconciliation</span></NavLink>
                     </div>
                   )}
                   </>
@@ -821,22 +994,22 @@ const Layout = () => {
                   <>
                   <button
                     onClick={() => setAdminGateOpen(!adminGateOpen)}
-                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-surface text-ink-strong transition-colors"
+                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-sidebar-hover text-sidebar-strong transition-colors"
                   >
                     <span className="flex items-start space-x-2">
-                      <Shield className="w-4 h-4 shrink-0 text-teal-600" />
+                      <Shield className="w-4 h-4 shrink-0 text-sidebar-accent" />
                       <span className="text-xs font-medium text-left leading-tight">Gate Pass & Movement Control</span>
                     </span>
                     <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${adminGateOpen ? "rotate-180" : ""}`} />
                   </button>
                   {adminGateOpen && (
                     <div className="space-y-0.5">
-                      <NavLink to="admin/gate/employee-movement" className={subNavClass}><Users className="w-4 h-4 shrink-0 text-accent" /><span className="type-meta type-truncate">Employee Movement</span></NavLink>
-                      <NavLink to="admin/gate/goods-in-out" className={subNavClass}><Package className="w-4 h-4 shrink-0 text-orange-600" /><span className="type-meta type-truncate">Goods In / Out</span></NavLink>
-                      <NavLink to="admin/gate/visitor-guest-passes" className={subNavClass}><User className="w-4 h-4 shrink-0 text-indigo-600" /><span className="type-meta type-truncate">Visitor / Guest Passes</span></NavLink>
-                      <NavLink to="admin/gate/vehicle-passes" className={subNavClass}><Car className="w-4 h-4 shrink-0 text-ink-strong" /><span className="type-meta type-truncate">Vehicle Passes</span></NavLink>
-                      <NavLink to="admin/gate/delivery-courier-post" className={subNavClass}><Truck className="w-4 h-4 shrink-0 text-amber-600" /><span className="type-meta type-truncate">Delivery / Courier / Post</span></NavLink>
-                      <NavLink to="admin/gate/security-console" className={subNavClass}><Shield className="w-4 h-4 shrink-0 text-teal-600" /><span className="type-meta type-truncate">Security Console</span></NavLink>
+                      <NavLink to="admin/gate/employee-movement" className={subNavClass}><Users className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Employee Movement</span></NavLink>
+                      <NavLink to="admin/gate/goods-in-out" className={subNavClass}><Package className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Goods In / Out</span></NavLink>
+                      <NavLink to="admin/gate/visitor-guest-passes" className={subNavClass}><User className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Visitor / Guest Passes</span></NavLink>
+                      <NavLink to="admin/gate/vehicle-passes" className={subNavClass}><Car className="w-4 h-4 shrink-0 text-sidebar-strong" /><span className="type-meta type-truncate">Vehicle Passes</span></NavLink>
+                      <NavLink to="admin/gate/delivery-courier-post" className={subNavClass}><Truck className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Delivery / Courier / Post</span></NavLink>
+                      <NavLink to="admin/gate/security-console" className={subNavClass}><Shield className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Security Console</span></NavLink>
                     </div>
                   )}
                   </>
@@ -847,19 +1020,19 @@ const Layout = () => {
                   <>
                   <button
                     onClick={() => setAdminMiscOpen(!adminMiscOpen)}
-                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-surface text-ink-strong transition-colors"
+                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-sidebar-hover text-sidebar-strong transition-colors"
                   >
                     <span className="flex items-start space-x-2">
-                      <Briefcase className="w-4 h-4 shrink-0 text-fuchsia-600" />
+                      <Briefcase className="w-4 h-4 shrink-0 text-sidebar-accent" />
                       <span className="text-xs font-medium text-left leading-tight">Miscellaneous Admin</span>
                     </span>
                     <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${adminMiscOpen ? "rotate-180" : ""}`} />
                   </button>
                   {adminMiscOpen && (
                     <div className="space-y-0.5">
-                      <NavLink to="admin/misc/events-coordination" className={subNavClass}><Calendar className="w-4 h-4 shrink-0 text-purple-600" /><span className="type-meta type-truncate">Events Coordination</span></NavLink>
-                      <NavLink to="admin/misc/tour-travel-details" className={subNavClass}><MapPin className="w-4 h-4 shrink-0 text-accent" /><span className="type-meta type-truncate">Tour / Travel Details</span></NavLink>
-                      <NavLink to="admin/misc/admin-tasks-other-requests" className={subNavClass}><ClipboardCheck className="w-4 h-4 shrink-0 text-sky-600" /><span className="type-meta type-truncate">Admin Tasks / Other Requests</span></NavLink>
+                      <NavLink to="admin/misc/events-coordination" className={subNavClass}><Calendar className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Events Coordination</span></NavLink>
+                      <NavLink to="admin/misc/tour-travel-details" className={subNavClass}><MapPin className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Tour / Travel Details</span></NavLink>
+                      <NavLink to="admin/misc/admin-tasks-other-requests" className={subNavClass}><ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Admin Tasks / Other Requests</span></NavLink>
                     </div>
                   )}
                   </>
@@ -867,20 +1040,20 @@ const Layout = () => {
 
                   {canSub("admin.alerts") && (
                   <NavLink to="admin/alerts-notifications" className={subNavClass}>
-                    <Bell className="w-4 h-4 shrink-0 text-orange-600" />
+                    <Bell className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Alerts & Notifications</span>
                   </NavLink>
                   )}
                   {canSub("admin.reports") && (
                   <NavLink to="admin/reports-analytics" className={subNavClass}>
-                    <BarChart3 className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Reports & Analytics</span>
                   </NavLink>
                   )}
                   {/* NAV_HIDDEN: Settings / Masters */}
                   {false && canSub("admin.settings") && (
                   <NavLink to="admin/settings-masters" className={subNavClass}>
-                    <Settings className="w-4 h-4 shrink-0 text-ink-strong" />
+                    <Settings className="w-4 h-4 shrink-0 text-sidebar-strong" />
                     <span className="type-meta type-truncate">Settings / Masters</span>
                   </NavLink>
                   )}
@@ -895,10 +1068,10 @@ const Layout = () => {
               <button
                 type="button"
                 onClick={() => setCommercialMtOpen(!commercialMtOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${
                   pathname.startsWith("/app/commercial/manpower-training")
-                    ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border"
-                    : "text-ink-strong"
+                    ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent"
+                    : "text-sidebar-strong"
                 }`}
               >
                 <span className="flex items-center space-x-2.5 min-w-0">
@@ -914,13 +1087,13 @@ const Layout = () => {
               </button>
 
               {commercialMtOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="/app/commercial/manpower-training/dashboard" className={subNavClass}>
-                    <LayoutDashboard className="w-4 h-4 shrink-0 text-blue-600" />
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Dashboard</span>
                   </NavLink>
                   <NavLink to="/app/manpower" end className={subNavClass}>
-                    <Users className="w-4 h-4 shrink-0 text-accent" />
+                    <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Enquiry</span>
                   </NavLink>
                   <NavLink to="/app/manpower/internal-quotation" className={subNavClass}>
@@ -928,14 +1101,14 @@ const Layout = () => {
                     <span className="type-meta type-truncate">Internal Quotation</span>
                   </NavLink>
                   <NavLink to="/app/manpower/quotation" className={subNavClass}>
-                    <ReceiptIcon className="w-4 h-4 shrink-0 text-purple-600" />
+                    <ReceiptIcon className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Quotation</span>
                   </NavLink>
 
                   <button
                     type="button"
                     onClick={() => setManpowerConfigOpen((v) => !v)}
-                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-surface text-ink-strong transition-colors"
+                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-sidebar-hover text-sidebar-strong transition-colors"
                   >
                     <span className="flex items-start space-x-2">
                       <Cog className="w-4 h-4 shrink-0 text-blue-700" />
@@ -946,15 +1119,15 @@ const Layout = () => {
                   {manpowerConfigOpen && (
                     <div className="space-y-0.5">
                       <NavLink to="/app/manpower/configuration/roles" className={subNavClass}>
-                        <Users className="w-4 h-4 shrink-0 text-accent" />
+                        <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
                         <span className="type-meta type-truncate">Roles</span>
                       </NavLink>
                       <NavLink to="/app/manpower/configuration/price-master" className={subNavClass}>
-                        <RupeeIcon className="w-4 h-4 shrink-0 text-emerald-600" />
+                        <RupeeIcon className="w-4 h-4 shrink-0 text-sidebar-accent" />
                         <span className="type-meta type-truncate">Price Master</span>
                       </NavLink>
                       <NavLink to="/app/manpower/configuration/mail-template" className={subNavClass}>
-                        <FileText className="w-4 h-4 shrink-0 text-indigo-600" />
+                        <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                         <span className="type-meta type-truncate">Mail Template</span>
                       </NavLink>
                       <NavLink to="/app/manpower/configuration/employee-type" className={subNavClass}>
@@ -962,17 +1135,17 @@ const Layout = () => {
                         <span className="type-meta type-truncate">Employee Type</span>
                       </NavLink>
                       <NavLink to="/app/manpower/configuration/departments" className={subNavClass}>
-                        <FolderOpen className="w-4 h-4 shrink-0 text-ink-strong" />
+                        <FolderOpen className="w-4 h-4 shrink-0 text-sidebar-strong" />
                         <span className="type-meta type-truncate">Departments</span>
                       </NavLink>
                     </div>
                   )}
                   <NavLink to="/app/commercial/manpower-training/po-entry" className={subNavClass}>
-                    <FileCheck className="w-4 h-4 shrink-0 text-accent" />
+                    <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Contract Management</span>
                   </NavLink>
                   <NavLink to="/app/commercial/manpower-training/contact-log" className={subNavClass}>
-                    <ClipboardCheck className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Contact Log</span>
                   </NavLink>
                 </div>
@@ -986,8 +1159,8 @@ const Layout = () => {
               <button
                 type="button"
                 onClick={() => setCommercialRmOpen(!commercialRmOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${
-                  pathname.startsWith("/app/commercial/rm-mm-amc-iev") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${
+                  pathname.startsWith("/app/commercial/rm-mm-amc-iev") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"
                 }`}
               >
                 <span className="flex items-center space-x-2.5 min-w-0">
@@ -1003,25 +1176,25 @@ const Layout = () => {
               </button>
 
               {commercialRmOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="/app/commercial/rm-mm-amc-iev/dashboard" className={subNavClass}>
-                    <LayoutDashboard className="w-4 h-4 shrink-0 text-blue-600" />
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Dashboard</span>
                   </NavLink>
                   <NavLink to="/app/commercial/rm-mm-amc-iev/manpower-management" className={subNavClass}>
-                    <Users className="w-4 h-4 shrink-0 text-accent" />
+                    <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Enquiry (R&amp;M / AMC / IEV)</span>
                   </NavLink>
                   <NavLink to="/app/commercial/rm-mm-amc-iev/internal-quotation" className={subNavClass}>
-                    <Calculator className="w-4 h-4 shrink-0 text-purple-600" />
+                    <Calculator className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Internal Quotation</span>
                   </NavLink>
                   <NavLink to="/app/commercial/rm-mm-amc-iev/po-entry" className={subNavClass}>
-                    <FileCheck className="w-4 h-4 shrink-0 text-accent" />
+                    <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">PO Entry</span>
                   </NavLink>
                   <NavLink to="/app/commercial/rm-mm-amc-iev/contact-log" className={subNavClass}>
-                    <ClipboardCheck className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Contact Log</span>
                   </NavLink>
                 </div>
@@ -1034,7 +1207,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setMarketingOpen(!marketingOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/marketing") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/marketing") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <TrendingUp className="w-4 h-4 shrink-0" />
@@ -1048,7 +1221,7 @@ const Layout = () => {
               </button>
 
               {marketingOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   {MARKETING_NAV_ITEMS.map((item) => {
                     if (!canSub(item.subModule)) return null;
                     const Icon = item.icon;
@@ -1078,7 +1251,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setMaintenanceOpen(!maintenanceOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/maintenance") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/maintenance") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <Wrench className="w-4 h-4 shrink-0" />
@@ -1092,25 +1265,25 @@ const Layout = () => {
               </button>
 
               {maintenanceOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="/app/maintenance" className={subNavClass}>
-                    <BarChart3 className="w-4 h-4 shrink-0 text-purple-600" />
+                    <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Maintenance Dashboard</span>
                   </NavLink>
                   <NavLink to="/app/maintenance/enquiry-master" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-accent" />
+                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Enquiry Master</span>
                   </NavLink>
                   <NavLink to="/app/maintenance/quotation-tracker" className={subNavClass}>
-                    <RupeeIcon className="w-4 h-4 shrink-0 text-green-600" />
+                    <RupeeIcon className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Quotation Tracker</span>
                   </NavLink>
                   <NavLink to="/app/maintenance/follow-up-planner" className={subNavClass}>
-                    <Calendar className="w-4 h-4 shrink-0 text-orange-600" />
+                    <Calendar className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Follow-up Planner</span>
                   </NavLink>
                   <NavLink to="/app/maintenance/client-master" className={subNavClass}>
-                    <Users className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Client Master</span>
                   </NavLink>
                   <NavLink to="/app/maintenance/product-catalog" className={subNavClass}>
@@ -1118,11 +1291,11 @@ const Layout = () => {
                     <span className="type-meta type-truncate">Product Catalog</span>
                   </NavLink>
                   <NavLink to="/app/maintenance/purchase-orders" className={subNavClass}>
-                    <ShoppingCart className="w-4 h-4 shrink-0 text-pink-600" />
+                    <ShoppingCart className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Purchase Orders</span>
                   </NavLink>
                   <NavLink to="/app/maintenance/mm-po-entry" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-rose-600" />
+                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">PO Entry</span>
                   </NavLink>
                   <NavLink to="/app/maintenance/po-at-glance" end className={subNavClass}>
@@ -1130,19 +1303,19 @@ const Layout = () => {
                     <span className="type-meta type-truncate">PO At Glance</span>
                   </NavLink>
                   <NavLink to="/app/maintenance/expo-seminar" className={subNavClass}>
-                    <MapPin className="w-4 h-4 shrink-0 text-accent" />
+                    <MapPin className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Expo & Seminar</span>
                   </NavLink>
                   <NavLink to="/app/maintenance/gst-upload" className={subNavClass}>
-                    <Receipt className="w-4 h-4 shrink-0 text-teal-600" />
+                    <Receipt className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">GST Documents</span>
                   </NavLink>
                   <NavLink to="/app/maintenance/mail-templates" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-accent" />
+                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Maintenance Mail Template</span>
                   </NavLink>
                   <NavLink to="/app/maintenance/reports-analytics" className={subNavClass}>
-                    <BarChart3 className="w-4 h-4 shrink-0 text-accent" />
+                    <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Reports & Analytics</span>
                   </NavLink>
                 </div>
@@ -1155,7 +1328,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setBillingOpen(!billingOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/billing") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/billing") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <ReceiptIcon className="w-4 h-4 shrink-0" />
@@ -1168,45 +1341,45 @@ const Layout = () => {
                 />
               </button>
               {billingOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="/app/billing" end className={subNavClass}>
-                    <LayoutDashboard className="w-4 h-4 shrink-0 text-purple-600" />
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Billing Dashboard</span>
                   </NavLink>
                   <NavLink to="/app/billing/create-invoice" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-emerald-600" />
+                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Create Invoice</span>
                   </NavLink>
                   <NavLink to="/app/billing/add-on-invoices" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-violet-600" />
+                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Add-On Invoices</span>
                   </NavLink>
                   <NavLink to="/app/billing/manage-invoices" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-accent" />
+                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Manage Invoices</span>
                   </NavLink>
                   <NavLink to="/app/billing/generated-e-invoice" className={subNavClass}>
-                    <FileDigit className="w-4 h-4 shrink-0 text-green-600" />
+                    <FileDigit className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Generated E-Invoice</span>
                   </NavLink>
                   <NavLink to="/app/billing/credit-notes" className={subNavClass}>
-                    <Receipt className="w-4 h-4 shrink-0 text-amber-600" />
+                    <Receipt className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Credit/Debit Notes</span>
                   </NavLink>
                   <NavLink to="/app/billing/reports" className={subNavClass}>
-                    <BarChart3 className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Reports</span>
                   </NavLink>
                   <NavLink to="/app/billing/tracking" className={subNavClass}>
-                    <FileCheck className="w-4 h-4 shrink-0 text-teal-600" />
+                    <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Tracking</span>
                   </NavLink>
                   <NavLink to="/app/billing/notifications" className={subNavClass}>
-                    <Bell className="w-4 h-4 shrink-0 text-teal-600" />
+                    <Bell className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Notifications</span>
                   </NavLink>
                   <NavLink to="/app/billing/tracker" className={subNavClass}>
-                    <CalendarDays className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <CalendarDays className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Billing Tracker</span>
                   </NavLink>
                 </div>
@@ -1219,7 +1392,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setOperationsOpen(!operationsOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/fire-tender-vehicle") || pathname.startsWith("/app/operations") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/fire-tender-vehicle") || pathname.startsWith("/app/operations") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <Wrench className="w-4 h-4 shrink-0" />
@@ -1233,9 +1406,9 @@ const Layout = () => {
               </button>
 
               {operationsOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="fire-tender-vehicle-management" className={subNavClass}>
-                    <Car className="w-4 h-4 shrink-0 text-orange-600" />
+                    <Car className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Fleet Management</span>
                   </NavLink>
 
@@ -1244,17 +1417,17 @@ const Layout = () => {
                       to="operations"
                       end
                       className={({ isActive }) =>
-                        `${subLinkBase} flex-1 min-w-0 rounded-md ${isActive && pathname === "/app/operations" ? activeClass : pathname.startsWith("/app/operations") ? activeClass : "text-ink-strong"}`
+                        `${subLinkBase} flex-1 min-w-0 rounded-md ${isActive && pathname === "/app/operations" ? activeClass : pathname.startsWith("/app/operations") ? activeClass : "text-sidebar-strong"}`
                       }
                       onClick={() => setManpowerOperationsOpen(true)}
                     >
-                      <Users className="w-4 h-4 shrink-0 text-accent" />
+                      <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
                       <span className="text-xs font-medium text-left leading-tight">Manpower Operations</span>
                     </NavLink>
                     <button
                       type="button"
                       onClick={() => setManpowerOperationsOpen(!manpowerOperationsOpen)}
-                      className="flex items-center px-1.5 rounded-md hover:bg-surface-sunken shrink-0 self-stretch"
+                      className="flex items-center px-1.5 rounded-md hover:bg-sidebar-hover shrink-0 self-stretch"
                       aria-expanded={manpowerOperationsOpen}
                       aria-label="Toggle manpower operations menu"
                     >
@@ -1267,11 +1440,11 @@ const Layout = () => {
                   </div>
 
                   {manpowerOperationsOpen && (
-                    <div className="space-y-0.5 ml-2 border-l border-border pl-2 max-h-[min(60vh,24rem)] overflow-y-auto">
+                    <div className="space-y-0.5 ml-2 border-l border-sidebar-border pl-2 max-h-[min(60vh,24rem)] overflow-y-auto">
                       {OPERATIONS_NAV.map((entry) =>
                         entry.section ? (
                           <div key={entry.section}>
-                            <p className="px-2.5 pt-2 pb-0.5 type-mono-micro text-gray-400 type-truncate">
+                            <p className="px-2.5 pt-2 pb-0.5 type-mono-micro text-sidebar-muted type-truncate">
                               {entry.section}
                             </p>
                             {entry.items.map((item) => {
@@ -1283,7 +1456,7 @@ const Layout = () => {
                                   end={!item.path}
                                   className={() => subNavClass({ isActive: operationsNavIsActive(item, pathname) })}
                                 >
-                                  {Icon && <Icon className="w-4 h-4 shrink-0 text-accent" />}
+                                  {Icon && <Icon className="w-4 h-4 shrink-0 text-sidebar-accent" />}
                                   <span className="type-meta type-truncate">{item.label}</span>
                                 </NavLink>
                               );
@@ -1296,7 +1469,7 @@ const Layout = () => {
                             end={!entry.path}
                             className={() => subNavClass({ isActive: operationsNavIsActive(entry, pathname) })}
                           >
-                            {entry.icon && <entry.icon className="w-4 h-4 shrink-0 text-accent" />}
+                            {entry.icon && <entry.icon className="w-4 h-4 shrink-0 text-sidebar-accent" />}
                             <span className="type-meta type-truncate">{entry.label}</span>
                           </NavLink>
                         )
@@ -1313,14 +1486,14 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setProjectsOpen(!projectsOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${
                   pathname.startsWith("/app/projects/po") ||
                   pathname.startsWith("/app/projects/enquiry") ||
                   pathname.startsWith("/app/projects/quotation") ||
                   pathname.startsWith("/app/projects-management") ||
                   pathname.startsWith("/app/projects-billing")
-                    ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border"
-                    : "text-ink-strong"
+                    ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent"
+                    : "text-sidebar-strong"
                 }`}
               >
                 <span className="flex items-center space-x-2.5">
@@ -1335,28 +1508,28 @@ const Layout = () => {
               </button>
 
               {projectsOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="projects-management" className={subNavClass}>
-                    <FolderOpen className="w-4 h-4 shrink-0 text-green-600" />
+                    <FolderOpen className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Projects Management</span>
                   </NavLink>
                   <NavLink to="projects-billing" className={subNavClass}>
-                    <Calculator className="w-4 h-4 shrink-0 text-purple-600" />
+                    <Calculator className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Projects Billing</span>
                   </NavLink>
                   <NavLink
                     to={enquiryTabs.length ? `projects/enquiry/${enquiryTabs[0]}` : "projects/enquiry"}
                     className={() => subNavClass({ isActive: pathname.startsWith("/app/projects/enquiry") })}
                   >
-                    <FileText className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Enquiry Master</span>
                   </NavLink>
                   <NavLink to="projects/quotation" className={subNavClass}>
-                    <ClipboardList className="w-4 h-4 shrink-0 text-orange-600" />
+                    <ClipboardList className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Quotation Maker</span>
                   </NavLink>
                   <NavLink to="projects/po" className={subNavClass}>
-                    <FileCheck className="w-4 h-4 shrink-0 text-blue-600" />
+                    <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">PO / WO Entry</span>
                   </NavLink>
                   <NavLink to="projects/po/contact-log" className={subNavClass}>
@@ -1382,8 +1555,8 @@ const Layout = () => {
               <button
                 type="button"
                 onClick={() => setAmcOpen(!amcOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${
-                  pathname.startsWith("/app/amc") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${
+                  pathname.startsWith("/app/amc") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"
                 }`}
               >
                 <span className="flex items-center space-x-2.5 min-w-0">
@@ -1393,7 +1566,7 @@ const Layout = () => {
                 <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${amcOpen ? "rotate-180" : ""}`} />
               </button>
               {amcOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2 max-h-64 overflow-y-auto">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2 max-h-64 overflow-y-auto">
                   <NavLink to="/app/amc" end className={subNavClass}>
                     <span className="type-meta type-truncate">Dashboard</span>
                   </NavLink>
@@ -1443,8 +1616,8 @@ const Layout = () => {
               <button
                 type="button"
                 onClick={() => setFinanceOpen(!financeOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${
-                  pathname.startsWith("/app/accounts-finance") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${
+                  pathname.startsWith("/app/accounts-finance") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"
                 }`}
               >
                 <span className="flex items-center space-x-2.5 min-w-0">
@@ -1454,7 +1627,7 @@ const Layout = () => {
                 <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${financeOpen ? "rotate-180" : ""}`} />
               </button>
               {financeOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="/app/accounts-finance/reports/site-ledger" className={subNavClass}>
                     <span className="type-meta type-truncate">P&amp;L</span>
                   </NavLink>
@@ -1478,7 +1651,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setFireTenderOpen(!fireTenderOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-surface transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/fire-tender") || pathname.startsWith("/app/fire-tender-manufacturing") ? "bg-accent-soft text-ink-strong shadow-nav-active border border-accent-border" : "text-ink-strong"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/fire-tender") || pathname.startsWith("/app/fire-tender-manufacturing") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <Truck className="w-4 h-4 shrink-0" />
@@ -1492,10 +1665,10 @@ const Layout = () => {
               </button>
 
               {fireTenderOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   {canOpenPath("/app/fire-tender") && (
                   <NavLink to="fire-tender" end className={subNavClass}>
-                    <BarChart3 className="w-4 h-4 shrink-0 text-accent" />
+                    <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">IEV Dashboard</span>
                   </NavLink>
                   )}
@@ -1512,13 +1685,13 @@ const Layout = () => {
                       return subNavClass({ isActive: active });
                     }}
                   >
-                    <Calculator className="w-4 h-4 shrink-0 text-accent" />
+                    <Calculator className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">IEV Costing</span>
                   </NavLink>
                   )}
                   {canOpenPath("/app/fire-tender-manufacturing") && (
                   <NavLink to="fire-tender-manufacturing" className={subNavClass}>
-                    <Factory className="w-4 h-4 shrink-0 text-orange-600" />
+                    <Factory className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">IEV Manufacturing</span>
                   </NavLink>
                   )}
@@ -1572,40 +1745,51 @@ const Layout = () => {
               <span className="type-body-medium type-truncate">Settings</span>
             </NavLink>
             )}
+            </div>
+            )}
 
           </nav>
 
           {/* Account Info */}
-          <div className="p-3 border-t border-border bg-canvas">
-            <div className="flex items-center space-x-2 mb-2.5">
-              <div className="w-8 h-8 bg-gradient-to-br from-red-600 to-rose-700 rounded-full flex items-center justify-center flex-shrink-0">
-                <User className="w-4 h-4 shrink-0 text-white" />
+          <div className={`p-3 border-t border-sidebar-border bg-sidebar-elevated/50 ${sidebarCollapsed ? "lg:px-2" : ""}`}>
+            {!sidebarCollapsed ? (
+              <div className="flex items-center space-x-2 mb-2.5">
+                <div className="w-8 h-8 bg-sidebar-accent rounded-full flex items-center justify-center flex-shrink-0">
+                  <User className="w-4 h-4 shrink-0 text-white" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="type-body-medium text-sidebar-strong type-truncate">
+                    {userProfile?.username || user?.email?.split("@")[0] || user?.email}
+                  </p>
+                  <p className="type-meta text-sidebar-muted type-truncate">{user?.email}</p>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="type-body-medium text-ink type-truncate">
-                  {userProfile?.username || user?.email?.split("@")[0] || user?.email}
-                </p>
-                <p className="type-meta text-gray-500 type-truncate">
-                  {user?.email}
-                </p>
+            ) : (
+              <div className="hidden lg:flex justify-center mb-2" title={displayName}>
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-sidebar-accent text-white type-mono-caption">
+                  {initials}
+                </span>
               </div>
-            </div>
+            )}
             <button
               onClick={handleSignOut}
-              className="w-full flex items-center justify-center space-x-1.5 px-2.5 py-1.5 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors type-body-medium shadow-sm"
+              className={`w-full flex items-center justify-center space-x-1.5 px-2.5 py-1.5 bg-critical/90 text-white rounded-control hover:bg-critical transition-colors duration-theme type-body-medium ${
+                sidebarCollapsed ? "lg:px-0" : ""
+              }`}
+              title="Sign out"
             >
               <LogOut className="w-3.5 h-3.5" />
-              <span>Sign Out</span>
+              {!sidebarCollapsed ? <span>Sign Out</span> : <span className="lg:hidden">Sign Out</span>}
             </button>
           </div>
         </div>
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64 bg-canvas">
+      <div className={`flex-1 flex flex-col min-w-0 ${mainOffsetClass} bg-canvas transition-[margin] duration-theme-slow ease-theme`}>
         {/* Compact SaaS app bar — context + actions (not a welcome banner) */}
-        <header className="sticky top-0 z-30 shrink-0 border-b border-border bg-canvas/95 backdrop-blur-sm">
-          <div className="flex items-center justify-between gap-4 px-5 sm:px-8 h-14">
+        <header className="sticky top-0 z-30 shrink-0 border-b border-border/80 backdrop-blur-md" style={{ background: "var(--topbar-bg)" }}>
+          <div className="flex items-center justify-between gap-4 px-5 sm:px-8 h-topbar">
             <div className="flex items-center gap-3 min-w-0">
               <button
                 type="button"
@@ -1616,26 +1800,51 @@ const Layout = () => {
                 ☰
               </button>
               <div className="min-w-0">
-                <p className="type-mono-micro text-ink-muted type-truncate">{workspace.eyebrow}</p>
-                <p className="type-body-medium text-ink type-truncate leading-tight mt-0.5">
+                <Breadcrumbs
+                  className="mb-0.5"
+                  items={[
+                    { label: workspace.eyebrow, path: "/app/dashboard" },
+                    { label: workspace.title },
+                  ]}
+                />
+                <p className="type-body-medium text-ink type-truncate leading-tight">
                   {workspace.title}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setCommandOpen(true)}
+                className="hidden md:inline-flex items-center gap-2 rounded-control border border-border bg-surface shadow-sm px-2.5 h-9 type-meta text-ink-muted hover:border-accent-border hover:bg-accent-soft/50 hover:text-ink transition-colors duration-theme min-w-[10rem]"
+                aria-label="Open command palette"
+              >
+                <SearchIcon className="w-3.5 h-3.5 text-accent" />
+                <span className="flex-1 text-left">Search…</span>
+                <kbd className="type-mono-micro border border-border rounded px-1 py-0.5 bg-surface-sunken/80">⌘K</kbd>
+              </button>
               {todayLabel ? (
-                <p className="hidden md:block type-code-meta text-ink-muted tabular-nums pr-1">
+                <p className="hidden xl:block type-code-meta text-ink-muted tabular-nums pr-1">
                   {todayLabel}
                 </p>
               ) : null}
               <div className="hidden sm:block h-6 w-px bg-border shrink-0" aria-hidden />
               <PoApprovalBell />
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="inline-flex items-center justify-center h-9 w-9 rounded-control border border-border bg-surface shadow-sm text-ink-muted hover:border-accent-border hover:bg-accent-soft/50 hover:text-accent transition-colors duration-theme"
+                aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                title={theme === "dark" ? "Light mode" : "Dark mode"}
+              >
+                {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </button>
               {canSeeActivityLog ? (
                 <button
                   type="button"
                   onClick={() => setActivityLogOpen(true)}
-                  className="inline-flex items-center gap-2 rounded-control border border-border bg-surface px-2.5 sm:px-3 h-9 type-body-medium text-ink-strong hover:bg-surface-sunken transition-[background-color,border-color] duration-theme"
+                  className="inline-flex items-center gap-2 rounded-control border border-border bg-surface shadow-sm px-2.5 sm:px-3 h-9 type-body-medium text-ink hover:border-accent-border hover:bg-accent-soft/50 transition-[background-color,border-color] duration-theme"
                   aria-label="Open activity log"
                 >
                   <Clock className="w-4 h-4 text-ink-muted" strokeWidth={1.5} />
@@ -1643,10 +1852,10 @@ const Layout = () => {
                 </button>
               ) : null}
               <div
-                className="hidden sm:flex items-center gap-2 rounded-control border border-border bg-surface pl-1 pr-2.5 h-9 max-w-[11rem]"
+                className="hidden sm:flex items-center gap-2 rounded-control border border-border bg-surface shadow-sm pl-1 pr-2.5 h-9 max-w-[11rem]"
                 title={user?.email || displayName}
               >
-                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent-deep text-surface-raised type-mono-caption tracking-normal normal-case shrink-0">
+                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent text-white type-mono-caption tracking-normal normal-case shrink-0">
                   {initials}
                 </span>
                 <span className="type-meta text-ink type-truncate">{displayName}</span>
@@ -1658,11 +1867,11 @@ const Layout = () => {
         <main
           className={
             pathname.startsWith("/app/software-subscriptions-reminders")
-              ? "erp-app-shell flex-1 overflow-y-auto px-3 py-4 sm:px-4 sm:py-5"
-              : "erp-app-shell flex-1 overflow-y-auto px-5 py-5 sm:px-8 sm:py-7"
+              ? "erp-app-shell erp-workspace-glow flex-1 overflow-y-auto px-3 py-4 sm:px-4 sm:py-5"
+              : "erp-app-shell erp-workspace-glow flex-1 overflow-y-auto px-5 py-5 sm:px-8 sm:py-7"
           }
         >
-          <Suspense fallback={<PageLoader />}>
+          <Suspense fallback={<PageLoader delayMs={160} label="Opening…" />}>
             <Outlet />
           </Suspense>
         </main>
@@ -1681,6 +1890,16 @@ const Layout = () => {
       {canSeeActivityLog ? (
         <ActivityLogDrawer open={activityLogOpen} onClose={() => setActivityLogOpen(false)} />
       ) : null}
+
+      <CommandPalette
+        open={commandOpen}
+        onClose={() => setCommandOpen(false)}
+        destinations={allowedCommands}
+        onNavigate={(path) => {
+          navigate(path);
+          setSidebarOpen(false);
+        }}
+      />
     </div>
   );
 };

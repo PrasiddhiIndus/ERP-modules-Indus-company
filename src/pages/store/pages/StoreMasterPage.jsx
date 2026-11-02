@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { STORE_TYPES } from "../constants";
-import { SectionCard, TinyInput } from "../components/StoreUi";
+import { SectionCard, TinyInput } from "../../../components/erpUi";
 
 const initialForm = {
   storeCode: "",

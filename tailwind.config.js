@@ -119,6 +119,19 @@ export default {
           deep: 'var(--accent-deep)',
           soft: 'var(--accent-soft)',
           border: 'var(--accent-border)',
+          electric: 'var(--accent-electric)',
+          violet: 'var(--accent-violet)',
+        },
+        sidebar: {
+          DEFAULT: 'var(--sidebar-bg)',
+          elevated: 'var(--sidebar-bg-elevated)',
+          border: 'var(--sidebar-border)',
+          text: 'var(--sidebar-text)',
+          strong: 'var(--sidebar-text-strong)',
+          muted: 'var(--sidebar-text-muted)',
+          hover: 'var(--sidebar-hover)',
+          active: 'var(--sidebar-active)',
+          accent: 'var(--sidebar-accent)',
         },
         critical: {
           DEFAULT: 'var(--critical)',
@@ -148,6 +161,7 @@ export default {
           border: 'var(--info-border)',
         },
         'row-hover': 'var(--row-hover)',
+        scrim: 'var(--scrim)',
         'chart-inactive': 'var(--chart-inactive)',
 
         /* Legacy brand aliases → accent */
@@ -187,7 +201,11 @@ export default {
         lime: successScale,
         green: successScale,
         emerald: successScale,
-        teal: accentScale,
+        teal: {
+          ...accentScale,
+          DEFAULT: 'var(--teal)',
+          soft: 'var(--teal-soft)',
+        },
         cyan: infoScale,
         sky: infoScale,
         blue: { ...infoScale, 600: 'var(--accent)', 700: 'var(--accent-deep)' },
@@ -224,22 +242,30 @@ export default {
         'enterprise-label': ['12px', { lineHeight: '1.45' }],
       },
       borderRadius: {
-        card: '10px',
-        control: '7px',
-        badge: '5px',
+        card: 'var(--radius-card)',
+        control: 'var(--radius-control)',
+        badge: 'var(--radius-badge)',
       },
       boxShadow: {
         card: 'var(--shadow-card)',
+        'card-hover': 'var(--shadow-card-hover)',
         popover: 'var(--shadow-popover)',
         modal: 'var(--shadow-modal)',
         'nav-active': 'var(--shadow-nav-active)',
         focus: '0 0 0 3px var(--focus-ring)',
       },
       transitionDuration: {
-        theme: '140ms',
+        theme: '160ms',
+        'theme-normal': '200ms',
+        'theme-slow': '280ms',
       },
       transitionTimingFunction: {
-        theme: 'ease-out',
+        theme: 'cubic-bezier(0.22, 1, 0.36, 1)',
+      },
+      spacing: {
+        sidebar: 'var(--sidebar-width)',
+        'sidebar-collapsed': 'var(--sidebar-width-collapsed)',
+        topbar: 'var(--topbar-height)',
       },
       animation: {
         'fade-in': 'fadeIn 0.6s ease-out both',

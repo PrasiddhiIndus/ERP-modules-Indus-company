@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import toast from "../../../lib/toast";
-import { DenseTable, FilterBar, InlineAlert, SectionCard, StatusChip, TinyInput } from "../components/AdminUi";
+import { DenseTable, FilterBar, InlineAlert, SectionCard, StatusChip, TinyInput } from "../../../components/erpUi";
 import { calculateCtc, roundRupee, schemeLabel } from "./ctcEngine";
 import { resolveRuleVersion } from "./payrollRulesDb";
 import { dbFetchSalaryStructureMap, dbReviseSalaryStructure } from "./salaryDb";

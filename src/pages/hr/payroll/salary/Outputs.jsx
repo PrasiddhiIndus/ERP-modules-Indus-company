@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { SectionCard } from '../../../adminOperations/components/AdminUi';
+import { SectionCard } from '../../../../components/erpUi';
 import { supabase } from '../../../../lib/supabase';
 import { PAYROLL_TABLES } from '../../../../modules/payroll/integrations';;
 import { formatDateTimeDdMmYyyy } from "../../../../utils/dateDisplay";

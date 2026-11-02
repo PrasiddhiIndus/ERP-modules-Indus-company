@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Send, Users, X, XCircle } from 'lucide-react';
 import { toast } from '../../../lib/toast';
-import { InlineAlert, Modal } from '../../adminOperations/components/AdminUi';
+import { InlineAlert, Modal } from '../../../components/erpUi';
 import {
   INHOUSE_MERGE_TOKENS,
   INHOUSE_SENDER_LABEL,

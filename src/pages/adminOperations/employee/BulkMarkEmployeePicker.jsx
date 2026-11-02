@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { TinyInput, TinySelect } from "../components/AdminUi";
+import { TinyInput, TinySelect } from "../../../components/erpUi";
 
 function employeeLabel(row) {
   const name = row.employeeName || row.empCode || "—";

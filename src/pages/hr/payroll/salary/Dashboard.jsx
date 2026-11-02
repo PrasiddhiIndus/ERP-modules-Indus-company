@@ -9,7 +9,7 @@ import {
   Shield,
   Wallet,
 } from 'lucide-react';
-import { Badge } from '../../../adminOperations/components/AdminUi';
+import { Badge } from '../../../../components/erpUi';
 import { getDashboardStats, ensurePayrollProfilesForActiveEmployees } from '../../../../services/payrollApi';
 import { SALARY_DASHBOARD_MODULES, salaryAppPath } from './salaryNav';
 import ActiveEmployeesModal from './components/ActiveEmployeesModal';

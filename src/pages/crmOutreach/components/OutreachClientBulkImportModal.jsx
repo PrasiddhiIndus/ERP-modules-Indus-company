@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { Download, FileSpreadsheet, Upload } from 'lucide-react';
-import { Modal } from '../../adminOperations/components/AdminUi';
+import { Modal } from '../../../components/erpUi';
 import { toast } from '../../../lib/toast';
 import {
   buildOutreachImportErrorReportCsv,

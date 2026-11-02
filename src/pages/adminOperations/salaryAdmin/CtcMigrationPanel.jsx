@@ -10,7 +10,7 @@ import {
   StatusChip,
   TinyInput,
   TinySelect,
-} from "../components/AdminUi";
+} from "../../../components/erpUi";
 import {
   CATEGORY_EXISTING_CONFIRMED,
   CATEGORY_NEW_PROBATION,

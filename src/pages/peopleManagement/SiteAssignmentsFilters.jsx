@@ -1,6 +1,6 @@
 import React from "react";
 import { RefreshCw, Search } from "lucide-react";
-import { FilterBar, TinyInput, TinySelect } from "../adminOperations/components/AdminUi";
+import { FilterBar, TinyInput, TinySelect } from "../../components/erpUi";
 
 const DATE_PRESETS = [
   { id: "all", label: "All dates" },

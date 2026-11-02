@@ -1,7 +1,7 @@
 import React from 'react';
 import { Download } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { SectionCard, Badge } from '../../../adminOperations/components/AdminUi';
+import { SectionCard, Badge } from '../../../../components/erpUi';
 import { salaryAppPath } from './salaryNav';
 import PayrollRegister from './Register';
 

@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { Download } from "lucide-react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import { Modal } from "../../adminOperations/components/AdminUi";
+import { Modal } from "../../../components/erpUi";
 import { downloadBlob } from "../../../lib/exportNodeToPdf";
 import PayslipTemplate from "./PayslipTemplate";
 import { toast } from "../../../lib/toast";

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { SectionCard, KpiTile, Badge, FilterBar, TinySelect, DenseTable, LinkedChip } from "../components/AdminUi";
+import { SectionCard, KpiTile, Badge, FilterBar, TinySelect, DenseTable, LinkedChip } from "../../../components/erpUi";
 import { mockEmployees } from "../data/mockAdminData";
 import {
   PAYROLL_ENTRY_COLUMNS,

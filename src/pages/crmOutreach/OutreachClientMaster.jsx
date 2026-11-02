@@ -8,7 +8,7 @@ import {
   StatusChip,
   TinyInput,
   TinySelect,
-} from '../adminOperations/components/AdminUi';
+} from '../../components/erpUi';
 import { useCrmOutreach } from './contexts/CrmOutreachContext';
 import OutreachClientBulkImportModal from './components/OutreachClientBulkImportModal';
 import { BUSINESS_MODULES, SITE_STATUSES } from './data/outreachConstants';

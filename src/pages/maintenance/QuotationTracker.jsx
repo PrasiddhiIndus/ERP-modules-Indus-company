@@ -16,6 +16,7 @@ import jsPDF from 'jspdf';
 import { INDUS_LOGO_SRC } from '../../constants/branding.js';;
 import FormDateInput from "../../components/FormDateInput";
 import { toast } from '../../lib/toast';
+import { PageTaskHeader, PageShell, PrimaryButton, SecondaryButton } from '../../components/erpUi';
 
 
 const DropdownMenu = ({ buttonId, quotation, onView, onEdit, onDownloadPDF, onDelete, onRevision, hasRevisions }) => {
@@ -1559,32 +1560,27 @@ Maintenance Team`;
     }
   };
 
+  const trackerTitle =
+    activeTab === 'list' ? 'Quotation Tracker' :
+    activeTab === 'costing' ? 'Costing Sheet' :
+    'Internal Quotation';
+  const trackerSubtitle =
+    activeTab === 'list' ? 'Manage all quotations and costing sheets' :
+    activeTab === 'costing' ? 'Create and manage costing sheets for approved quotations' :
+    'Create and manage internal quotations from costing sheets';
+
   return (
-    <div className="w-full h-screen overflow-y-auto p-2 sm:p-3 md:p-4 lg:p-6">
-      <div className="bg-white shadow p-3 sm:p-4 md:p-6 rounded-lg mb-4 md:mb-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 md:mb-6">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-              {activeTab === 'list' ? 'Quotation Tracker' : 
-               activeTab === 'costing' ? 'Costing Sheet' : 
-               'Internal Quotation'}
-            </h1>
-            <p className="text-sm sm:text-base text-gray-600 mt-1">
-              {activeTab === 'list' ? 'Manage all quotations and costing sheets' : 
-               activeTab === 'costing' ? 'Create and manage costing sheets for approved quotations' : 
-               'Create and manage internal quotations from costing sheets'}
-            </p>
-          </div>
+    <PageShell className="w-full h-screen overflow-y-auto p-2 sm:p-3 md:p-4 lg:p-6">
+      <div className="bg-surface shadow-card border border-border p-3 sm:p-4 md:p-6 rounded-card mb-4 md:mb-6">
+        <PageTaskHeader title={trackerTitle} subtitle={trackerSubtitle} className="mb-4 md:mb-6">
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
-            <button
-              onClick={handleExport}
-              className="flex items-center justify-center space-x-2 px-3 sm:px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm sm:text-base"
-            >
+            <SecondaryButton onClick={handleExport} className="!bg-ink-secondary !text-white hover:!bg-ink border-0">
               <Download className="w-4 h-4" />
               <span className="hidden sm:inline">Export Excel</span>
               <span className="sm:hidden">Export</span>
-            </button>
-            <button
+            </SecondaryButton>
+            <PrimaryButton
+              icon={Plus}
               onClick={() => {
                 if (activeTab === 'list') {
                   setEditingQuotation(null);
@@ -1608,21 +1604,13 @@ Maintenance Team`;
                   setShowInternalForm(true);
                 }
               }}
-              className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-2 text-white rounded-lg text-sm sm:text-base ${
-                activeTab === 'list' ? 'bg-purple-600 hover:bg-purple-700' :
-                activeTab === 'costing' ? 'bg-green-600 hover:bg-green-700' :
-                'bg-red-600 hover:bg-red-700'
-              }`}
             >
-              <Plus className="w-4 h-4" />
-              <span>
-                {activeTab === 'list' ? 'New Quotation' : 
-                 activeTab === 'costing' ? 'New Costing Sheet' : 
-                 'New Internal Quotation'}
-              </span>
-            </button>
+              {activeTab === 'list' ? 'New Quotation' :
+               activeTab === 'costing' ? 'New Costing Sheet' :
+               'New Internal Quotation'}
+            </PrimaryButton>
           </div>
-        </div>
+        </PageTaskHeader>
 
         {/* Tabs */}
         <div className="mb-4 md:mb-6 border-b">
@@ -2721,7 +2709,7 @@ Maintenance Team`;
         </div>
       )}
 
-    </div>
+    </PageShell>
   );
 };
 

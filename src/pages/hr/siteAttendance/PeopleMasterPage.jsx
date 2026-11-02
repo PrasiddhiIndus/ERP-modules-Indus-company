@@ -12,7 +12,7 @@ import {
   StatusChip,
   TinyInput,
   TinySelect,
-} from "../../adminOperations/components/AdminUi";
+} from "../../../components/erpUi";
 import { addDaysIso, formatDateDisplay, parseLooseDateToIso } from "../../../lib/siteAttendance/dateFormat";
 import { filterSitesByType } from "../../../lib/siteAttendance/siteTypes";
 import {

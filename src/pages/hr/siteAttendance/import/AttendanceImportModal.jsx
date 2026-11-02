@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "../../../../lib/toast";
-import { Modal, StatusChip } from "../../../adminOperations/components/AdminUi";
+import { Modal, StatusChip } from "../../../../components/erpUi";
 import { formatSalaryRangeLabel } from "../../../../lib/siteAttendance/salaryCycle";
 import { listAttendance, userFriendlyError } from "../../../../lib/siteAttendance/siteAttendanceApi";
 import { detectFileKind } from "../../../../lib/siteAttendance/import/fileReaders";

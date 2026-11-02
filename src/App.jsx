@@ -1,6 +1,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams, useLocation } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
+import { ThemeProvider } from "./contexts/ThemeContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import PageLoader from "./components/PageLoader";
 import RouteErrorBoundary from "./components/RouteErrorBoundary";
@@ -302,7 +303,7 @@ function App() {
       debounceId = window.setTimeout(() => {
         debounceId = null;
         applyRulesToAllDateInputs();
-      }, 100);
+      }, 220);
     };
     const observer = new MutationObserver(scheduleApplyRules);
     observer.observe(document.body, { childList: true, subtree: true });
@@ -343,6 +344,7 @@ function App() {
 
   return (
     <ConnectionGuard>
+    <ThemeProvider>
     <AuthProvider>
       <AppAccessConfigProvider>
         <AuditConsoleProvider>
@@ -809,6 +811,7 @@ function App() {
         </AuditConsoleProvider>
       </AppAccessConfigProvider>
     </AuthProvider>
+    </ThemeProvider>
     </ConnectionGuard>
   );
 }

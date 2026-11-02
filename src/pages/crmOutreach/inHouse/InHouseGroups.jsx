@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Plus, Send, UsersRound } from 'lucide-react';
-import { PageTaskHeader } from '../../adminOperations/components/AdminUi';
+import { PageTaskHeader } from '../../../components/erpUi';
 import { useInHouseOutreach } from './InHouseOutreachContext';
 
 export default function InHouseGroups() {

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { History, Loader2 } from 'lucide-react';
-import { Modal } from '../../adminOperations/components/AdminUi';
+import { Modal } from '../../../components/erpUi';
 import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
 import { listEnquiryChangeHistory } from './enquiryEditApi';
 

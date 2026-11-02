@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { SectionCard } from "../components/StoreUi";
+import { SectionCard } from "../../../components/erpUi";
 import {
   SparkKpi,
   ChartPanel,

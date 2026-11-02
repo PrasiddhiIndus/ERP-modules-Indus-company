@@ -1,6 +1,6 @@
 import React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { TinySelect } from "../../adminOperations/components/AdminUi";
+import { TinySelect } from "../../../components/erpUi";
 
 const PAGE_SIZES = [25, 50, 100];
 

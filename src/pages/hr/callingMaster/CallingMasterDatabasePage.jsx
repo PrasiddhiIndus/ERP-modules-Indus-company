@@ -23,7 +23,7 @@ import {
   SectionCard,
   StatusChip,
   TinySelect,
-} from "../../adminOperations/components/AdminUi";
+} from "../../../components/erpUi";
 import { CALLING_MASTER_RECORDS_EVENT } from "./callingMasterConfig";
 import { useCallingMasterDropdowns } from "./useCallingMasterDropdowns";
 import { loadCallingMasterRecords } from "./callingMasterStorage";

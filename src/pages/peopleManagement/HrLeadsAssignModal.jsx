@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Modal } from "../adminOperations/components/AdminUi";
+import { Modal } from "../../components/erpUi";
 import { ManagerSearchSelect } from "../../components/employee/ManagerSearchSelect";
 import { supabase } from "../../lib/supabase";
 import { formatPeopleDirectoryError, setPeopleHrLeads } from "../../lib/peopleDirectoryApi";

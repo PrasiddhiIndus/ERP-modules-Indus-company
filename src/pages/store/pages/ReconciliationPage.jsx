@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { SectionCard } from "../components/StoreUi";;
+import { SectionCard } from "../../../components/erpUi";
 import FormDateInput from "../../../components/FormDateInput";
 
 

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, RefreshCw, Search } from 'lucide-react';
-import { KpiTile, SectionCard } from '../../../adminOperations/components/AdminUi';
+import { KpiTile, SectionCard } from '../../../../components/erpUi';
 import { finalizePayrollRun, listPayrollRuns, listRegisterForRun } from '../../../../services/payrollApi';
 
 function formatInr(amount) {

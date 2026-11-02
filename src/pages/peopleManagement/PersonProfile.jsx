@@ -7,7 +7,7 @@ import {
   SectionCard,
   StatusChip,
   Timeline,
-} from "../adminOperations/components/AdminUi";
+} from "../../components/erpUi";
 import { ManagerSearchSelect } from "../../components/employee/ManagerSearchSelect";
 import { supabase } from "../../lib/supabase";
 import {

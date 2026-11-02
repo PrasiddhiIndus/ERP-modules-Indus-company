@@ -10,7 +10,7 @@ import {
   SectionCard,
   TinyInput,
   TinySelect,
-} from "../adminOperations/components/AdminUi";
+} from "../../components/erpUi";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import { employeeCodeForUserId } from "../../lib/employeeCode";

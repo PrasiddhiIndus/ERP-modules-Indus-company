@@ -1,5 +1,5 @@
 import React from "react";
-import { Badge, SectionCard } from "../components/StoreUi";
+import { Badge, SectionCard } from "../../../components/erpUi";
 
 export default function PlannerPage({ data }) {
   const { planner, items, setSiteOverride } = data;

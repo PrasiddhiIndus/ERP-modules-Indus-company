@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { supabase } from "../lib/supabase";
@@ -19,18 +19,18 @@ import {
 } from "./finance/lib/periods";
 import { inrShort, pct } from "./finance/lib/formatters";
 import { resolveContractForBillingParentPo } from "../utils/billingInvoiceRollup";
-import {
-  SparkKpi,
-  ChartPanel,
-  AreaTrendChart,
-  DonutChart,
-  BarCompareChart,
-  RadialScoreChart,
-  ComposedTrendChart,
-  sparkFromValue,
-  makeMoneyAxisFormatter,
-  CHART_SERIES,
-} from "../components/charts/DashboardCharts";
+import { PageTaskHeader, PageShell, KpiTile } from "../components/erpUi";
+
+const DashboardChartsIsland = lazy(() => import("./dashboard/DashboardChartsIsland"));
+
+function ChartsFallback() {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" aria-hidden>
+      <div className="lg:col-span-2 h-[280px] rounded-card border border-border bg-surface-sunken/50 animate-pulse" />
+      <div className="h-[280px] rounded-card border border-border bg-surface-sunken/50 animate-pulse" />
+    </div>
+  );
+}
 
 const LEDGER_BASE = "/app/accounts-finance/reports/site-ledger";
 const BILLING_BASE = "/app/billing";
@@ -292,15 +292,16 @@ const Dashboard = () => {
   const goBillingReports = useCallback(() => navigate(`${BILLING_BASE}/reports`), [navigate]);
   const go = useCallback((path) => navigate(path), [navigate]);
 
-  const load = useCallback(async ({ showLoading = true } = {}) => {
+  const load = useCallback(async ({ showLoading = true, force = false } = {}) => {
     try {
       if (showLoading) setLoading(true);
       setFinanceError("");
 
       const financeP = (async () => {
         try {
-          invalidateFinanceCache({ notify: false });
-          return await fetchFinanceModuleData({ force: true });
+          // First paint uses cache when warm; Refresh / realtime can force.
+          if (force) invalidateFinanceCache({ notify: false });
+          return await fetchFinanceModuleData({ force });
         } catch (e) {
           setFinanceError(e?.message || "Finance figures unavailable");
           return null;
@@ -551,13 +552,6 @@ const Dashboard = () => {
     };
   }, [finance, months, rangeKeys, userProfile]);
 
-  const trendAxisFmt = useMemo(() => {
-    const vals = [];
-    for (const row of pl.trend || []) {
-      vals.push(row.revenue, row.expense, row.profit);
-    }
-    return makeMoneyAxisFormatter(vals);
-  }, [pl.trend]);
 
   const billingBars = useMemo(
     () => [
@@ -710,16 +704,17 @@ const Dashboard = () => {
   );
 
   return (
-    <div className="erp-page-stack max-w-[1600px] mx-auto">
-      <div className="bg-surface rounded-card border border-border shadow-card p-5 sm:p-6">
-        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-          <div>
-            <h1 className="type-page-title text-ink">Executive P&amp;L</h1>
-            <p className="type-meta text-ink-muted mt-1.5">
-              P&amp;L and commercial book · ERP footprint across Admin, Manpower, Marketing, Projects and more
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+    <PageShell className="erp-page-stack max-w-[1600px] mx-auto erp-stagger">
+      <div className="bg-surface rounded-card border border-border/80 shadow-card p-5 sm:p-6 relative overflow-hidden">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-accent via-accent-electric to-teal"
+          aria-hidden
+        />
+        <PageTaskHeader
+          title="Executive P&L"
+          subtitle="P&L and commercial book · ERP footprint across Admin, Manpower, Marketing, Projects and more"
+          className="mb-4"
+        >
             <label className="type-mono-caption text-ink-muted inline-flex items-center gap-2">
               From
               <select
@@ -729,7 +724,7 @@ const Dashboard = () => {
                   setFromKey(next);
                   if (comparePeriodKeys(next, toKey) > 0) setToKey(next);
                 }}
-                className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+                className="h-9 rounded-control border border-border bg-surface px-2 text-sm text-ink"
               >
                 {monthChoices.map((m) => (
                   <option key={`from-${m.key}`} value={m.key}>
@@ -747,7 +742,7 @@ const Dashboard = () => {
                   setToKey(next);
                   if (comparePeriodKeys(fromKey, next) > 0) setFromKey(next);
                 }}
-                className="h-9 rounded-lg border border-border bg-surface px-2 text-sm text-ink"
+                className="h-9 rounded-control border border-border bg-surface px-2 text-sm text-ink"
               >
                 {monthChoices.map((m) => (
                   <option key={`to-${m.key}`} value={m.key}>
@@ -758,7 +753,7 @@ const Dashboard = () => {
             </label>
             <button
               type="button"
-              onClick={() => load()}
+              onClick={() => load({ force: true })}
               disabled={loading}
               className="h-9 px-3 rounded-lg border border-border text-sm inline-flex items-center gap-2 text-ink hover:bg-row-hover disabled:opacity-60"
             >
@@ -767,12 +762,11 @@ const Dashboard = () => {
             </button>
             <Link
               to={ledgerUrl({ month: toKey })}
-              className="h-9 px-3 rounded-lg border border-accent-border bg-accent-soft text-sm inline-flex items-center text-accent font-medium"
+              className="h-9 px-3 rounded-control border border-accent-border bg-accent-soft text-sm inline-flex items-center text-accent font-medium"
             >
               Open site ledger
             </Link>
-          </div>
-        </div>
+        </PageTaskHeader>
         {financeError ? (
           <p className="mt-3 text-sm text-warning bg-warning-soft border border-warning-border rounded-lg px-3 py-2">
             {financeError}. Billing figures below still load from commercial data.
@@ -781,215 +775,88 @@ const Dashboard = () => {
       </div>
 
       <section>
-        <h2 className="type-card-title text-ink mb-3">P&amp;L · {rangeLabel}</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-          <SparkKpi
+        <h2 className="type-card-title text-ink-strong mb-3">P&amp;L · {rangeLabel}</h2>
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 erp-stagger">
+          <KpiTile
             label="Revenue"
             value={loading ? "—" : inrShort(pl.revenue)}
             sub={`${pl.sitesReporting} sites reporting`}
-            series={sparkFromValue(pl.revenue || 1)}
-            color={CHART_SERIES[0]}
             onClick={() => goLedger()}
           />
-          <SparkKpi
+          <KpiTile
             label="Expenses"
             value={loading ? "—" : inrShort(pl.expense)}
             sub={pl.revenue ? `${pct((pl.expense / pl.revenue) * 100)} of revenue` : "—"}
-            series={sparkFromValue(pl.expense || 1)}
-            color={CHART_SERIES[3]}
             onClick={() => goLedger()}
           />
-          <SparkKpi
+          <KpiTile
             label="Net profit"
             value={loading ? "—" : inrShort(pl.profit)}
             sub={pl.revenue ? `Margin ${pct(pl.margin)}` : "—"}
-            series={sparkFromValue(Math.abs(pl.profit) || 1)}
-            color={pl.profit >= 0 ? CHART_SERIES[5] : CHART_SERIES[3]}
             onClick={() => goLedger()}
           />
-          <SparkKpi
+          <KpiTile
             label="Gross margin"
             value={loading ? "—" : pct(pl.margin)}
             sub={pl.thinSites ? `${pl.thinSites} thin-margin sites` : "On target band"}
-            series={sparkFromValue(Math.max(pl.margin, 1))}
-            color={CHART_SERIES[1]}
             onClick={() => goLedger()}
           />
-          <SparkKpi
+          <KpiTile
             label="Sites in loss"
             value={loading ? "—" : pl.lossSites}
             sub={`of ${pl.sitesReporting} with figures`}
-            series={sparkFromValue(pl.lossSites || 1)}
-            color={CHART_SERIES[3]}
             onClick={() => goLedger()}
           />
-          <SparkKpi
+          <KpiTile
             label="Thin margin"
             value={loading ? "—" : pl.thinSites}
             sub={`Below ${pl.warnMargin}% warn`}
-            series={sparkFromValue(pl.thinSites || 1)}
-            color={CHART_SERIES[2]}
             onClick={() => goLedger()}
           />
         </div>
-      </section>
-
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <ChartPanel
-          title="Revenue · expense · profit"
-          subtitle={`Monthly trend · ${rangeLabel}`}
-          className="lg:col-span-2"
-          height={280}
-          onOpen={() => goLedger()}
-          openLabel="Ledger"
-        >
-          <ComposedTrendChart
-            data={pl.trend}
-            areas={[{ key: "revenue", name: "Revenue", color: CHART_SERIES[0] }]}
-            bars={[{ key: "expense", name: "Expense", color: CHART_SERIES[3] }]}
-            lines={[{ key: "profit", name: "Profit", color: CHART_SERIES[5] }]}
-            height={250}
-            formatter={(v) => inrShort(v)}
-            yTickFormatter={trendAxisFmt}
-            onPointClick={openTrendMonth}
-          />
-        </ChartPanel>
-        <ChartPanel title="Margin" subtitle={rangeLabel} height={280} onOpen={() => goLedger()} openLabel="Ledger">
-          <RadialScoreChart
-            value={Math.max(0, Math.min(100, Math.round(pl.margin)))}
-            label="Margin"
-            color={pl.margin >= 12 ? CHART_SERIES[5] : pl.margin >= pl.warnMargin ? CHART_SERIES[2] : CHART_SERIES[3]}
-            height={250}
-            onClick={() => goLedger()}
-          />
-        </ChartPanel>
-      </section>
-
-      <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        <ChartPanel title="P&amp;L mix" subtitle={rangeLabel} height={260} onOpen={() => goLedger()} openLabel="Ledger">
-          <DonutChart
-            data={plMix}
-            centerLabel="Period"
-            height={230}
-            formatter={(v) => inrShort(v)}
-            onSliceClick={() => goLedger()}
-          />
-        </ChartPanel>
-        <ChartPanel title="Expense composition" subtitle="Parent heads" height={260} onOpen={() => goLedger()} openLabel="Ledger">
-          {pl.expenseMix.length ? (
-            <DonutChart
-              data={pl.expenseMix.map((x) => ({ ...x, fullName: x.name, _hint: "Open site ledger" }))}
-              centerLabel="Spend"
-              height={230}
-              formatter={(v) => inrShort(v)}
-              onSliceClick={() => goLedger()}
-            />
-          ) : (
-            <AreaTrendChart
-              data={pl.trend}
-              series={[{ key: "expense", name: "Expense", color: CHART_SERIES[3] }]}
-              height={230}
-              formatter={(v) => inrShort(v)}
-              yTickFormatter={trendAxisFmt}
-              onPointClick={openTrendMonth}
-            />
-          )}
-        </ChartPanel>
-        <ChartPanel title="Profit by site" subtitle="Top contributors" height={280} onOpen={() => goLedger()} openLabel="Ledger">
-          <BarCompareChart
-            data={topSites}
-            layout="horizontal"
-            xKey="name"
-            series={[{ key: "profit", name: "Profit", color: CHART_SERIES[5] }]}
-            height={250}
-            categoryWidth={128}
-            formatter={(v) => inrShort(v)}
-            onBarClick={openSite}
-          />
-        </ChartPanel>
       </section>
 
       <section>
         <h2 className="type-card-title text-ink mb-3">Commercial book</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
-          <SparkKpi
+          <KpiTile
             label="Contract book"
             value={loading ? "—" : inrShort(commercialStats.contractBook)}
             sub={`${commercialStats.poCount} active PO/WO`}
-            series={sparkFromValue(commercialStats.contractBook || 1)}
-            color={CHART_SERIES[0]}
             onClick={goBilling}
           />
-          <SparkKpi
+          <KpiTile
             label="Billed in range"
             value={loading ? "—" : inrShort(commercialStats.billed)}
             sub={`${commercialStats.invoiceCount} tax invoices`}
-            series={sparkFromValue(commercialStats.billed || 1)}
-            color={CHART_SERIES[1]}
             onClick={goBilling}
           />
-          <SparkKpi
+          <KpiTile
             label="Unbilled backlog"
             value={loading ? "—" : inrShort(commercialStats.unbilled)}
             sub="Contract less billed"
-            series={sparkFromValue(commercialStats.unbilled || 1)}
-            color={CHART_SERIES[2]}
             onClick={goBilling}
           />
-          <SparkKpi
+          <KpiTile
             label="Collected"
             value={loading ? "—" : inrShort(commercialStats.collected)}
             sub={`Collection ${collectRate}%`}
-            series={sparkFromValue(commercialStats.collected || 1)}
-            color={CHART_SERIES[5]}
             onClick={goBilling}
           />
-          <SparkKpi
+          <KpiTile
             label="Receivables"
             value={loading ? "—" : inrShort(commercialStats.outstanding)}
             sub="Unpaid invoices"
-            series={sparkFromValue(commercialStats.outstanding || 1)}
-            color={CHART_SERIES[3]}
             onClick={goBillingReports}
           />
-          <SparkKpi
+          <KpiTile
             label="Billing coverage"
             value={loading ? "—" : `${billRate}%`}
             sub="Billed ÷ contract"
-            series={sparkFromValue(billRate || 1)}
-            color={CHART_SERIES[4]}
             onClick={goBilling}
           />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <ChartPanel
-            title="Contract vs billed vs outstanding"
-            className="lg:col-span-2"
-            height={260}
-            onOpen={goBilling}
-            openLabel="Billing"
-          >
-            <BarCompareChart
-              data={billingBars}
-              series={[{ key: "value", name: "Amount", color: CHART_SERIES[0] }]}
-              height={230}
-              formatter={(v) => inrShort(v)}
-              yTickFormatter={makeMoneyAxisFormatter(billingBars.map((b) => b.value))}
-              onBarClick={openBillingBar}
-            />
-          </ChartPanel>
-          <ChartPanel title="Collections" height={260} onOpen={goBillingReports} openLabel="Reports">
-            <DonutChart
-              data={collectionMix}
-              centerLabel="Billed"
-              centerValue={loading ? "—" : inrShort(commercialStats.billed)}
-              height={230}
-              formatter={(v) => inrShort(v)}
-              onSliceClick={(row) => (row?.name === "Outstanding" ? goBillingReports() : goBilling())}
-            />
-          </ChartPanel>
-        </div>
       </section>
 
       <section>
@@ -999,197 +866,101 @@ const Dashboard = () => {
         </p>
 
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
-          <SparkKpi
+          <KpiTile
             label="Active people"
             value={loading ? "—" : modules.people.toLocaleString("en-IN")}
             sub="Admin headcount"
-            series={sparkFromValue(modules.people || 1)}
-            color={CHART_SERIES[0]}
             onClick={() => go("/app/admin/dashboard")}
           />
-          <SparkKpi
+          <KpiTile
             label="Leave queue"
             value={loading ? "—" : modules.leavePending}
             sub="Pending approvals"
-            series={sparkFromValue(modules.leavePending || 1)}
-            color={CHART_SERIES[2]}
             onClick={() => go("/app/admin/employee/leaves-permissions")}
           />
-          <SparkKpi
+          <KpiTile
             label="Manpower pipeline"
             value={loading ? "—" : modules.manpowerTotal}
             sub={`${modules.manpowerPending} waiting · ${modules.manpowerDueSoon} due soon`}
-            series={sparkFromValue(modules.manpowerTotal || 1)}
-            color={CHART_SERIES[1]}
             onClick={() => go("/app/commercial/manpower-training/manpower-management/dashboard")}
           />
-          <SparkKpi
+          <KpiTile
             label="Marketing asks"
             value={loading ? "—" : modules.marketing}
             sub="Enquiries on record"
-            series={sparkFromValue(modules.marketing || 1)}
-            color={CHART_SERIES[5]}
             onClick={() => go("/app/marketing")}
           />
-          <SparkKpi
+          <KpiTile
             label="Project enquiries"
             value={loading ? "—" : modules.projects}
             sub="Projects module"
-            series={sparkFromValue(modules.projects || 1)}
-            color={CHART_SERIES[4]}
             onClick={() => go("/app/projects/enquiry/enquiry-dashboard")}
           />
-          <SparkKpi
+          <KpiTile
             label="AMC active"
             value={loading ? "—" : modules.amcActive}
             sub={`${modules.amcAtRisk} at risk · ${modules.amcComplaints} open calls`}
-            series={sparkFromValue(modules.amcActive || 1)}
-            color={CHART_SERIES[3]}
             onClick={() => go("/app/amc")}
           />
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <SparkKpi
+          <KpiTile
             label="Maintenance"
             value={loading ? "—" : modules.maintenance}
             sub="Enquiries"
-            series={sparkFromValue(modules.maintenance || 1)}
-            color={CHART_SERIES[2]}
             onClick={() => go("/app/maintenance")}
           />
-          <SparkKpi
+          <KpiTile
             label="IEV"
             value={loading ? "—" : modules.fireTenderTotal}
             sub={`${modules.fireTenderPending} pending`}
-            series={sparkFromValue(modules.fireTenderTotal || 1)}
-            color={CHART_SERIES[3]}
             onClick={() => go("/app/fire-tender")}
           />
-          <SparkKpi
+          <KpiTile
             label="Commercial PO/WO"
             value={loading ? "—" : commercialStats.poCount}
             sub={`${modules.commercialPending} waiting approval`}
-            series={sparkFromValue(commercialStats.poCount || 1)}
-            color={CHART_SERIES[0]}
             onClick={() => go("/app/commercial/manpower-training/dashboard")}
           />
-          <SparkKpi
+          <KpiTile
             label="Finance sites"
             value={loading ? "—" : pl.sitesReporting}
             sub={`${pl.lossSites} in loss this period`}
-            series={sparkFromValue(pl.sitesReporting || 1)}
-            color={CHART_SERIES[1]}
             onClick={() => goLedger()}
           />
         </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-          <ChartPanel
-            title="Module volume"
-            subtitle="Where records sit across the ERP"
-            className="lg:col-span-2"
-            height={300}
-            onOpen={() => go("/app/admin/dashboard")}
-            openLabel="Admin"
-          >
-            <BarCompareChart
-              data={moduleVolume}
-              layout="horizontal"
-              xKey="name"
-              series={[{ key: "value", name: "Records", color: CHART_SERIES[0] }]}
-              height={270}
-              categoryWidth={110}
-              onBarClick={openModuleBar}
-            />
-          </ChartPanel>
-          <ChartPanel title="Enquiry pipeline mix" subtitle="Demand channels" height={300} onOpen={() => go("/app/marketing")} openLabel="Marketing">
-            <DonutChart
-              data={pipelineMix}
-              centerLabel="Asks"
-              centerValue={pipelineMix.reduce((a, x) => a + x.value, 0)}
-              height={270}
-              onSliceClick={openModuleBar}
-            />
-          </ChartPanel>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ChartPanel
-            title="Needs attention"
-            subtitle="Queues and risk signals — not task lists"
-            height={280}
-            onOpen={() => go("/app/admin/dashboard")}
-            openLabel="Admin"
-          >
-            {attentionBars.length ? (
-              <BarCompareChart
-                data={attentionBars}
-                layout="horizontal"
-                xKey="name"
-                series={[{ key: "value", name: "Count", color: CHART_SERIES[3] }]}
-                height={250}
-                categoryWidth={110}
-                onBarClick={openModuleBar}
-              />
-            ) : (
-              <p className="type-meta text-ink-muted py-8 text-center">No elevated queues right now.</p>
-            )}
-          </ChartPanel>
-          <ChartPanel
-            title="Manpower status"
-            subtitle="Pipeline posture"
-            height={280}
-            onOpen={() => go("/app/commercial/manpower-training/manpower-management/dashboard")}
-            openLabel="Manpower"
-          >
-            {manpowerMix.length ? (
-              <DonutChart
-                data={manpowerMix}
-                centerLabel="Enquiries"
-                centerValue={modules.manpowerTotal}
-                height={250}
-                onSliceClick={() => go("/app/commercial/manpower-training/manpower-management/dashboard")}
-              />
-            ) : (
-              <p className="type-meta text-ink-muted py-8 text-center">No manpower enquiries loaded.</p>
-            )}
-          </ChartPanel>
-        </div>
       </section>
 
-      {bottomSites.length > 0 ? (
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ChartPanel
-            title="Sites needing attention"
-            subtitle={`Lowest profit · ${rangeLabel}`}
-            height={280}
-            onOpen={() => goLedger()}
-            openLabel="Ledger"
-          >
-            <BarCompareChart
-              data={bottomSites}
-              layout="horizontal"
-              xKey="name"
-              series={[{ key: "profit", name: "Profit", color: CHART_SERIES[3] }]}
-              height={250}
-              categoryWidth={128}
-              formatter={(v) => inrShort(v)}
-              onBarClick={openSite}
-            />
-          </ChartPanel>
-          <ChartPanel title="Billing coverage" subtitle="Contract realisation" height={280} onOpen={goBilling} openLabel="Billing">
-            <RadialScoreChart
-              value={billRate}
-              label="Billed"
-              color={billRate >= 70 ? CHART_SERIES[5] : billRate >= 40 ? CHART_SERIES[2] : CHART_SERIES[3]}
-              height={250}
-              onClick={goBilling}
-            />
-          </ChartPanel>
-        </section>
-      ) : null}
-    </div>
+      <Suspense fallback={<ChartsFallback />}>
+        <DashboardChartsIsland
+          rangeLabel={rangeLabel}
+          pl={pl}
+          plMix={plMix}
+          topSites={topSites}
+          bottomSites={bottomSites}
+          billingBars={billingBars}
+          collectionMix={collectionMix}
+          commercialStats={commercialStats}
+          billRate={billRate}
+          loading={loading}
+          moduleVolume={moduleVolume}
+          pipelineMix={pipelineMix}
+          attentionBars={attentionBars}
+          manpowerMix={manpowerMix}
+          modules={modules}
+          goLedger={goLedger}
+          goBilling={goBilling}
+          goBillingReports={goBillingReports}
+          go={go}
+          openTrendMonth={openTrendMonth}
+          openSite={openSite}
+          openBillingBar={openBillingBar}
+          openModuleBar={openModuleBar}
+        />
+      </Suspense>
+
+    </PageShell>
   );
 };
 

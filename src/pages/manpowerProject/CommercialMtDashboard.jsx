@@ -26,7 +26,7 @@ import {
 import { useBilling } from "../../contexts/BillingContext";
 import { supabase } from "../../lib/supabase";
 import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
-import { PageTaskHeader, SectionCard, KpiTile } from "../adminOperations/components/AdminUi";
+import { PageTaskHeader, SectionCard, KpiTile } from "../../components/erpUi";
 import ManpowerEnquiryPreviewModal, { verticalTone } from "./components/ManpowerEnquiryPreviewModal";
 import {
   INQUIRY_DB_COLUMNS,
