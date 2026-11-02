@@ -101,6 +101,7 @@ export function getAccessibleSubModulePaths(profile, userMetadata = null) {
   const role = normalizeAppRole(profile?.role);
   if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) {
     paths.add(PROJECTS_ENQUIRY_KPI_PATH);
+    paths.add(FINANCE_MASTER_PO_AT_GLANCE_PATH);
   }
   return paths;
 }
@@ -149,6 +150,12 @@ function collectSubModulePaths(profile, userMetadata = null) {
     if (parts.length === 3 && parts[0] === "projects" && parts[1] === "enquiry") {
       const page = PROJECTS_ENQUIRY_PAGES.find((p) => p.value === subKey);
       page?.paths.forEach((p) => paths.add(p));
+      continue;
+    }
+
+    // Master PO At Glance is opt-in — expand even when the user already has full Finance.
+    if (subKey === FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY) {
+      paths.add(FINANCE_MASTER_PO_AT_GLANCE_PATH);
       continue;
     }
 
@@ -299,7 +306,20 @@ export function canSeeSubModule(profile, accessibleModules, subModuleKey, userMe
     }, subModuleKey);
   }
 
-  if (subModuleKey !== RULES_CONSOLE_SUBMODULE_KEY && hasFullModuleAccess(accessibleModules, moduleKey)) return true;
+  if (
+    subModuleKey !== RULES_CONSOLE_SUBMODULE_KEY
+    && subModuleKey !== FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY
+    && hasFullModuleAccess(accessibleModules, moduleKey)
+  ) {
+    return true;
+  }
+  const role = normalizeAppRole(profile?.role);
+  if (
+    subModuleKey === FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY
+    && (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO)
+  ) {
+    return true;
+  }
   const granted = getEffectiveAllowedSubModules(profile, userMetadata);
   // Employee Administration already includes Employee Master.
   if (subModuleKey === EMPLOYEE_MASTER_SUBMODULE_KEY && granted.includes("admin.employee")) return true;
@@ -332,6 +352,10 @@ export function getNavVisibleModuleKeys(profile, accessibleModules, userMetadata
 
 /** Rules Console: granted only by its own key — a full Admin module does not imply it. */
 export const RULES_CONSOLE_SUBMODULE_KEY = "admin.rules-console";
+
+/** Finance → Master PO At Glance: opt-in page (Super Admins always; otherwise User Management tick only). */
+export const FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY = "finance.po-at-glance";
+export const FINANCE_MASTER_PO_AT_GLANCE_PATH = "/app/accounts-finance/po-at-glance";
 
 export const CRM_OUTREACH_CLIENT_SUBMODULE_KEY = "crmOutreach.client";
 export const CRM_OUTREACH_INHOUSE_SUBMODULE_KEY = "crmOutreach.inhouse";
@@ -918,13 +942,14 @@ export const NAV_MODULE_TREE = [
   },
   {
     value: "commercialRm",
-    label: "Commercial — R&M / AMC / IEV",
+    label: "R&M",
     subModules: [
       { value: "commercialRm.dashboard",          label: "Dashboard",              pathPrefix: "/app/commercial/rm-mm-amc-iev/dashboard" },
       { value: "commercialRm.enquiry",            label: "Enquiry",                pathPrefix: "/app/commercial/rm-mm-amc-iev/manpower-management" },
       { value: "commercialRm.internal-quotation", label: "Internal Quotation",     pathPrefix: "/app/commercial/rm-mm-amc-iev/internal-quotation" },
       { value: "commercialRm.po-entry",           label: "PO Entry",               pathPrefix: "/app/commercial/rm-mm-amc-iev/po-entry" },
       { value: "commercialRm.contact-log",        label: "Contact Log",            pathPrefix: "/app/commercial/rm-mm-amc-iev/contact-log" },
+      { value: "commercialRm.po-at-glance",       label: "PO At Glance",           pathPrefix: "/app/commercial/rm-mm-amc-iev/po-at-glance" },
     ],
   },
   {
@@ -1003,6 +1028,7 @@ export const NAV_MODULE_TREE = [
       },
       { value: "projects.quotation-master",label: "Quotation Maker",      pathPrefix: "/app/projects/quotation" },
       { value: "projects.po",              label: "PO / WO Entry",        pathPrefix: "/app/projects/po" },
+      { value: "projects.po-at-glance",    label: "PO At Glance",         pathPrefix: "/app/projects-po-at-glance" },
     ],
   },
   {
@@ -1042,6 +1068,13 @@ export const NAV_MODULE_TREE = [
           { value: "finance.pl.fire", label: "Fire", optIn: true, badge: "sites" },
           { value: "finance.pl.safety", label: "Safety", optIn: true, badge: "sites" },
         ],
+      },
+      {
+        value: FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY,
+        label: "Master PO At Glance",
+        pathPrefix: FINANCE_MASTER_PO_AT_GLANCE_PATH,
+        // Opt-in: Super Admins always; otherwise only users ticked for this page in User Management.
+        optIn: true,
       },
     ],
   },
@@ -1094,7 +1127,7 @@ export const MODULE_PATH_PREFIXES = {
   maintenance: ["/app/maintenance"],
   /** Commercial — Manpower / Training (includes legacy manpower module routes) */
   commercialMt: ["/app/commercial/manpower-training", "/app/commercial/manpower", "/app/manpower"],
-  /** Commercial — R&M / AMC / IEV */
+  /** R&M */
   commercialRm: ["/app/commercial/rm-mm-amc-iev"],
   billing: ["/app/billing"],
   tracking: ["/app/billing/tracking"],
@@ -1105,6 +1138,7 @@ export const MODULE_PATH_PREFIXES = {
     "/app/projects/quotation",
     "/app/projects-management",
     "/app/projects-billing",
+    "/app/projects-po-at-glance",
   ],
   procurement: ["/app/procurement"],
   amc: ["/app/amc"],
@@ -1438,7 +1472,7 @@ export function getLoginRedirectPath(userProfile, accessibleModules) {
 /** Manager needs one of these in `accessibleModules` to approve Commercial — Manpower/Training PO workflows. */
 export const COMMERCIAL_MT_APPROVER_MODULE_KEYS = ["commercialMt", "sales"];
 
-/** Manager needs one of these to approve Commercial — R&M / AMC / IEV PO workflows. */
+/** Manager needs one of these to approve R&M PO workflows. */
 export const COMMERCIAL_RM_APPROVER_MODULE_KEYS = ["commercialRm", "sales"];
 
 /** PO/WO approval in Projects → PO Entry (same workflow as Commercial R&M). */
@@ -1623,6 +1657,14 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
   const normalizedForKpi = normalizeAppPath(pathname);
   if (normalizedForKpi === PROJECTS_ENQUIRY_KPI_PATH || normalizedForKpi.startsWith(`${PROJECTS_ENQUIRY_KPI_PATH}/`)) {
     return Boolean(subModulePaths?.has?.(PROJECTS_ENQUIRY_KPI_PATH));
+  }
+
+  // Hard gate: Master PO At Glance is opt-in — Super Admins, or users ticked for it in User Management.
+  if (
+    normalizedForKpi === FINANCE_MASTER_PO_AT_GLANCE_PATH
+    || normalizedForKpi.startsWith(`${FINANCE_MASTER_PO_AT_GLANCE_PATH}/`)
+  ) {
+    return Boolean(subModulePaths?.has?.(FINANCE_MASTER_PO_AT_GLANCE_PATH));
   }
 
   if (accessibleModules.has("overview") && pathname === "/app/dashboard") return true;

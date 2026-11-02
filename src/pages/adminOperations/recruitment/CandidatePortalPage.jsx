@@ -4,6 +4,7 @@ import { CheckCircle2, FileText, Upload, XCircle } from "lucide-react";
 import { apiUrl } from "../../../lib/apiBase";
 import { appointmentStatusMeta, documentStatusMeta, offerStatusMeta } from "./recruitmentConfig";
 import { Card, DetailGrid, StatusPill, btn, fmtDate, textareaClass } from "./RecruitmentUi";
+import { EmployeeDocumentPortalView } from "../../admin/employeeMaster/EmployeeDocumentPortalPage";
 
 const ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx";
 
@@ -19,22 +20,54 @@ async function portalRequest(token, path = "", options = {}) {
   return body;
 }
 
+async function tryEmployeeDocumentPortal(token) {
+  const res = await fetch(apiUrl(`/api/employee-document-portal/${encodeURIComponent(token)}`));
+  if (!res.ok) return null;
+  const body = await res.json().catch(() => null);
+  // Employee Master document payload has employeeName; recruitment uses candidateName.
+  if (body && body.employeeName && Array.isArray(body.documents)) return body;
+  return null;
+}
+
 export default function CandidatePortalPage() {
   const { token } = useParams();
   const [data, setData] = useState(null);
+  const [employeeData, setEmployeeData] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    portalRequest(token)
-      .then((d) => !cancelled && setData(d))
-      .catch((e) => !cancelled && setError(e.message))
-      .finally(() => !cancelled && setLoading(false));
+    (async () => {
+      try {
+        const d = await portalRequest(token);
+        if (!cancelled) setData(d);
+      } catch (recruitErr) {
+        // Employee Master document-upload emails also use /r/:token (same public route).
+        // Only fall through when recruitment does not recognize the token — recruitment
+        // success path is unchanged.
+        try {
+          const emp = await tryEmployeeDocumentPortal(token);
+          if (!cancelled && emp) {
+            setEmployeeData(emp);
+            return;
+          }
+        } catch {
+          /* keep recruitment error */
+        }
+        if (!cancelled) setError(recruitErr.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
     return () => {
       cancelled = true;
     };
   }, [token]);
+
+  if (!loading && employeeData) {
+    return <EmployeeDocumentPortalView token={token} initialData={employeeData} />;
+  }
 
   return (
     <div className="min-h-screen bg-surface-sunken px-4 py-8">

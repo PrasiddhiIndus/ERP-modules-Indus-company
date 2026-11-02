@@ -21,7 +21,7 @@ export const ROUTE_MODULE_MAP = [
   ['/app/commercial/manpower-training/contact-log', 'Commercial MT · Contact log'],
   ['/app/commercial/manpower-training', 'Commercial MT'],
   ['/app/commercial/rm-mm-amc-iev/po-entry', 'Commercial RM · PO entry'],
-  ['/app/commercial/rm-mm-amc-iev', 'Commercial RM · R&M / AMC / IEV'],
+  ['/app/commercial/rm-mm-amc-iev', 'R&M'],
   ['/app/commercial', 'Commercial'],
   ['/app/manpower', 'Manpower (Commercial MT)'],
   ['/app/marketing/enquiry-master', 'Marketing · Enquiry master'],

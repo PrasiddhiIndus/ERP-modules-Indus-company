@@ -5,6 +5,7 @@ import { useAuth } from './AuthContext';
 import {
   getCommercialPoModuleType,
   withCommercialModuleMarker,
+  COMMERCIAL_MODULE_RM,
   COMMERCIAL_MODULE_RM_MM_AMC_IEV,
   COMMERCIAL_MODULE_PROJECTS,
 } from '../constants/commercialModuleType';
@@ -96,7 +97,9 @@ const BillingContext = createContext({
 });
 const toModuleContext = (moduleScope) =>
   moduleScope
-    ? moduleScope === COMMERCIAL_MODULE_RM_MM_AMC_IEV || moduleScope === COMMERCIAL_MODULE_PROJECTS
+    ? moduleScope === COMMERCIAL_MODULE_RM
+      || moduleScope === COMMERCIAL_MODULE_RM_MM_AMC_IEV
+      || moduleScope === COMMERCIAL_MODULE_PROJECTS
       ? 'rm_mm_amc_iev'
       : 'manpower_training'
     : null;
