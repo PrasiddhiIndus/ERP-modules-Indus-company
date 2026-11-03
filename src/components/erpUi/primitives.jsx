@@ -506,20 +506,22 @@ export function Modal({ open, title, onClose, children, footer, widthClass = "ma
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 erp-overlay-enter">
       <button type="button" className="absolute inset-0 bg-scrim" aria-label="Close" onClick={onClose} />
       <div
-        className={`relative bg-surface rounded-card shadow-modal border border-border w-full ${widthClass} max-h-[90vh] min-h-0 flex flex-col erp-modal-enter`}
+        className={`relative bg-surface rounded-card shadow-modal border border-border w-full ${widthClass} max-h-[90vh] min-h-0 flex flex-col overflow-hidden erp-modal-enter`}
         onWheel={(e) => e.stopPropagation()}
       >
-        <div className="erp-card-header border-b border-border flex items-center justify-between shrink-0">
+        {/* z-30 + solid bg so body scroll (and sticky children) cannot paint over the title bar */}
+        <div className="erp-card-header border-b border-border flex items-center justify-between shrink-0 relative z-30 bg-surface">
           <h4 className="type-card-title text-ink-strong">{title}</h4>
           <button type="button" onClick={onClose} className="text-ink-muted hover:text-ink">
             ×
           </button>
         </div>
-        <div className="flex-1 min-h-0 !overflow-y-auto overscroll-contain erp-card-body text-sm">
+        {/* Beat global `.erp-card-body { overflow: visible }` so content clips under the header */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain erp-card-body text-sm [overflow:auto!important]">
           {children}
         </div>
         {footer ? (
-          <div className="erp-card-header border-t border-border bg-surface-sunken rounded-b-xl shrink-0">
+          <div className="erp-card-header border-t border-border bg-surface-sunken rounded-b-xl shrink-0 relative z-20">
             {footer}
           </div>
         ) : null}

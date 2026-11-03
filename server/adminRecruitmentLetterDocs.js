@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { promisify } from 'util';
 import PizZip from 'pizzip';
 import {
+  annexureMonthlyValue,
   annexurePaValue,
   calculateCtc,
   roundRupee,
@@ -417,15 +418,17 @@ function shouldIncludeAnnexureLine(monthly, pa) {
   return true;
 }
 
+/** Same monthly cell the CTC Calculator annexure table shows (null when empty). */
 function readAnnexureMonthly(breakup, key) {
   if (!breakup || typeof breakup !== 'object') return null;
-  if (!Object.prototype.hasOwnProperty.call(breakup, key)) return null;
-  const v = breakup[key];
+  const v = annexureMonthlyValue(breakup, key);
   if (v == null || v === '') return null;
   const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+  if (!Number.isFinite(n)) return null;
+  return roundRupee(n);
 }
 
+/** Same P.A. cell the CTC Calculator annexure table shows. */
 function readAnnexurePa(breakup, key) {
   const pa = annexurePaValue(breakup, key);
   if (pa == null || pa === '') return null;
@@ -435,7 +438,7 @@ function readAnnexurePa(breakup, key) {
   // lines stay included. Explicit monthly 0 still yields pa 0 and is excluded.
   const monthly = readAnnexureMonthly(breakup, key);
   if (isEmptyAnnexureAmount(monthly) && n === 0) return null;
-  return n;
+  return roundRupee(n);
 }
 
 /** CTC Calculator annexure lines in display order (monthly + P.A. tokens). */
