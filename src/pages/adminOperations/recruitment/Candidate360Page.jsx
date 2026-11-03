@@ -561,8 +561,14 @@ function Workspace({ data, onReload }) {
       return;
     }
     try {
-      // Persist exact calculator components so offer/appointment annexures match the UI.
-      const { validation: _validation, ...breakup } = display;
+      // Persist exact calculator annexure components (offer/appointment letters read this snapshot).
+      const { validation: _validation, ...raw } = display;
+      const breakup = Object.fromEntries(
+        Object.entries(raw).map(([k, v]) => {
+          if (typeof v === "number" && Number.isFinite(v)) return [k, Math.round(v)];
+          return [k, v];
+        })
+      );
       await updateCandidate(
         c.id,
         { expectedCtc: Number(ctc), expectedCtcBreakup: breakup },
