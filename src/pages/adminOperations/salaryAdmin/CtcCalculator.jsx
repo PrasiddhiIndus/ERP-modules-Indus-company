@@ -361,41 +361,43 @@ export default function CtcCalculator({
 
   const headerSubtitle = embedded
     ? onSave
-      ? "Same Compensation Scheme rules as Admin Salary. Save stores the calculated monthly CTC on this candidate."
+      ? "Same Compensation Scheme rules as Admin Salary. Save stores the exact calculated breakup for offer & appointment letters."
       : "Same Compensation Scheme rules as Admin Salary (estimate only for this login)."
     : "Estimate Compensation Scheme breakup from Monthly CTC or Gross. Same rules as Employee Master CTC details — nothing is saved.";
 
   return (
     <div className="space-y-4">
-      <PageTaskHeader title="CTC Calculator" subtitle={headerSubtitle}>
-        {onSave ? (
+      <div className={embedded ? "sticky top-0 z-10 -mx-1 px-1 pb-2 bg-surface" : undefined}>
+        <PageTaskHeader title="CTC Calculator" subtitle={headerSubtitle}>
+          {onSave ? (
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!canSave}
+              className="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-medium rounded-lg border border-accent-border bg-accent text-white hover:bg-accent disabled:opacity-50 disabled:pointer-events-none"
+            >
+              <Save className="w-3.5 h-3.5" />
+              {saving ? "Saving…" : saveLabel}
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={handleSave}
-            disabled={!canSave}
-            className="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-medium rounded-lg border border-accent-border bg-accent text-white hover:bg-accent disabled:opacity-50 disabled:pointer-events-none"
+            onClick={clearAmounts}
+            className="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-medium rounded-lg border border-border bg-surface hover:bg-surface-sunken"
           >
-            <Save className="w-3.5 h-3.5" />
-            {saving ? "Saving…" : saveLabel}
+            <Eraser className="w-3.5 h-3.5" />
+            Clear amounts
           </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={clearAmounts}
-          className="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-medium rounded-lg border border-border bg-surface hover:bg-surface-sunken"
-        >
-          <Eraser className="w-3.5 h-3.5" />
-          Clear amounts
-        </button>
-        <button
-          type="button"
-          onClick={reset}
-          className="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-medium rounded-lg border border-border bg-surface hover:bg-surface-sunken"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Reset
-        </button>
-      </PageTaskHeader>
+          <button
+            type="button"
+            onClick={reset}
+            className="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-medium rounded-lg border border-border bg-surface hover:bg-surface-sunken"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Reset
+          </button>
+        </PageTaskHeader>
+      </div>
 
       <CollapsibleHelp label="how this calculator works">
         <ul className="list-disc pl-4 space-y-1">
@@ -409,8 +411,8 @@ export default function CtcCalculator({
           </li>
           {embedded && onSave ? (
             <li>
-              <strong>Save CTC</strong> writes the calculated monthly CTC to this candidate&apos;s expected
-              salary (used when preparing the offer).
+              <strong>Save CTC</strong> stores the monthly CTC and the exact component breakup shown
+              below (used unchanged on offer &amp; appointment annexures).
             </li>
           ) : (
             <li>This page never saves to an employee record. Use Employee Master → CTC details to store.</li>

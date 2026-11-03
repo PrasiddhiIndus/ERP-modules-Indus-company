@@ -551,13 +551,23 @@ function Workspace({ data, onReload }) {
     };
   }, [modal?.payload?.skipOffer, c, draftOffer]);
 
-  const saveCandidateCtc = async ({ ctc }) => {
+  const saveCandidateCtc = async ({ ctc, display }) => {
     if (ctc == null || !Number.isFinite(Number(ctc)) || Number(ctc) <= 0) {
       toast.error("Calculate a valid CTC before saving.");
       return;
     }
+    if (!display || typeof display !== "object" || !(Number(display.ctc) > 0)) {
+      toast.error("Calculate a valid CTC breakup before saving.");
+      return;
+    }
     try {
-      await updateCandidate(c.id, { expectedCtc: Number(ctc) }, c.version);
+      // Persist exact calculator components so offer/appointment annexures match the UI.
+      const { validation: _validation, ...breakup } = display;
+      await updateCandidate(
+        c.id,
+        { expectedCtc: Number(ctc), expectedCtcBreakup: breakup },
+        c.version
+      );
       const openOffer = (offers || []).find((o) =>
         ["generated", "sent", "viewed", "accepted"].includes(o.status)
       );
@@ -571,7 +581,10 @@ function Workspace({ data, onReload }) {
           hideRecruitmentBusy();
         }
       }
-      toast.success("CTC saved", `Monthly CTC ₹${Number(ctc).toLocaleString("en-IN")} — used on offer Annexure A & appointment letters.`);
+      toast.success(
+        "CTC saved",
+        `Monthly CTC ₹${Number(ctc).toLocaleString("en-IN")} — exact calculator breakup used on offer & appointment letters.`
+      );
       close();
       await onReload?.();
     } catch (err) {

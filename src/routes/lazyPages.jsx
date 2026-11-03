@@ -258,6 +258,9 @@ export const OfficialLettersPage = lazyNamed(
   () => import("../pages/adminOperations/employee/OfficialLettersPage"),
   "OfficialLettersPage"
 );
+export const SurveysListPage = lazy(() => import("../pages/adminOperations/surveys/SurveysListPage"));
+export const SurveyEditorPage = lazy(() => import("../pages/adminOperations/surveys/SurveyEditorPage"));
+export const SurveyResponsesPage = lazy(() => import("../pages/adminOperations/surveys/SurveyResponsesPage"));
 export const NationalPublicHolidaysPage = lazyNamed(
   () => import("../pages/adminOperations/employee/NationalPublicHolidaysPage"),
   "NationalPublicHolidaysPage"

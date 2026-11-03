@@ -43,6 +43,7 @@ export const ROUTE_MODULE_MAP = [
   ['/app/admin/employee/tour-approvals', 'Admin · Tour approvals'],
   ['/app/admin/employee/leave-management', 'Admin · Leave management'],
   ['/app/admin/employee/official-letters', 'Admin · Official Letters'],
+  ['/app/admin/employee/surveys', 'Admin · Surveys'],
   ['/app/admin/employee/policies', 'Admin · Policies & Terms'],
   ['/app/admin/employee/national-holidays', 'Admin · Public holidays'],
   ['/app/admin/employee/exit-ff', 'Admin · Exit & F&F'],
