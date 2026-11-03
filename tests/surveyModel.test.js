@@ -4,6 +4,7 @@ import {
   formatAnswer,
   normalizeSurveyInput,
   summarizeAssignments,
+  surveyKindLabel,
   todayIsoIst,
   validateSurvey,
 } from '../shared/surveyModel.mjs';
@@ -44,6 +45,28 @@ describe('validateSurvey', () => {
 
   it('accepts a minimal survey', () => {
     expect(validateSurvey(base(), { today })).toEqual({});
+  });
+
+  it('requires custom text when kind is Other', () => {
+    const other = normalizeSurveyInput({
+      title: 'T',
+      kind: 'other',
+      kind_other: '',
+      questions: [{ id: 'a', type: 'rating', label: 'Rate' }],
+    });
+    expect(other.kind).toBe('other');
+    expect(other.kind_other).toBeNull();
+    expect(validateSurvey(other, { today }).kind_other).toMatch(/kind/i);
+    const named = normalizeSurveyInput({
+      title: 'T',
+      kind: 'other',
+      kind_other: '  Onboarding  ',
+      questions: [{ id: 'a', type: 'rating', label: 'Rate' }],
+    });
+    expect(named.kind_other).toBe('Onboarding');
+    expect(validateSurvey(named, { today })).toEqual({});
+    expect(surveyKindLabel(named)).toBe('Onboarding');
+    expect(normalizeSurveyInput({ ...named, kind: 'pulse' }).kind_other).toBeNull();
   });
 
   it('requires a question, choice options, selected employees and a future due date', () => {

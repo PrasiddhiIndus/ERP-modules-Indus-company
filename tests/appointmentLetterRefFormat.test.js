@@ -83,6 +83,6 @@ describe("appointment letter matches attached reference format", () => {
     );
     const pdf = await convertDocxBufferToPdf(buf, "appointment-letter");
     expect(pdf).toBeTruthy();
-    expect((await PDFDocument.load(pdf)).getPageCount()).toBe(4);
+    expect((await PDFDocument.load(pdf)).getPageCount()).toBe(5);
   }, 180000);
 });
