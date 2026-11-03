@@ -132,6 +132,9 @@ import {
   EmployeeLeaveManagementPage,
   InactiveEmployeesPage,
   OfficialLettersPage,
+  SurveysListPage,
+  SurveyEditorPage,
+  SurveyResponsesPage,
   NationalPublicHolidaysPage,
   // NAV_HIDDEN store pages
   // StoreItemMasterPage,
@@ -593,6 +596,11 @@ function App() {
             <Route path="admin/employee/exit-ff" element={<EmployeeFnfPage />} />
             <Route path="admin/employee/policies" element={<EmployeePoliciesPage />} />
             <Route path="admin/employee/official-letters" element={<OfficialLettersPage />} />
+            <Route path="admin/employee/surveys" element={<SurveysListPage />} />
+            <Route path="admin/employee/surveys/new" element={<SurveyEditorPage />} />
+            <Route path="admin/employee/surveys/:surveyId" element={<SurveyResponsesPage />} />
+            <Route path="admin/employee/surveys/:surveyId/edit" element={<SurveyEditorPage />} />
+            <Route path="admin/surveys" element={<Navigate to="/app/admin/employee/surveys" replace />} />
             <Route path="admin/employee/inactive" element={<InactiveEmployeesPage />} />
             <Route path="admin/store/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/gate/*" element={<Navigate to="/app/admin/dashboard" replace />} />

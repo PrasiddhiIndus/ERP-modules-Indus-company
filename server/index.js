@@ -46,6 +46,7 @@ import {
 } from './crmInHouseMailApi.js';
 import { registerAdminRecruitmentRoutes, startAdminRecruitmentAutomation } from './adminRecruitmentApi.js';
 import { registerAdminEmployeeDocumentsRoutes } from './adminEmployeeDocumentsApi.js';
+import { registerAdminSurveyRoutes } from './adminSurveysApi.js';
 import { startPayrollMisAlerts } from './payrollMisAlerts.js';
 import { startProbationReviewReminders } from './probationReviewReminders.js';
 import {
@@ -539,6 +540,12 @@ registerAdminEmployeeDocumentsRoutes(app, {
   getR2Client: getR2S3Client,
   getR2Bucket: getR2BucketName,
   upload: r2InvoiceUpload,
+});
+
+registerAdminSurveyRoutes(app, {
+  requireHrOrAdmin,
+  getSupabaseUrl: getSupabaseUrlForServer,
+  getServiceKey: getSupabaseServiceRoleKeyForServer,
 });
 
 /** In-memory short share codes for commercial PO docs (24h). */

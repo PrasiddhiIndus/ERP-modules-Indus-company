@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { promisify } from 'util';
 import PizZip from 'pizzip';
 import {
+  annexurePaValue,
   calculateCtc,
   roundRupee,
   SEED_RULES_2026_27,
@@ -270,12 +271,37 @@ function departmentClause(department) {
   return `in the ${raw} Department`;
 }
 
+/**
+ * Letter header address under To,. Prefer Employee Master current address when
+ * enrichAppointmentCandidate attached it; else recruitment location/hometown.
+ * Splits on newlines then commas into at most 3 template lines (empty lines omitted).
+ */
 function splitAddress(candidate) {
-  const line = [candidate?.current_location, candidate?.home_town].filter(Boolean).join(', ');
-  if (!line) return { line1: '', line2: '', line3: '' };
-  const parts = line.split(/,\s*/).map((p) => p.trim()).filter(Boolean);
-  if (parts.length <= 1) return { line1: line, line2: '', line3: '' };
+  const raw = String(
+    candidate?.current_address ||
+      candidate?.address ||
+      [candidate?.current_location, candidate?.home_town].filter(Boolean).join(', ') ||
+      ''
+  ).trim();
+  if (!raw) return { line1: '', line2: '', line3: '' };
+
+  const parts = [];
+  for (const chunk of raw.split(/\r?\n+/)) {
+    const line = String(chunk || '').trim();
+    if (!line) continue;
+    if (/,/.test(line)) {
+      for (const bit of line.split(/,\s*/)) {
+        const p = String(bit || '').trim();
+        if (p) parts.push(p);
+      }
+    } else {
+      parts.push(line);
+    }
+  }
+  if (!parts.length) return { line1: raw, line2: '', line3: '' };
+  if (parts.length === 1) return { line1: parts[0], line2: '', line3: '' };
   if (parts.length === 2) return { line1: parts[0], line2: parts[1], line3: '' };
+  if (parts.length === 3) return { line1: parts[0], line2: parts[1], line3: parts[2] };
   return {
     line1: parts[0],
     line2: parts.slice(1, -1).join(', '),
@@ -283,9 +309,11 @@ function splitAddress(candidate) {
   };
 }
 
-/** Monthly CTC saved on the candidate (recruitment CTC calculator), else offer annual/12. */
+/** Monthly CTC from calculator snapshot / expected_ctc, else offer annual/12. */
 function resolveMonthlyCtc(offer, candidate) {
-  const fromCand = Number(candidate?.expected_ctc);
+  const fromBreakup = Number(savedCtcBreakup(candidate)?.ctc);
+  if (Number.isFinite(fromBreakup) && fromBreakup > 0) return fromBreakup;
+  const fromCand = Number(candidate?.expected_ctc ?? candidate?.expectedCtc);
   if (Number.isFinite(fromCand) && fromCand > 0) return fromCand;
   const fromAnnual = Number(offer?.annual_ctc);
   if (Number.isFinite(fromAnnual) && fromAnnual > 0) return fromAnnual / 12;
@@ -318,9 +346,10 @@ function annexureAmount(value) {
 }
 
 function annexurePlaceholdersFromBreakup(breakup, wefIso) {
-  if (!breakup) return {};
+  if (!breakup || typeof breakup !== 'object') return {};
   const m = (key) => Number(breakup[key]) || 0;
-  const pa = (key) => roundRupee(m(key) * 12);
+  // Match CTC Calculator P.A. column (monthly × 12, including extra-component annuals).
+  const pa = (key) => roundRupee(Number(annexurePaValue(breakup, key)) || 0);
   return {
     '{{SCHEME_YEAR}}': schemeYearLabel(wefIso),
     '{{WEF_SHORT}}': formatWefShort(wefIso),
@@ -347,7 +376,7 @@ function annexurePlaceholdersFromBreakup(breakup, wefIso) {
     '{{ER_PF_M}}': annexureAmount(m('er_pf')),
     '{{ER_PF_PA}}': annexureAmount(pa('er_pf')),
     '{{ER_ESIC_M}}': annexureAmount(m('er_esic')),
-    '{{ER_ESIC_PA}}': annexureAmount(pa('er_esic') || m('mediclaim') * 12),
+    '{{ER_ESIC_PA}}': annexureAmount(pa('er_esic')),
     '{{GRATUITY_M}}': annexureAmount(m('gratuity')),
     '{{GRATUITY_PA}}': annexureAmount(pa('gratuity')),
     '{{EX_GRATIA_M}}': annexureAmount(m('ex_gratia')),
@@ -359,16 +388,30 @@ function annexurePlaceholdersFromBreakup(breakup, wefIso) {
   };
 }
 
+function savedCtcBreakup(candidate) {
+  const raw = candidate?.expected_ctc_breakup ?? candidate?.expectedCtcBreakup ?? null;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const ctc = Number(raw.ctc);
+  if (!Number.isFinite(ctc) || ctc <= 0) return null;
+  return raw;
+}
+
 function buildOfferAnnexurePlaceholders(offer, candidate, rules = SEED_RULES_2026_27) {
+  const wefIso = offer?.joining_date || todayIsoIst();
+  const saved = savedCtcBreakup(candidate);
+  if (saved) {
+    return annexurePlaceholdersFromBreakup(saved, wefIso);
+  }
   const monthlyCtc = resolveMonthlyCtc(offer, candidate);
   if (!monthlyCtc) return {};
   try {
+    // Legacy candidates without a calculator snapshot — keep previous behaviour.
     const breakup = calculateCtc(rules, {
       skill: SKILL_SKILLED,
       status: STATUS_PROBATION,
       monthlyCtc,
     });
-    return annexurePlaceholdersFromBreakup(breakup, offer?.joining_date || todayIsoIst());
+    return annexurePlaceholdersFromBreakup(breakup, wefIso);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn('[admin-recruitment] CTC annexure calc skipped:', err?.message || err);
@@ -419,6 +462,7 @@ function formatDojShort(value) {
 
 function appointmentPlaceholders(appt, offer, candidate, companyName) {
   const company = companyName || 'Indus Fire Safety Pvt Ltd.';
+  // Prefer Employee Master full name (enrichAppointmentCandidate), else candidate.
   const name = String(candidate?.full_name || '').trim();
   const address = splitAddress(candidate);
   const joining = appt?.joining_date;
@@ -434,6 +478,7 @@ function appointmentPlaceholders(appt, offer, candidate, companyName) {
       .replace(/^the\s+/i, '')
       .trim() ||
     'Dashrath,Vadodara';
+  const employeeCode = String(candidate?.employee_code || appt?.employee_code || '').trim();
   return {
     '{{APPOINTMENT_REF}}': String(appt?.appointment_ref || '').trim(),
     '{{LETTER_DATE}}': formatLetterDateDots(letterDate),
@@ -441,7 +486,9 @@ function appointmentPlaceholders(appt, offer, candidate, companyName) {
     '{{ADDRESS_LINE1}}': address.line1,
     '{{ADDRESS_LINE2}}': address.line2,
     '{{ADDRESS_LINE3}}': address.line3,
-    '{{FIRST_NAME}}': firstName(name),
+    // Attached format uses the complete name after Dear (not first name only).
+    '{{CANDIDATE_NAME}}': name || 'Candidate',
+    '{{FIRST_NAME}}': name || firstName(name) || 'Candidate',
     '{{DESIGNATION}}': String(appt?.designation || offer?.designation || '').trim() || '—',
     '{{COMPANY_NAME}}': company,
     '{{COMPANY_NAME_FULL}}': String(company || '')
@@ -453,9 +500,8 @@ function appointmentPlaceholders(appt, offer, candidate, companyName) {
     '{{LOCATION}}': String(appt?.location || '').trim() || 'the Head Office, Vadodara',
     '{{REPORTING_TO}}': String(appt?.reporting_to || '').trim() || 'HR Manager',
     '{{ANNUAL_CTC}}': formatInrAmount(annual),
-    '{{CANDIDATE_NAME}}': name || 'Candidate',
     '{{AX_LOCATION}}': axLocation,
-    '{{EMPLOYEE_CODE}}': String(candidate?.employee_code || appt?.employee_code || '').trim(),
+    '{{EMPLOYEE_CODE}}': employeeCode,
     '{{DEPARTMENT}}': String(appt?.department || offer?.department || '').trim() || '—',
     '{{SEGMENT}}': String(appt?.segment || 'IFSPL, HO').trim(),
     '{{DOB}}': formatDobShort(candidate?.date_of_birth || candidate?.dob),
@@ -775,7 +821,8 @@ function normalizeAppointmentLetterDocxLayout(docxBuffer) {
     let docXml = beforeDoc;
     docXml = fixAnnexureAmountCells(docXml);
     // Do not collapse body empty runs globally — Word sample uses them for rhythm.
-    // Only pin No Spacing + tighten the signature→Annexure gap (LibreOffice blank page).
+    // Benefits on page 2 + tighten signature→Annexure gap (LibreOffice blank page).
+    docXml = ensureAppointmentBenefitsPageBreak(docXml);
     docXml = fixAppointmentAnnexureIPagination(docXml);
     docXml = pinAppointmentNoSpacingParagraphs(docXml);
 
@@ -798,7 +845,7 @@ function normalizeAppointmentLetterDocxLayout(docxBuffer) {
  * Post-fill Word cleanup for appointment letters:
  * - Repair broken CTC amount cells (no margin/font changes).
  * - Remove empty/tab-only paragraphs between the signature name and "Annexure - I"
- *   so a blank page does not appear (target: exactly 4 pages).
+ *   so a blank page does not appear; Benefits starts on page 2.
  * Does not remap fonts or rewrite body spacing (LibreOffice-only path handles that).
  * Applied for both local Word COM fill and production zip fill so Word/PDF stay aligned.
  */
@@ -825,6 +872,45 @@ function stripEmptyAppointmentAddressLines(xml) {
   return `${head}${cleaned}${tail}`;
 }
 
+/**
+ * Benefits heading must start at the top of page 2 with no preceding blank page.
+ * Empty spacer paragraphs before Benefits + pageBreakBefore overflow into a blank
+ * page when page-1 body is taller (e.g. multi-line address). Strip those spacers,
+ * then ensure pageBreakBefore on Benefits. Used by finalize (local + production).
+ */
+function ensureAppointmentBenefitsPageBreak(xml) {
+  let out = String(xml || '');
+  let benefitsIdx = out.indexOf('<w:t>Benefits</w:t>');
+  if (benefitsIdx < 0) return out;
+  let para = paragraphAt(out, benefitsIdx);
+  if (!para) return out;
+
+  // Drop trailing empty body paragraphs immediately before Benefits.
+  const before = out.slice(0, para.start);
+  const paras = [...before.matchAll(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)];
+  let cutFrom = para.start;
+  for (let i = paras.length - 1; i >= 0; i--) {
+    const p = paras[i][0];
+    const abs = paras[i].index;
+    if (isInsideTableCell(before, abs)) break;
+    if (paragraphPlainText(p)) break;
+    if (/w:pict|w:drawing|w:pageBreakBefore/.test(p)) break;
+    cutFrom = abs;
+  }
+  if (cutFrom < para.start) {
+    out = `${out.slice(0, cutFrom)}${out.slice(para.start)}`;
+    benefitsIdx = out.indexOf('<w:t>Benefits</w:t>');
+    para = paragraphAt(out, benefitsIdx);
+    if (!para) return out;
+  }
+
+  if (/w:pageBreakBefore/.test(para.xml)) return out;
+  const fixed = /<w:pPr>/.test(para.xml)
+    ? para.xml.replace(/<w:pPr>/, '<w:pPr><w:pageBreakBefore/>')
+    : para.xml.replace(/<w:p\b[^>]*>/, (open) => `${open}<w:pPr><w:pageBreakBefore/></w:pPr>`);
+  return `${out.slice(0, para.start)}${fixed}${out.slice(para.end)}`;
+}
+
 export function finalizeAppointmentLetterDocx(docxBuffer) {
   const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
   if (buf.length < 100) return buf;
@@ -835,6 +921,7 @@ export function finalizeAppointmentLetterDocx(docxBuffer) {
     const before = docFile.asText();
     let after = fixAnnexureAmountCells(before);
     after = stripEmptyAppointmentAddressLines(after);
+    after = ensureAppointmentBenefitsPageBreak(after);
     after = fixAppointmentAnnexureIPagination(after);
     if (after === before) return buf;
     zip.file('word/document.xml', after);

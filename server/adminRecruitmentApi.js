@@ -209,78 +209,164 @@ export function registerAdminRecruitmentRoutes(app, deps) {
     return digits.length >= 10 ? digits.slice(-10) : '';
   }
 
+  const EMPLOYEE_MASTER_LETTER_FIELDS =
+    'id, employee_code, employee_id, full_name, date_of_birth, address, personal_no, email_id';
+
+  function masterEmployeeCode(row) {
+    return String(row?.employee_code || row?.employee_id || '').trim();
+  }
+
   /**
-   * Appointment Annexure II needs Employee Code + DOB. Prefer values already on the
-   * candidate; otherwise fetch from Employee Master by mobile / email (no layout change).
+   * Appointment letter pulls full name, current address, employee code, and DOB from
+   * Employee Master (source of truth). Match by employee_master_id → code/id → email/mobile.
    */
   async function enrichAppointmentCandidate(svc, candidate) {
     const base = candidate && typeof candidate === 'object' ? { ...candidate } : {};
-    const needCode = !String(base.employee_code || '').trim();
-    const needDob = !base.date_of_birth;
-    if (!needCode && !needDob) return base;
+    let match = null;
+
+    const masterId = Number(base.employee_master_id);
+    if (Number.isFinite(masterId) && masterId > 0) {
+      const { data, error } = await svc
+        .from('admin_ifsp_employee_master')
+        .select(EMPLOYEE_MASTER_LETTER_FIELDS)
+        .eq('id', masterId)
+        .maybeSingle();
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.warn('[admin-recruitment] employee master id lookup skipped:', error.message);
+      } else {
+        match = data || null;
+      }
+    }
+
+    const code = String(base.employee_code || '').trim();
+    if (!match && code) {
+      // Match employee_code or employee_id (some rows only populate one).
+      const codeQueries = [
+        svc.from('admin_ifsp_employee_master').select(EMPLOYEE_MASTER_LETTER_FIELDS).eq('employee_code', code).limit(3),
+        svc.from('admin_ifsp_employee_master').select(EMPLOYEE_MASTER_LETTER_FIELDS).eq('employee_id', code).limit(3),
+        svc.from('admin_ifsp_employee_master').select(EMPLOYEE_MASTER_LETTER_FIELDS).ilike('employee_code', code).limit(3),
+        svc.from('admin_ifsp_employee_master').select(EMPLOYEE_MASTER_LETTER_FIELDS).ilike('employee_id', code).limit(3),
+      ];
+      for (const q of codeQueries) {
+        if (match) break;
+        const { data, error } = await q;
+        if (error) {
+          // eslint-disable-next-line no-console
+          console.warn('[admin-recruitment] employee master code lookup skipped:', error.message);
+          continue;
+        }
+        const rows = data || [];
+        match =
+          rows.find(
+            (r) =>
+              String(r.employee_code || '').trim().toLowerCase() === code.toLowerCase() ||
+              String(r.employee_id || '').trim().toLowerCase() === code.toLowerCase()
+          ) ||
+          rows[0] ||
+          null;
+      }
+    }
 
     const phone = phoneDigits(base.phone);
     const email = String(base.email || '')
       .trim()
       .toLowerCase();
-    if (!phone && !email) return base;
+    if (!match && (phone || email)) {
+      const rows = [];
+      if (email) {
+        const { data, error } = await svc
+          .from('admin_ifsp_employee_master')
+          .select(EMPLOYEE_MASTER_LETTER_FIELDS)
+          .ilike('email_id', email)
+          .limit(10);
+        if (error) {
+          // eslint-disable-next-line no-console
+          console.warn('[admin-recruitment] employee master email lookup skipped:', error.message);
+        } else {
+          rows.push(...(data || []));
+        }
+      }
+      if (phone) {
+        const { data, error } = await svc
+          .from('admin_ifsp_employee_master')
+          .select(EMPLOYEE_MASTER_LETTER_FIELDS)
+          .ilike('personal_no', `%${phone}`)
+          .limit(10);
+        if (error) {
+          // eslint-disable-next-line no-console
+          console.warn('[admin-recruitment] employee master phone lookup skipped:', error.message);
+        } else {
+          rows.push(...(data || []));
+        }
+      }
+      const seen = new Set();
+      match =
+        rows.find((r) => {
+          const key = `${r.id || ''}|${r.employee_code || ''}|${r.personal_no || ''}|${r.email_id || ''}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          const rowPhone = phoneDigits(r.personal_no);
+          const rowEmail = String(r.email_id || '')
+            .trim()
+            .toLowerCase();
+          return (phone && rowPhone === phone) || (email && rowEmail === email);
+        }) || null;
+    }
 
-    const rows = [];
-    if (email) {
+    // Last resort: exact full-name match when phone/email/code unavailable.
+    const nameKey = String(base.full_name || '')
+      .trim()
+      .toLowerCase();
+    if (!match && nameKey.length >= 3) {
       const { data, error } = await svc
         .from('admin_ifsp_employee_master')
-        .select('employee_code, date_of_birth, personal_no, email_id')
-        .ilike('email_id', email)
-        .limit(10);
+        .select(EMPLOYEE_MASTER_LETTER_FIELDS)
+        .ilike('full_name', String(base.full_name).trim())
+        .limit(5);
       if (error) {
         // eslint-disable-next-line no-console
-        console.warn('[admin-recruitment] employee master email lookup skipped:', error.message);
+        console.warn('[admin-recruitment] employee master name lookup skipped:', error.message);
       } else {
-        rows.push(...(data || []));
-      }
-    }
-    if (phone) {
-      // personal_no may include spaces/country code — pull recent actives and match last 10 digits.
-      const { data, error } = await svc
-        .from('admin_ifsp_employee_master')
-        .select('employee_code, date_of_birth, personal_no, email_id')
-        .ilike('personal_no', `%${phone}`)
-        .limit(10);
-      if (error) {
-        // eslint-disable-next-line no-console
-        console.warn('[admin-recruitment] employee master phone lookup skipped:', error.message);
-      } else {
-        rows.push(...(data || []));
+        const rows = data || [];
+        match =
+          rows.find((r) => String(r.full_name || '').trim().toLowerCase() === nameKey) ||
+          (rows.length === 1 ? rows[0] : null);
       }
     }
 
-    const seen = new Set();
-    const match = rows.find((r) => {
-      const key = `${r.employee_code || ''}|${r.personal_no || ''}|${r.email_id || ''}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      const rowPhone = phoneDigits(r.personal_no);
-      const rowEmail = String(r.email_id || '')
-        .trim()
-        .toLowerCase();
-      return (phone && rowPhone === phone) || (email && rowEmail === email);
-    });
     if (!match) return base;
 
     const patch = {};
-    if (needCode && String(match.employee_code || '').trim()) {
-      base.employee_code = String(match.employee_code).trim();
-      patch.employee_code = base.employee_code;
+    const empCode = masterEmployeeCode(match);
+    if (empCode) {
+      base.employee_code = empCode;
+      patch.employee_code = empCode;
     }
-    if (needDob && match.date_of_birth) {
+    const masterName = String(match.full_name || '').trim();
+    if (masterName) {
+      base.full_name = masterName;
+    }
+    if (match.date_of_birth) {
       base.date_of_birth = match.date_of_birth;
       patch.date_of_birth = match.date_of_birth;
     }
+    const currentAddress = String(match.address || '').trim();
+    if (currentAddress) {
+      // Letter header address — Employee Master "Current address" (not permanent).
+      base.current_address = currentAddress;
+      base.address = currentAddress;
+    }
+    if (match.id && !base.employee_master_id) {
+      base.employee_master_id = match.id;
+      patch.employee_master_id = match.id;
+    }
+
     if (Object.keys(patch).length && base.id) {
       const { error: upErr } = await svc.from('admin_recruitment_candidates').update(patch).eq('id', base.id);
       if (upErr) {
         // eslint-disable-next-line no-console
-        console.warn('[admin-recruitment] could not store fetched emp code/DOB on candidate:', upErr.message);
+        console.warn('[admin-recruitment] could not store Employee Master letter fields on candidate:', upErr.message);
       }
     }
     return base;
@@ -309,7 +395,9 @@ export function registerAdminRecruitmentRoutes(app, deps) {
     const [{ data: candidate }, { data: settings }] = await Promise.all([
       svc
         .from('admin_recruitment_candidates')
-        .select('id, full_name, phone, current_location, home_town, email, expected_ctc, date_of_birth, employee_code')
+        .select(
+          'id, full_name, phone, current_location, home_town, email, expected_ctc, expected_ctc_breakup, date_of_birth, employee_code, employee_master_id'
+        )
         .eq('id', row.candidate_id)
         .maybeSingle(),
       svc.from('admin_recruitment_settings').select('company_name').maybeSingle(),

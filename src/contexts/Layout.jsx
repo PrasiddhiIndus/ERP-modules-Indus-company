@@ -897,6 +897,10 @@ const Layout = () => {
                         <FileText className="h-4 w-4 shrink-0 text-indigo-700" />
                         <span className="type-meta type-truncate">Official Letters</span>
                       </NavLink>
+                      <NavLink to="admin/employee/surveys" className={subNavClass}>
+                        <ClipboardList className="h-4 w-4 shrink-0 text-sidebar-accent" />
+                        <span className="type-meta type-truncate">Surveys</span>
+                      </NavLink>
                       <NavLink to="admin/employee/attendance-inputs" className={subNavClass}>
                         <Clock className="h-4 w-4 shrink-0 text-sidebar-accent" />
                         <span className="type-meta type-truncate">Raw Attendance Data</span>
