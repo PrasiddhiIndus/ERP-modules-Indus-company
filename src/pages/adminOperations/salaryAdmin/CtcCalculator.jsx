@@ -367,7 +367,9 @@ export default function CtcCalculator({
 
   return (
     <div className="space-y-4">
-      <div className={embedded ? "sticky top-0 z-10 -mx-1 px-1 pb-2 bg-surface" : undefined}>
+      {/* Embedded (recruitment modal): keep toolbar in normal flow — sticky + shell z-index
+          was painting annexure rows over the modal title while scrolling. */}
+      <div className={embedded ? "-mx-1 px-1 pb-2 bg-surface" : undefined}>
         <PageTaskHeader title="CTC Calculator" subtitle={headerSubtitle}>
           {onSave ? (
             <button
