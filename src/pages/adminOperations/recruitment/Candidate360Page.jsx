@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -413,7 +413,9 @@ function NextStep({ data, caps, open }) {
         break;
       case "selected":
         title = offer ? "Finish and generate the offer" : "Prepare the offer";
+        hint = "Or skip the offer letter and generate the appointment letter. The joining date can be in the past.";
         add("offers", offer ? "Edit & generate offer" : "Prepare offer", () => open("offer", offer || null), FilePlus2, true);
+        add("offers", "Skip offer letter & generate appointment letter", () => open("appointment", { skipOffer: true }), SkipForward);
         break;
       case "offer":
         if (offer && !offer.generatedDoc) {
@@ -535,6 +537,19 @@ function Workspace({ data, onReload }) {
   };
   const close = () => setModal(null);
   const is = (name) => modal?.name === name;
+  const draftOffer = offers.find((o) => o.status === "draft");
+  const appointmentCandidate = useMemo(() => {
+    if (!modal?.payload?.skipOffer) return c;
+    return {
+      ...c,
+      designation: draftOffer?.position || c.designation,
+      department: draftOffer?.department || c.department,
+      site: draftOffer?.location || c.site,
+      employmentType: draftOffer?.employmentType || c.employmentType || "Permanent",
+      expectedJoining: draftOffer?.joiningDate || c.expectedJoining,
+      terms: draftOffer?.terms || "",
+    };
+  }, [modal?.payload?.skipOffer, c, draftOffer]);
 
   const saveCandidateCtc = async ({ ctc }) => {
     if (ctc == null || !Number.isFinite(Number(ctc)) || Number(ctc) <= 0) {
@@ -869,7 +884,8 @@ function Workspace({ data, onReload }) {
       <OfferResponseModal open={is("offerResponse")} offer={modal?.payload} onClose={close} />
       <AppointmentModal
         open={is("appointment")}
-        candidate={c}
+        candidate={appointmentCandidate}
+        skipOffer={Boolean(modal?.payload?.skipOffer)}
         onClose={close}
         onGenerated={(appt) => {
           if (appt?.id) open("email", { templateKey: "appointment_letter", relatedId: appt.id });
