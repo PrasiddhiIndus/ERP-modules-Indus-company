@@ -15,6 +15,7 @@ import {
   timeToMinutes,
   WORKING_HOURS_LONG_THRESHOLD_MIN,
 } from "./attendanceDaily";
+import { dropInOutSlotsWhenGranularExists } from "../../shared/attendancePunchSync.mjs";
 import { ensureAttendanceRulesLoaded } from "./attendanceRules";
 
 /** Flag punch-in after this time (09:00). */
@@ -135,9 +136,11 @@ export function exportReportCsv(rows, columnIds, filename) {
 
 /** Attach day-level punch in/out to each raw punch row for display. */
 export function enrichRawPunchesWithDayInOut(punchRows, dailyRows = null) {
-  const daily = dailyRows || pairPunchesToDailyRows(punchRows);
+  // Hide InOut summary slots when real punches exist for that day (keeps grid day-wise).
+  const visible = dropInOutSlotsWhenGranularExists(punchRows || []);
+  const daily = dailyRows || pairPunchesToDailyRows(visible);
   const byKey = new Map(daily.map((d) => [`${d.empCode}|${d.punchDate}`, d]));
-  return (punchRows || []).map((row) => {
+  return visible.map((row) => {
     const key = `${row.empCode}|${row.punchDate}`;
     const day = byKey.get(key);
     return {

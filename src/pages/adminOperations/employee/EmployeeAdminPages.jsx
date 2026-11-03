@@ -32,7 +32,6 @@ import { ensureAttendanceRulesLoaded } from "../../../lib/attendanceRules";
 import {
   ATTENDANCE_PUNCH_TABLE,
   ATTENDANCE_UPSERT_CHUNK,
-  addDaysToIsoDate,
   dedupePunchDbRows,
   mapApiPunchToDbRow,
 } from "../../../../shared/attendancePunchSync.mjs";
@@ -254,7 +253,6 @@ export function EmployeeOnboardingPage() {
 
 const ATTENDANCE_TABLE = ATTENDANCE_PUNCH_TABLE;
 const ATTENDANCE_PAGE_SIZES = [25, 50, 100, 200];
-const SYNC_OVERLAP_DAYS = 2;
 const ATTENDANCE_SORT_OPTIONS = [
   { value: "punchDateTime", label: "Punch date/time" },
   { value: "empCode", label: "Emp code" },
@@ -517,10 +515,9 @@ export function EmployeeAttendanceInputsPage() {
   }, [empCode, page, pageSize, searchDebounced, selectedDate, sortDir, sortKey, viewMode]);
 
   const syncAttendanceFromApi = useCallback(async () => {
-    const syncFromDate = addDaysToIsoDate(selectedDate, -SYNC_OVERLAP_DAYS);
     const params = new URLSearchParams({
       empCode: resolveAttendanceEmpCodeFilter(empCode),
-      fromDate: syncFromDate,
+      fromDate: selectedDate,
       toDate: selectedDate,
       persist: "1",
     });
@@ -561,7 +558,7 @@ export function EmployeeAttendanceInputsPage() {
       setSummary({
         ...data,
         source: "Supabase",
-        syncFromDate,
+        syncFromDate: selectedDate,
         syncToDate: selectedDate,
         apiCount,
         syncedCount,
@@ -570,7 +567,7 @@ export function EmployeeAttendanceInputsPage() {
         message:
           data?.message ||
           (syncedCount
-            ? `${syncedCount} punch row(s) updated (${syncFromDate} → ${selectedDate}).`
+            ? `${syncedCount} punch row(s) updated for ${selectedDate}.`
             : "No new punches were returned for that date."),
       });
       setPage(1);
@@ -725,9 +722,9 @@ export function EmployeeAttendanceInputsPage() {
       </FilterBar>
 
       <CollapsibleHelp label="how sync works">
-        This grid shows punch data stored for the selected date. Click <strong>Sync eTimeOffice</strong> to
-        pull the latest punches for that date and replace anything that changed. Daily view shows the first
-        punch as in and the latest punch as out.
+        Attendance is day-wise: only punches on that calendar date count. First punch = in, last = out;
+        middle punches are counted only. One punch → in with out blank — never borrowed from another day.
+        Sync imports the selected date only. Re-sync a date if older InOut summaries mixed days.
       </CollapsibleHelp>
 
       {!apiConnection.checking && apiConnection.etimeConfigured ? (

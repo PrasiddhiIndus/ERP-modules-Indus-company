@@ -1,0 +1,556 @@
+{
+  "month": "2026-10",
+  "target": {
+    "empCode": "6956",
+    "name": "Ankur Patanwadia",
+    "department": "Project",
+    "summary": {
+      "leave": 3.5,
+      "weekoff": 5,
+      "appliedWo": 5,
+      "nhph": 2,
+      "ot": 0,
+      "totalPresent": 27
+    },
+    "leaveCredit": 3.5,
+    "leaveCells": 4,
+    "leaveZeroedOnWo": 0,
+    "halfLeave": 1,
+    "fullLeave": 3,
+    "naiveLeaveIfCountAllCells": 3.5,
+    "leaveUnderBy": 0,
+    "leaveMarks": [
+      {
+        "day": 10,
+        "dow": "Sat",
+        "mark": "P/PL",
+        "leaveCredit": 0.5,
+        "presentCredit": 1,
+        "zeroedOnWo": false
+      },
+      {
+        "day": 15,
+        "dow": "Thu",
+        "mark": "PL",
+        "leaveCredit": 1,
+        "presentCredit": 1,
+        "zeroedOnWo": false
+      },
+      {
+        "day": 16,
+        "dow": "Fri",
+        "mark": "PL",
+        "leaveCredit": 1,
+        "presentCredit": 1,
+        "zeroedOnWo": false
+      },
+      {
+        "day": 19,
+        "dow": "Mon",
+        "mark": "PL",
+        "leaveCredit": 1,
+        "presentCredit": 1,
+        "zeroedOnWo": false
+      }
+    ],
+    "days": [
+      {
+        "day": 1,
+        "iso": "2026-10-01",
+        "dow": "Thu",
+        "mark": "P",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 2,
+        "iso": "2026-10-02",
+        "dow": "Fri",
+        "mark": "NH/PH",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": true
+      },
+      {
+        "day": 3,
+        "iso": "2026-10-03",
+        "dow": "Sat",
+        "mark": "P",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 4,
+        "iso": "2026-10-04",
+        "dow": "Sun",
+        "mark": "WO",
+        "leaveCredit": 0,
+        "presentCredit": 0,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": true,
+        "isNhph": false
+      },
+      {
+        "day": 5,
+        "iso": "2026-10-05",
+        "dow": "Mon",
+        "mark": "P",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 6,
+        "iso": "2026-10-06",
+        "dow": "Tue",
+        "mark": "P",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 7,
+        "iso": "2026-10-07",
+        "dow": "Wed",
+        "mark": "T",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 8,
+        "iso": "2026-10-08",
+        "dow": "Thu",
+        "mark": "P",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 9,
+        "iso": "2026-10-09",
+        "dow": "Fri",
+        "mark": "P",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 10,
+        "iso": "2026-10-10",
+        "dow": "Sat",
+        "mark": "P/PL",
+        "leaveCredit": 0.5,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 11,
+        "iso": "2026-10-11",
+        "dow": "Sun",
+        "mark": "WO",
+        "leaveCredit": 0,
+        "presentCredit": 0,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": true,
+        "isNhph": false
+      },
+      {
+        "day": 12,
+        "iso": "2026-10-12",
+        "dow": "Mon",
+        "mark": "P",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 13,
+        "iso": "2026-10-13",
+        "dow": "Tue",
+        "mark": "P",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 14,
+        "iso": "2026-10-14",
+        "dow": "Wed",
+        "mark": "T",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 15,
+        "iso": "2026-10-15",
+        "dow": "Thu",
+        "mark": "PL",
+        "leaveCredit": 1,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 16,
+        "iso": "2026-10-16",
+        "dow": "Fri",
+        "mark": "PL",
+        "leaveCredit": 1,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 17,
+        "iso": "2026-10-17",
+        "dow": "Sat",
+        "mark": "WO",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": true,
+        "isNhph": false
+      },
+      {
+        "day": 18,
+        "iso": "2026-10-18",
+        "dow": "Sun",
+        "mark": "WO",
+        "leaveCredit": 0,
+        "presentCredit": 0,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": true,
+        "isNhph": false
+      },
+      {
+        "day": 19,
+        "iso": "2026-10-19",
+        "dow": "Mon",
+        "mark": "PL",
+        "leaveCredit": 1,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 20,
+        "iso": "2026-10-20",
+        "dow": "Tue",
+        "mark": "NH/PH",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": true
+      },
+      {
+        "day": 21,
+        "iso": "2026-10-21",
+        "dow": "Wed",
+        "mark": "P",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 22,
+        "iso": "2026-10-22",
+        "dow": "Thu",
+        "mark": "T",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 23,
+        "iso": "2026-10-23",
+        "dow": "Fri",
+        "mark": "T",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 24,
+        "iso": "2026-10-24",
+        "dow": "Sat",
+        "mark": "T",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 25,
+        "iso": "2026-10-25",
+        "dow": "Sun",
+        "mark": "WO",
+        "leaveCredit": 0,
+        "presentCredit": 0,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": true,
+        "isNhph": false
+      },
+      {
+        "day": 26,
+        "iso": "2026-10-26",
+        "dow": "Mon",
+        "mark": "P",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 27,
+        "iso": "2026-10-27",
+        "dow": "Tue",
+        "mark": "T",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 28,
+        "iso": "2026-10-28",
+        "dow": "Wed",
+        "mark": "T",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 29,
+        "iso": "2026-10-29",
+        "dow": "Thu",
+        "mark": "T",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 30,
+        "iso": "2026-10-30",
+        "dow": "Fri",
+        "mark": "T",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      },
+      {
+        "day": 31,
+        "iso": "2026-10-31",
+        "dow": "Sat",
+        "mark": "T",
+        "leaveCredit": 0,
+        "presentCredit": 1,
+        "plClSlOnWoZeroed": false,
+        "isWeeklyOff": false,
+        "isNhph": false
+      }
+    ]
+  },
+  "undercountedLeave": [
+    {
+      "empCode": "8723",
+      "name": "Patel Diwyanshu",
+      "department": "R&M",
+      "summaryLeave": 10,
+      "naiveLeave": 11,
+      "creditedLeave": 10,
+      "underBy": 1,
+      "zeroedOnWoDays": 1,
+      "totalPresent": 19,
+      "leaveMarks": [
+        {
+          "day": 21,
+          "dow": "Wed",
+          "mark": "PL",
+          "leaveCredit": 1,
+          "presentCredit": 1,
+          "zeroedOnWo": false
+        },
+        {
+          "day": 22,
+          "dow": "Thu",
+          "mark": "PL",
+          "leaveCredit": 1,
+          "presentCredit": 1,
+          "zeroedOnWo": false
+        },
+        {
+          "day": 23,
+          "dow": "Fri",
+          "mark": "LWP",
+          "leaveCredit": 1,
+          "presentCredit": 0,
+          "zeroedOnWo": false
+        },
+        {
+          "day": 24,
+          "dow": "Sat",
+          "mark": "LWP",
+          "leaveCredit": 1,
+          "presentCredit": 0,
+          "zeroedOnWo": false
+        },
+        {
+          "day": 25,
+          "dow": "Sun",
+          "mark": "PL",
+          "leaveCredit": 0,
+          "presentCredit": 0,
+          "zeroedOnWo": true
+        },
+        {
+          "day": 26,
+          "dow": "Mon",
+          "mark": "LWP",
+          "leaveCredit": 1,
+          "presentCredit": 0,
+          "zeroedOnWo": false
+        },
+        {
+          "day": 27,
+          "dow": "Tue",
+          "mark": "LWP",
+          "leaveCredit": 1,
+          "presentCredit": 0,
+          "zeroedOnWo": false
+        },
+        {
+          "day": 28,
+          "dow": "Wed",
+          "mark": "LWP",
+          "leaveCredit": 1,
+          "presentCredit": 0,
+          "zeroedOnWo": false
+        },
+        {
+          "day": 29,
+          "dow": "Thu",
+          "mark": "LWP",
+          "leaveCredit": 1,
+          "presentCredit": 0,
+          "zeroedOnWo": false
+        },
+        {
+          "day": 30,
+          "dow": "Fri",
+          "mark": "LWP",
+          "leaveCredit": 1,
+          "presentCredit": 0,
+          "zeroedOnWo": false
+        },
+        {
+          "day": 31,
+          "dow": "Sat",
+          "mark": "LWP",
+          "leaveCredit": 1,
+          "presentCredit": 0,
+          "zeroedOnWo": false
+        }
+      ]
+    },
+    {
+      "empCode": "8972",
+      "name": "Pathan Mohasinkhan Sirajkhan",
+      "department": "Production",
+      "summaryLeave": 3.5,
+      "naiveLeave": 4.5,
+      "creditedLeave": 3.5,
+      "underBy": 1,
+      "zeroedOnWoDays": 1,
+      "totalPresent": 26.5,
+      "leaveMarks": [
+        {
+          "day": 12,
+          "dow": "Mon",
+          "mark": "PL",
+          "leaveCredit": 1,
+          "presentCredit": 1,
+          "zeroedOnWo": false
+        },
+        {
+          "day": 16,
+          "dow": "Fri",
+          "mark": "HD",
+          "leaveCredit": 0.5,
+          "presentCredit": 0.5,
+          "zeroedOnWo": false
+        },
+        {
+          "day": 24,
+          "dow": "Sat",
+          "mark": "PL",
+          "leaveCredit": 1,
+          "presentCredit": 1,
+          "zeroedOnWo": false
+        },
+        {
+          "day": 25,
+          "dow": "Sun",
+          "mark": "PL",
+          "leaveCredit": 0,
+          "presentCredit": 0,
+          "zeroedOnWo": true
+        },
+        {
+          "day": 26,
+          "dow": "Mon",
+          "mark": "PL",
+          "leaveCredit": 1,
+          "presentCredit": 1,
+          "zeroedOnWo": false
+        }
+      ]
+    }
+  ]
+}
