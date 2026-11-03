@@ -147,6 +147,10 @@ function mapCandidate(c) {
     currentDesignation: c.current_designation || "",
     currentCtc: num(c.current_ctc),
     expectedSalary: num(c.expected_ctc),
+    expectedCtcBreakup:
+      c.expected_ctc_breakup && typeof c.expected_ctc_breakup === "object"
+        ? c.expected_ctc_breakup
+        : null,
     noticePeriodDays: c.notice_period_days,
     qualification: c.qualification || "",
     skills: c.skills || "",
