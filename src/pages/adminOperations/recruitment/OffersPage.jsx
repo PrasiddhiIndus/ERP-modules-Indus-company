@@ -302,7 +302,14 @@ export default function OffersPage() {
                       <button
                         type="button"
                         className={btn.secondary}
-                        onClick={() => runAction(() => prepareAppointmentLetter(open.id), "Appointment letter regenerated")}
+                        onClick={() =>
+                          runBusyAction(
+                            () => prepareAppointmentLetter(open.id),
+                            "Appointment letter regenerated",
+                            undefined,
+                            "Regenerating appointment letter…"
+                          )
+                        }
                       >
                         <FileSignature className="h-3.5 w-3.5" /> Regenerate letter
                       </button>
