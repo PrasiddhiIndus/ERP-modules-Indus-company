@@ -141,6 +141,7 @@ function mapCandidate(c) {
     referralNotes: c.referral_notes || "",
     experienceYears: num(c.experience_years),
     site: c.requisition_location || c.current_location || "",
+    employmentType: c.requisition_employment_type || "Permanent",
     currentLocation: c.current_location || "",
     currentCompany: c.current_company || "",
     currentDesignation: c.current_designation || "",
