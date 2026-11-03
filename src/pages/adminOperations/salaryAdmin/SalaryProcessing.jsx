@@ -29,7 +29,6 @@ import {
   findSavedMonthLine,
   decorateScopeLine,
   workingDaysMonToSat,
-  capPresentDaysToWorkingDays,
   getRunSheetNo,
   getMonthHoldIds,
   setMonthHoldIds,
@@ -1207,25 +1206,17 @@ function hasLoadedPresentDays(line) {
   return line?.present_days != null && line.present_days !== "";
 }
 
-function overlayLoadedPresentDays(built, prev, payKey, monthDays) {
+function overlayLoadedPresentDays(built, prev, payKey) {
   const prevById = new Map();
   for (const row of prev || []) {
     const id = String(row.employee_master_id || "");
     if (id) prevById.set(id, row);
   }
   return (built || []).map((line) => {
-    if (hasLoadedPresentDays(line)) {
-      return {
-        ...line,
-        present_days: capPresentDaysToWorkingDays(line.present_days, monthDays),
-      };
-    }
+    if (hasLoadedPresentDays(line)) return line;
     const prevRow = prevById.get(String(line.employee_master_id));
     if (prevRow?.pay_month_key === payKey && hasLoadedPresentDays(prevRow)) {
-      return {
-        ...line,
-        present_days: capPresentDaysToWorkingDays(prevRow.present_days, monthDays),
-      };
+      return { ...line, present_days: prevRow.present_days };
     }
     return line;
   });
@@ -1244,7 +1235,7 @@ function mergeScopePlaceholders(employeesForSheet, { prev, savedMonthLines, mont
     const sameMonth = Boolean(prevRow && prevRow.pay_month_key === payKey);
     if (sameMonth && hasLoadedPresentDays(prevRow)) {
       return decorateScopeLine(
-        { ...prevRow, total_days: monthDays, pay_month_key: payKey, present_days: capPresentDaysToWorkingDays(prevRow.present_days, monthDays) },
+        { ...prevRow, total_days: monthDays, pay_month_key: payKey, present_days: prevRow.present_days },
         e,
         { pay_month_key: payKey, identityStats }
       );
@@ -1790,7 +1781,7 @@ export default function SalaryProcessing() {
         if (!cancelled) {
           const payKey = monthKey(year, month);
           setScopeLines((prev) =>
-            overlayLoadedPresentDays(built, prev, payKey, monthDays)
+            overlayLoadedPresentDays(built, prev, payKey)
           );
         }
       } catch (err) {
