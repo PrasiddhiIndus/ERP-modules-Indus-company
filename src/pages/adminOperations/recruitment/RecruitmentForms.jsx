@@ -466,34 +466,83 @@ export function OfferResponseModal({ open, offer, onClose, onRecorded }) {
 // ---------------------------------------------------------------------------
 // Appointment letter
 // ---------------------------------------------------------------------------
-export function AppointmentModal({ open, candidate, onClose, onGenerated }) {
+export function AppointmentModal({ open, candidate, skipOffer = false, onClose, onGenerated }) {
   const [joiningDate, setJoiningDate] = useState("");
   const [reportingTo, setReportingTo] = useState("");
   const [terms, setTerms] = useState("");
+  const [designation, setDesignation] = useState("");
+  const [department, setDepartment] = useState("");
+  const [location, setLocation] = useState("");
+  const [employmentType, setEmploymentType] = useState("Permanent");
   useEffect(() => {
     if (open) {
-      setJoiningDate(candidate?.expectedJoining || "");
+      setJoiningDate(String(candidate?.expectedJoining || "").slice(0, 10));
       setReportingTo("");
-      setTerms("");
+      setTerms(skipOffer ? candidate?.terms || "" : "");
+      setDesignation(candidate?.designation || "");
+      setDepartment(candidate?.department || "");
+      setLocation(candidate?.site || "");
+      setEmploymentType(candidate?.employmentType || "Permanent");
     }
-  }, [open, candidate]);
+  }, [open, candidate, skipOffer]);
+  const ctcMonthly = candidate?.expectedSalary ?? null;
+  const canSubmit = Boolean(joiningDate) && (!skipOffer || (Boolean(designation.trim()) && Number(ctcMonthly) > 0));
   return (
     <ActionModal
       open={open}
       title={`Appointment letter · ${candidate?.name || ""}`}
-      description="Salary, position and location are taken from the accepted offer. After generate you can email the PDF the same way as an offer letter."
+      description={
+        skipOffer
+          ? "The offer letter is skipped. Salary comes from the CTC calculator. Joining date can be in the past and is used on the letter and in the email."
+          : "Salary, position and location are taken from the accepted offer. After generate you can email the PDF the same way as an offer letter."
+      }
       onClose={onClose}
       submitLabel="Generate letter"
-      canSubmit={Boolean(joiningDate)}
+      canSubmit={canSubmit}
       onSubmit={async () => {
-        const appt = await generateAppointment(candidate.id, { joiningDate, reportingTo, terms });
+        const payload = { joiningDate, reportingTo, terms };
+        if (skipOffer) {
+          payload.designation = designation;
+          payload.department = department;
+          payload.location = location;
+          payload.employmentType = employmentType;
+        }
+        const appt = await generateAppointment(candidate.id, payload);
         toast.success("Appointment letter generated", "Choose From and send the PDF by email.");
         onClose();
         onGenerated?.(appt);
       }}
     >
+      {skipOffer ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Position *">
+            <input className={inputClass} value={designation} onChange={(e) => setDesignation(e.target.value)} />
+          </Field>
+          <Field label="Department">
+            <input className={inputClass} value={department} onChange={(e) => setDepartment(e.target.value)} />
+          </Field>
+          <Field label="Location">
+            <input className={inputClass} value={location} onChange={(e) => setLocation(e.target.value)} />
+          </Field>
+          <Field label="Employment type">
+            <select className={inputClass} value={employmentType} onChange={(e) => setEmploymentType(e.target.value)}>
+              {(EMPLOYMENT_TYPES.includes(employmentType) ? EMPLOYMENT_TYPES : [employmentType, ...EMPLOYMENT_TYPES]).map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Monthly CTC (from calculator)" className="sm:col-span-2">
+            <p className="rounded-md border border-border bg-surface-sunken px-3 py-2 text-sm tabular-nums text-ink">
+              {ctcMonthly != null && Number(ctcMonthly) > 0
+                ? `₹${Number(ctcMonthly).toLocaleString("en-IN")}`
+                : "Not saved — open CTC calculator on the candidate page and save first."}
+            </p>
+          </Field>
+        </div>
+      ) : null}
       <Field label="Joining date *">
-        <input type="date" min={todayIso()} className={inputClass} value={joiningDate} onChange={(e) => setJoiningDate(e.target.value)} />
+        <input type="date" className={inputClass} value={joiningDate} onChange={(e) => setJoiningDate(e.target.value)} />
+        <p className="mt-1 text-[10px] text-ink-muted">Past dates are allowed. This date is printed on the letter and included when you send it.</p>
       </Field>
       <Field label="Reporting to">
         <EmployeeNameSuggest
