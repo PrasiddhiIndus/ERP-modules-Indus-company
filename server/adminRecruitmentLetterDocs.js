@@ -802,6 +802,29 @@ function normalizeAppointmentLetterDocxLayout(docxBuffer) {
  * Does not remap fonts or rewrite body spacing (LibreOffice-only path handles that).
  * Applied for both local Word COM fill and production zip fill so Word/PDF stay aligned.
  */
+/**
+ * Attached appointment format shows only populated address lines under To,.
+ * Keep ADDRESS_LINE2/3 placeholders for multi-line addresses, but drop empty
+ * paragraphs in that header block so blank lines do not inflate pagination.
+ */
+function stripEmptyAppointmentAddressLines(xml) {
+  let out = String(xml || '');
+  const titleIdx = out.indexOf('>Appointment Letter<');
+  const toIdx = out.lastIndexOf('>To,<', titleIdx);
+  if (titleIdx < 0 || toIdx < 0) return out;
+  const titleParaStart = out.lastIndexOf('<w:p ', titleIdx);
+  if (titleParaStart <= toIdx) return out;
+  const head = out.slice(0, toIdx);
+  const region = out.slice(toIdx, titleParaStart);
+  const tail = out.slice(titleParaStart);
+  const cleaned = region.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (p) => {
+    if (paragraphPlainText(p)) return p;
+    if (/w:pict|w:drawing|w:pageBreakBefore/.test(p)) return p;
+    return '';
+  });
+  return `${head}${cleaned}${tail}`;
+}
+
 export function finalizeAppointmentLetterDocx(docxBuffer) {
   const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
   if (buf.length < 100) return buf;
@@ -811,6 +834,7 @@ export function finalizeAppointmentLetterDocx(docxBuffer) {
     if (!docFile) return buf;
     const before = docFile.asText();
     let after = fixAnnexureAmountCells(before);
+    after = stripEmptyAppointmentAddressLines(after);
     after = fixAppointmentAnnexureIPagination(after);
     if (after === before) return buf;
     zip.file('word/document.xml', after);
