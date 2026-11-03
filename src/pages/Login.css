@@ -379,6 +379,17 @@
   text-align: center;
 }
 
+.login-card-logo {
+  display: block;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 1rem;
+  border-radius: 50%;
+  object-fit: contain;
+  background: var(--login-white);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+}
+
 .login-card-head h2 {
   margin: 0;
   font-size: 1.75rem;

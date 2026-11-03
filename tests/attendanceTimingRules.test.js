@@ -123,4 +123,23 @@ describe("attendance timings from the Rules Console", () => {
     setRulesSnapshot({ values: [...setupRows, row("att.punch_overrides_leave", "employee", "101", false)] });
     expect(merge()).toEqual({ 101: { 12: "PL" }, 102: { 12: "P" } });
   });
+
+  it("one punch is punch in with blank punch out; never borrows another day", () => {
+    const single = pairPunchesToDailyRows(punches("101", "09:15"))[0];
+    expect(single.punchIn).toMatch(/^09:15/);
+    expect(single.punchOut).toBe("");
+    expect(single.punchCount).toBe(1);
+
+    const mixed = pairPunchesToDailyRows([
+      { empCode: "101", punchDate: "2026-10-12", punchTime: "09:00" },
+      { empCode: "101", punchDate: "2026-10-13", punchTime: "18:00" },
+    ]);
+    expect(mixed).toHaveLength(2);
+    const day12 = mixed.find((r) => r.punchDate === "2026-10-12");
+    const day13 = mixed.find((r) => r.punchDate === "2026-10-13");
+    expect(day12.punchIn).toMatch(/^09:00/);
+    expect(day12.punchOut).toBe("");
+    expect(day13.punchIn).toMatch(/^18:00/);
+    expect(day13.punchOut).toBe("");
+  });
 });

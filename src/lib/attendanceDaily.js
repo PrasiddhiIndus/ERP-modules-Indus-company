@@ -16,7 +16,10 @@ import {
   punchesToPresentRegisterRows,
   registerDateRangeFromRows,
 } from "../../shared/attendanceRegisterSync.mjs";
-import { timeToMinutes } from "../../shared/attendancePunchSync.mjs";
+import {
+  dropInOutSlotsWhenGranularExists,
+  timeToMinutes,
+} from "../../shared/attendancePunchSync.mjs";
 import {
   attendanceTimesFor,
   ensureAttendanceRulesLoaded,
@@ -588,12 +591,15 @@ export function registerPresentDayCredit(mark) {
   return 0;
 }
 
-/** PL / CL / SL on an auto weekoff (Sunday) — count as 0 for present and leave tallies. */
-const WEEKOFF_ZERO_CREDIT_LEAVE_MARKS = new Set(["PL", "CL", "SL"]);
+/**
+ * PL / CL / SL on a weekly off — still leave on the grid, but do not count as a
+ * present/paid day (Sunday / weekoff PL must not inflate Total present).
+ */
+const WEEKOFF_ZERO_PRESENT_LEAVE_MARKS = new Set(["PL", "CL", "SL"]);
 
 export function isPlClSlOnWeekoffDate(mark, { year, month, day, department, employeeCode = null } = {}) {
   const m = String(mark ?? "").trim().toUpperCase();
-  if (!WEEKOFF_ZERO_CREDIT_LEAVE_MARKS.has(m)) return false;
+  if (!WEEKOFF_ZERO_PRESENT_LEAVE_MARKS.has(m)) return false;
   if (!year || !month || !day) return false;
   const iso = registerDateFromDay(monthKeyFromParts(year, month), day);
   return isWeeklyOffDate(iso, department, employeeCode);
@@ -605,10 +611,20 @@ export function registerPresentDayCreditForCell(mark, ctx = {}) {
   return registerPresentDayCredit(mark);
 }
 
-/** Leave credit for a day cell (PL/CL/SL on weekoff → 0; P/* half-day composites → 0.5). */
-export function registerSummaryLeaveCreditForCell(mark, ctx = {}) {
-  if (isPlClSlOnWeekoffDate(mark, ctx)) return 0;
+/** Leave credit: count the leave mark as shown (incl. PL/CL/SL on WO / Sunday). */
+export function registerSummaryLeaveCreditForCell(mark, _ctx = {}) {
   return registerSummaryLeaveCredit(mark);
+}
+
+/**
+ * PL/CL/SL on a 3rd-Saturday weekly off — Total present only credits 1 (same as paid
+ * 3rd-Saturday WO). Leave tally, day-level present, sandwich, and WO marks unchanged.
+ */
+export function isPlClSlOnPaidThirdSaturdayWeekoff(mark, ctx = {}) {
+  if (!isPlClSlOnWeekoffDate(mark, ctx)) return false;
+  const { year, month, day } = ctx;
+  if (!year || !month || !day) return false;
+  return isThirdSaturdayOfMonth(year, month, day);
 }
 
 /**
@@ -660,12 +676,14 @@ export function isProductionSaturdayWeekoffPresentCredit(mark, { year, month, da
 /**
  * Present credit for register summary Total present column only.
  * P/PL, P/CL, P/SL count as 1 (display); 3rd-Saturday WO counts as 1 (see above).
+ * PL/CL/SL on that paid 3rd-Saturday weekoff also counts as 1 (Total present only).
  * Does not change day-level present/absent logic.
  */
 export function registerPresentDaySummaryCreditForCell(mark, ctx = {}) {
   if (isPaidThirdSaturdayWeekoffCell(mark, ctx)) return 1;
   if (isPaidThirdSaturdayWorkingDeptCell(mark, ctx)) return 1;
   if (isProductionSaturdayWeekoffPresentCredit(mark, ctx)) return 1;
+  if (isPlClSlOnPaidThirdSaturdayWeekoff(mark, ctx)) return 1;
   const compositeCredit = registerCompositePaidLeaveSummaryCredit(mark);
   if (compositeCredit > 0) return compositeCredit;
   return registerPresentDayCreditForCell(mark, ctx);
@@ -4774,6 +4792,7 @@ export function mapDbPunchToViewRow(row) {
   const punchTime = row.punch_time || normalizeDbTime(sourcePunchDate) || normalizeDbTime(row.punch_date);
   return {
     id: row.id || row.punch_key,
+    punchKey: row.punch_key || "",
     empCode: normalizeAttendanceEmpCode(row.employee_code),
     employeeName: row.employee_name || "",
     punchDate: row.punch_date || "",
@@ -5037,8 +5056,10 @@ function pickInOutTimes(sortedPunches) {
 /** Without `expectedIn` / `expectedOut`, each employee's shift times and grace from the Rules Console apply. */
 export function pairPunchesToDailyRows(punches, { expectedIn = null, expectedOut = null, graceMinutes = null } = {}) {
   const groups = new Map();
+  // Ignore InOut day-summary slots when real punches exist for that calendar day.
+  const dayWisePunches = dropInOutSlotsWhenGranularExists(punches || []);
 
-  for (const punch of punches) {
+  for (const punch of dayWisePunches) {
     const empCode = normalizeAttendanceEmpCode(punch.empCode);
     const punchDate = normalizeDbDate(punch.punchDate);
     if (!empCode || !punchDate) continue;

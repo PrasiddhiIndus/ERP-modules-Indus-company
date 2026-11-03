@@ -56,9 +56,41 @@ function escapePsSingleQuoted(value) {
 }
 
 /** Word drops leading/trailing spaces in <w:t> unless xml:space="preserve". */
+/** Meta key: monthly tokens whose annexure rows are dropped (exact 0 only). */
+const ANNEXURE_EXCLUDE_MONTHLY_TOKENS = '__annexureExcludeMonthlyTokens';
+
+function splitAnnexurePlaceholders(placeholders) {
+  const excluded = Array.isArray(placeholders?.[ANNEXURE_EXCLUDE_MONTHLY_TOKENS])
+    ? placeholders[ANNEXURE_EXCLUDE_MONTHLY_TOKENS]
+    : [];
+  const clean = { ...(placeholders || {}) };
+  delete clean[ANNEXURE_EXCLUDE_MONTHLY_TOKENS];
+  return { clean, excluded };
+}
+
+/** Drop annexure table rows for excluded monthly tokens (exact-0 components). */
+function removeAnnexureRowsByMonthlyTokens(xml, tokens) {
+  let out = String(xml || '');
+  for (const tok of tokens || []) {
+    if (!tok) continue;
+    let guard = 0;
+    while (out.includes(tok) && guard < 20) {
+      guard += 1;
+      const idx = out.indexOf(tok);
+      let trStart = out.lastIndexOf('<w:tr ', idx);
+      if (trStart < 0) trStart = out.lastIndexOf('<w:tr>', idx);
+      const trEnd = out.indexOf('</w:tr>', idx);
+      if (trStart < 0 || trEnd < 0) break;
+      out = `${out.slice(0, trStart)}${out.slice(trEnd + 7)}`;
+    }
+  }
+  return out;
+}
+
 function applyPlaceholdersToXml(xml, placeholders) {
   let out = String(xml || '');
   for (const [token, value] of Object.entries(placeholders)) {
+    if (token === ANNEXURE_EXCLUDE_MONTHLY_TOKENS) continue;
     const raw = String(value ?? '');
     if (/^\s|\s$/.test(raw)) {
       out = out.replace(/<w:t([^>]*)>((?:(?!<\/w:t>)[\s\S])*?)<\/w:t>/g, (match, attrs, text) => {
@@ -78,16 +110,23 @@ function fillDocxTemplateZip(templatePath, placeholders) {
   if (!fs.existsSync(templatePath)) {
     throw new Error('Letter template is missing. Contact support.');
   }
+  const { clean, excluded } = splitAnnexurePlaceholders(placeholders);
   const zip = new PizZip(fs.readFileSync(templatePath));
   const documentXml = zip.file('word/document.xml')?.asText();
   if (!documentXml) throw new Error('Invalid letter template.');
-  zip.file('word/document.xml', applyPlaceholdersToXml(documentXml, placeholders));
+  zip.file(
+    'word/document.xml',
+    applyPlaceholdersToXml(removeAnnexureRowsByMonthlyTokens(documentXml, excluded), clean)
+  );
 
   for (const name of Object.keys(zip.files)) {
     if (!/^word\/(header|footer)\d*\.xml$/i.test(name)) continue;
     const xml = zip.file(name)?.asText();
     if (!xml || !xml.includes('{{')) continue;
-    zip.file(name, applyPlaceholdersToXml(xml, placeholders));
+    zip.file(
+      name,
+      applyPlaceholdersToXml(removeAnnexureRowsByMonthlyTokens(xml, excluded), clean)
+    );
   }
 
   return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
@@ -103,13 +142,22 @@ async function fillDocxTemplateWithWord(templatePath, placeholders) {
     throw new Error('Letter template is missing. Contact support.');
   }
 
+  const { clean, excluded } = splitAnnexurePlaceholders(placeholders);
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ifspl-letter-'));
   const srcPath = path.join(tmpDir, 'template.docx');
   const outPath = path.join(tmpDir, 'filled.docx');
   const scriptPath = path.join(tmpDir, 'fill.ps1');
   fs.copyFileSync(templatePath, srcPath);
+  if (excluded.length) {
+    const zip = new PizZip(fs.readFileSync(srcPath));
+    const docFile = zip.file('word/document.xml');
+    if (docFile) {
+      zip.file('word/document.xml', removeAnnexureRowsByMonthlyTokens(docFile.asText(), excluded));
+      fs.writeFileSync(srcPath, zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }));
+    }
+  }
 
-  const pairs = Object.entries(placeholders).map(([find, replace]) => ({
+  const pairs = Object.entries(clean).map(([find, replace]) => ({
     find: String(find),
     replace: String(replace ?? ''),
   }));
@@ -340,52 +388,99 @@ function schemeYearLabel(value) {
   return `${y - 1}-${String(y).slice(-2)}`;
 }
 
+/** Empty/null → blank cell (row kept). Exact 0 is filtered out at the line-item level. */
 function annexureAmount(value) {
-  const n = roundRupee(Number(value) || 0);
-  return n > 0 ? String(n) : '';
+  if (value == null || value === '') return '';
+  const n = roundRupee(Number(value));
+  if (!Number.isFinite(n) || n === 0) return '';
+  return String(n);
 }
+
+function isEmptyAnnexureAmount(value) {
+  return value == null || value === '';
+}
+
+function isExactZeroAnnexureAmount(value) {
+  if (isEmptyAnnexureAmount(value)) return false;
+  const n = roundRupee(Number(value));
+  return Number.isFinite(n) && n === 0;
+}
+
+/** Keep empty/null lines; drop a line only when its amount(s) are exactly 0. */
+function shouldIncludeAnnexureLine(monthly, pa) {
+  if (isEmptyAnnexureAmount(monthly) && isEmptyAnnexureAmount(pa)) return true;
+  const mZero = isExactZeroAnnexureAmount(monthly);
+  const pZero = isExactZeroAnnexureAmount(pa);
+  if ((mZero || isEmptyAnnexureAmount(monthly)) && (pZero || isEmptyAnnexureAmount(pa)) && (mZero || pZero)) {
+    return false;
+  }
+  return true;
+}
+
+function readAnnexureMonthly(breakup, key) {
+  if (!breakup || typeof breakup !== 'object') return null;
+  if (!Object.prototype.hasOwnProperty.call(breakup, key)) return null;
+  const v = breakup[key];
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function readAnnexurePa(breakup, key) {
+  const pa = annexurePaValue(breakup, key);
+  if (pa == null || pa === '') return null;
+  const n = Number(pa);
+  if (!Number.isFinite(n)) return null;
+  // annexurePaValue yields 0 for a missing monthly; treat that as empty so null/empty
+  // lines stay included. Explicit monthly 0 still yields pa 0 and is excluded.
+  const monthly = readAnnexureMonthly(breakup, key);
+  if (isEmptyAnnexureAmount(monthly) && n === 0) return null;
+  return n;
+}
+
+/** CTC Calculator annexure lines in display order (monthly + P.A. tokens). */
+const ANNEXURE_LINE_SPECS = Object.freeze([
+  ['basic', '{{BASIC_M}}', '{{BASIC_PA}}'],
+  ['hra', '{{HRA_M}}', '{{HRA_PA}}'],
+  ['conveyance', '{{CONVEYANCE_M}}', '{{CONVEYANCE_PA}}'],
+  ['bonus', '{{BONUS_M}}', '{{BONUS_PA}}'],
+  ['medical', '{{MEDICAL_M}}', '{{MEDICAL_PA}}'],
+  ['special', '{{SPECIAL_M}}', '{{SPECIAL_PA}}'],
+  ['gross', '{{GROSS_M}}', '{{GROSS_PA}}'],
+  ['ee_pf', '{{EE_PF_M}}', '{{EE_PF_PA}}'],
+  ['pt', '{{PT_M}}', '{{PT_PA}}'],
+  ['ee_esic', '{{EE_ESIC_M}}', '{{EE_ESIC_PA}}'],
+  ['take_home', '{{TAKE_HOME_M}}', '{{TAKE_HOME_PA}}'],
+  ['er_pf', '{{ER_PF_M}}', '{{ER_PF_PA}}'],
+  ['er_esic', '{{ER_ESIC_M}}', '{{ER_ESIC_PA}}'],
+  ['mediclaim', '{{MEDICLAIM_M}}', '{{MEDICLAIM_PA}}'],
+  ['leave_encashment', '{{LEAVE_ENCASHMENT_M}}', '{{LEAVE_ENCASHMENT_PA}}'],
+  ['gratuity', '{{GRATUITY_M}}', '{{GRATUITY_PA}}'],
+  ['ex_gratia', '{{EX_GRATIA_M}}', '{{EX_GRATIA_PA}}'],
+  ['perf_incentive', '{{PERF_INCENTIVE_M}}', '{{PERF_INCENTIVE_PA}}'],
+  ['total_b', '{{TOTAL_B_M}}', '{{TOTAL_B_PA}}'],
+  ['ctc', '{{CTC_M}}', '{{CTC_PA}}'],
+]);
 
 function annexurePlaceholdersFromBreakup(breakup, wefIso) {
   if (!breakup || typeof breakup !== 'object') return {};
-  const m = (key) => Number(breakup[key]) || 0;
-  // Match CTC Calculator P.A. column (monthly × 12, including extra-component annuals).
-  const pa = (key) => roundRupee(Number(annexurePaValue(breakup, key)) || 0);
-  return {
+  const out = {
     '{{SCHEME_YEAR}}': schemeYearLabel(wefIso),
     '{{WEF_SHORT}}': formatWefShort(wefIso),
-    '{{BASIC_M}}': annexureAmount(m('basic')),
-    '{{BASIC_PA}}': annexureAmount(pa('basic')),
-    '{{HRA_M}}': annexureAmount(m('hra')),
-    '{{HRA_PA}}': annexureAmount(pa('hra')),
-    '{{CONVEYANCE_M}}': annexureAmount(m('conveyance')),
-    '{{CONVEYANCE_PA}}': annexureAmount(pa('conveyance')),
-    '{{BONUS_M}}': annexureAmount(m('bonus')),
-    '{{BONUS_PA}}': annexureAmount(pa('bonus')),
-    '{{MEDICAL_M}}': annexureAmount(m('medical')),
-    '{{MEDICAL_PA}}': annexureAmount(pa('medical')),
-    '{{GROSS_M}}': annexureAmount(m('gross')),
-    '{{GROSS_PA}}': annexureAmount(pa('gross')),
-    '{{EE_PF_M}}': annexureAmount(m('ee_pf')),
-    '{{EE_PF_PA}}': annexureAmount(pa('ee_pf')),
-    '{{PT_M}}': annexureAmount(m('pt')),
-    '{{PT_PA}}': annexureAmount(pa('pt')),
-    '{{EE_ESIC_M}}': annexureAmount(m('ee_esic')),
-    '{{EE_ESIC_PA}}': annexureAmount(pa('ee_esic')),
-    '{{TAKE_HOME_M}}': annexureAmount(m('take_home')),
-    '{{TAKE_HOME_PA}}': annexureAmount(pa('take_home')),
-    '{{ER_PF_M}}': annexureAmount(m('er_pf')),
-    '{{ER_PF_PA}}': annexureAmount(pa('er_pf')),
-    '{{ER_ESIC_M}}': annexureAmount(m('er_esic')),
-    '{{ER_ESIC_PA}}': annexureAmount(pa('er_esic')),
-    '{{GRATUITY_M}}': annexureAmount(m('gratuity')),
-    '{{GRATUITY_PA}}': annexureAmount(pa('gratuity')),
-    '{{EX_GRATIA_M}}': annexureAmount(m('ex_gratia')),
-    '{{EX_GRATIA_PA}}': annexureAmount(pa('ex_gratia')),
-    '{{TOTAL_B_M}}': annexureAmount(m('total_b')),
-    '{{TOTAL_B_PA}}': annexureAmount(pa('total_b')),
-    '{{CTC_M}}': annexureAmount(m('ctc')),
-    '{{CTC_PA}}': annexureAmount(pa('ctc')),
   };
+  const excluded = [];
+  for (const [key, mTok, paTok] of ANNEXURE_LINE_SPECS) {
+    const monthly = readAnnexureMonthly(breakup, key);
+    const pa = readAnnexurePa(breakup, key);
+    if (!shouldIncludeAnnexureLine(monthly, pa)) {
+      excluded.push(mTok);
+      continue;
+    }
+    out[mTok] = annexureAmount(monthly);
+    out[paTok] = annexureAmount(pa);
+  }
+  if (excluded.length) out[ANNEXURE_EXCLUDE_MONTHLY_TOKENS] = excluded;
+  return out;
 }
 
 function savedCtcBreakup(candidate) {
@@ -524,8 +619,12 @@ function fixAnnexureAmountCells(xml) {
     ['{{CONVEYANCE_M}}', '{{CONVEYANCE_PA}}'],
     ['{{BONUS_M}}', '{{BONUS_PA}}'],
     ['{{MEDICAL_M}}', '{{MEDICAL_PA}}'],
+    ['{{SPECIAL_M}}', '{{SPECIAL_PA}}'],
     ['{{EE_ESIC_M}}', '{{EE_ESIC_PA}}'],
     ['{{ER_ESIC_M}}', '{{ER_ESIC_PA}}'],
+    ['{{MEDICLAIM_M}}', '{{MEDICLAIM_PA}}'],
+    ['{{LEAVE_ENCASHMENT_M}}', '{{LEAVE_ENCASHMENT_PA}}'],
+    ['{{PERF_INCENTIVE_M}}', '{{PERF_INCENTIVE_PA}}'],
   ];
 
   for (const [mTok, paTok] of pairs) {

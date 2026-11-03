@@ -29,9 +29,7 @@ import {
   publishSurvey,
   unpublishSurvey,
 } from "../../../lib/adminSurveysApi";
-import { SURVEY_KINDS } from "../../../../shared/surveyModel.mjs";
-
-const KIND_LABEL = Object.fromEntries(SURVEY_KINDS.map((k) => [k.value, k.label]));
+import { surveyKindLabel } from "../../../../shared/surveyModel.mjs";
 
 const STATUS_CHIP = {
   draft: { label: "Draft", severity: "neutral" },
@@ -135,7 +133,7 @@ export default function SurveysListPage() {
         <div className="min-w-[220px] max-w-[360px]">
           <p className="font-medium text-ink-strong truncate">{s.title}</p>
           <p className="text-[11px] text-ink-muted truncate">
-            {KIND_LABEL[s.kind] || s.kind} · {s.question_count} question{s.question_count === 1 ? "" : "s"}
+            {surveyKindLabel(s)} · {s.question_count} question{s.question_count === 1 ? "" : "s"}
             {s.anonymous ? " · Anonymous" : ""}
           </p>
         </div>

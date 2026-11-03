@@ -22,9 +22,7 @@ import {
 import { toast } from "../../../lib/toast";
 import { formatDateDdMmYyyy, formatDateTimeDdMmYyyy } from "../../../utils/dateDisplay";
 import { describeAssignmentSync, getSurvey, publishSurvey } from "../../../lib/adminSurveysApi";
-import { RATING_MAX, RATING_MIN, SURVEY_KINDS, formatAnswer } from "../../../../shared/surveyModel.mjs";
-
-const KIND_LABEL = Object.fromEntries(SURVEY_KINDS.map((k) => [k.value, k.label]));
+import { RATING_MAX, RATING_MIN, formatAnswer, surveyKindLabel } from "../../../../shared/surveyModel.mjs";
 
 const ASSIGNMENT_CHIP = {
   pending: { label: "Not started", severity: "neutral" },
@@ -279,7 +277,7 @@ export default function SurveyResponsesPage() {
       <PageTaskHeader
         title={survey.title}
         subtitle={[
-          KIND_LABEL[survey.kind] || survey.kind,
+          surveyKindLabel(survey),
           survey.audience_type === "selected"
             ? `${(survey.audience_employee_codes || []).length} selected employees`
             : "All employees",

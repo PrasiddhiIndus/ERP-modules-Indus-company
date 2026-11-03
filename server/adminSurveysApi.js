@@ -252,7 +252,7 @@ export function registerAdminSurveyRoutes(app, deps) {
       const client = db();
       const { data: templates, error } = await surveys(client)
         .from('survey_templates')
-        .select('id, title, description, kind, status, is_active, anonymous, audience_type, audience_employee_codes, due_date, questions, created_at, updated_at, published_at, created_by_email')
+        .select('id, title, description, kind, kind_other, status, is_active, anonymous, audience_type, audience_employee_codes, due_date, questions, created_at, updated_at, published_at, created_by_email')
         .order('created_at', { ascending: false });
       if (error) throw error;
       const assignments = await loadAssignments(client, (templates || []).map((t) => t.id));
@@ -447,6 +447,7 @@ export function registerAdminSurveyRoutes(app, deps) {
           title: `${t.title} (copy)`.slice(0, 200),
           description: t.description,
           kind: t.kind,
+          kind_other: t.kind_other || null,
           anonymous: t.anonymous,
           is_active: true,
           questions: t.questions || [],

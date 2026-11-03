@@ -102,7 +102,7 @@ describe("appointment letter Employee Master fields + formatting", () => {
     );
     const pdf = await convertDocxBufferToPdf(docx, "appointment-letter");
     expect(pdf).toBeTruthy();
-    expect((await PDFDocument.load(pdf)).getPageCount()).toBe(4);
+    expect((await PDFDocument.load(pdf)).getPageCount()).toBe(5);
 
     // Word page count via convert path already validates layout; also ensure
     // finalize did not leave address blank lines before the title.

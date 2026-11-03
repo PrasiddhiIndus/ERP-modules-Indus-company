@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowRight,
-  Building2,
+  // Building2, // IFSPL (Office) audience toggle
   Check,
   // ChevronDown, // language switcher
   CircleDollarSign,
@@ -172,7 +172,7 @@ const Login = () => {
   const [verifyCode, setVerifyCode] = useState('');
   const [otpSendStatus, setOtpSendStatus] = useState('idle');
   const [successMessage, setSuccessMessage] = useState('');
-  const [loginAudience, setLoginAudience] = useState(() => readLoginAudience());
+  const [loginAudience] = useState(() => readLoginAudience());
   const [lang, setLang] = useState(() => readLoginLang());
   const [langOpen, setLangOpen] = useState(false);
   const emailRef = useRef(null);
@@ -249,10 +249,11 @@ const Login = () => {
     if (error) setError('');
   };
 
-  const selectAudience = (value) => {
-    setLoginAudience(value);
-    writeLoginAudience(value);
-  };
+  // Audience toggle temporarily hidden
+  // const selectAudience = (value) => {
+  //   setLoginAudience(value);
+  //   writeLoginAudience(value);
+  // };
 
   const selectLang = (code) => {
     setLang(code);
@@ -505,6 +506,13 @@ const Login = () => {
         <section className="login-panel" aria-label="Sign in">
           <div className="login-card">
             <div className="login-card-head">
+              <img
+                className="login-card-logo"
+                src={INDUS_LOGO_SRC}
+                alt="Indus Fire Safety"
+                width={72}
+                height={72}
+              />
               <h2>
                 Welcome to INDUS <span>ERP</span>
               </h2>
@@ -595,6 +603,7 @@ const Login = () => {
                   </p>
                 ) : null}
 
+                {/* Audience toggle temporarily hidden — defaults to office
                 <div className="login-audience login-audience--office-only" role="tablist" aria-label="Login type">
                   <button
                     type="button"
@@ -606,7 +615,6 @@ const Login = () => {
                     <Building2 className="w-4 h-4" strokeWidth={2} aria-hidden />
                     <span>IFSPL (Office)</span>
                   </button>
-                  {/* Site login option temporarily hidden
                   <button
                     type="button"
                     role="tab"
@@ -617,8 +625,8 @@ const Login = () => {
                     <HardHat className="w-4 h-4" strokeWidth={2} aria-hidden />
                     <span>Site</span>
                   </button>
-                  */}
                 </div>
+                */}
 
                 <label className="login-field">
                   <span>Email</span>
