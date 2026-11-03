@@ -174,8 +174,8 @@ describe("appointment letter Benefits always starts on page 2", () => {
       try {
         const { page, total } = wordBenefitsPage(out);
         expect(page, `${c.label} Benefits page`).toBe(2);
-        // No blank page: Benefits on page 2 and total stays at 4 (good reference layout).
-        expect(total, `${c.label} total pages`).toBe(4);
+        // No blank page: Benefits on page 2. Full CTC Calculator annexure rows use 5 pages.
+        expect(total, `${c.label} total pages`).toBe(5);
 
         const pdf = await convertDocxBufferToPdf(docx, "appointment-letter");
         expect(pdf).toBeTruthy();

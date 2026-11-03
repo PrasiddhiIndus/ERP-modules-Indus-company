@@ -54,10 +54,15 @@ export default function SurveyAudiencePicker({ employees, loading, selectedCodes
           placeholder="Search code, name, designation"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-64"
+          className="h-10 w-64 text-sm font-medium text-ink-strong placeholder:text-ink-muted"
           aria-label="Search employees"
         />
-        <TinySelect value={department} onChange={(e) => setDepartment(e.target.value)} aria-label="Department">
+        <TinySelect
+          value={department}
+          onChange={(e) => setDepartment(e.target.value)}
+          aria-label="Department"
+          className="h-10 text-sm font-medium text-ink-strong"
+        >
           <option value="">All departments</option>
           {departments.map((d) => (
             <option key={d} value={d}>
@@ -65,7 +70,12 @@ export default function SurveyAudiencePicker({ employees, loading, selectedCodes
             </option>
           ))}
         </TinySelect>
-        <TinySelect value={site} onChange={(e) => setSite(e.target.value)} aria-label="Site">
+        <TinySelect
+          value={site}
+          onChange={(e) => setSite(e.target.value)}
+          aria-label="Site"
+          className="h-10 text-sm font-medium text-ink-strong"
+        >
           <option value="">All sites</option>
           {sites.map((s) => (
             <option key={s} value={s}>
@@ -88,7 +98,7 @@ export default function SurveyAudiencePicker({ employees, loading, selectedCodes
             return (
               <span
                 key={code}
-                className="inline-flex items-center gap-1 rounded-full border border-accent-border bg-accent-soft px-2 py-0.5 text-[11px] text-ink"
+                className="inline-flex items-center gap-1.5 rounded-full border border-accent-border bg-accent-soft px-2.5 py-1 text-xs font-medium text-ink-strong"
               >
                 <span className="font-mono">{code}</span>
                 {emp?.full_name ? <span className="text-ink-secondary">{emp.full_name}</span> : null}
@@ -109,21 +119,21 @@ export default function SurveyAudiencePicker({ employees, loading, selectedCodes
 
       <div className="rounded-lg border border-border max-h-72 overflow-y-auto">
         {loading ? (
-          <p className="px-3 py-6 text-center text-xs text-ink-muted">Loading employees…</p>
+          <p className="px-3 py-6 text-center text-sm text-ink-secondary">Loading employees…</p>
         ) : matches.length === 0 ? (
-          <p className="px-3 py-6 text-center text-xs text-ink-muted">No active employees match.</p>
+          <p className="px-3 py-6 text-center text-sm text-ink-secondary">No active employees match.</p>
         ) : (
           <ul className="divide-y divide-divider">
             {matches.slice(0, MAX_VISIBLE).map((e) => {
               const checked = selectedKeys.has(keyOf(e.employee_code));
               return (
                 <li key={e.employee_code}>
-                  <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-xs hover:bg-row-hover">
+                  <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm hover:bg-row-hover">
                     <input type="checkbox" checked={checked} onChange={() => toggle(e.employee_code)} />
-                    <span className="w-24 shrink-0 font-mono text-ink-secondary">{e.employee_code}</span>
-                    <span className="min-w-0 flex-1 truncate font-medium text-ink-strong">{e.full_name || "—"}</span>
-                    <span className="hidden w-40 truncate text-ink-muted md:block">{e.department}</span>
-                    <span className="hidden w-40 truncate text-ink-muted lg:block">{e.site}</span>
+                    <span className="w-24 shrink-0 font-mono font-medium text-ink-strong">{e.employee_code}</span>
+                    <span className="min-w-0 flex-1 truncate font-semibold text-ink-strong">{e.full_name || "—"}</span>
+                    <span className="hidden w-40 truncate text-ink-secondary md:block">{e.department}</span>
+                    <span className="hidden w-40 truncate text-ink-secondary lg:block">{e.site}</span>
                   </label>
                 </li>
               );
@@ -131,7 +141,7 @@ export default function SurveyAudiencePicker({ employees, loading, selectedCodes
           </ul>
         )}
         {matches.length > MAX_VISIBLE ? (
-          <p className="border-t border-divider px-3 py-2 text-[11px] text-ink-muted">
+          <p className="border-t border-divider px-3 py-2.5 text-xs text-ink-secondary">
             Showing first {MAX_VISIBLE} of {matches.length}. Narrow the search, or use &quot;Add all matching&quot;.
           </p>
         ) : null}

@@ -10,7 +10,22 @@ export const SURVEY_KINDS = [
   { value: 'exit', label: 'Exit feedback' },
   { value: '360', label: '360° feedback' },
   { value: 'training', label: 'Training feedback' },
+  { value: 'other', label: 'Other' },
 ];
+
+/** Display label for list / detail — uses custom text when kind is Other. */
+export function surveyKindLabel(surveyOrKind, kindOther) {
+  const kind = typeof surveyOrKind === 'string' ? surveyOrKind : surveyOrKind?.kind;
+  const other =
+    typeof surveyOrKind === 'string'
+      ? kindOther
+      : surveyOrKind?.kind_other ?? kindOther;
+  if (kind === 'other') {
+    const custom = cleanText(other, 120);
+    return custom || 'Other';
+  }
+  return SURVEY_KINDS.find((k) => k.value === kind)?.label || kind || '—';
+}
 
 export const SURVEY_QUESTION_TYPES = [
   { value: 'short_text', label: 'Short text' },
@@ -89,10 +104,13 @@ export function normalizeSurveyInput(input = {}) {
     return nq;
   });
   const minutes = Number(input.estimated_minutes);
+  const kind = KIND_VALUES.has(input.kind) ? input.kind : 'pulse';
+  const kindOther = kind === 'other' ? cleanText(input.kind_other, 120) || null : null;
   return {
     title: cleanText(input.title, 200),
     description: cleanText(input.description, 4000) || null,
-    kind: KIND_VALUES.has(input.kind) ? input.kind : 'pulse',
+    kind,
+    kind_other: kindOther,
     anonymous: Boolean(input.anonymous),
     is_active: input.is_active === undefined ? true : Boolean(input.is_active),
     due_date: /^\d{4}-\d{2}-\d{2}$/.test(String(input.due_date || '')) ? String(input.due_date) : null,
@@ -110,6 +128,9 @@ export function normalizeSurveyInput(input = {}) {
 export function validateSurvey(survey, { checkDueDate = true, today = todayIsoIst() } = {}) {
   const errors = {};
   if (!survey.title) errors.title = 'Title is required.';
+  if (survey.kind === 'other' && !survey.kind_other) {
+    errors.kind_other = 'Enter a kind when Other is selected.';
+  }
   if (!survey.questions.length) errors.questions = 'Add at least one question.';
   survey.questions.forEach((q, i) => {
     if (!q.label) errors[`question_${i}`] = `Question ${i + 1} needs a label.`;

@@ -216,7 +216,7 @@ describe("appointment letter layout (local + production zip fill)", () => {
     expect((xml.match(/w:pageBreakBefore/g) || []).length).toBeGreaterThanOrEqual(1);
   }, 120000);
 
-  it("Word reports exactly 4 pages for production zip-filled letter (Benefits on page 2, no blank)", async () => {
+  it("Word reports exactly 5 pages for production zip-filled letter (Benefits on page 2, no blank)", async () => {
     if (process.platform !== "win32") return;
     process.env.ADMIN_RECRUITMENT_FORCE_ZIP_FILL = "1";
     const buf = await buildAppointmentLetterDocx(SAMPLE.appt, SAMPLE.offer, SAMPLE.candidate, SAMPLE.company);
@@ -224,7 +224,7 @@ describe("appointment letter layout (local + production zip fill)", () => {
     fs.writeFileSync(out, buf);
     try {
       const pages = countWordPages(out);
-      expect(pages).toBe(4);
+      expect(pages).toBe(5);
     } finally {
       try {
         fs.unlinkSync(out);
@@ -234,7 +234,7 @@ describe("appointment letter layout (local + production zip fill)", () => {
     }
   }, 180000);
 
-  it("Word reports exactly 4 pages for local Word-COM-filled letter (Benefits on page 2, no blank)", async () => {
+  it("Word reports exactly 5 pages for local Word-COM-filled letter (Benefits on page 2, no blank)", async () => {
     if (process.platform !== "win32") return;
     delete process.env.ADMIN_RECRUITMENT_FORCE_ZIP_FILL;
     const buf = await buildAppointmentLetterDocx(SAMPLE.appt, SAMPLE.offer, SAMPLE.candidate, SAMPLE.company);
@@ -242,7 +242,7 @@ describe("appointment letter layout (local + production zip fill)", () => {
     fs.writeFileSync(out, buf);
     try {
       const pages = countWordPages(out);
-      expect(pages).toBe(4);
+      expect(pages).toBe(5);
     } finally {
       try {
         fs.unlinkSync(out);
@@ -252,7 +252,7 @@ describe("appointment letter layout (local + production zip fill)", () => {
     }
   }, 180000);
 
-  it("PDF from production zip DOCX is 4 pages (same convert path as email send)", async () => {
+  it("PDF from production zip DOCX is 5 pages (same convert path as email send)", async () => {
     if (process.platform !== "win32") return;
     process.env.ADMIN_RECRUITMENT_FORCE_ZIP_FILL = "1";
     delete process.env.FORCE_LIBREOFFICE_PDF;
@@ -266,7 +266,7 @@ describe("appointment letter layout (local + production zip fill)", () => {
     expect(pdf).toBeTruthy();
     expect(pdf.length).toBeGreaterThan(1000);
     const doc = await PDFDocument.load(pdf);
-    expect(doc.getPageCount()).toBe(4);
+    expect(doc.getPageCount()).toBe(5);
   }, 180000);
 
   it("PDF from local Word-COM DOCX matches production page count (no blank page)", async () => {
@@ -295,7 +295,7 @@ describe("appointment letter layout (local + production zip fill)", () => {
     expect(localPdf).toBeTruthy();
     const prodPages = (await PDFDocument.load(prodPdf)).getPageCount();
     const localPages = (await PDFDocument.load(localPdf)).getPageCount();
-    expect(prodPages).toBe(4);
-    expect(localPages).toBe(4);
+    expect(prodPages).toBe(5);
+    expect(localPages).toBe(5);
   }, 240000);
 });

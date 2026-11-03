@@ -13,8 +13,11 @@ import {
   isAutoWeekoffDate,
   isPaidThirdSaturdayWeekoffCell,
   isPaidThirdSaturdayWorkingDeptCell,
+  isPlClSlOnPaidThirdSaturdayWeekoff,
   isProductionSaturdayWeekoffPresentCredit,
+  registerPresentDayCreditForCell,
   registerPresentDaySummaryCreditForCell,
+  registerSummaryLeaveCreditForCell,
 } from "../src/lib/attendanceDaily.js";
 import { compOffCutoffMonthKey } from "../src/lib/compOffBalance.js";
 import {
@@ -131,6 +134,23 @@ describe("resolver honours dates and department overrides", () => {
     expect(registerPresentDaySummaryCreditForCell("WO", { ...prodSat, day: 24 })).toBe(1);
     expect(registerPresentDaySummaryCreditForCell("WO", { ...prodSat, day: 4 })).toBe(0);
     expect(registerPresentDaySummaryCreditForCell("WO", { ...prodSat, department: "HR" })).toBe(0);
+  });
+
+  it("PL/CL/SL on paid 3rd-Saturday weekoff counts 1 in Total present only", () => {
+    setCachedRuleRows(rows);
+    // Oct 2026: 17 = 3rd Saturday (WO for HR); 18 = Sunday WO.
+    const thirdSat = { year: 2026, month: 10, day: 17, department: "HR" };
+    const sunday = { year: 2026, month: 10, day: 18, department: "HR" };
+    expect(isPlClSlOnPaidThirdSaturdayWeekoff("PL", thirdSat)).toBe(true);
+    expect(isPlClSlOnPaidThirdSaturdayWeekoff("CL", thirdSat)).toBe(true);
+    expect(isPlClSlOnPaidThirdSaturdayWeekoff("SL", thirdSat)).toBe(true);
+    expect(isPlClSlOnPaidThirdSaturdayWeekoff("PL", sunday)).toBe(false);
+    expect(registerPresentDaySummaryCreditForCell("PL", thirdSat)).toBe(1);
+    expect(registerPresentDaySummaryCreditForCell("PL", sunday)).toBe(0);
+    // Leave tally and day-level present credit stay 0 on weekoff leave.
+    expect(registerSummaryLeaveCreditForCell("PL", thirdSat)).toBe(0);
+    expect(registerPresentDayCreditForCell("PL", thirdSat)).toBe(0);
+    expect(registerPresentDaySummaryCreditForCell("WO", thirdSat)).toBe(1);
   });
 
   it("C/O start date follows the saved value", () => {

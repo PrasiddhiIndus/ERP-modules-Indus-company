@@ -617,6 +617,17 @@ export function registerSummaryLeaveCreditForCell(mark, _ctx = {}) {
 }
 
 /**
+ * PL/CL/SL on a 3rd-Saturday weekly off — Total present only credits 1 (same as paid
+ * 3rd-Saturday WO). Leave tally, day-level present, sandwich, and WO marks unchanged.
+ */
+export function isPlClSlOnPaidThirdSaturdayWeekoff(mark, ctx = {}) {
+  if (!isPlClSlOnWeekoffDate(mark, ctx)) return false;
+  const { year, month, day } = ctx;
+  if (!year || !month || !day) return false;
+  return isThirdSaturdayOfMonth(year, month, day);
+}
+
+/**
  * 3rd-Saturday WO is a paid day (salary slab counts Mon–Sat) when the 3rd Saturday is a
  * weekly off for the employee (Rules Console weekly off pattern). Employees who work it
  * (by default Production / R&M / M&M / Maintenance-FTC) are never credited here.
@@ -665,12 +676,14 @@ export function isProductionSaturdayWeekoffPresentCredit(mark, { year, month, da
 /**
  * Present credit for register summary Total present column only.
  * P/PL, P/CL, P/SL count as 1 (display); 3rd-Saturday WO counts as 1 (see above).
+ * PL/CL/SL on that paid 3rd-Saturday weekoff also counts as 1 (Total present only).
  * Does not change day-level present/absent logic.
  */
 export function registerPresentDaySummaryCreditForCell(mark, ctx = {}) {
   if (isPaidThirdSaturdayWeekoffCell(mark, ctx)) return 1;
   if (isPaidThirdSaturdayWorkingDeptCell(mark, ctx)) return 1;
   if (isProductionSaturdayWeekoffPresentCredit(mark, ctx)) return 1;
+  if (isPlClSlOnPaidThirdSaturdayWeekoff(mark, ctx)) return 1;
   const compositeCredit = registerCompositePaidLeaveSummaryCredit(mark);
   if (compositeCredit > 0) return compositeCredit;
   return registerPresentDayCreditForCell(mark, ctx);
