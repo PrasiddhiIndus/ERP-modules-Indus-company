@@ -1692,6 +1692,7 @@ export async function fetchRegisterMarksForMonth(
     rows,
     marks: dbRowsToManualMarks(rows, masterCodeMap),
     remarks: dbRowsToManualRemarks(rows, masterCodeMap),
+    markSources: dbRowsToManualMarkSources(rows, masterCodeMap),
   };
 }
 
@@ -4115,40 +4116,91 @@ export async function migrateLocalRegisterMarksIfEmptyMonth(supabase, monthMeta,
 
 /**
  * Monthly attendance totals per employee (for payroll).
- * Merges raw punches + stored register marks into final day codes, then summaries.
+ * Same day grid and Total present as the Daily Attendance Register for that calendar month:
+ * stored marks, approved leave, tours, punches, week-off rules, leaving dates, and holidays.
  */
 export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { empCode = "ALL" } = {}) {
   const monthMeta = monthDateRange(monthValue);
   if (!monthMeta) return { monthMeta: null, rows: [] };
 
-  const [punches, employees, manualMarks] = await Promise.all([
-    fetchAttendancePunchesInRange(supabase, {
-      fromDate: monthMeta.fromDate,
-      toDate: monthMeta.toDate,
-      empCode,
-    }),
-    fetchActiveEmployees(supabase),
-    fetchRegisterMarksForMonth(supabase, {
-      fromDate: monthMeta.fromDate,
-      toDate: monthMeta.toDate,
-    }),
-  ]);
+  const [punches, activeEmployees, inactiveEmployees, manualMarks, approvedLeaveMarks, tourData, holidayDates] =
+    await Promise.all([
+      fetchAttendancePunchesInRange(supabase, {
+        fromDate: monthMeta.fromDate,
+        toDate: monthMeta.toDate,
+        empCode,
+      }),
+      fetchActiveEmployees(supabase),
+      fetchInactiveEmployeesWithDateOfLeaving(supabase).catch(() => []),
+      fetchRegisterMarksForMonth(supabase, {
+        fromDate: monthMeta.fromDate,
+        toDate: monthMeta.toDate,
+      }),
+      fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate).catch((err) => {
+        console.warn("Payroll totals: approved leave marks unavailable", err);
+        return {};
+      }),
+      fetchApprovedTourMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate).catch((err) => {
+        console.warn("Payroll totals: approved tour marks unavailable", err);
+        return { marks: {}, remarks: {} };
+      }),
+      import("./nationalPublicHolidays.js")
+        .then((mod) =>
+          mod.fetchNationalPublicHolidayDatesInRange(supabase, monthMeta.fromDate, monthMeta.toDate)
+        )
+        .catch((err) => {
+          console.warn("Payroll totals: holiday dates unavailable", err);
+          return [];
+        }),
+    ]);
 
-  let emps = employees;
+  const seen = new Set();
+  let emps = [];
+  for (const emp of [...(activeEmployees || []), ...(inactiveEmployees || [])]) {
+    if (
+      emp?.dateOfLeaving &&
+      !isEmployeeRelevantForRegisterMonth(emp.dateOfLeaving, monthMeta.fromDate, monthMeta.toDate)
+    ) {
+      continue;
+    }
+    const code = normalizeAttendanceEmpCode(emp?.empCode);
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    emps.push(emp);
+  }
   const codeFilter = normalizeAttendanceEmpCode(empCode);
   if (codeFilter && String(empCode || "").trim().toUpperCase() !== "ALL") {
     emps = emps.filter((e) => e.empCode === codeFilter);
   }
 
+  const registerRows = manualMarks.rows || [];
+  const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(manualMarks.marks || {}, approvedLeaveMarks, {
+    punches,
+    monthKey: monthMeta.monthKey,
+    registerRows,
+  });
+  const finalized = finalizeRegisterMarksAndRemarks({
+    marks: afterLeave,
+    remarks: manualMarks.remarks || {},
+    tourData,
+    registerRows,
+    punches,
+    monthKey: monthMeta.monthKey,
+  });
+  const holidaySet = new Set((holidayDates || []).map((d) => String(d || "").slice(0, 10)).filter(Boolean));
+
   const { rows, daysInMonth } = buildMonthlyRegisterGrid(punches, emps, {
     year: monthMeta.year,
     month: monthMeta.month,
-    manualMarks: manualMarks.marks || {},
+    manualMarks: finalized.marks || {},
+    markSources: manualMarks.markSources || {},
+    applyLeavingDisplay: true,
   });
 
-  const withSummary = attachRegisterRowSummaries(rows, manualMarks.marks || {}, daysInMonth, {
+  const withSummary = attachRegisterRowSummaries(rows, finalized.marks || {}, daysInMonth, {
     year: monthMeta.year,
     month: monthMeta.month,
+    holidayDates: holidaySet,
   });
 
   return {

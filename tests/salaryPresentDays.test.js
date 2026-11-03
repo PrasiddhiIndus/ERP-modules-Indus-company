@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   capPresentDaysToWorkingDays,
+  presentDaysFromRegisterTotal,
   resolveSalaryMonthWorkingDays,
   salaryPresentDaysFromDayMarks,
   workingDaysMonToSat,
@@ -54,6 +55,29 @@ describe("salary working-day slab", () => {
     expect(salaryPresentDaysFromDayMarks(sep, 2026, 9, "HR")).toBe(26);
     expect(salaryPresentDaysFromDayMarks(sep, 2026, 9, "Production")).toBe(26);
     expect(salaryPresentDaysFromDayMarks(sep, 2026, 9, "Maintenance-FTC")).toBe(26);
+  });
+});
+
+describe("salary P.Days from register Total present", () => {
+  it("keeps the register Total present for that month, including a half day", () => {
+    expect(presentDaysFromRegisterTotal(26.5)).toBe(26.5);
+    expect(presentDaysFromRegisterTotal(28)).toBe(28);
+    expect(presentDaysFromRegisterTotal(null)).toBe(0);
+  });
+
+  it("matches September Total present when Sunday work is included", () => {
+    const dayMarks = {};
+    for (let d = 1; d <= 30; d += 1) dayMarks[d] = [6, 13, 19, 20, 27].includes(d) ? "WO" : "P";
+    dayMarks[6] = "P";
+    dayMarks[13] = "P(OD)";
+    const [row] = attachRegisterRowSummaries(
+      [{ empCode: "1001", employeeName: "A", department: "HR", dayMarks }],
+      {},
+      30,
+      { year: 2026, month: 9 }
+    );
+    expect(row.summary.totalPresent).toBe(28);
+    expect(presentDaysFromRegisterTotal(row.summary.totalPresent)).toBe(28);
   });
 });
 
