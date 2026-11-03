@@ -203,6 +203,89 @@ export function registerAdminRecruitmentRoutes(app, deps) {
     });
   };
 
+  /** Last 10 digits for matching Employee Master personal_no / candidate phone. */
+  function phoneDigits(value) {
+    const digits = String(value || '').replace(/\D/g, '');
+    return digits.length >= 10 ? digits.slice(-10) : '';
+  }
+
+  /**
+   * Appointment Annexure II needs Employee Code + DOB. Prefer values already on the
+   * candidate; otherwise fetch from Employee Master by mobile / email (no layout change).
+   */
+  async function enrichAppointmentCandidate(svc, candidate) {
+    const base = candidate && typeof candidate === 'object' ? { ...candidate } : {};
+    const needCode = !String(base.employee_code || '').trim();
+    const needDob = !base.date_of_birth;
+    if (!needCode && !needDob) return base;
+
+    const phone = phoneDigits(base.phone);
+    const email = String(base.email || '')
+      .trim()
+      .toLowerCase();
+    if (!phone && !email) return base;
+
+    const rows = [];
+    if (email) {
+      const { data, error } = await svc
+        .from('admin_ifsp_employee_master')
+        .select('employee_code, date_of_birth, personal_no, email_id')
+        .ilike('email_id', email)
+        .limit(10);
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.warn('[admin-recruitment] employee master email lookup skipped:', error.message);
+      } else {
+        rows.push(...(data || []));
+      }
+    }
+    if (phone) {
+      // personal_no may include spaces/country code — pull recent actives and match last 10 digits.
+      const { data, error } = await svc
+        .from('admin_ifsp_employee_master')
+        .select('employee_code, date_of_birth, personal_no, email_id')
+        .ilike('personal_no', `%${phone}`)
+        .limit(10);
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.warn('[admin-recruitment] employee master phone lookup skipped:', error.message);
+      } else {
+        rows.push(...(data || []));
+      }
+    }
+
+    const seen = new Set();
+    const match = rows.find((r) => {
+      const key = `${r.employee_code || ''}|${r.personal_no || ''}|${r.email_id || ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      const rowPhone = phoneDigits(r.personal_no);
+      const rowEmail = String(r.email_id || '')
+        .trim()
+        .toLowerCase();
+      return (phone && rowPhone === phone) || (email && rowEmail === email);
+    });
+    if (!match) return base;
+
+    const patch = {};
+    if (needCode && String(match.employee_code || '').trim()) {
+      base.employee_code = String(match.employee_code).trim();
+      patch.employee_code = base.employee_code;
+    }
+    if (needDob && match.date_of_birth) {
+      base.date_of_birth = match.date_of_birth;
+      patch.date_of_birth = match.date_of_birth;
+    }
+    if (Object.keys(patch).length && base.id) {
+      const { error: upErr } = await svc.from('admin_recruitment_candidates').update(patch).eq('id', base.id);
+      if (upErr) {
+        // eslint-disable-next-line no-console
+        console.warn('[admin-recruitment] could not store fetched emp code/DOB on candidate:', upErr.message);
+      }
+    }
+    return base;
+  }
+
   // ---- letter generation -------------------------------------------------
   async function generateLetter(db, kind, id) {
     const table = kind === 'offer' ? 'admin_recruitment_offers' : 'admin_recruitment_appointments';
@@ -226,7 +309,7 @@ export function registerAdminRecruitmentRoutes(app, deps) {
     const [{ data: candidate }, { data: settings }] = await Promise.all([
       svc
         .from('admin_recruitment_candidates')
-        .select('id, full_name, current_location, home_town, email, expected_ctc, date_of_birth, employee_code')
+        .select('id, full_name, phone, current_location, home_town, email, expected_ctc, date_of_birth, employee_code')
         .eq('id', row.candidate_id)
         .maybeSingle(),
       svc.from('admin_recruitment_settings').select('company_name').maybeSingle(),
@@ -236,12 +319,13 @@ export function registerAdminRecruitmentRoutes(app, deps) {
     if (kind === 'offer') {
       docx = await buildOfferLetterDocx(row, candidate || {}, companyName);
     } else {
+      const letterCandidate = await enrichAppointmentCandidate(svc, candidate || {});
       const { data: offer } = await svc
         .from('admin_recruitment_offers')
         .select('offer_ref, annual_ctc, monthly_gross, designation, department')
         .eq('id', row.offer_id)
         .maybeSingle();
-      docx = await buildAppointmentLetterDocx(row, offer, candidate || {}, companyName);
+      docx = await buildAppointmentLetterDocx(row, offer, letterCandidate, companyName);
     }
     const ref = String(kind === 'offer' ? row.offer_ref : row.appointment_ref).replace(/[^A-Za-z0-9]+/g, '-');
     const fileName = `${kind === 'offer' ? 'Offer' : 'Appointment'}-${ref}.docx`;

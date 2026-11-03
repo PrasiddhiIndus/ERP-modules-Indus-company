@@ -181,8 +181,12 @@ if (-not (Test-Path $out)) { throw 'Word did not write the filled letter.' }
 }
 
 async function fillDocxTemplate(templatePath, placeholders) {
-  const viaWord = await fillDocxTemplateWithWord(templatePath, placeholders);
-  if (viaWord) return viaWord;
+  // Production Linux has no Word COM — force zip fill locally with ADMIN_RECRUITMENT_FORCE_ZIP_FILL=1.
+  const forceZip = String(process.env.ADMIN_RECRUITMENT_FORCE_ZIP_FILL || '').trim() === '1';
+  if (!forceZip) {
+    const viaWord = await fillDocxTemplateWithWord(templatePath, placeholders);
+    if (viaWord) return viaWord;
+  }
   return fillDocxTemplateZip(templatePath, placeholders);
 }
 
@@ -790,8 +794,15 @@ function normalizeAppointmentLetterDocxLayout(docxBuffer) {
   }
 }
 
-/** CTC annexure cell repair only — does not touch margins, spacing, or page breaks. */
-function applyAppointmentAnnexureCellFixOnly(docxBuffer) {
+/**
+ * Post-fill Word cleanup for appointment letters:
+ * - Repair broken CTC amount cells (no margin/font changes).
+ * - Remove empty/tab-only paragraphs between the signature name and "Annexure - I"
+ *   so a blank page does not appear (target: exactly 4 pages).
+ * Does not remap fonts or rewrite body spacing (LibreOffice-only path handles that).
+ * Applied for both local Word COM fill and production zip fill so Word/PDF stay aligned.
+ */
+export function finalizeAppointmentLetterDocx(docxBuffer) {
   const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
   if (buf.length < 100) return buf;
   try {
@@ -799,13 +810,21 @@ function applyAppointmentAnnexureCellFixOnly(docxBuffer) {
     const docFile = zip.file('word/document.xml');
     if (!docFile) return buf;
     const before = docFile.asText();
-    const after = fixAnnexureAmountCells(before);
+    let after = fixAnnexureAmountCells(before);
+    after = fixAppointmentAnnexureIPagination(after);
     if (after === before) return buf;
     zip.file('word/document.xml', after);
     return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
-  } catch {
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[admin-recruitment] appointment finalize skipped:', err?.message || err);
     return buf;
   }
+}
+
+/** @deprecated use finalizeAppointmentLetterDocx — kept for call sites that only need cell repair + blank-page strip. */
+function applyAppointmentAnnexureCellFixOnly(docxBuffer) {
+  return finalizeAppointmentLetterDocx(docxBuffer);
 }
 
 export async function buildAppointmentLetterDocx(appt, offer, candidate, companyName) {
@@ -813,9 +832,10 @@ export async function buildAppointmentLetterDocx(appt, offer, candidate, company
     APPOINTMENT_TEMPLATE,
     appointmentPlaceholders(appt, offer, candidate, companyName)
   );
-  // Keep the Word template's exact margins/spacing/xy. Only repair broken CTC amount cells.
-  // LibreOffice-oriented pagination rewrites are applied only if Graph/Word PDF convert is unavailable.
-  return applyAppointmentAnnexureCellFixOnly(filled);
+  // Keep margins/fonts/xy from the Word template. Only repair CTC cells and strip the
+  // blank page between the signature name and Annexure - I (Employee Code / DOB fill
+  // must not change alignment — those tokens live in Annexure II cells only).
+  return finalizeAppointmentLetterDocx(filled);
 }
 
 /**
@@ -1125,11 +1145,12 @@ export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
   const isAppointmentLetter = /\bappointment\b/.test(name);
   const forceLibreOffice = String(process.env.FORCE_LIBREOFFICE_PDF || '').trim() === '1';
 
-  // Word / Graph must print the filled template as-is (exact Word x/y, margins, spacing).
+  // Word / Graph print the filled template; appointment buffer is re-finalized so
+  // production email PDF matches the stored 4-page Word letter (blank page stripped).
   const exactBuffer = isOfferLetter
     ? normalizeOfferLetterDocxLayout(docxBuffer)
     : isAppointmentLetter
-      ? applyAppointmentAnnexureCellFixOnly(docxBuffer)
+      ? finalizeAppointmentLetterDocx(docxBuffer)
       : docxBuffer;
 
   if (!forceLibreOffice && process.platform === 'win32') {
