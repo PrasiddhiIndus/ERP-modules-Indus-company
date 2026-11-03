@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Block local secret env files from being committed (GitHub push protection).
+set -euo pipefail
+
+blocked='^(env|env\.server|\.env|\.env\.server|\.envserver)$'
+staged="$(git diff --cached --name-only --diff-filter=ACM || true)"
+bad=()
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  base="$(basename "$f")"
+  if [[ "$base" =~ $blocked ]] || [[ "$f" == "env" || "$f" == "env.server" ]]; then
+    bad+=("$f")
+  fi
+done <<< "$staged"
+
+if [ "${#bad[@]}" -gt 0 ]; then
+  echo "pre-commit: refusing to commit secret env file(s):" >&2
+  printf '  - %s\n' "${bad[@]}" >&2
+  echo "Keep these local only (already in .gitignore). Use .env.server.example for templates." >&2
+  exit 1
+fi
