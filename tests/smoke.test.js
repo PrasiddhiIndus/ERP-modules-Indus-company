@@ -626,6 +626,25 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
     expect(summary.nhph).toBe(2);
     expect(summary.totalPresent).toBe(26); // 22 P + 2×1 P/PL + 2 NH/PH (summary display)
   });
+
+  it('counts PL on weekly off in Leave total, but not in Total present', () => {
+    // Oct 2026: Sun 18th + 3rd Sat 17th are weekly offs under sun_3rd_sat.
+    const dayMarks = {};
+    for (let day = 1; day <= 31; day += 1) dayMarks[day] = 'P';
+    dayMarks[10] = 'P/PL';
+    dayMarks[15] = 'PL';
+    dayMarks[16] = 'PL';
+    dayMarks[17] = 'PL'; // 3rd Saturday
+    dayMarks[18] = 'PL'; // Sunday
+    dayMarks[19] = 'PL';
+    const summary = computeEmployeeRegisterSummary(
+      { empCode: '6956', department: 'Project', dayMarks },
+      {},
+      31,
+      { year: 2026, month: 10 }
+    );
+    expect(summary.leave).toBe(5.5); // 0.5 + five PLs as shown on the grid
+  });
 });
 
 describe('manual register mark priority', () => {

@@ -4,6 +4,7 @@
  */
 
 import {
+  dropInOutSlotsWhenGranularExists,
   normalizeAttendanceEmpCode,
   normalizeDbDate,
   normalizeDbTime,
@@ -133,8 +134,9 @@ export function dayOfMonthFromIsoDate(isoDate) {
  */
 export function punchesToPresentRegisterRows(punches, { timesFor = null } = {}) {
   const groups = new Map();
+  const dayWisePunches = dropInOutSlotsWhenGranularExists(punches || []);
 
-  for (const punch of punches || []) {
+  for (const punch of dayWisePunches) {
     const employee_code = normalizeAttendanceEmpCode(punch.empCode ?? punch.employee_code);
     const register_date = normalizeDbDate(punch.punchDate ?? punch.punch_date);
     if (!employee_code || !register_date) continue;

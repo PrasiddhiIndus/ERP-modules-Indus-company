@@ -1,0 +1,66 @@
+{
+  "month": "2026-10",
+  "target": {
+    "empCode": "6956",
+    "name": "Ankur Patanwadia",
+    "department": "Project",
+    "summaryLeave": 5.5,
+    "summaryPresent": 26,
+    "naiveLeaveWeight": 5.5,
+    "creditedLeave": 5.5,
+    "underBy": 0,
+    "sandwichOnOff": [],
+    "leaveDays": [
+      {
+        "day": 10,
+        "mark": "P/PL",
+        "weight": 0.5,
+        "credited": 0.5,
+        "present": 1,
+        "offDay": false
+      },
+      {
+        "day": 15,
+        "mark": "PL",
+        "weight": 1,
+        "credited": 1,
+        "present": 1,
+        "offDay": false
+      },
+      {
+        "day": 16,
+        "mark": "PL",
+        "weight": 1,
+        "credited": 1,
+        "present": 1,
+        "offDay": false
+      },
+      {
+        "day": 17,
+        "mark": "PL",
+        "weight": 1,
+        "credited": 1,
+        "present": 0,
+        "offDay": true
+      },
+      {
+        "day": 18,
+        "mark": "PL",
+        "weight": 1,
+        "credited": 1,
+        "present": 0,
+        "offDay": true
+      },
+      {
+        "day": 19,
+        "mark": "PL",
+        "weight": 1,
+        "credited": 1,
+        "present": 1,
+        "offDay": false
+      }
+    ]
+  },
+  "undercountCount": 0,
+  "undercounted": []
+}

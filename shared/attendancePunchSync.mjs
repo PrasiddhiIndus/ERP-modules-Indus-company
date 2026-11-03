@@ -188,13 +188,45 @@ export function mapApiPunchToDbRow(record, index = 0) {
   };
 }
 
-function isSlotPunchKey(punchKey) {
-  return /\|(in|out)$/i.test(String(punchKey || '').trim());
+/** True for InOut summary keys only: `emp|date|in` or `emp|date|out` (exactly 3 parts). */
+export function isSlotPunchKey(punchKey) {
+  const parts = String(punchKey || '')
+    .trim()
+    .split('|');
+  if (parts.length !== 3) return false;
+  const slot = parts[2].toLowerCase();
+  return slot === 'in' || slot === 'out';
 }
 
-function isSlotApiPunchRecord(record) {
+export function isSlotApiPunchRecord(record) {
   const slot = String(record?.punchSlot || record?.punch_slot || '').trim().toLowerCase();
-  return slot === 'in' || slot === 'out';
+  if (slot === 'in' || slot === 'out') return true;
+  return isSlotPunchKey(record?.punchKey || record?.punch_key);
+}
+
+/**
+ * DownloadInOutPunchData day summaries often stamp the next morning's punch as
+ * yesterday's OUT (same DateString). When real per-punch rows exist for that
+ * emp+date, drop the in/out summary slots so pairing stays calendar-day-wise.
+ */
+export function dropInOutSlotsWhenGranularExists(records) {
+  const list = Array.isArray(records) ? records : [];
+  const daysWithGranular = new Set();
+  for (const record of list) {
+    if (isSlotApiPunchRecord(record)) continue;
+    const emp = normalizeAttendanceEmpCode(record?.empCode ?? record?.employee_code);
+    const date = normalizeDbDate(record?.punchDate ?? record?.punch_date);
+    if (emp && date) daysWithGranular.add(`${emp}|${date}`);
+  }
+  if (!daysWithGranular.size) return list;
+
+  return list.filter((record) => {
+    if (!isSlotApiPunchRecord(record)) return true;
+    const emp = normalizeAttendanceEmpCode(record?.empCode ?? record?.employee_code);
+    const date = normalizeDbDate(record?.punchDate ?? record?.punch_date);
+    if (!emp || !date) return true;
+    return !daysWithGranular.has(`${emp}|${date}`);
+  });
 }
 
 /**
@@ -251,10 +283,11 @@ export function dedupeApiPunchRecords(records) {
     }
   }
 
+  const dayWise = dropInOutSlotsWhenGranularExists([...map.values()]);
   return {
-    records: [...map.values()],
+    records: dayWise,
     inputCount: (records || []).length,
-    uniqueCount: map.size,
+    uniqueCount: dayWise.length,
     collisionCount,
     skippedInvalid,
   };
@@ -313,11 +346,11 @@ export function dedupePunchDbRows(rows) {
     }
   }
 
-  const unique = [...byEmpDateTime.values()];
+  const dayWise = dropInOutSlotsWhenGranularExists([...byEmpDateTime.values()]);
   return {
-    rows: unique,
+    rows: dayWise,
     inputCount: rows.length,
-    uniqueCount: unique.length,
+    uniqueCount: dayWise.length,
     collisionCount,
     skippedInvalid,
   };

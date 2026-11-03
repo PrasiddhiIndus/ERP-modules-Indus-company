@@ -405,7 +405,9 @@ export function normalizeEtimePunchRows(data) {
 }
 
 export function uniqueEtimePunchEndpoints(primary) {
-  const granularFirst = String(process.env.ETIME_PREFER_GRANULAR_PUNCHES || '').toLowerCase() === 'true';
+  // Default on: per-punch rows keep calendar days correct; InOut summaries often
+  // attach the next morning as yesterday's OUT.
+  const granularFirst = String(process.env.ETIME_PREFER_GRANULAR_PUNCHES || 'true').toLowerCase() !== 'false';
   const list = [primary, 'DownloadPunchData', 'DownloadInOutPunchData'].filter(Boolean);
   const unique = Array.from(new Set(list));
   if (granularFirst) {
