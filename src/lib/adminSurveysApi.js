@@ -53,12 +53,25 @@ export async function unpublishSurvey(id) {
   return call(`/api/admin/surveys/${encodeURIComponent(id)}/unpublish`, { method: "POST", body: {} });
 }
 
+/** Pause / resume from the surveys list without opening the editor. */
+export async function setSurveyActive(id, isActive) {
+  return call(`/api/admin/surveys/${encodeURIComponent(id)}/active`, {
+    method: "POST",
+    body: { is_active: Boolean(isActive) },
+  });
+}
+
 export async function duplicateSurvey(id) {
   return call(`/api/admin/surveys/${encodeURIComponent(id)}/duplicate`, { method: "POST", body: {} });
 }
 
 export async function archiveSurvey(id) {
   return call(`/api/admin/surveys/${encodeURIComponent(id)}/archive`, { method: "POST", body: {} });
+}
+
+/** Permanently deletes the survey, its assignments, and all responses. */
+export async function deleteSurvey(id) {
+  return call(`/api/admin/surveys/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 /** Short summary shown in toasts after publish. */

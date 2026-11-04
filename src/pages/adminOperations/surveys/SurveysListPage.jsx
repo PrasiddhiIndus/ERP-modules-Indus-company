@@ -23,10 +23,12 @@ import { toast } from "../../../lib/toast";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import {
   archiveSurvey,
+  deleteSurvey,
   describeAssignmentSync,
   duplicateSurvey,
   listSurveys,
   publishSurvey,
+  setSurveyActive,
   unpublishSurvey,
 } from "../../../lib/adminSurveysApi";
 import { surveyKindLabel } from "../../../../shared/surveyModel.mjs";
@@ -106,6 +108,15 @@ export default function SurveysListPage() {
       } else if (action === "archive") {
         await archiveSurvey(survey.id);
         toast.success("Survey archived");
+      } else if (action === "delete") {
+        await deleteSurvey(survey.id);
+        toast.success("Survey deleted", "The survey and all its responses were permanently removed.");
+      } else if (action === "activate") {
+        await setSurveyActive(survey.id, true);
+        toast.success("Survey active", "Employees can see it again in Indus One (if published).");
+      } else if (action === "deactivate") {
+        await setSurveyActive(survey.id, false);
+        toast.success("Survey inactive", "Paused — employees will not see it until you make it active again.");
       }
       await load();
     } catch (err) {
@@ -116,9 +127,9 @@ export default function SurveysListPage() {
     }
   };
 
-  /** Publishing to everyone and archiving are confirmed first. */
+  /** Publishing to everyone, archive, and delete are confirmed first. */
   const requestAction = (survey, action) => {
-    if ((action === "publish" && survey.audience_type === "all") || action === "archive") {
+    if ((action === "publish" && survey.audience_type === "all") || action === "archive" || action === "delete") {
       setConfirm({ survey, action });
       return;
     }
@@ -149,6 +160,40 @@ export default function SurveysListPage() {
             <StatusChip label={chip.label} severity={chip.severity} />
             {s.status === "published" && !s.is_active ? <StatusChip label="Paused" severity="warning" /> : null}
           </span>
+        );
+      },
+    },
+    {
+      key: "is_active",
+      label: "Active",
+      render: (s) => {
+        if (s.status === "archived") {
+          return <span className="text-[11px] text-ink-muted">—</span>;
+        }
+        const busy = busyId === s.id;
+        const on = s.is_active !== false;
+        return (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={on}
+            disabled={busy}
+            title={on ? "Active — click to pause" : "Inactive — click to activate"}
+            onClick={(e) => {
+              e.stopPropagation();
+              void runAction(s, on ? "deactivate" : "activate");
+            }}
+            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors disabled:opacity-50 ${
+              on ? "border-accent bg-accent" : "border-border bg-surface-sunken"
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                on ? "translate-x-6" : "translate-x-1"
+              }`}
+            />
+            <span className="sr-only">{on ? "Active" : "Inactive"}</span>
+          </button>
         );
       },
     },
@@ -206,6 +251,14 @@ export default function SurveysListPage() {
                 Archive
               </button>
             ) : null}
+            <button
+              type="button"
+              className="text-[11px] font-medium text-critical hover:underline disabled:opacity-50"
+              disabled={busy}
+              onClick={stop(() => requestAction(s, "delete"))}
+            >
+              Delete
+            </button>
           </div>
         );
       },
@@ -286,7 +339,13 @@ export default function SurveysListPage() {
 
       <Modal
         open={Boolean(confirm)}
-        title={confirm?.action === "archive" ? "Archive survey?" : "Publish to all employees?"}
+        title={
+          confirm?.action === "delete"
+            ? "Delete survey permanently?"
+            : confirm?.action === "archive"
+              ? "Archive survey?"
+              : "Publish to all employees?"
+        }
         onClose={() => setConfirm(null)}
         footer={
           <div className="flex justify-end gap-2 w-full">
@@ -295,12 +354,17 @@ export default function SurveysListPage() {
               disabled={busyId === confirm?.survey?.id}
               onClick={() => confirm && void runAction(confirm.survey, confirm.action)}
             >
-              {confirm?.action === "archive" ? "Archive" : "Publish"}
+              {confirm?.action === "delete" ? "Delete forever" : confirm?.action === "archive" ? "Archive" : "Publish"}
             </PrimaryButton>
           </div>
         }
       >
-        {confirm?.action === "archive" ? (
+        {confirm?.action === "delete" ? (
+          <p className="text-xs text-ink-secondary">
+            &quot;{confirm?.survey?.title}&quot; will be permanently deleted, including all employee assignments and
+            responses. This cannot be undone.
+          </p>
+        ) : confirm?.action === "archive" ? (
           <p className="text-xs text-ink-secondary">
             &quot;{confirm?.survey?.title}&quot; will be hidden from employees and can no longer be edited. Responses stay
             available here.
