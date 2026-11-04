@@ -5,7 +5,6 @@ import {
   ComposedTrendChart,
   makeMoneyAxisFormatter,
 } from "../../components/charts/DashboardCharts";
-import { CHART_SERIES } from "../../theme/tokens";
 import { inrShort } from "../finance/lib/formatters";
 
 export default function CompanyBooks({ pl, rangeLabel, canOpen, onOpen, onOpenMonth, onOpenSite }) {
@@ -40,9 +39,9 @@ export default function CompanyBooks({ pl, rangeLabel, canOpen, onOpen, onOpenMo
         {ready && trend.length ? (
           <ComposedTrendChart
             data={trend}
-            areas={[{ key: "revenue", name: "Revenue", color: CHART_SERIES[0] }]}
-            bars={[{ key: "expense", name: "Expense", color: CHART_SERIES[3] }]}
-            lines={[{ key: "profit", name: "Profit", color: CHART_SERIES[5] }]}
+            areas={[{ key: "revenue", name: "Revenue", color: "var(--cp-info)" }]}
+            bars={[{ key: "expense", name: "Expense", color: "var(--cp-risk)" }]}
+            lines={[{ key: "profit", name: "Profit", color: "var(--cp-good)" }]}
             height={230}
             formatter={(value) => inrShort(value)}
             yTickFormatter={axis}
@@ -61,7 +60,7 @@ export default function CompanyBooks({ pl, rangeLabel, canOpen, onOpen, onOpenMo
             data={sites}
             layout="horizontal"
             xKey="name"
-            series={[{ key: "profit", name: "Profit", color: CHART_SERIES[5] }]}
+            series={[{ key: "profit", name: "Profit", color: "var(--cp-good)" }]}
             height={230}
             categoryWidth={118}
             formatter={(value) => inrShort(value)}
