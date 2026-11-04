@@ -335,7 +335,39 @@ function rowMatchesDateRange(row, fromDate, toDate) {
  * Prefer service-role API so ERP admins see ALL employees' tours (RLS otherwise
  * often returns only the signed-in user's rows). Falls back to direct Supabase.
  */
-async function loadTourInboxSourceRows() {
+/**
+ * Coalesce overlapping calls (inbox list + KPI counts + React Strict Mode) and keep a short
+ * cache so filter / page changes do not re-download every tour row. Realtime events
+ * invalidate the cache (see subscribeTourWorkflowRealtime); pass force for a fresh read.
+ */
+let tourInboxInflight = null;
+let tourInboxCache = { at: 0, payload: null };
+const TOUR_INBOX_CACHE_MS = 30_000;
+
+export function invalidateTourInboxCache() {
+  tourInboxCache = { at: 0, payload: null };
+}
+
+async function loadTourInboxSourceRows({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && tourInboxCache.payload && now - tourInboxCache.at < TOUR_INBOX_CACHE_MS) {
+    return tourInboxCache.payload;
+  }
+  if (tourInboxInflight) return tourInboxInflight;
+
+  tourInboxInflight = loadTourInboxSourceRowsUncached()
+    .then((payload) => {
+      tourInboxCache = { at: Date.now(), payload };
+      return payload;
+    })
+    .finally(() => {
+      tourInboxInflight = null;
+    });
+
+  return tourInboxInflight;
+}
+
+async function loadTourInboxSourceRowsUncached() {
   try {
     const result = await fetchApiWithAuth("/api/admin/tour-requests");
     if (result.ok && (Array.isArray(result.data?.lmsRows) || Array.isArray(result.data?.adminRows))) {
@@ -380,8 +412,8 @@ async function loadTourInboxSourceRows() {
   };
 }
 
-export async function fetchTourStatusCounts() {
-  const { lmsRows, adminRows } = await loadTourInboxSourceRows();
+export async function fetchTourStatusCounts({ forceRefresh = false } = {}) {
+  const { lmsRows, adminRows } = await loadTourInboxSourceRows({ force: forceRefresh });
   const merged = mergeLmsAndAdminTourRows(lmsRows, adminRows);
   const counts = { pending: 0, approved: 0, rejected: 0, cancelled: 0, withdrawn: 0, all: merged.length };
   for (const row of merged) {
@@ -405,9 +437,10 @@ export async function fetchTourRequests(opts = {}) {
     departments = [],
     page = 1,
     pageSize = PAGE_SIZE_DEFAULT,
+    forceRefresh = false,
   } = opts;
 
-  const { lmsRows, adminRows } = await loadTourInboxSourceRows();
+  const { lmsRows, adminRows } = await loadTourInboxSourceRows({ force: forceRefresh });
   let merged = mergeLmsAndAdminTourRows(lmsRows, adminRows);
 
   const needle = empSearch.trim();
@@ -502,27 +535,33 @@ export function subscribeTourWorkflowRealtime(onChange) {
     return () => {};
   }
 
+  // Drop cached inbox rows before any listener reloads, so realtime refreshes stay fresh.
+  const handleChange = (payload) => {
+    invalidateTourInboxCache();
+    onChange(payload);
+  };
+
   const channel = supabase
     .channel("erp-indus-one-tour-workflow")
     .on(
       "postgres_changes",
       { event: "*", schema: INDUS_ONE_SCHEMA, table: INDUS_ONE_TOUR_TABLES.lmsRequests },
-      onChange
+      handleChange
     )
     .on(
       "postgres_changes",
       { event: "*", schema: INDUS_ONE_SCHEMA, table: INDUS_ONE_TOUR_TABLES.adminRequests },
-      onChange
+      handleChange
     )
     .on(
       "postgres_changes",
       { event: "*", schema: INDUS_ONE_SCHEMA, table: INDUS_ONE_TOUR_TABLES.attendanceMarks },
-      onChange
+      handleChange
     )
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "admin_attendance_register" },
-      onChange
+      handleChange
     )
     .subscribe();
 

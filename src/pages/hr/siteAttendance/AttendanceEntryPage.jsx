@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { formatPunchTime } from "../../../lib/siteAttendance/selfiePunchesApi";
 import { toast } from "../../../lib/toast";
 import * as XLSX from "xlsx";
 import { FilterBar, KpiTile, Modal, PageTaskHeader, SectionCard, StatusChip, TinyInput, TinySelect } from "../../../components/erpUi";
@@ -12,6 +13,14 @@ import { useAuth } from "../../../contexts/AuthContext";
 import AttendanceImportModal from "./import/AttendanceImportModal";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+/** Sticky freeze classes — beat shell `.sticky.top-0 { z-index: 25 }` + transparent thead th. */
+const FREEZE_HEAD =
+  "att-daily-freeze att-daily-freeze-head sticky top-0 border-b border-r border-divider box-border";
+const FREEZE_BODY = "att-daily-freeze att-daily-freeze-body sticky border-b border-r border-divider box-border";
+const COL_NUM = "left-0 w-9 min-w-[2.25rem] max-w-[2.25rem]";
+const COL_NAME = "left-9 w-44 min-w-[11rem] max-w-[11rem]";
+const COL_DESIG = "left-[13.25rem] w-[7.5rem] min-w-[7.5rem] max-w-[7.5rem] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.18)]";
 
 function codeClass(code) {
   const c = String(code || "").toUpperCase();
@@ -301,23 +310,31 @@ export default function AttendanceEntryPage({ readOnly = false }) {
 
       {g.site && g.days.length > 0 ? (
         <SectionCard title="Daily grid">
-          <div className="overflow-auto max-h-[70vh] border border-border rounded-lg">
-            <table className="text-[11px] border-collapse min-w-max">
-              <thead className="sticky top-0 z-20 bg-surface-raised">
+          <div className="att-daily-grid-scroll overflow-auto max-h-[70vh] border border-border rounded-lg">
+            {/*
+              erp-table-exempt: shell CSS forces border-collapse + transparent thead th,
+              which makes sticky Name/Desig collide with scrolling date headers.
+              Freeze cells use .att-daily-freeze-* (opaque bg + z-index above shell sticky rule).
+            */}
+            <table className="erp-table-exempt att-daily-grid text-[11px] border-separate border-spacing-0 min-w-max">
+              <thead>
                 <tr>
-                  <th className="sticky left-0 z-30 bg-surface-raised border border-divider px-2 py-1.5">#</th>
-                  <th className="sticky left-[36px] z-30 bg-surface-raised border border-divider px-2 py-1.5 min-w-[140px]">Name</th>
-                  <th className="border border-divider px-2 py-1.5">Desig.</th>
+                  <th className={`${FREEZE_HEAD} ${COL_NUM} px-1 py-1.5 text-center`}>#</th>
+                  <th className={`${FREEZE_HEAD} ${COL_NAME} px-2 py-1.5 text-left`}>Name</th>
+                  <th className={`${FREEZE_HEAD} ${COL_DESIG} px-2 py-1.5 text-left`}>Desig.</th>
                   {g.days.map((d) => (
-                    <th key={d.dateString} className={`border border-divider px-1 py-1 text-center min-w-[52px] ${g.isNhPh(d.dateString) ? "bg-amber-50" : ""}`}>
+                    <th
+                      key={d.dateString}
+                      className={`att-daily-date-head sticky top-0 border-b border-r border-divider px-1 py-1 text-center min-w-[52px] ${g.isNhPh(d.dateString) ? "att-daily-date-head--nh" : ""}`}
+                    >
                       <div>{d.day}{g.range && !isCalendarMonth(g.range.startDay, g.range.endDay) ? ` ${d.monthShort}` : ""}</div>
                       <div className="text-[10px] text-ink-muted">{d.date.toLocaleDateString("en-GB", { weekday: "short" })}</div>
                     </th>
                   ))}
-                  <th className="border border-divider px-1">P</th>
-                  <th className="border border-divider px-1">L</th>
-                  <th className="border border-divider px-1">WO</th>
-                  <th className="border border-divider px-1">OT</th>
+                  <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1">P</th>
+                  <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1">L</th>
+                  <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1">WO</th>
+                  <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1">OT</th>
                 </tr>
               </thead>
               <tbody>
@@ -325,15 +342,16 @@ export default function AttendanceEntryPage({ readOnly = false }) {
                   const tot = g.totals[idx] || {};
                   const personId = row.person_id || row.id;
                   const desig = row.grid_designation || row.designation;
+                  const freezeTone = row.isDuplicate ? "att-daily-freeze-body--alt" : "";
                   return (
                     <React.Fragment key={`${personId}-${desig}-${idx}`}>
-                      <tr className={row.isDuplicate ? "bg-slate-50" : ""}>
-                        <td className="sticky left-0 z-10 bg-white border border-divider px-2 text-center">{idx + 1}</td>
-                        <td className="sticky left-[36px] z-10 bg-white border border-divider px-2 whitespace-nowrap">
-                          {row.full_name}{row.isDefaultDesignationRow ? " *" : ""}
+                      <tr>
+                        <td className={`${FREEZE_BODY} ${COL_NUM} ${freezeTone} px-1 text-center`}>{idx + 1}</td>
+                        <td className={`${FREEZE_BODY} ${COL_NAME} ${freezeTone} px-2 whitespace-nowrap overflow-hidden text-ellipsis text-left`}>
+                          <span className="align-middle">{row.full_name}{row.isDefaultDesignationRow ? " *" : ""}</span>
                           {g.multi && !readOnly ? (
                             <select
-                              className="ml-1 h-6 text-[10px] border rounded"
+                              className="ml-1 h-6 max-w-[4.5rem] text-[10px] border rounded align-middle"
                               defaultValue=""
                               onChange={(e) => {
                                 if (e.target.value) g.copyToDesignation(personId, e.target.value);
@@ -347,12 +365,18 @@ export default function AttendanceEntryPage({ readOnly = false }) {
                             </select>
                           ) : null}
                         </td>
-                        <td className="border border-divider px-2 whitespace-nowrap">{desig}</td>
+                        <td className={`${FREEZE_BODY} ${COL_DESIG} ${freezeTone} px-2 whitespace-nowrap overflow-hidden text-ellipsis text-left`} title={desig}>{desig}</td>
                         {g.days.map((d) => {
                           const rec = g.getRecord(personId, d.dateString, desig);
                           const disabled = g.isCellDisabled(row, d.dateString);
                           return (
-                            <td key={d.dateString} className={`border border-divider p-0 ${g.isNhPh(d.dateString) ? "bg-amber-50" : ""} ${codeClass(rec?.att_code)}`}>
+                            <td
+                              key={d.dateString}
+                              className={`border-b border-r border-divider p-0 ${g.isNhPh(d.dateString) ? "bg-amber-50" : "bg-surface"} ${codeClass(rec?.att_code)} ${rec?._selfie ? "ring-1 ring-inset ring-sky-400" : ""}`}
+                              title={rec?._selfie ? `Selfie punch — In ${formatPunchTime(rec._selfie.in)} · Out ${formatPunchTime(rec._selfie.out)}${rec._selfie.address ? `
+${rec._selfie.address}` : ""}
+Change to override.` : undefined}
+                            >
                               <select
                                 className="w-full h-7 bg-transparent text-[11px] text-center"
                                 disabled={disabled}
@@ -366,20 +390,20 @@ export default function AttendanceEntryPage({ readOnly = false }) {
                             </td>
                           );
                         })}
-                        <td className="border border-divider px-1 text-center tabular-nums">{tot.totalPresent ?? 0}</td>
-                        <td className="border border-divider px-1 text-center tabular-nums">{tot.totalLeave ?? 0}</td>
-                        <td className="border border-divider px-1 text-center tabular-nums">{tot.appliedWeekoff ?? 0}</td>
-                        <td className="border border-divider px-1 text-center tabular-nums">{tot.totalOT ?? 0}</td>
+                        <td className="border-b border-r border-divider px-1 text-center tabular-nums bg-surface">{tot.totalPresent ?? 0}</td>
+                        <td className="border-b border-r border-divider px-1 text-center tabular-nums bg-surface">{tot.totalLeave ?? 0}</td>
+                        <td className="border-b border-r border-divider px-1 text-center tabular-nums bg-surface">{tot.appliedWeekoff ?? 0}</td>
+                        <td className="border-b border-r border-divider px-1 text-center tabular-nums bg-surface">{tot.totalOT ?? 0}</td>
                       </tr>
                       <tr>
-                        <td className="sticky left-0 bg-white border border-divider" />
-                        <td className="sticky left-[36px] bg-white border border-divider text-[10px] text-ink-muted px-2">OT</td>
-                        <td className="border border-divider" />
+                        <td className={`${FREEZE_BODY} ${COL_NUM} ${freezeTone}`} />
+                        <td className={`${FREEZE_BODY} ${COL_NAME} ${freezeTone} text-[10px] text-ink-muted px-2 text-left`}>OT</td>
+                        <td className={`${FREEZE_BODY} ${COL_DESIG} ${freezeTone}`} />
                         {g.days.map((d) => {
                           const rec = g.getRecord(personId, d.dateString, desig);
                           const disabled = g.isCellDisabled(row, d.dateString);
                           return (
-                            <td key={`ot-${d.dateString}`} className="border border-divider p-0">
+                            <td key={`ot-${d.dateString}`} className="border-b border-r border-divider p-0 bg-surface">
                               <input
                                 type="number"
                                 min="0"
@@ -393,18 +417,19 @@ export default function AttendanceEntryPage({ readOnly = false }) {
                             </td>
                           );
                         })}
-                        <td colSpan={4} className="border border-divider" />
+                        <td colSpan={4} className="border-b border-r border-divider bg-surface" />
                       </tr>
                     </React.Fragment>
                   );
                 })}
-                <tr className="bg-surface-sunken font-semibold">
-                  <td className="sticky left-0 bg-surface-sunken border border-divider" />
-                  <td className="sticky left-[36px] bg-surface-sunken border border-divider px-2" colSpan={2}>Duty total</td>
+                <tr className="font-semibold">
+                  <td className={`${FREEZE_BODY} att-daily-freeze-body--total ${COL_NUM}`} />
+                  <td className={`${FREEZE_BODY} att-daily-freeze-body--total ${COL_NAME} px-2 text-left`}>Duty total</td>
+                  <td className={`${FREEZE_BODY} att-daily-freeze-body--total ${COL_DESIG}`} />
                   {g.dayDuty.map((n, i) => (
-                    <td key={g.days[i]?.dateString || i} className="border border-divider text-center tabular-nums">{n}</td>
+                    <td key={g.days[i]?.dateString || i} className="border-b border-r border-divider text-center tabular-nums bg-surface-sunken">{n}</td>
                   ))}
-                  <td colSpan={4} className="border border-divider" />
+                  <td colSpan={4} className="border-b border-r border-divider bg-surface-sunken" />
                 </tr>
               </tbody>
             </table>

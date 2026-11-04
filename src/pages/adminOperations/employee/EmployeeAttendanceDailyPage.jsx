@@ -103,7 +103,7 @@ import {
 } from "../../../lib/attendanceLeaveLimits";
 import { fetchLeaveBalancesForYear } from "../../../lib/leaveManagement";
 import { fetchCompOffAvailableBalance, formatCompOffError } from "../../../lib/compOffBalance";
-import { subscribeLeaveWorkflowRealtime } from "../../../lib/adminLeaveRequests";
+import { subscribeLeaveInboxRealtime } from "../../../lib/adminLeaveRequests";
 import { subscribeTourWorkflowRealtime } from "../../../lib/adminTourRequests";
 import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
 import {
@@ -335,6 +335,11 @@ export function EmployeeAttendanceDailyPage() {
   const punchesRef = useRef([]);
   const approvedLeaveMarksRef = useRef({});
   const monthRegisterRowsRef = useRef([]);
+  // While this page's own background sync is writing register rows, realtime echoes of
+  // those writes are held and replayed once when the sync finishes (one refresh, not dozens).
+  const bgSyncGenerationRef = useRef(0);
+  const realtimeDeferredRef = useRef(false);
+  const realtimeScheduleRef = useRef(null);
   const [tourRealtimeLive, setTourRealtimeLive] = useState(false);
 
   const monthMeta = useMemo(() => monthDateRange(monthValue), [monthValue]);
@@ -487,6 +492,7 @@ export function EmployeeAttendanceDailyPage() {
       void (async () => {
         if (loadGeneration !== loadGenerationRef.current) return;
         setSyncing(true);
+        bgSyncGenerationRef.current = loadGeneration;
         try {
           const migrated = await migrateLocalRegisterMarksIfEmptyMonth(
             supabase,
@@ -648,6 +654,13 @@ export function EmployeeAttendanceDailyPage() {
           toast.warning(`Background sync: ${formatAttendanceSupabaseError(syncErr)}`);
         } finally {
           if (loadGeneration === loadGenerationRef.current) setSyncing(false);
+          if (bgSyncGenerationRef.current === loadGeneration) {
+            bgSyncGenerationRef.current = 0;
+            if (realtimeDeferredRef.current) {
+              realtimeDeferredRef.current = false;
+              realtimeScheduleRef.current?.();
+            }
+          }
         }
       })();
 
@@ -801,6 +814,10 @@ export function EmployeeAttendanceDailyPage() {
     };
 
     const schedule = () => {
+      if (bgSyncGenerationRef.current) {
+        realtimeDeferredRef.current = true;
+        return;
+      }
       if (debounce) window.clearTimeout(debounce);
       debounce = window.setTimeout(() => {
         void (async () => {
@@ -810,12 +827,16 @@ export function EmployeeAttendanceDailyPage() {
       }, 400);
     };
 
+    realtimeScheduleRef.current = schedule;
     const unsubscribe = subscribeTourWorkflowRealtime(schedule);
-    const unsubscribeLeaves = subscribeLeaveWorkflowRealtime(schedule);
+    // Leave request tables only: balance-table writes (from punch → leave balance sync)
+    // do not change register marks, and used to re-trigger full refreshes in a loop.
+    const unsubscribeLeaves = subscribeLeaveInboxRealtime(schedule);
     setTourRealtimeLive(isSupabaseRealtimeEnabled());
 
     return () => {
       cancelled = true;
+      if (realtimeScheduleRef.current === schedule) realtimeScheduleRef.current = null;
       if (debounce) window.clearTimeout(debounce);
       unsubscribe();
       unsubscribeLeaves();

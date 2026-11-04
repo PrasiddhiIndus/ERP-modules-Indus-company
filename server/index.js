@@ -29,7 +29,7 @@ import { adminCreateUser } from './adminCreateUserApi.js';
 import { hrCreateSiteLogin } from './hrCreateSiteLoginApi.js';
 import { adminBulkCreateUsers } from './adminBulkCreateUserApi.js';
 import { adminBulkDeleteUsers } from './adminBulkDeleteUserApi.js';
-import { fetchAllLeaveInboxTables } from './adminLeaveRequestsApi.js';
+import { fetchAllLeaveInboxTables, parseLeaveOverlapRange } from './adminLeaveRequestsApi.js';
 import { fetchAllTourInboxTables } from './adminTourRequestsApi.js';
 import { createAuthMiddleware } from './authMiddleware.js';
 import { sendCrmOutreachCampaign } from './crmOutreachSendApi.js';
@@ -419,7 +419,10 @@ const apiRateLimit = rateLimit({
     const path = String(req.originalUrl || req.url || '').split('?')[0];
     // Leave inbox is one HR dashboard read; do not count it toward the global cap
     // (list + counts + Strict Mode + realtime used to 429 and fall back to slow RLS).
-    return req.method === 'GET' && path === '/api/admin/leave-requests';
+    return (
+      req.method === 'GET' &&
+      (path === '/api/admin/leave-requests' || path === '/api/admin/tour-requests')
+    );
   },
 });
 const einvoiceRateLimit = rateLimit({
@@ -1415,6 +1418,8 @@ app.get('/api/admin/leave-requests', requireHrOrAdmin, async (req, res) => {
     const payload = await fetchAllLeaveInboxTables({
       getSupabaseUrl: getSupabaseUrlForServer,
       getServiceKey: getSupabaseServiceRoleKeyForServer,
+      // Optional ?from=YYYY-MM-DD&to=YYYY-MM-DD (register overlay). Without it: full inbox.
+      range: parseLeaveOverlapRange(req.query?.from, req.query?.to),
     });
     res.json({
       ok: true,

@@ -101,6 +101,9 @@ export function EmployeeTourApprovalsPage() {
   const [pageSize, setPageSize] = useState(25);
 
   const loadSeqRef = useRef(0);
+  // First load after opening the page always re-reads; later filter/page changes reuse the
+  // 30s inbox cache. Refresh button and realtime events force a fresh read.
+  const firstLoadRef = useRef(true);
 
   useEffect(() => {
     const t = window.setTimeout(() => setEmpSearchDebounced(empSearch.trim()), SEARCH_DEBOUNCE_MS);
@@ -132,8 +135,10 @@ export function EmployeeTourApprovalsPage() {
   }, []);
 
   const loadRequests = useCallback(
-    async ({ silent = false } = {}) => {
+    async ({ silent = false, force = false } = {}) => {
       const seq = ++loadSeqRef.current;
+      const forceRefresh = force || firstLoadRef.current;
+      firstLoadRef.current = false;
       if (!silent) {
         setInitialLoading(true);
         setError("");
@@ -151,6 +156,7 @@ export function EmployeeTourApprovalsPage() {
           departments: selectedDepartments,
           page,
           pageSize,
+          forceRefresh,
         });
         if (seq !== loadSeqRef.current) return;
         setRows(result.rows);
@@ -191,7 +197,7 @@ export function EmployeeTourApprovalsPage() {
     const scheduleReload = () => {
       if (debounce) window.clearTimeout(debounce);
       debounce = window.setTimeout(() => {
-        loadRequests({ silent: true });
+        loadRequests({ silent: true, force: true });
         refreshCounts();
       }, REALTIME_DEBOUNCE_MS);
     };
@@ -383,7 +389,7 @@ export function EmployeeTourApprovalsPage() {
           <button
             type="button"
             onClick={() => {
-              loadRequests({ silent: true });
+              loadRequests({ silent: true, force: true });
               refreshCounts();
             }}
             disabled={initialLoading && !rows.length}
