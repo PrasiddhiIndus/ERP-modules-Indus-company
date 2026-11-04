@@ -149,14 +149,33 @@ export function departmentInSelection(employeeDepartment, selectedDepartments = 
  * Used by leave/tour approval inboxes to filter before pagination.
  * Returns null when no departments are selected (caller should skip filtering).
  */
+// Employee master departments change rarely; reuse the read across inbox reloads briefly.
+const DEPARTMENT_KEYS_CACHE_MS = 60_000;
+let departmentKeysRowsCache = { at: 0, rows: null };
+let departmentKeysInflight = null;
+
+async function loadEmployeeDepartmentRows(supabase) {
+  if (departmentKeysRowsCache.rows && Date.now() - departmentKeysRowsCache.at < DEPARTMENT_KEYS_CACHE_MS) {
+    return departmentKeysRowsCache.rows;
+  }
+  if (departmentKeysInflight) return departmentKeysInflight;
+  departmentKeysInflight = (async () => {
+    const { data, error } = await supabase
+      .from(EMPLOYEE_MASTER_TABLE)
+      .select('id, user_id, employee_code, department');
+    if (error) throw error;
+    departmentKeysRowsCache = { at: Date.now(), rows: data || [] };
+    return departmentKeysRowsCache.rows;
+  })().finally(() => {
+    departmentKeysInflight = null;
+  });
+  return departmentKeysInflight;
+}
+
 export async function fetchEmployeeKeysMatchingDepartments(supabase, selectedDepartments = []) {
   if (!selectedDepartments?.length) return null;
 
-  const { data, error } = await supabase
-    .from(EMPLOYEE_MASTER_TABLE)
-    .select('id, user_id, employee_code, department');
-
-  if (error) throw error;
+  const data = await loadEmployeeDepartmentRows(supabase);
 
   const masterIds = new Set();
   const userIds = new Set();

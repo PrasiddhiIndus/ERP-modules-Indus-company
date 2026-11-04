@@ -110,6 +110,9 @@ export function EmployeeLeavesPage() {
   const [holidayDates, setHolidayDates] = useState(() => new Set());
 
   const loadSeqRef = useRef(0);
+  // First load after opening the page always re-reads; later filter/page changes reuse the
+  // 30s inbox cache. Refresh button and realtime events force a fresh read.
+  const firstLoadRef = useRef(true);
 
   useEffect(() => {
     const t = window.setTimeout(() => setEmpSearchDebounced(empSearch.trim()), SEARCH_DEBOUNCE_MS);
@@ -150,8 +153,10 @@ export function EmployeeLeavesPage() {
   }, []);
 
   const loadRequests = useCallback(
-    async ({ silent = false } = {}) => {
+    async ({ silent = false, force = false } = {}) => {
       const seq = ++loadSeqRef.current;
+      const forceRefresh = force || firstLoadRef.current;
+      firstLoadRef.current = false;
       if (!silent) {
         setInitialLoading(true);
         setError("");
@@ -170,8 +175,9 @@ export function EmployeeLeavesPage() {
           departments: selectedDepartments,
           page,
           pageSize,
-          // Always re-read after filter/realtime/manual refresh so status matches leave_requests.
-          forceRefresh: true,
+          // Re-read on open, realtime and manual refresh so status matches leave_requests.
+          // Approve/reject/withdraw already invalidate the cache in adminLeaveRequests.js.
+          forceRefresh,
         });
         if (seq !== loadSeqRef.current) return;
         setRows(result.rows);
@@ -213,7 +219,7 @@ export function EmployeeLeavesPage() {
     const scheduleReload = () => {
       if (debounce) window.clearTimeout(debounce);
       debounce = window.setTimeout(() => {
-        loadRequests({ silent: true });
+        loadRequests({ silent: true, force: true });
       }, REALTIME_DEBOUNCE_MS);
     };
 
@@ -431,7 +437,7 @@ export function EmployeeLeavesPage() {
           <button
             type="button"
             onClick={() => {
-              loadRequests({ silent: true });
+              loadRequests({ silent: true, force: true });
             }}
             disabled={initialLoading && !rows.length}
             className="h-8 px-3 rounded-lg border border-accent/30 bg-accent/5 text-xs font-semibold text-accent hover:bg-accent/10 disabled:opacity-60"

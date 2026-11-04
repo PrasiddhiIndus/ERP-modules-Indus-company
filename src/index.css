@@ -811,6 +811,51 @@ main.erp-app-shell header.sticky {
   z-index: 30;
 }
 
+/* HR Site Attendance daily grid: freeze # / Name / Desig. above scrolling dates.
+   Shell `.sticky.top-0 { z-index: 25 }` would otherwise put date headers and freeze
+   cells on the same layer → dates paint over Name/Desig while scrolling. */
+.att-daily-grid-scroll {
+  position: relative;
+  isolation: isolate;
+  background: var(--surface);
+}
+.att-daily-grid {
+  border-collapse: separate !important;
+  border-spacing: 0;
+}
+.att-daily-date-head {
+  z-index: 20 !important;
+  background-color: var(--surface-raised) !important;
+}
+.att-daily-date-head--nh {
+  background-color: #fffbeb !important; /* amber-50 */
+}
+.att-daily-freeze {
+  background-clip: padding-box;
+}
+.att-daily-freeze-head {
+  z-index: 50 !important;
+  background-color: var(--surface-raised) !important;
+}
+.att-daily-freeze-body {
+  z-index: 30 !important;
+  background-color: var(--surface) !important;
+}
+.att-daily-freeze-body--alt {
+  background-color: #f8fafc !important; /* slate-50 */
+}
+.att-daily-freeze-body--total {
+  background-color: var(--surface-sunken) !important;
+}
+[data-theme="dark"] .att-daily-date-head--nh,
+.theme-dark .att-daily-date-head--nh {
+  background-color: color-mix(in srgb, #f59e0b 18%, var(--surface-raised)) !important;
+}
+[data-theme="dark"] .att-daily-freeze-body--alt,
+.theme-dark .att-daily-freeze-body--alt {
+  background-color: color-mix(in srgb, var(--surface-sunken) 70%, var(--surface)) !important;
+}
+
 .erp-kpi-tile {
   position: relative;
 }
