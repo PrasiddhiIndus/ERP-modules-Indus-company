@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   DenseTable,
   FilterBar,
+  Modal,
   SectionCard,
+  StatusChip,
   TinyInput,
   TinySelect,
 } from "../../../components/erpUi";
@@ -15,11 +17,13 @@ import {
   compOffMonthYearLabel,
   compOffCutoffMonthKey,
   compOffCurrentMonthKey,
+  fetchCompOffCreditLedger,
   fetchCompOffMonthlySummary,
   formatCompOffError,
   saveCompOffAllMonthBalances,
   sortCompOffEmployeeRows,
 } from "../../../lib/compOffBalance";
+import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -27,6 +31,21 @@ function fmtCell(v) {
   if (v == null) return "—";
   const n = Number(v || 0);
   return Number.isFinite(n) ? String(Math.round(n * 100) / 100) : "—";
+}
+
+function coffBoxTone(status) {
+  if (status === "Available") return "border-teal-200 bg-teal-50/80";
+  if (status === "Used") return "border-slate-200 bg-slate-50";
+  if (status === "Expired") return "border-amber-200 bg-amber-50/80";
+  if (status === "Revoked") return "border-rose-200 bg-rose-50/70";
+  return "border-border bg-surface-sunken/50";
+}
+
+function coffStatusSeverity(status) {
+  if (status === "Available") return "info";
+  if (status === "Expired") return "warning";
+  if (status === "Revoked") return "critical";
+  return "neutral";
 }
 
 export default function EmployeeCoBalanceTab({
@@ -48,6 +67,10 @@ export default function EmployeeCoBalanceTab({
   const [editDrafts, setEditDrafts] = useState({});
   const editDraftsRef = useRef({});
   const [editSaving, setEditSaving] = useState(false);
+  const [selectedEmp, setSelectedEmp] = useState(null);
+  const [creditRows, setCreditRows] = useState([]);
+  const [creditsLoading, setCreditsLoading] = useState(false);
+  const [creditsError, setCreditsError] = useState("");
 
   const monthKeys = useMemo(() => allCalendarMonthKeysForYear(year), [year]);
   const cutoffLabel = compOffCutoffMonthKey();
@@ -76,6 +99,42 @@ export default function EmployeeCoBalanceTab({
   useEffect(() => {
     loadSummary();
   }, [loadSummary]);
+
+  const loadCredits = useCallback(async (empCode) => {
+    if (!empCode) {
+      setCreditRows([]);
+      setCreditsError("");
+      return;
+    }
+    setCreditsLoading(true);
+    setCreditsError("");
+    try {
+      const rows = await fetchCompOffCreditLedger(supabase, empCode, year);
+      setCreditRows(rows);
+    } catch (err) {
+      setCreditRows([]);
+      setCreditsError(formatCompOffError(err));
+    } finally {
+      setCreditsLoading(false);
+    }
+  }, [year]);
+
+  useEffect(() => {
+    if (selectedEmp?.empCode) void loadCredits(selectedEmp.empCode);
+    else {
+      setCreditRows([]);
+      setCreditsError("");
+    }
+  }, [selectedEmp?.empCode, loadCredits]);
+
+  const selectEmployee = useCallback((row) => {
+    if (!row?.empCode) return;
+    setSelectedEmp((prev) =>
+      prev?.empCode === row.empCode
+        ? null
+        : { empCode: row.empCode, employeeName: row.employeeName, department: row.department }
+    );
+  }, []);
 
   const gridRows = useMemo(
     () => buildCompOffEmployeeRows(employees, summaryRows, year),
@@ -217,6 +276,7 @@ export default function EmployeeCoBalanceTab({
             step="0.5"
             value={editDrafts[mk] ?? ""}
             onChange={(e) => setMonthDraft(mk, e.target.value)}
+            onClick={(e) => e.stopPropagation()}
             disabled={editSaving}
             aria-label={`${compOffMonthYearLabel(mk)} remaining`}
             className="h-6 w-12 max-w-[52px] rounded border border-gray-300 px-1 text-[11px] leading-tight text-center tabular-nums"
@@ -272,7 +332,7 @@ export default function EmployeeCoBalanceTab({
         render: (r) => {
           if (editingCode === r.empCode) {
             return (
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
                 <button
                   type="button"
                   onClick={() => saveEdit(r)}
@@ -295,7 +355,10 @@ export default function EmployeeCoBalanceTab({
           return (
             <button
               type="button"
-              onClick={() => startEdit(r)}
+              onClick={(e) => {
+                e.stopPropagation();
+                startEdit(r);
+              }}
               disabled={!r.empCode || tableLoading || !!editingCode}
               className="text-[11px] font-semibold text-accent hover:underline disabled:opacity-50"
             >
@@ -322,12 +385,21 @@ export default function EmployeeCoBalanceTab({
   ]);
 
   return (
-    <SectionCard title={`C/O Balances (${year})`} className="mt-4">
+    <SectionCard
+      title={`C/O Balances (${year})`}
+      className="mt-4"
+      right={
+        <span className="text-[11px] text-ink-muted max-w-xs text-right hidden sm:inline">
+          Click a row to see earned-date boxes for that employee.
+        </span>
+      }
+    >
       <p className="text-xs text-gray-600 mb-3">
         Each month shows remaining C/O <strong>earned in that month</strong> (by work date on WO/NH/PH). Marking CO
         reduces that month&apos;s remaining value; credits are not copied into later months. Unused amounts expire 2
         months after the earning date. System earning still starts from{" "}
         <strong>{compOffMonthYearLabel(cutoffLabel)}</strong>; admins can set January–December balances for the year.
+        Click an employee row to open date boxes showing each C/O earned that day.
         {canEditBalances ? (
           <>
             {" "}
@@ -392,9 +464,76 @@ export default function EmployeeCoBalanceTab({
         ) : pagedRows.length === 0 ? (
           <div className="py-10 text-center text-xs text-gray-500">No employees match the current filters.</div>
         ) : (
-          <DenseTable columns={columns} rows={pagedRows} rowKey="empCode" scrollMaxHeight="calc(100dvh - 20rem)" />
+          <DenseTable
+            columns={columns}
+            rows={pagedRows}
+            rowKey="empCode"
+            scrollMaxHeight="calc(100dvh - 20rem)"
+            onRowClick={selectEmployee}
+            activeRowId={selectedEmp?.empCode || null}
+          />
         )}
       </div>
+
+      <Modal
+        open={!!selectedEmp}
+        onClose={() => setSelectedEmp(null)}
+        title={
+          selectedEmp
+            ? `C/O earned dates · ${selectedEmp.employeeName || "—"} (${selectedEmp.empCode})`
+            : "C/O earned dates"
+        }
+        widthClass="max-w-4xl"
+      >
+        <p className="text-[11px] text-ink-muted mb-3">
+          One box per day a compensatory off was earned in {year}. Status: Available, Used, or Expired.
+        </p>
+        {creditsError ? (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+            {creditsError}
+          </div>
+        ) : null}
+        {creditsLoading ? (
+          <div className="py-8 text-center text-xs text-gray-500">Loading earned C/O dates…</div>
+        ) : creditRows.length === 0 && !creditsError ? (
+          <div className="py-8 text-center text-xs text-gray-500">
+            No C/O credits earned in {year} for this employee.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            {creditRows.map((c) => {
+              const status = c.displayStatus || "Available";
+              const earned = Number(c.creditAmount || 0);
+              const remaining = Number(c.remainingAmount || 0);
+              return (
+                <div
+                  key={c.id}
+                  className={`rounded-lg border px-2.5 py-2 shadow-sm ${coffBoxTone(status)}`}
+                  title={
+                    c.expiryDate
+                      ? `Expires ${formatDateDdMmYyyy(c.expiryDate)} · Remaining ${fmtCell(remaining)}`
+                      : undefined
+                  }
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-muted">Earned date</p>
+                  <p className="mt-0.5 text-sm font-semibold tabular-nums text-ink-strong">
+                    {c.earnedDate ? formatDateDdMmYyyy(c.earnedDate) : "—"}
+                  </p>
+                  <p className="mt-1.5 text-xs font-medium text-ink-strong">
+                    CO earned · <span className="tabular-nums">{fmtCell(earned)}</span>
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <StatusChip label={status} severity={coffStatusSeverity(status)} />
+                    {status === "Available" && remaining !== earned ? (
+                      <span className="text-[10px] text-ink-muted tabular-nums">Left {fmtCell(remaining)}</span>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Modal>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
         <span>
