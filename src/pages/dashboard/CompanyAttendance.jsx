@@ -1,16 +1,16 @@
 import React, { useMemo, useState } from "react";
 
 const SEGMENTS = [
-  ["on", "On time", "var(--success)"],
-  ["late", "Late", "var(--warning)"],
-  ["leave", "On leave", "var(--info)"],
-  ["absent", "Absent", "var(--critical)"],
+  ["on", "On time", "var(--cp-good)"],
+  ["late", "Late", "var(--cp-watch)"],
+  ["leave", "On leave", "var(--cp-info)"],
+  ["absent", "Absent", "var(--cp-risk)"],
 ];
 
 function tone(pct) {
-  if (pct >= 92) return "var(--success)";
-  if (pct >= 88) return "var(--warning)";
-  return "var(--critical)";
+  if (pct >= 92) return "var(--cp-good)";
+  if (pct >= 88) return "var(--cp-watch)";
+  return "var(--cp-risk)";
 }
 
 function Donut({ stats, roster }) {

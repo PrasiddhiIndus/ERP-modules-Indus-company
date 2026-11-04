@@ -72,11 +72,11 @@ function statusOf(view) {
   if (view.planned) return { label: "Planned", color: "var(--text-muted)" };
   if (view.score == null) {
     return view.attention
-      ? { label: "Needs a look", color: "var(--warning)" }
-      : { label: "Overview", color: "var(--accent)" };
+      ? { label: "Needs a look", color: "var(--cp-watch)" }
+      : { label: "Overview", color: "var(--cp-brand)" };
   }
   if (view.score < 75) return { label: "Needs a look", color: healthTone(view.score) };
-  if (view.attention || view.score < 85) return { label: "Watch", color: "var(--warning)" };
+  if (view.attention || view.score < 85) return { label: "Watch", color: "var(--cp-watch)" };
   return { label: "Steady", color: healthTone(view.score) };
 }
 
@@ -144,6 +144,19 @@ export default function CompanyPulse({
   const focus = listed.filter((view) => matches(view, filter));
   const selected = focus.find((view) => view.id === picked) || focus[0] || null;
   const attentionCount = listed.filter((view) => view.attention).length;
+  const seriesFor = (view) => {
+    if (!view) return null;
+    if (view.id === "hr") {
+      const values = (attendance?.trend || []).filter((point) => point.expected > 0).map((point) => point.pct);
+      return values.length > 1 ? { label: "Attendance", values } : null;
+    }
+    if (view.id === "finance" || view.revenue) {
+      const values = (pl?.trend || []).map((row) => Number(row.profit) || 0);
+      if (values.length < 2 || values.every((value) => value === 0)) return null;
+      return { label: "Profit this period", values };
+    }
+    return null;
+  };
 
   const ledgerPath = "/app/accounts-finance/reports/site-ledger";
   const ledgerOpen = Boolean(allowPath?.(ledgerPath));
@@ -158,28 +171,28 @@ export default function CompanyPulse({
     {
       label: "Active people",
       value: loading ? "—" : (Number(modules.people) || 0).toLocaleString("en-IN"),
-      color: "var(--accent)",
+      color: "var(--cp-brand)",
       path: peoplePath,
       enabled: Boolean(peoplePath),
     },
     {
       label: "Revenue",
       value: loading ? "—" : inrShort(pl.revenue),
-      color: "var(--warning)",
+      color: "var(--cp-watch)",
       path: ledgerPath,
       enabled: ledgerOpen,
     },
     {
       label: "Net result",
       value: loading ? "—" : inrShort(pl.profit),
-      color: (Number(pl.profit) || 0) < 0 ? "var(--critical)" : "var(--success)",
+      color: (Number(pl.profit) || 0) < 0 ? "var(--cp-risk)" : "var(--cp-good)",
       path: ledgerPath,
       enabled: ledgerOpen,
     },
     {
       label: "Receivables",
       value: loading ? "—" : inrShort(commercialStats.outstanding),
-      color: "var(--critical)",
+      color: "var(--cp-risk)",
       path: receivablesPath,
       enabled: Boolean(receivablesPath),
     },
@@ -223,7 +236,7 @@ export default function CompanyPulse({
           </p>
         </div>
         <div className="cp-status-row">
-          <div className="cp-live" style={{ "--dot": financeError ? "var(--warning)" : "var(--success)" }}>
+          <div className="cp-live" style={{ "--dot": financeError ? "var(--cp-watch)" : "var(--cp-good)" }}>
             <i />
             <span>{financeError ? "Finance delayed" : "Live"} · {clock}</span>
           </div>
@@ -381,7 +394,7 @@ export default function CompanyPulse({
                       onClick={() => choose(view)}
                     >
                       <span className={`cp-disc${view.planned ? " is-plan" : view.score == null ? " is-plain" : ""}`}>
-                        {view.score != null && !view.planned ? <b>{view.score}</b> : <Icon size={16} strokeWidth={2.25} />}
+                        <Icon size={16} strokeWidth={2.25} />
                         <small>{shortName}</small>
                       </span>
                       {view.revenue ? <i className="cp-rev" aria-hidden="true">₹</i> : null}
@@ -399,7 +412,7 @@ export default function CompanyPulse({
           </div>
 
           <aside className="cp-panel cp-detail">
-            {selected ? <Detail view={selected} loading={loading} onOpen={(path) => path && onOpen?.(path)} /> : (
+            {selected ? <Detail view={selected} loading={loading} series={seriesFor(selected)} onOpen={(path) => path && onOpen?.(path)} /> : (
               <p className="cp-empty cp-empty-in">Pick a module, or clear the filter.</p>
             )}
           </aside>
@@ -455,6 +468,32 @@ function shortChip(label) {
     .trim();
 }
 
+function Spark({ series }) {
+  const values = (series?.values || []).filter((value) => Number.isFinite(value));
+  if (values.length < 2) return null;
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const span = high - low || 1;
+  const width = 280;
+  const height = 52;
+  const step = (width - 8) / (values.length - 1);
+  const points = values.map((value, index) => {
+    const x = 4 + index * step;
+    const y = 6 + (1 - (value - low) / span) * (height - 14);
+    return `${x},${y}`;
+  });
+  const line = points.join(" ");
+  return (
+    <div className="cp-spark">
+      <span>{series.label}</span>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={series.label}>
+        <polygon points={`4,${height - 2} ${line} ${width - 4},${height - 2}`} />
+        <polyline points={line} />
+      </svg>
+    </div>
+  );
+}
+
 function ScoreRing({ score, color }) {
   const value = score == null ? 0 : Math.max(0, Math.min(100, Number(score) || 0));
   const radius = 26;
@@ -483,7 +522,7 @@ function ScoreRing({ score, color }) {
   );
 }
 
-function Detail({ view, loading, onOpen }) {
+function Detail({ view, loading, series, onOpen }) {
   const status = statusOf(view);
   const Icon = ICONS[view.id] || FolderKanban;
   const metrics = (view.metrics || []).slice(0, 4);
@@ -526,6 +565,8 @@ function Detail({ view, loading, onOpen }) {
       )}
 
       {view.note && metrics.length ? <p className="cp-note">{view.note}</p> : null}
+
+      <Spark series={series} />
 
       {peak > 0 ? (
         <div className="cp-bars" aria-label="What stands out">

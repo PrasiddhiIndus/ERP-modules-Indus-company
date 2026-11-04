@@ -63,10 +63,10 @@ export function isManagementRole(profile) {
 }
 
 export function healthTone(score) {
-  if (score == null) return "var(--accent)";
-  if (score >= 85) return "var(--success)";
-  if (score >= 75) return "var(--warning)";
-  return "var(--critical)";
+  if (score == null) return "var(--cp-brand)";
+  if (score >= 85) return "var(--cp-good)";
+  if (score >= 75) return "var(--cp-watch)";
+  return "var(--cp-risk)";
 }
 
 function countLabel(value) {
