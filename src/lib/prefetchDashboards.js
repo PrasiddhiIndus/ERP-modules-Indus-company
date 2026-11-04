@@ -6,7 +6,6 @@
 
 const DASHBOARD_LOADERS = [
   () => import("../pages/Dashboard"),
-  () => import("../pages/dashboard/DashboardChartsIsland"),
   () => import("../components/charts/DashboardCharts"),
   () =>
     import("../services/financeApi").then((m) => m.fetchFinanceModuleData({ force: false })),
