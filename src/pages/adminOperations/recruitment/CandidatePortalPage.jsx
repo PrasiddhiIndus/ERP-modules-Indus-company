@@ -1,15 +1,29 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { CheckCircle2, FileText, Upload, XCircle } from "lucide-react";
-import { apiUrl } from "../../../lib/apiBase";
+import { apiUrl, humanizeApiErrorMessage } from "../../../lib/apiBase";
 import { appointmentStatusMeta, documentStatusMeta, offerStatusMeta } from "./recruitmentConfig";
 import { Card, DetailGrid, StatusPill, btn, fmtDate, textareaClass } from "./RecruitmentUi";
 import { EmployeeDocumentPortalView } from "../../admin/employeeMaster/EmployeeDocumentPortalPage";
 
 const ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx";
 
+/** Prefer apex host — production CORS lists https://indus-erp.in; www POSTs were rejected. */
+function preferApexPortalHost() {
+  if (typeof window === "undefined") return false;
+  const { hostname, pathname, search, hash } = window.location;
+  if (hostname.toLowerCase() !== "www.indus-erp.in") return false;
+  window.location.replace(`https://indus-erp.in${pathname}${search}${hash}`);
+  return true;
+}
+
 async function portalRequest(token, path = "", options = {}) {
-  const res = await fetch(apiUrl(`/api/recruitment-portal/${encodeURIComponent(token)}${path}`), options);
+  let res;
+  try {
+    res = await fetch(apiUrl(`/api/recruitment-portal/${encodeURIComponent(token)}${path}`), options);
+  } catch (err) {
+    throw new Error(humanizeApiErrorMessage(err, "Could not reach the server. Check your connection and try again."));
+  }
   let body = null;
   try {
     body = await res.json();
@@ -21,7 +35,9 @@ async function portalRequest(token, path = "", options = {}) {
     if (res.status === 413) {
       throw new Error("This file is too large for the server. Please upload a smaller file (under 25 MB).");
     }
-    throw new Error(body?.message || "Something went wrong. Please try again.");
+    throw new Error(
+      humanizeApiErrorMessage(body?.message || body?.error, "Something went wrong. Please try again.")
+    );
   }
   return body;
 }
@@ -43,6 +59,7 @@ export default function CandidatePortalPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (preferApexPortalHost()) return undefined;
     let cancelled = false;
     (async () => {
       try {
@@ -61,7 +78,7 @@ export default function CandidatePortalPage() {
         } catch {
           /* keep recruitment error */
         }
-        if (!cancelled) setError(recruitErr.message);
+        if (!cancelled) setError(humanizeApiErrorMessage(recruitErr, "Something went wrong. Please try again."));
       } finally {
         if (!cancelled) setLoading(false);
       }

@@ -48,6 +48,7 @@ import { registerAdminRecruitmentRoutes, startAdminRecruitmentAutomation } from 
 import { registerAdminEmployeeDocumentsRoutes } from './adminEmployeeDocumentsApi.js';
 import { registerAdminSurveyRoutes } from './adminSurveysApi.js';
 import { startPayrollMisAlerts } from './payrollMisAlerts.js';
+import { isAllowedCorsOrigin, isLocalDevOrigin } from './corsAllowOrigin.js';
 import { startProbationReviewReminders } from './probationReviewReminders.js';
 import {
   PERSONAL_LETTERS_R2_PREFIX,
@@ -365,11 +366,6 @@ const corsOrigins = String(process.env.CORS_ORIGINS || '')
   .map((s) => s.trim())
   .filter(Boolean);
 
-function isLocalDevOrigin(origin) {
-  if (!origin) return true;
-  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(origin).trim());
-}
-
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -379,9 +375,12 @@ app.use(
   cors({
     origin: corsOrigins.length
       ? (origin, cb) => {
-          if (!origin || corsOrigins.includes(origin)) cb(null, true);
+          // Reflect allowed origins (including www ↔ apex siblings). Deny with
+          // cb(null, false) — never next(Error) — so same-origin POSTs from an
+          // unlisted sibling host are not aborted before public portal uploads run.
+          if (isAllowedCorsOrigin(origin, corsOrigins)) cb(null, true);
           else if (!IS_PRODUCTION && isLocalDevOrigin(origin)) cb(null, true);
-          else cb(new Error('CORS not allowed'));
+          else cb(null, false);
         }
       : true,
     credentials: true,
