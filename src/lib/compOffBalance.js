@@ -63,6 +63,54 @@ export async function fetchCompOffAvailableBalance(supabase, employeeCode, asOfD
   return Number(data || 0);
 }
 
+/**
+ * Per-credit C/O ledger for one employee (earned date + Available / Used / Expired).
+ * Source: indus_one.comp_off_credits via fetch_comp_off_credit_ledger.
+ * @param {number|null} [year] — when set, only credits earned in that calendar year
+ */
+export async function fetchCompOffCreditLedger(supabase, employeeCode, year = null) {
+  const code = normalizeAttendanceEmpCode(employeeCode);
+  if (!code) return [];
+  const args = { p_employee_code: code };
+  if (year != null && Number.isFinite(Number(year))) args.p_year = Number(year);
+  const { data, error } = await supabase.schema("indus_one").rpc("fetch_comp_off_credit_ledger", args);
+  if (error) throw error;
+  return (data || []).map((row) => ({
+    id: row.id,
+    employeeCode: normalizeAttendanceEmpCode(row.employee_code) || code,
+    earnedDate: row.earned_date || null,
+    creditAmount: Number(row.credit_amount || 0),
+    consumedAmount: Number(row.consumed_amount || 0),
+    remainingAmount: Number(row.remaining_amount || 0),
+    expiryDate: row.expiry_date || null,
+    status: String(row.status || ""),
+    displayStatus: String(row.display_status || mapCompOffCreditDisplayStatus(row)),
+    sourceType: row.source_type || null,
+  }));
+}
+
+/** Map ledger row → Available | Used | Expired (Revoked kept for revoked credits). */
+export function mapCompOffCreditDisplayStatus(row, asOfDate = null) {
+  const status = String(row?.status || "").toLowerCase();
+  const remaining = Number(
+    row?.remaining_amount ?? Number(row?.credit_amount || 0) - Number(row?.consumed_amount || 0)
+  );
+  const expiry = row?.expiry_date ? String(row.expiry_date).slice(0, 10) : null;
+  let asOf = asOfDate;
+  if (!asOf) {
+    // Asia/Kolkata calendar date without depending on browser TZ for display fallback.
+    asOf = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  } else {
+    asOf = String(asOf).slice(0, 10);
+  }
+  if (status === "revoked") return "Revoked";
+  if (status === "expired" || (remaining > 0 && expiry && expiry < asOf && status !== "consumed")) {
+    return "Expired";
+  }
+  if (status === "consumed" || remaining <= 0) return "Used";
+  return "Available";
+}
+
 export async function fetchCompOffMonthlySummary(supabase, year) {
   const [{ data, error }] = await Promise.all([
     supabase.schema("indus_one").rpc("fetch_comp_off_monthly_summary", {
@@ -281,6 +329,9 @@ export function formatCompOffError(err) {
   }
   if (/could not find the function.*set_comp_off_month_balance/i.test(msg)) {
     return "Month C/O balance is not set up yet. Apply migration 20261021140000_comp_off_set_month_balance_full_year.sql.";
+  }
+  if (/could not find the function.*fetch_comp_off_credit_ledger/i.test(msg)) {
+    return "C/O earned-date ledger is not set up yet. Apply migration 20261104130000_comp_off_earned_date_ledger_fetch.sql.";
   }
   return msg || "C/O balance operation failed.";
 }

@@ -17,7 +17,9 @@ import {
   upsertPlEncashPrefs,
   fetchPlEncashPrefs,
 } from "../../../lib/leaveManagement";
-import { SectionCard } from "../../../components/erpUi";
+import { fetchCompOffCreditLedger, formatCompOffError } from "../../../lib/compOffBalance";
+import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
+import { SectionCard, StatusChip } from "../../../components/erpUi";
 import { toast } from "../../../lib/toast";
 import {
   PrimaryButton,
@@ -25,6 +27,13 @@ import {
   ShellBanner,
   inputClass,
 } from "./deductions/deductionsUi";
+
+function coffStatusSeverity(label) {
+  if (label === "Available") return "info";
+  if (label === "Used") return "neutral";
+  if (label === "Expired") return "warning";
+  return "neutral";
+}
 
 const YEAR_DEFAULT = new Date().getFullYear();
 
@@ -101,11 +110,15 @@ export default function EmployeeLeavesTab({ employee }) {
   const [rules, setRules] = useState({ pl_carry_forward_max: 7, sl_carry_forward_max: 8 });
   const [encashPl, setEncashPl] = useState(false);
   const [ledgerEntries, setLedgerEntries] = useState([]);
+  const [coffCredits, setCoffCredits] = useState([]);
+  const [coffCreditsError, setCoffCreditsError] = useState("");
 
   const load = useCallback(async () => {
     if (!empCode) {
       setBalance(null);
       setDraft(emptyDraft());
+      setCoffCredits([]);
+      setCoffCreditsError("");
       setLoading(false);
       setError("This employee has no employee code — leave balances are keyed by employee code.");
       return;
@@ -113,7 +126,8 @@ export default function EmployeeLeavesTab({ employee }) {
     try {
       setLoading(true);
       setError("");
-      const [row, usageByCode, carryRules, prefs, ledgerRes] = await Promise.all([
+      setCoffCreditsError("");
+      const [row, usageByCode, carryRules, prefs, ledgerRes, coffRes] = await Promise.all([
         fetchLeaveBalanceForEmployee(supabase, empCode, year),
         fetchLeaveUsageFromDailyRegister(supabase, year),
         getLeaveCarryForwardRules(supabase),
@@ -126,6 +140,10 @@ export default function EmployeeLeavesTab({ employee }) {
           .eq("year", year)
           .order("created_at", { ascending: false })
           .limit(25),
+        fetchCompOffCreditLedger(supabase, empCode, year).catch((err) => {
+          setCoffCreditsError(formatCompOffError(err));
+          return [];
+        }),
       ]);
       const liveUsed = usageByCode?.[empCode] || {};
       const mergedRow = row
@@ -146,6 +164,7 @@ export default function EmployeeLeavesTab({ employee }) {
       setDraft(rowToDraft(mergedRow));
       setRules(carryRules || { pl_carry_forward_max: 7, sl_carry_forward_max: 8, cl_carry_forward_max: 0 });
       setEncashPl(!!prefs[empCode]);
+      setCoffCredits(Array.isArray(coffRes) ? coffRes : []);
       if (ledgerRes.error) {
         console.warn("Leave ledger audit load skipped", ledgerRes.error);
         setLedgerEntries([]);
@@ -156,6 +175,7 @@ export default function EmployeeLeavesTab({ employee }) {
       console.error("Employee Leaves tab: load failed", e);
       setError(e?.message || "Could not load leave balances.");
       setBalance(null);
+      setCoffCredits([]);
     } finally {
       setLoading(false);
     }
@@ -477,6 +497,56 @@ export default function EmployeeLeavesTab({ employee }) {
         <PrimaryButton onClick={runRollover} disabled={!canEditBalances || rolling || loading || !empCode}>
           {rolling ? "Running rollover…" : `Run PL/SL rollover for ${year}`}
         </PrimaryButton>
+      </SectionCard>
+
+      <SectionCard title={`C/O earned dates · ${year}`}>
+        <p className="text-xs text-gray-500 mb-2">
+          Each compensatory off is recorded when it is earned (work on week-off / holiday). Status is
+          Available, Used, or Expired. Approval and attendance rules are unchanged.
+        </p>
+        {coffCreditsError ? <p className="text-sm text-red-600 mb-2">{coffCreditsError}</p> : null}
+        {loading ? (
+          <div className="py-6 flex justify-center">
+            <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-blue-600" />
+          </div>
+        ) : coffCredits.length ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-xs">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="px-2 py-2 text-left">Earned date</th>
+                  <th className="px-2 py-2 text-right">Earned</th>
+                  <th className="px-2 py-2 text-right">Used</th>
+                  <th className="px-2 py-2 text-right">Remaining</th>
+                  <th className="px-2 py-2 text-left">Expires</th>
+                  <th className="px-2 py-2 text-left">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {coffCredits.map((c) => (
+                  <tr key={c.id} className="border-t border-gray-100">
+                    <td className="px-2 py-2 whitespace-nowrap font-medium text-gray-900">
+                      {c.earnedDate ? formatDateDdMmYyyy(c.earnedDate) : "—"}
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums">{fmt(c.creditAmount)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{fmt(c.consumedAmount)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{fmt(c.remainingAmount)}</td>
+                    <td className="px-2 py-2 whitespace-nowrap text-gray-700">
+                      {c.expiryDate ? formatDateDdMmYyyy(c.expiryDate) : "—"}
+                    </td>
+                    <td className="px-2 py-2">
+                      <StatusChip label={c.displayStatus} severity={coffStatusSeverity(c.displayStatus)} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-xs text-gray-500 py-2">
+            No C/O credits earned in {year} for this employee (from the C/O start month onward).
+          </p>
+        )}
       </SectionCard>
 
       <SectionCard title={`Approval ledger · ${year}`}>

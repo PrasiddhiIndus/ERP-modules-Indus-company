@@ -19,10 +19,10 @@ import {
   exportReportCsv,
   filterLatePunchAfter9Rows,
   filterOvertimeRows,
-  LATE_PUNCH_IN_THRESHOLD,
 } from "../../lib/attendanceReports";
 import { ensureAttendanceRulesLoaded } from "../../lib/attendanceRules";
 import { toast } from "../../lib/toast";
+import LatePunchReport from "./employee/LatePunchReport";
 
 const REPORT_TABS = [
   { id: "employee", label: "Employee reports" },
@@ -319,6 +319,8 @@ export default function AdminOpsReports() {
     return [...base, { key: "punchCount", label: "Punches" }];
   }, [attendanceReportType, customColumns]);
 
+  const showLatePunchPage = activeTab === "employee" && attendanceReportType === "late-9";
+
   return (
     <div className="space-y-4">
       <SectionCard
@@ -371,6 +373,14 @@ export default function AdminOpsReports() {
           </div>
         ) : null}
 
+        {showLatePunchPage ? (
+          <div className="mt-4">
+            <LatePunchReport />
+          </div>
+        ) : null}
+
+        {!showLatePunchPage ? (
+        <>
         <FilterBar>
           {activeTab === "employee" && attendanceReportType === "daily" ? (
             <TinyInput
@@ -519,12 +529,6 @@ export default function AdminOpsReports() {
           </div>
         ) : null}
 
-        {activeTab === "employee" && attendanceReportType === "late-9" ? (
-          <p className="mt-2 text-[11px] text-gray-600">
-            Flags employees whose <strong>first punch (Punch in)</strong> is after their shift start plus grace period
-            (Rules Console → Attendance; {LATE_PUNCH_IN_THRESHOLD} unless changed).
-          </p>
-        ) : null}
         {activeTab === "employee" && attendanceReportType === "overtime" ? (
           <p className="mt-2 text-[11px] text-gray-600">
             Flags days with worked time over <strong>{WORKING_HOURS_LONG_THRESHOLD_MIN / 60} hours</strong> (first punch in,
@@ -611,6 +615,8 @@ export default function AdminOpsReports() {
             </ul>
           </>
         )}
+        </>
+        ) : null}
       </SectionCard>
     </div>
   );
