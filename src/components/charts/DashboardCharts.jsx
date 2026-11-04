@@ -340,15 +340,26 @@ export function BarCompareChart({
             cursor={onBarClick ? "pointer" : "default"}
             onClick={(entry) => onBarClick?.(entry?.payload || entry)}
           >
-            {highlight
-              ? data.map((d, di) => (
-                  <Cell
-                    key={di}
-                    fill={s.color || resolveChartSeries()[i % resolveChartSeries().length]}
-                    fillOpacity={d[xKey] === activeName ? 1 : 0.3}
-                  />
-                ))
-              : null}
+            {s.fade
+              ? data.map((_, di) => {
+                  const steps = Math.max(data.length - 1, 1);
+                  return (
+                    <Cell
+                      key={di}
+                      fill={s.color || resolveChartSeries()[i % resolveChartSeries().length]}
+                      fillOpacity={1 - (di / steps) * 0.4}
+                    />
+                  );
+                })
+              : highlight
+                ? data.map((d, di) => (
+                    <Cell
+                      key={di}
+                      fill={s.color || resolveChartSeries()[i % resolveChartSeries().length]}
+                      fillOpacity={d[xKey] === activeName ? 1 : 0.3}
+                    />
+                  ))
+                : null}
           </Bar>
         ))}
       </BarChart>
@@ -463,7 +474,7 @@ export function ComposedTrendChart({
         <defs>
           {areas.map((s, i) => (
             <linearGradient key={s.key} id={`cmp-${gid}-${i}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={s.color || resolveChartSeries()[i % resolveChartSeries().length]} stopOpacity={0.22} />
+              <stop offset="0%" stopColor={s.color || resolveChartSeries()[i % resolveChartSeries().length]} stopOpacity={s.fillOpacity ?? 0.22} />
               <stop offset="100%" stopColor={s.color || resolveChartSeries()[i % resolveChartSeries().length]} stopOpacity={0.02} />
             </linearGradient>
           ))}
@@ -515,7 +526,7 @@ export function ComposedTrendChart({
             dataKey={s.key}
             name={s.name || s.key}
             stroke={s.color || resolveChartSeries()[(i + 1) % resolveChartSeries().length]}
-            strokeWidth={2}
+            strokeWidth={s.width || 2}
             dot={{ r: 3 }}
             activeDot={
               onPointClick

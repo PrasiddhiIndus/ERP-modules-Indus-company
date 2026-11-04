@@ -39,9 +39,9 @@ export default function CompanyBooks({ pl, rangeLabel, canOpen, onOpen, onOpenMo
         {ready && trend.length ? (
           <ComposedTrendChart
             data={trend}
-            areas={[{ key: "revenue", name: "Revenue", color: "var(--cp-info)" }]}
-            bars={[{ key: "expense", name: "Expense", color: "var(--cp-risk)" }]}
-            lines={[{ key: "profit", name: "Profit", color: "var(--cp-good)" }]}
+            areas={[{ key: "revenue", name: "Revenue", color: "var(--cp-rev)" }]}
+            bars={[{ key: "expense", name: "Expense", color: "var(--cp-exp)" }]}
+            lines={[{ key: "profit", name: "Profit", color: "var(--cp-net)" }]}
             height={230}
             formatter={(value) => inrShort(value)}
             yTickFormatter={axis}
@@ -60,7 +60,7 @@ export default function CompanyBooks({ pl, rangeLabel, canOpen, onOpen, onOpenMo
             data={sites}
             layout="horizontal"
             xKey="name"
-            series={[{ key: "profit", name: "Profit", color: "var(--cp-good)" }]}
+            series={[{ key: "profit", name: "Profit", color: "var(--cp-net)" }]}
             height={230}
             categoryWidth={118}
             formatter={(value) => inrShort(value)}
