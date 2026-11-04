@@ -1879,7 +1879,9 @@ export async function fetchApprovedLeaveMarksForMonth(
   let loadedFromApi = false;
   try {
     const { fetchApiWithAuth } = await import("./apiBase");
-    const result = await fetchApiWithAuth("/api/admin/leave-requests");
+    // Server returns only requests overlapping this window (same rule as requestOverlapsMonth).
+    const rangeQuery = `from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}`;
+    const result = await fetchApiWithAuth(`/api/admin/leave-requests?${rangeQuery}`);
     if (result.ok && (Array.isArray(result.data?.lmsRows) || Array.isArray(result.data?.adminRows))) {
       ingestApprovedRequests((result.data.adminRows || []).filter(requestOverlapsMonth));
       ingestApprovedRequests((result.data.lmsRows || []).filter(requestOverlapsMonth));

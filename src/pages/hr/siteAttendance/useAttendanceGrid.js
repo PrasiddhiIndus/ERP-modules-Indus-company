@@ -41,6 +41,7 @@ import {
   userFriendlyError,
 } from "../../../lib/siteAttendance/siteAttendanceApi";
 import { parseDateOnlyLocal } from "../../../lib/siteAttendance/dateFormat";
+import { listSelfiePresenceForPeople } from "../../../lib/siteAttendance/selfiePunchesApi";
 
 function storeAttendance(map, record, multi) {
   const next = { ...map };
@@ -66,6 +67,8 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
   const [loading, setLoading] = useState(false);
   const [locked, setLocked] = useState(false);
   const [savingCell, setSavingCell] = useState("");
+  // Read-only selfie punch presence (indus_one.site_attendance_punches), keyed `${personId}_${date}`.
+  const [selfieMap, setSelfieMap] = useState({});
   const attendanceMapRef = useRef({});
   attendanceMapRef.current = attendanceMap;
 
@@ -124,13 +127,14 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
       }
       setPlacements(nextPlacements);
 
-      const records = await listAttendance({
+      const [records, selfie] = await Promise.all([listAttendance({
         siteId: Number(siteId),
         month: Number(month),
         year: Number(year),
         from: generated.range.startDateString,
         to: generated.range.endDateString,
-      });
+      }), listSelfiePresenceForPeople(emps, generated.range.startDateString, generated.range.endDateString)]);
+      setSelfieMap(selfie);
       const multi = isMultiDesignationEnabled(current);
       const nextMap = buildAttendanceDataMap(records, multi);
       attendanceMapRef.current = nextMap;
@@ -157,13 +161,20 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
   const getRecord = useCallback(
     (personId, dateString, gridDesignation) => {
       const map = attendanceMapRef.current;
-      if (multi) {
-        return getAttendanceForGridRow(personId, dateString, gridDesignation, map, placements, employees)
-          .record;
+      const saved = multi
+        ? getAttendanceForGridRow(personId, dateString, gridDesignation, map, placements, employees).record
+        : map[`${personId}_${dateString}`] || null;
+      if (saved) return saved; // HR-saved record always wins over selfie punches
+      const selfie = selfieMap[`${personId}_${dateString}`];
+      if (!selfie) return null;
+      if (multi && gridDesignation) {
+        // Count selfie P once: only on the employee's own designation row.
+        const emp = employees.find((e) => e.id === personId);
+        if (emp?.designation && emp.designation !== gridDesignation) return null;
       }
-      return map[`${personId}_${dateString}`] || null;
+      return { att_code: "P", ot_hours: 0, person_id: personId, att_date: dateString, _selfie: selfie };
     },
-    [multi, placements, employees]
+    [multi, placements, employees, selfieMap]
   );
 
   const persistCell = useCallback(
@@ -425,6 +436,7 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
     assignments,
     placements,
     attendanceMap,
+    selfieMap,
     days: visibleDays,
     range,
     search,
