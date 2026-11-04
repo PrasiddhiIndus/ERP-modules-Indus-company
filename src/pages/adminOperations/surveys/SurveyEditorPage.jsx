@@ -252,11 +252,15 @@ export default function SurveyEditorPage() {
             </SurveyFormField>
           ) : null}
           <div className="md:col-span-2">
-            <SurveyFormField label="Description" hint="Shown to employees above the questions.">
+            <SurveyFormField
+              label="Why this is being circulated (Description)"
+              hint="Explain the purpose of this survey. Employees see this text above the questions."
+            >
               <textarea
                 rows={3}
                 value={form.description}
                 onChange={(e) => set({ description: e.target.value })}
+                placeholder="e.g. Collecting feedback on the new shift policy so HR can improve communication."
                 className="w-full rounded-control border border-border bg-surface px-3 py-2.5 text-sm font-medium text-ink-strong shadow-sm placeholder:text-ink-muted focus:border-accent focus:shadow-focus"
               />
             </SurveyFormField>
@@ -270,31 +274,14 @@ export default function SurveyEditorPage() {
               className="h-10 text-sm font-medium text-ink-strong"
             />
           </SurveyFormField>
-          <SurveyFormField label="Estimated minutes" hint="Optional, shown in Indus One.">
-            <TinyInput
-              type="number"
-              min={1}
-              max={240}
-              value={form.estimated_minutes}
-              onChange={(e) => set({ estimated_minutes: e.target.value })}
-              className="h-10 w-32 text-sm font-medium text-ink-strong"
-            />
-          </SurveyFormField>
-          <label className="flex items-start gap-2.5 text-sm text-ink-strong">
+          <label className="flex items-start gap-2.5 text-sm text-ink-strong md:col-span-2">
             <input type="checkbox" checked={form.anonymous} onChange={(e) => set({ anonymous: e.target.checked })} className="mt-1" />
             <span>
               <span className="font-semibold">Anonymous responses</span>
               <span className="mt-0.5 block text-xs leading-snug text-ink-secondary">
-                Admins see answers and totals only — no employee names, codes or submission times.
-              </span>
-            </span>
-          </label>
-          <label className="flex items-start gap-2.5 text-sm text-ink-strong">
-            <input type="checkbox" checked={form.is_active} onChange={(e) => set({ is_active: e.target.checked })} className="mt-1" />
-            <span>
-              <span className="font-semibold">Active</span>
-              <span className="mt-0.5 block text-xs leading-snug text-ink-secondary">
-                Untick to pause a published survey without unpublishing it.
+                When enabled, answers are not linked to any employee. You will see response totals and free-text
+                answers only — not who submitted them, employee codes, or submission times. This cannot be turned
+                off after the first response is received.
               </span>
             </span>
           </label>

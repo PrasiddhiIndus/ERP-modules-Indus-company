@@ -436,6 +436,28 @@ export function registerAdminSurveyRoutes(app, deps) {
     }
   });
 
+  /** Pause / resume without opening the editor (list-page Active toggle). */
+  app.post('/api/admin/surveys/:id/active', requireHrOrAdmin, async (req, res) => {
+    try {
+      const client = db();
+      const template = await loadTemplate(client, req.params.id);
+      if (template.status === 'archived') {
+        throw httpError(400, 'Archived surveys cannot be activated. Duplicate or restore it first.');
+      }
+      const isActive = req.body?.is_active === true || req.body?.is_active === 'true' || req.body?.is_active === 1;
+      const { data, error } = await surveys(client)
+        .from('survey_templates')
+        .update({ is_active: isActive, updated_at: new Date().toISOString() })
+        .eq('id', template.id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      res.json({ ok: true, survey: data });
+    } catch (err) {
+      sendError(res, err, 'active');
+    }
+  });
+
   app.post('/api/admin/surveys/:id/duplicate', requireHrOrAdmin, async (req, res) => {
     try {
       const client = db();
@@ -485,6 +507,32 @@ export function registerAdminSurveyRoutes(app, deps) {
       res.json({ ok: true, survey: data });
     } catch (err) {
       sendError(res, err, 'archive');
+    }
+  });
+
+  /** Permanent delete — removes responses, assignments, then the template. */
+  app.delete('/api/admin/surveys/:id', requireHrOrAdmin, async (req, res) => {
+    try {
+      const client = db();
+      const template = await loadTemplate(client, req.params.id);
+      const { error: respErr } = await surveys(client)
+        .from('survey_responses')
+        .delete()
+        .eq('template_id', template.id);
+      if (respErr) throw respErr;
+      const { error: asgErr } = await surveys(client)
+        .from('survey_assignments')
+        .delete()
+        .eq('template_id', template.id);
+      if (asgErr) throw asgErr;
+      const { error: tplErr } = await surveys(client)
+        .from('survey_templates')
+        .delete()
+        .eq('id', template.id);
+      if (tplErr) throw tplErr;
+      res.json({ ok: true, deleted_id: template.id });
+    } catch (err) {
+      sendError(res, err, 'delete');
     }
   });
 }
