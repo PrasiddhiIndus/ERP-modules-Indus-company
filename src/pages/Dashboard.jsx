@@ -1,6 +1,5 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { RefreshCw } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { fetchCommercialPOs, fetchInvoices } from "../services/billingApi";
 import { getCommercialPOs as getCommercialPOsLocal, getInvoices as getInvoicesLocal } from "../data/billingStore";
@@ -17,23 +16,13 @@ import {
   monthLabelOf,
   periodKeysBetween,
 } from "./finance/lib/periods";
-import { inrShort, pct } from "./finance/lib/formatters";
 import { resolveContractForBillingParentPo } from "../utils/billingInvoiceRollup";
-import { PageTaskHeader, PageShell, KpiTile } from "../components/erpUi";
+import { PageShell } from "../components/erpUi";
+import { isPathAllowed } from "../config/roles";
+import CompanyPulse from "./dashboard/CompanyPulse";
+import { buildTimelinePresets, isManagementRole } from "./dashboard/companyPulseModel";
+import { loadCompanyAttendance } from "./dashboard/companyAttendance";
 
-const DashboardChartsIsland = lazy(() => import("./dashboard/DashboardChartsIsland"));
-
-function ChartsFallback() {
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" aria-hidden>
-      <div className="lg:col-span-2 h-[280px] rounded-card border border-border bg-surface-sunken/50 animate-pulse" />
-      <div className="h-[280px] rounded-card border border-border bg-surface-sunken/50 animate-pulse" />
-    </div>
-  );
-}
-
-const LEDGER_BASE = "/app/accounts-finance/reports/site-ledger";
-const BILLING_BASE = "/app/billing";
 const META_PREFIX = "__META__:";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BID_DEADLINE_ALERT_DAYS = [7, 3, 1];
@@ -71,18 +60,6 @@ function formatMonthShort(key) {
   const [y, m] = key.split("-");
   const names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return `${names[Number(m) - 1] || m} ${String(y).slice(2)}`;
-}
-
-function ledgerUrl({ month, siteId } = {}) {
-  const q = new URLSearchParams();
-  if (month) {
-    q.set("slMonth", month);
-    q.set("slFrom", month);
-    q.set("slTo", month);
-  }
-  if (siteId) q.set("slSite", siteId);
-  const s = q.toString();
-  return s ? `${LEDGER_BASE}?${s}` : LEDGER_BASE;
 }
 
 function parseMeta(raw) {
@@ -255,7 +232,7 @@ function inMonthRange(periodKey, fromKey, toKey) {
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { userProfile } = useAuth();
+  const { user, userProfile, accessibleModules, subModulePaths } = useAuth();
   const [loading, setLoading] = useState(true);
   const [financeError, setFinanceError] = useState("");
   const [fromKey, setFromKey] = useState(() => indiaFyStartKey());
@@ -268,8 +245,12 @@ const Dashboard = () => {
     invoices: [],
     poCount: 0,
   });
+  const [attendance, setAttendance] = useState(null);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceError, setAttendanceError] = useState("");
   const mountedRef = useRef(false);
   const refreshTimerRef = useRef(null);
+  const attendanceLoadedRef = useRef(false);
   const monthChoices = useMemo(() => buildRecentMonthOptions(48), []);
   const months = useMemo(() => buildMonthOptions(), []);
 
@@ -284,13 +265,19 @@ const Dashboard = () => {
     return periodKeysBetween(from, to);
   }, [fromKey, toKey]);
 
-  const goLedger = useCallback(
-    (opts = {}) => navigate(ledgerUrl({ month: toKey, ...opts })),
-    [navigate, toKey]
+  const allowPath = useCallback(
+    (path) =>
+      isPathAllowed(path, accessibleModules || new Set(), subModulePaths || new Set(), {
+        email: user?.email || userProfile?.email,
+      }),
+    [accessibleModules, subModulePaths, user?.email, userProfile?.email]
   );
-  const goBilling = useCallback(() => navigate(BILLING_BASE), [navigate]);
-  const goBillingReports = useCallback(() => navigate(`${BILLING_BASE}/reports`), [navigate]);
-  const go = useCallback((path) => navigate(path), [navigate]);
+  const go = useCallback(
+    (path) => {
+      if (path && allowPath(path)) navigate(path);
+    },
+    [allowPath, navigate]
+  );
 
   const load = useCallback(async ({ showLoading = true, force = false } = {}) => {
     try {
@@ -325,6 +312,26 @@ const Dashboard = () => {
       })();
 
       const modulesP = loadModuleFootprint();
+
+      if (force || !attendanceLoadedRef.current) {
+        attendanceLoadedRef.current = true;
+        setAttendanceLoading(true);
+        setAttendanceError("");
+        loadCompanyAttendance(undefined, {
+          onUpdate: (snapshot) => {
+            if (mountedRef.current) {
+              setAttendance(snapshot);
+              setAttendanceLoading(false);
+            }
+          },
+        })
+          .catch((error) => {
+            if (mountedRef.current) setAttendanceError(error?.message || "Attendance is unavailable right now.");
+          })
+          .finally(() => {
+            if (mountedRef.current) setAttendanceLoading(false);
+          });
+      }
 
       const [fin, posRaw, invRaw, footprint] = await Promise.all([financeP, posP, invP, modulesP]);
       if (!mountedRef.current) return;
@@ -553,413 +560,51 @@ const Dashboard = () => {
   }, [finance, months, rangeKeys, userProfile]);
 
 
-  const billingBars = useMemo(
-    () => [
-      { name: "Contract book", fullName: "Contract book", value: commercialStats.contractBook, _hint: "Open billing", _to: "billing" },
-      { name: "Billed", fullName: "Billed in range", value: commercialStats.billed, _hint: "Open billing", _to: "billing" },
-      { name: "Unbilled", fullName: "Unbilled backlog", value: commercialStats.unbilled, _hint: "Open billing", _to: "billing" },
-      { name: "Outstanding", fullName: "Receivables outstanding", value: commercialStats.outstanding, _hint: "Open outstanding reports", _to: "reports" },
-    ],
-    [commercialStats]
-  );
-
-  const collectionMix = useMemo(
-    () =>
-      [
-        { name: "Collected", fullName: "Collected", value: commercialStats.collected, _hint: "Open billing" },
-        { name: "Outstanding", fullName: "Outstanding receivables", value: commercialStats.outstanding, _hint: "Open outstanding reports" },
-      ].filter((x) => x.value > 0),
-    [commercialStats.collected, commercialStats.outstanding]
-  );
-
-  const plMix = useMemo(
-    () =>
-      [
-        { name: "Revenue", fullName: "Revenue", value: Math.max(0, pl.revenue), _hint: "Open site ledger" },
-        { name: "Expense", fullName: "Expenses", value: Math.max(0, pl.expense), _hint: "Open site ledger" },
-        { name: "Profit", fullName: "Net profit", value: Math.max(0, pl.profit), _hint: "Open site ledger" },
-      ].filter((x) => x.value > 0),
-    [pl.expense, pl.profit, pl.revenue]
-  );
-
-  const topSites = useMemo(
-    () =>
-      pl.siteRows.slice(0, 8).map((r) => ({
-        id: r.id,
-        name: String(r.name),
-        fullName: String(r.name),
-        profit: r.profit,
-        revenue: r.revenue,
-        _hint: "Click to open this site in the ledger",
-      })),
-    [pl.siteRows]
-  );
-
-  const bottomSites = useMemo(
-    () =>
-      [...pl.siteRows]
-        .sort((a, b) => a.profit - b.profit)
-        .slice(0, 6)
-        .map((r) => ({
-          id: r.id,
-          name: String(r.name),
-          fullName: String(r.name),
-          profit: r.profit,
-          _hint: "Click to open this site in the ledger",
-        })),
-    [pl.siteRows]
-  );
-
   const billRate = commercialStats.contractBook > 0 ? Math.round((commercialStats.billed / commercialStats.contractBook) * 100) : 0;
   const collectRate =
     commercialStats.billed > 0 ? Math.round((commercialStats.collected / commercialStats.billed) * 100) : 0;
 
-  const openSite = useCallback(
-    (row) => {
-      if (row?.id) goLedger({ siteId: row.id });
-      else goLedger();
-    },
-    [goLedger]
-  );
-
-  const openTrendMonth = useCallback(
-    (row) => {
-      const month = row?.key || toKey;
-      navigate(ledgerUrl({ month }));
-    },
-    [navigate, toKey]
-  );
-
-  const openBillingBar = useCallback(
-    (row) => {
-      if (row?._to === "reports" || row?.name === "Outstanding") goBillingReports();
-      else goBilling();
-    },
-    [goBilling, goBillingReports]
-  );
-
-  const moduleVolume = useMemo(() => {
-    const rows = [
-      { name: "Admin people", fullName: "Active employees (Admin)", value: modules.people, path: "/app/admin/dashboard", _hint: "Open Admin" },
-      { name: "Manpower", fullName: "Manpower enquiries", value: modules.manpowerTotal, path: "/app/commercial/manpower-training/manpower-management/dashboard", _hint: "Open Manpower" },
-      { name: "Marketing", fullName: "Marketing enquiries", value: modules.marketing, path: "/app/marketing", _hint: "Open Marketing" },
-      { name: "Maintenance", fullName: "Maintenance enquiries", value: modules.maintenance, path: "/app/maintenance", _hint: "Open Maintenance" },
-      { name: "Projects", fullName: "Project enquiries", value: modules.projects, path: "/app/projects/enquiry/enquiry-dashboard", _hint: "Open Projects" },
-      { name: "Fire tender", fullName: "Fire tender records", value: modules.fireTenderTotal, path: "/app/fire-tender", _hint: "Open Fire Tender" },
-      { name: "Commercial", fullName: "Commercial PO/WO", value: commercialStats.poCount, path: "/app/commercial/manpower-training/dashboard", _hint: "Open Commercial" },
-      { name: "Billing", fullName: "Tax invoices in range", value: commercialStats.invoiceCount, path: BILLING_BASE, _hint: "Open Billing" },
-      { name: "AMC", fullName: "Active AMC contracts", value: modules.amcActive, path: "/app/amc", _hint: "Open AMC" },
-      { name: "Finance sites", fullName: "Sites with P&L figures", value: pl.sitesReporting, path: ledgerUrl({ month: toKey }), _hint: "Open Site Ledger" },
-    ].filter((x) => x.value > 0);
-    return rows.sort((a, b) => b.value - a.value);
-  }, [commercialStats.invoiceCount, commercialStats.poCount, modules, toKey, pl.sitesReporting]);
-
-  const pipelineMix = useMemo(
-    () =>
-      [
-        { name: "Marketing", fullName: "Marketing enquiries", value: modules.marketing, path: "/app/marketing", _hint: "Open Marketing" },
-        { name: "Manpower", fullName: "Manpower enquiries", value: modules.manpowerTotal, path: "/app/commercial/manpower-training/manpower-management/dashboard", _hint: "Open Manpower" },
-        { name: "Projects", fullName: "Project enquiries", value: modules.projects, path: "/app/projects/enquiry/enquiry-dashboard", _hint: "Open Projects" },
-        { name: "Maintenance", fullName: "Maintenance enquiries", value: modules.maintenance, path: "/app/maintenance", _hint: "Open Maintenance" },
-        { name: "Fire tender", fullName: "Fire tenders", value: modules.fireTenderTotal, path: "/app/fire-tender", _hint: "Open Fire Tender" },
-      ].filter((x) => x.value > 0),
-    [modules]
-  );
-
-  const attentionBars = useMemo(
-    () =>
-      [
-        { name: "Leave queue", fullName: "Pending leave approvals", value: modules.leavePending, path: "/app/admin/employee/leaves-permissions", _hint: "Open leave queue" },
-        { name: "Manpower wait", fullName: "Manpower pending decision", value: modules.manpowerPending, path: "/app/commercial/manpower-training/manpower-management/dashboard", _hint: "Open Manpower" },
-        { name: "Bids due soon", fullName: "Manpower bids due soon", value: modules.manpowerDueSoon, path: "/app/commercial/manpower-training/manpower-management/dashboard", _hint: "Open Manpower" },
-        { name: "PO waiting", fullName: "Commercial PO waiting approval", value: modules.commercialPending, path: "/app/commercial/manpower-training/dashboard", _hint: "Open Commercial" },
-        { name: "FT pending", fullName: "Fire tenders pending", value: modules.fireTenderPending, path: "/app/fire-tender", _hint: "Open Fire Tender" },
-        { name: "AMC risk", fullName: "AMC contracts at risk", value: modules.amcAtRisk, path: "/app/amc", _hint: "Open AMC" },
-        { name: "AMC calls", fullName: "Open AMC complaints", value: modules.amcComplaints, path: "/app/amc", _hint: "Open AMC" },
-        { name: "Sites in loss", fullName: "P&L sites in loss", value: pl.lossSites, path: ledgerUrl({ month: toKey }), _hint: "Open Site Ledger" },
-      ].filter((x) => x.value > 0),
-    [modules, toKey, pl.lossSites]
-  );
-
-  const manpowerMix = useMemo(
-    () =>
-      [
-        { name: "Approved", fullName: "Manpower approved", value: modules.manpowerApproved, _hint: "Open Manpower" },
-        { name: "Pending", fullName: "Manpower pending", value: modules.manpowerPending, _hint: "Open Manpower" },
-        {
-          name: "Other",
-          fullName: "Other manpower statuses",
-          value: Math.max(0, modules.manpowerTotal - modules.manpowerApproved - modules.manpowerPending),
-          _hint: "Open Manpower",
-        },
-      ].filter((x) => x.value > 0),
-    [modules]
-  );
-
-  const openModuleBar = useCallback(
-    (row) => {
-      if (row?.path) navigate(row.path);
-    },
-    [navigate]
-  );
+  const presets = useMemo(() => buildTimelinePresets(), []);
+  const activePresetId = presets.find((preset) => preset.from === fromKey && preset.to === toKey)?.id || "";
 
   return (
-    <PageShell className="erp-page-stack max-w-[1600px] mx-auto erp-stagger">
-      <div className="bg-surface rounded-card border border-border/80 shadow-card p-5 sm:p-6 relative overflow-hidden">
-        <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-accent via-accent-electric to-teal"
-          aria-hidden
-        />
-        <PageTaskHeader
-          title="Executive P&L"
-          subtitle="P&L and commercial book · ERP footprint across Admin, Manpower, Marketing, Projects and more"
-          className="mb-4"
-        >
-            <label className="type-mono-caption text-ink-muted inline-flex items-center gap-2">
-              From
-              <select
-                value={fromKey}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setFromKey(next);
-                  if (comparePeriodKeys(next, toKey) > 0) setToKey(next);
-                }}
-                className="h-9 rounded-control border border-border bg-surface px-2 text-sm text-ink"
-              >
-                {monthChoices.map((m) => (
-                  <option key={`from-${m.key}`} value={m.key}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="type-mono-caption text-ink-muted inline-flex items-center gap-2">
-              To
-              <select
-                value={toKey}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setToKey(next);
-                  if (comparePeriodKeys(fromKey, next) > 0) setFromKey(next);
-                }}
-                className="h-9 rounded-control border border-border bg-surface px-2 text-sm text-ink"
-              >
-                {monthChoices.map((m) => (
-                  <option key={`to-${m.key}`} value={m.key}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              onClick={() => load({ force: true })}
-              disabled={loading}
-              className="h-9 px-3 rounded-lg border border-border text-sm inline-flex items-center gap-2 text-ink hover:bg-row-hover disabled:opacity-60"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-              Refresh
-            </button>
-            <Link
-              to={ledgerUrl({ month: toKey })}
-              className="h-9 px-3 rounded-control border border-accent-border bg-accent-soft text-sm inline-flex items-center text-accent font-medium"
-            >
-              Open site ledger
-            </Link>
-        </PageTaskHeader>
-        {financeError ? (
-          <p className="mt-3 text-sm text-warning bg-warning-soft border border-warning-border rounded-lg px-3 py-2">
-            {financeError}. Billing figures below still load from commercial data.
-          </p>
-        ) : null}
-      </div>
-
-      <section>
-        <h2 className="type-card-title text-ink-strong mb-3">P&amp;L · {rangeLabel}</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 erp-stagger">
-          <KpiTile
-            label="Revenue"
-            value={loading ? "—" : inrShort(pl.revenue)}
-            sub={`${pl.sitesReporting} sites reporting`}
-            onClick={() => goLedger()}
-          />
-          <KpiTile
-            label="Expenses"
-            value={loading ? "—" : inrShort(pl.expense)}
-            sub={pl.revenue ? `${pct((pl.expense / pl.revenue) * 100)} of revenue` : "—"}
-            onClick={() => goLedger()}
-          />
-          <KpiTile
-            label="Net profit"
-            value={loading ? "—" : inrShort(pl.profit)}
-            sub={pl.revenue ? `Margin ${pct(pl.margin)}` : "—"}
-            onClick={() => goLedger()}
-          />
-          <KpiTile
-            label="Gross margin"
-            value={loading ? "—" : pct(pl.margin)}
-            sub={pl.thinSites ? `${pl.thinSites} thin-margin sites` : "On target band"}
-            onClick={() => goLedger()}
-          />
-          <KpiTile
-            label="Sites in loss"
-            value={loading ? "—" : pl.lossSites}
-            sub={`of ${pl.sitesReporting} with figures`}
-            onClick={() => goLedger()}
-          />
-          <KpiTile
-            label="Thin margin"
-            value={loading ? "—" : pl.thinSites}
-            sub={`Below ${pl.warnMargin}% warn`}
-            onClick={() => goLedger()}
-          />
-        </div>
-      </section>
-
-      <section>
-        <h2 className="type-card-title text-ink mb-3">Commercial book</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
-          <KpiTile
-            label="Contract book"
-            value={loading ? "—" : inrShort(commercialStats.contractBook)}
-            sub={`${commercialStats.poCount} active PO/WO`}
-            onClick={goBilling}
-          />
-          <KpiTile
-            label="Billed in range"
-            value={loading ? "—" : inrShort(commercialStats.billed)}
-            sub={`${commercialStats.invoiceCount} tax invoices`}
-            onClick={goBilling}
-          />
-          <KpiTile
-            label="Unbilled backlog"
-            value={loading ? "—" : inrShort(commercialStats.unbilled)}
-            sub="Contract less billed"
-            onClick={goBilling}
-          />
-          <KpiTile
-            label="Collected"
-            value={loading ? "—" : inrShort(commercialStats.collected)}
-            sub={`Collection ${collectRate}%`}
-            onClick={goBilling}
-          />
-          <KpiTile
-            label="Receivables"
-            value={loading ? "—" : inrShort(commercialStats.outstanding)}
-            sub="Unpaid invoices"
-            onClick={goBillingReports}
-          />
-          <KpiTile
-            label="Billing coverage"
-            value={loading ? "—" : `${billRate}%`}
-            sub="Billed ÷ contract"
-            onClick={goBilling}
-          />
-        </div>
-
-      </section>
-
-      <section>
-        <h2 className="type-card-title text-ink mb-1">Enterprise footprint</h2>
-        <p className="type-meta text-ink-muted mb-3">
-          Bird&apos;s-eye across Admin, Manpower, Marketing, Maintenance, Projects, Commercial, Billing, AMC and Finance
-        </p>
-
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
-          <KpiTile
-            label="Active people"
-            value={loading ? "—" : modules.people.toLocaleString("en-IN")}
-            sub="Admin headcount"
-            onClick={() => go("/app/admin/dashboard")}
-          />
-          <KpiTile
-            label="Leave queue"
-            value={loading ? "—" : modules.leavePending}
-            sub="Pending approvals"
-            onClick={() => go("/app/admin/employee/leaves-permissions")}
-          />
-          <KpiTile
-            label="Manpower pipeline"
-            value={loading ? "—" : modules.manpowerTotal}
-            sub={`${modules.manpowerPending} waiting · ${modules.manpowerDueSoon} due soon`}
-            onClick={() => go("/app/commercial/manpower-training/manpower-management/dashboard")}
-          />
-          <KpiTile
-            label="Marketing asks"
-            value={loading ? "—" : modules.marketing}
-            sub="Enquiries on record"
-            onClick={() => go("/app/marketing")}
-          />
-          <KpiTile
-            label="Project enquiries"
-            value={loading ? "—" : modules.projects}
-            sub="Projects module"
-            onClick={() => go("/app/projects/enquiry/enquiry-dashboard")}
-          />
-          <KpiTile
-            label="AMC active"
-            value={loading ? "—" : modules.amcActive}
-            sub={`${modules.amcAtRisk} at risk · ${modules.amcComplaints} open calls`}
-            onClick={() => go("/app/amc")}
-          />
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <KpiTile
-            label="Maintenance"
-            value={loading ? "—" : modules.maintenance}
-            sub="Enquiries"
-            onClick={() => go("/app/maintenance")}
-          />
-          <KpiTile
-            label="IEV"
-            value={loading ? "—" : modules.fireTenderTotal}
-            sub={`${modules.fireTenderPending} pending`}
-            onClick={() => go("/app/fire-tender")}
-          />
-          <KpiTile
-            label="Commercial PO/WO"
-            value={loading ? "—" : commercialStats.poCount}
-            sub={`${modules.commercialPending} waiting approval`}
-            onClick={() => go("/app/commercial/manpower-training/dashboard")}
-          />
-          <KpiTile
-            label="Finance sites"
-            value={loading ? "—" : pl.sitesReporting}
-            sub={`${pl.lossSites} in loss this period`}
-            onClick={() => goLedger()}
-          />
-        </div>
-      </section>
-
-      <Suspense fallback={<ChartsFallback />}>
-        <DashboardChartsIsland
-          rangeLabel={rangeLabel}
-          pl={pl}
-          plMix={plMix}
-          topSites={topSites}
-          bottomSites={bottomSites}
-          billingBars={billingBars}
-          collectionMix={collectionMix}
-          commercialStats={commercialStats}
-          billRate={billRate}
-          loading={loading}
-          moduleVolume={moduleVolume}
-          pipelineMix={pipelineMix}
-          attentionBars={attentionBars}
-          manpowerMix={manpowerMix}
-          modules={modules}
-          goLedger={goLedger}
-          goBilling={goBilling}
-          goBillingReports={goBillingReports}
-          go={go}
-          openTrendMonth={openTrendMonth}
-          openSite={openSite}
-          openBillingBar={openBillingBar}
-          openModuleBar={openModuleBar}
-        />
-      </Suspense>
-
+    <PageShell className="erp-page-stack max-w-[1400px] mx-auto">
+      <CompanyPulse
+        loading={loading}
+        financeError={financeError}
+        rangeLabel={rangeLabel}
+        fromKey={fromKey}
+        toKey={toKey}
+        monthChoices={monthChoices}
+        presets={presets}
+        activePresetId={activePresetId}
+        onPreset={(preset) => {
+          setFromKey(preset.from);
+          setToKey(preset.to);
+        }}
+        onFrom={(next) => {
+          setFromKey(next);
+          if (comparePeriodKeys(next, toKey) > 0) setToKey(next);
+        }}
+        onTo={(next) => {
+          setToKey(next);
+          if (comparePeriodKeys(fromKey, next) > 0) setFromKey(next);
+        }}
+        onRefresh={() => load({ force: true })}
+        profile={userProfile}
+        allowPath={allowPath}
+        modules={modules}
+        commercialStats={commercialStats}
+        pl={pl}
+        billRate={billRate}
+        collectRate={collectRate}
+        onOpen={go}
+        showAttendance={isManagementRole(userProfile) || allowPath("/app/attendance") || allowPath("/app/hr")}
+        attendance={attendance}
+        attendanceLoading={attendanceLoading}
+        attendanceError={attendanceError}
+        onOpenAttendance={allowPath("/app/attendance") ? () => go("/app/attendance") : allowPath("/app/hr") ? () => go("/app/hr") : null}
+      />
     </PageShell>
   );
 };
