@@ -14,7 +14,8 @@ PROD_PROJECT_REF="wbyzhknaqcjqqtwopupl"
 STAGING_PROJECT_REF="xjzhlbpgnpcmbdlufhwo"
 EXPECTED_SUPABASE_URL="https://${PROD_PROJECT_REF}.supabase.co"
 # Production allows the live origin only — no localhost.
-EXPECTED_CORS="https://indus-erp.in"
+# Apex + www: nginx serves both hosts; browser POSTs from www send Origin: https://www.…
+EXPECTED_CORS="https://indus-erp.in,https://www.indus-erp.in"
 
 echo "==> Deploy production REPO_DIR=${REPO_DIR} APP_DIR=${APP_DIR} pm2=${PM2_NAME}"
 

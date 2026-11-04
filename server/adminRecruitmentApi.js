@@ -94,6 +94,16 @@ function dbError(error, fallback = 'Request failed.') {
     console.error('[admin-recruitment] workflow function missing:', message);
     return httpError(503, 'Recruitment is being updated. Please try again shortly.');
   }
+  // Node undici / supabase-js: transient DNS/TLS/"fetch failed" when PostgREST is unreachable.
+  if (
+    /fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|network|socket hang up|UND_ERR_/i.test(
+      `${code} ${message}`
+    )
+  ) {
+    // eslint-disable-next-line no-console
+    console.error('[admin-recruitment] database unreachable:', code, message);
+    return httpError(503, 'The recruitment service is temporarily unavailable. Please try again in a moment.');
+  }
   // eslint-disable-next-line no-console
   console.error('[admin-recruitment] database error:', code, message);
   return httpError(500, fallback);

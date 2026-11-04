@@ -1,15 +1,28 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Upload } from "lucide-react";
-import { apiUrl } from "../../../lib/apiBase";
+import { apiUrl, humanizeApiErrorMessage } from "../../../lib/apiBase";
 import { employeeDocumentStatusMeta } from "../../../lib/adminEmployeeDocuments";
 import { StatusChip } from "../../../components/erpUi";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 
 const ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx";
 
+function preferApexPortalHost() {
+  if (typeof window === "undefined") return false;
+  const { hostname, pathname, search, hash } = window.location;
+  if (hostname.toLowerCase() !== "www.indus-erp.in") return false;
+  window.location.replace(`https://indus-erp.in${pathname}${search}${hash}`);
+  return true;
+}
+
 async function portalRequest(token, path = "", options = {}) {
-  const res = await fetch(apiUrl(`/api/employee-document-portal/${encodeURIComponent(token)}${path}`), options);
+  let res;
+  try {
+    res = await fetch(apiUrl(`/api/employee-document-portal/${encodeURIComponent(token)}${path}`), options);
+  } catch (err) {
+    throw new Error(humanizeApiErrorMessage(err, "Could not reach the server. Check your connection and try again."));
+  }
   let body = null;
   try {
     body = await res.json();
@@ -20,7 +33,9 @@ async function portalRequest(token, path = "", options = {}) {
     if (res.status === 413) {
       throw new Error("This file is too large for the server. Please upload a smaller file (under 25 MB).");
     }
-    throw new Error(body?.message || "Something went wrong. Please try again.");
+    throw new Error(
+      humanizeApiErrorMessage(body?.message || body?.error, "Something went wrong. Please try again.")
+    );
   }
   return body;
 }
@@ -68,6 +83,7 @@ export function EmployeeDocumentPortalView({ token, initialData = null }) {
   const [message, setMessage] = useState(null);
 
   useEffect(() => {
+    if (preferApexPortalHost()) return undefined;
     if (initialData) {
       setData(initialData);
       setLoading(false);
@@ -78,7 +94,7 @@ export function EmployeeDocumentPortalView({ token, initialData = null }) {
     setLoading(true);
     portalRequest(token)
       .then((d) => !cancelled && setData(d))
-      .catch((e) => !cancelled && setError(e.message))
+      .catch((e) => !cancelled && setError(humanizeApiErrorMessage(e, "Something went wrong. Please try again.")))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
