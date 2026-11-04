@@ -9,7 +9,8 @@ const SEGMENTS = [
 
 function tone(pct) {
   if (pct >= 92) return "var(--cp-good)";
-  if (pct >= 88) return "var(--cp-watch)";
+  if (pct >= 75) return "var(--cp-brand)";
+  if (pct >= 60) return "var(--cp-watch)";
   return "var(--cp-risk)";
 }
 

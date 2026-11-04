@@ -75,9 +75,10 @@ function statusOf(view) {
       ? { label: "Needs a look", color: "var(--cp-watch)" }
       : { label: "Overview", color: "var(--cp-brand)" };
   }
-  if (view.score < 75) return { label: "Needs a look", color: healthTone(view.score) };
-  if (view.attention || view.score < 85) return { label: "Watch", color: "var(--cp-watch)" };
-  return { label: "Steady", color: healthTone(view.score) };
+  const color = healthTone(view.score);
+  if (view.score < 75) return { label: "Needs a look", color };
+  if (view.attention || view.score < 85) return { label: "Watch", color };
+  return { label: "Steady", color };
 }
 
 function polar(index, count) {
@@ -348,7 +349,7 @@ export default function CompanyPulse({
                         y1="50"
                         x2={point.x}
                         y2={point.y}
-                        className={dim ? "is-dim" : ""}
+                        className={dim ? "is-dim" : selected?.id === view.id ? "is-on" : ""}
                         style={{ "--c": tone }}
                       />
                     );
@@ -359,7 +360,7 @@ export default function CompanyPulse({
                 <div
                   className="cp-core"
                   style={{
-                    "--c": pulse.health == null ? "var(--border-strong)" : healthTone(pulse.health),
+                    "--c": "var(--cp-brand)",
                     "--p": pulse.health ?? 100,
                   }}
                 >
