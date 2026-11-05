@@ -222,7 +222,7 @@ function PreviewRow({ rows, r, type, colKeys }) {
   return <tr data-pdf-nosplit>{cells}</tr>;
 }
 
-export default function QuotationMakerPreview({ form, rows }) {
+export default function QuotationMakerPreview({ form, rows, signatureUrl = '' }) {
   const type = normalizeType(form.quotation_type);
   const t = QUOTATION_TYPES[type];
   const totals = computeTotals(rows, type);
@@ -339,6 +339,9 @@ export default function QuotationMakerPreview({ form, rows }) {
         <p className="qm-sign" data-pdf-nosplit>
           Thanks &amp; regards
           <br />
+          {signatureUrl ? (
+            <img src={signatureUrl} alt="Signature" className="qm-sign-image" />
+          ) : null}
           <b>{form.signatory_name || '—'}</b>
           <br />
           {form.signatory_designation || ''}

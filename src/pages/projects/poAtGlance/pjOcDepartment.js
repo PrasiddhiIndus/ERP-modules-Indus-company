@@ -1,7 +1,7 @@
 /**
  * Projects PO At Glance profile for the shared PO At Glance screens (src/pages/projects/oc).
  * Own records and sign-off assignment (pj_oc_* tables, migration 20261102150000), Projects access,
- * the Projects format's four sign-off boxes and its Word layout.
+ * the Projects format's four sequential sign-off stages and its Word layout.
  */
 import {
   ROLES, normalizeAppRole, parseAllowedSubModules, userCanApproveInModules, userCanEditInModules,
@@ -12,9 +12,9 @@ const MODULE_KEYS = ["projects"];
 const SUB_MODULE_KEYS = ["projects.po-at-glance"];
 
 export const PJ_OC_SIGNOFF_SLOTS = [
-  { slot: "PROJECT_USER", label: "User (Project Dept.)" },
-  { slot: "PLANNING", label: "Planning Department" },
-  { slot: "VERTICAL_HEAD", label: "Vertical Head" },
+  { slot: "PROJECT_USER", label: "OC Creation" },
+  { slot: "PLANNING", label: "Execution Department" },
+  { slot: "VERTICAL_HEAD", label: "Department Head" },
   { slot: "FINANCE", label: "Finance Department" },
 ];
 
@@ -50,6 +50,14 @@ export const PROJECTS_OC_DEPARTMENT = {
   formTitle: OC_FORM_TITLE,
   listSubtitle: "Order confirmation for Projects work orders and purchase orders.",
   slots: PJ_OC_SIGNOFF_SLOTS,
+  /** First stage is the creator's own signature. Later stages stay assigned. */
+  autoCreatorSlot: "PROJECT_USER",
+  sequentialSignoff: true,
+  poDocument: true,
+  /** Approval history + Department Head "Request Modification" (pj_oc_approval_log, migration 20261105190000). */
+  approvalAudit: true,
+  /** Assigned stages sign with one click using the signer's own Indus One signature (migration 20261105210000). */
+  ownSignature: true,
   assigneeCount: "four",
   tables: {
     master: "pj_oc_master",
@@ -66,5 +74,14 @@ export const PROJECTS_OC_DEPARTMENT = {
   accessDeniedMessage: "You do not have access to Projects PO At Glance.",
   canEdit: pjOcCanEdit,
   canDelete: pjOcCanDelete,
-  buildDocx: (form) => import("./pjWordExport").then((m) => m.buildPjOcDocx(form)),
+  /** Word export with every completed stage's own signature image, name, and signing date and time. */
+  buildDocx: async (form) => {
+    const [{ buildPjOcDocx }, { loadPjSignatureImages }] = await Promise.all([
+      import("./pjWordExport"),
+      import("./pjSignatureImages"),
+    ]);
+    return buildPjOcDocx(form, { signatures: await loadPjSignatureImages(form) });
+  },
+  /** Signed-document preview after a one-click Sign (and from the toolbar). */
+  documentPreview: true,
 };

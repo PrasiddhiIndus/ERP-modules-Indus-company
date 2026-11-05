@@ -1,0 +1,649 @@
+/* Probation appraisal sheet — adapted from probation-review.html design */
+
+.pr-page {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+.pr-sheet {
+  --pr-pad: 16px;
+  --pr-or: #e8651a;
+  --pr-or-d: #b84a0c;
+  --pr-ink: #1d1d1f;
+  --pr-mut: #6b6b70;
+  --pr-line: #d9d9de;
+  --pr-bg: #f3f3f1;
+  --pr-ok: #1f7a4d;
+  --pr-warn: #b26a00;
+  --pr-bad: #b3261e;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  background: #fff;
+  border: 1px solid var(--pr-line);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: none;
+  color: var(--pr-ink);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.pr-top {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: 0 0 12px;
+  width: 100%;
+}
+
+.pr-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--pr-line);
+  background: #fff;
+  font: inherit;
+  cursor: pointer;
+  color: var(--pr-ink);
+}
+
+.pr-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pr-btn-pri {
+  background: var(--pr-or);
+  border-color: var(--pr-or);
+  color: #fff;
+  font-weight: 600;
+}
+
+.pr-btn-pri:hover:not(:disabled) {
+  background: var(--pr-or-d);
+}
+
+.pr-btn-warn {
+  border-color: var(--pr-bad);
+  color: var(--pr-bad);
+}
+
+.pr-doc-head {
+  padding: 18px var(--pr-pad) 14px;
+}
+
+.pr-doc-head h1 {
+  margin: 0;
+  font-size: 20px;
+  color: var(--pr-or);
+  letter-spacing: 0.2px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.pr-doc-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.pr-stripe {
+  height: 8px;
+  background:
+    linear-gradient(var(--pr-or), var(--pr-or)) top / 100% 3px no-repeat,
+    linear-gradient(var(--pr-or), var(--pr-or)) bottom / 100% 3px no-repeat;
+  border-top: 1px solid var(--pr-or);
+  border-bottom: 1px solid var(--pr-or);
+  margin: 12px calc(-1 * var(--pr-pad)) 16px;
+  width: calc(100% + 2 * var(--pr-pad));
+}
+
+.pr-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.pr-fld label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pr-mut);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.pr-fld input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--pr-line);
+  border-radius: 6px;
+  font: inherit;
+  background: #fafaf8;
+  color: var(--pr-ink);
+}
+
+.pr-section {
+  padding: 16px var(--pr-pad);
+  border-top: 1px solid var(--pr-line);
+}
+
+.pr-stage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pr-step {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #f0f0ee;
+  color: var(--pr-mut);
+}
+
+.pr-step-done {
+  background: #e6f4ec;
+  color: var(--pr-ok);
+}
+
+.pr-step-cur {
+  background: var(--pr-or);
+  color: #fff;
+  font-weight: 600;
+}
+
+.pr-step-corr {
+  background: #fdf0e6;
+  color: var(--pr-or-d);
+  border: 1px dashed var(--pr-or);
+}
+
+.pr-arrow {
+  color: #bbb;
+}
+
+.pr-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pr-chip-l1 {
+  background: #fdf0e6;
+  color: var(--pr-or-d);
+}
+
+.pr-chip-fin {
+  background: #e6f4ec;
+  color: var(--pr-ok);
+}
+
+.pr-chip-corr {
+  background: #fbe9e7;
+  color: var(--pr-bad);
+}
+
+.pr-comp {
+  margin: 0;
+  font-size: 15px;
+  color: var(--pr-or);
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.pr-comp-sub {
+  font-style: italic;
+  color: var(--pr-mut);
+  margin: 2px 0 10px;
+  font-size: 13px;
+}
+
+.pr-rub {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 22px;
+  border: 1px solid var(--pr-line);
+}
+
+.pr-rub td {
+  border-top: 1px solid var(--pr-line);
+  vertical-align: top;
+  padding: 0;
+}
+
+.pr-rub tr:first-child td {
+  border-top: none;
+}
+
+.pr-rub .pr-sc {
+  width: 150px;
+  padding: 10px 12px;
+  background: #fafaf8;
+}
+
+.pr-rub .pr-sc label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.pr-rub .pr-sc label.pr-ro {
+  cursor: default;
+}
+
+.pr-rub .pr-n {
+  color: var(--pr-or);
+  font-style: italic;
+}
+
+.pr-rub ul {
+  margin: 0;
+  padding: 8px 14px 8px 30px;
+  font-size: 13px;
+}
+
+.pr-rub li {
+  margin: 2px 0;
+}
+
+.pr-rub tr.pr-sel td {
+  background: #fff4ec;
+}
+
+.pr-rub tr.pr-sel .pr-sc {
+  background: #ffe5d1;
+}
+
+.pr-rub .pr-ph {
+  color: var(--pr-warn);
+  font-style: italic;
+}
+
+.pr-rub input[type='radio'] {
+  accent-color: var(--pr-or);
+  margin-top: 2px;
+}
+
+.pr-summary {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 16px;
+  background: #fafaf8;
+  border: 1px solid var(--pr-line);
+  border-radius: 8px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.pr-summary b {
+  color: var(--pr-or);
+}
+
+.pr-recs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.pr-recs label {
+  border: 1px solid var(--pr-line);
+  border-radius: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 600;
+}
+
+.pr-recs label.pr-ro {
+  cursor: default;
+}
+
+.pr-recs label.pr-checked {
+  border-color: var(--pr-or);
+  background: #fff4ec;
+}
+
+.pr-recs label.pr-checked span {
+  color: var(--pr-or-d);
+}
+
+.pr-recs input {
+  accent-color: var(--pr-or);
+}
+
+.pr-rem {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin-top: 16px;
+}
+
+.pr-rem label,
+.pr-ret-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pr-mut);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.pr-filled-by {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--pr-mut);
+  margin: 0 0 6px;
+}
+
+.pr-sheet textarea {
+  width: 100%;
+  min-height: 90px;
+  padding: 10px;
+  border: 1px solid var(--pr-line);
+  border-radius: 6px;
+  font: inherit;
+  resize: vertical;
+  background: #fff;
+  color: var(--pr-ink);
+}
+
+.pr-sheet textarea:disabled {
+  background: #f7f7f5;
+  color: #555;
+}
+
+.pr-sigs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.pr-sig {
+  border: 1px solid var(--pr-line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pr-sig-active {
+  border-color: var(--pr-or);
+  box-shadow: 0 0 0 3px #ffe5d1;
+}
+
+.pr-sig .pr-hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.pr-sig .pr-hd b {
+  font-size: 13px;
+  min-width: 0;
+}
+
+.pr-st {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.pr-st-ok {
+  color: var(--pr-ok);
+}
+
+.pr-st-p {
+  color: var(--pr-mut);
+}
+
+.pr-st-active {
+  color: var(--pr-or-d);
+}
+
+.pr-sig .pr-box {
+  min-height: 110px;
+  border: 1px dashed #bdbdc2;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #aaa;
+  font-size: 12px;
+  background: #fff;
+  position: relative;
+  overflow: hidden;
+  padding: 8px;
+}
+
+.pr-sig .pr-box-sign {
+  flex-direction: column;
+  gap: 10px;
+  min-height: 120px;
+  padding: 12px;
+}
+
+.pr-sig .pr-box-missing {
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+  color: var(--pr-mut);
+  padding: 12px;
+}
+
+.pr-sigimg {
+  max-height: 88px;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.pr-sign-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.pr-sign-tools .pr-btn {
+  min-width: 120px;
+}
+
+.pr-acts {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px var(--pr-pad);
+  background: #fafaf8;
+  border-top: 1px solid var(--pr-line);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.pr-acts-r {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pr-msg {
+  font-size: 13px;
+  min-height: 18px;
+  flex: 1;
+  min-width: 160px;
+}
+
+.pr-msg-err {
+  color: var(--pr-bad);
+}
+
+.pr-msg-ok {
+  color: var(--pr-ok);
+}
+
+.pr-foot {
+  padding: 0 var(--pr-pad) 16px;
+  font-size: 12px;
+  color: var(--pr-mut);
+}
+
+.pr-banner {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #f5c2c0;
+  background: #fbe9e7;
+  color: var(--pr-bad);
+  font-size: 13px;
+}
+
+.pr-banner strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+@media (min-width: 1100px) {
+  .pr-sheet {
+    --pr-pad: 20px;
+  }
+
+  .pr-fields {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .pr-fields,
+  .pr-rem,
+  .pr-sigs {
+    grid-template-columns: 1fr;
+  }
+
+  .pr-sheet {
+    --pr-pad: 12px;
+  }
+
+  .pr-rub .pr-sc {
+    width: 100px;
+  }
+}
+
+/* Fixed columns for PDF capture. html2canvas mis-paints CSS grid. */
+.pr-sheet.pr-pdf-mode {
+  width: 794px;
+  max-width: 794px;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.pr-sheet.pr-pdf-mode .pr-stripe {
+  margin-left: 0;
+  margin-right: 0;
+  width: 100%;
+}
+
+.pr-sheet.pr-pdf-mode .pr-fields,
+.pr-sheet.pr-pdf-mode .pr-rem,
+.pr-sheet.pr-pdf-mode .pr-sigs,
+.pr-sheet.pr-pdf-mode .pr-recs,
+.pr-sheet.pr-pdf-mode .pr-summary,
+.pr-sheet.pr-pdf-mode .pr-stage {
+  display: block;
+  font-size: 0;
+}
+
+.pr-sheet.pr-pdf-mode .pr-fld,
+.pr-sheet.pr-pdf-mode .pr-rem > div {
+  display: inline-block;
+  width: 48%;
+  margin: 0 2% 12px 0;
+  vertical-align: top;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.pr-sheet.pr-pdf-mode .pr-sig {
+  display: inline-block;
+  width: 31%;
+  margin: 0 2% 12px 0;
+  vertical-align: top;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.pr-sheet.pr-pdf-mode .pr-recs label,
+.pr-sheet.pr-pdf-mode .pr-summary > span,
+.pr-sheet.pr-pdf-mode .pr-step,
+.pr-sheet.pr-pdf-mode .pr-arrow {
+  display: inline-block;
+  vertical-align: middle;
+  font-size: 13px;
+  margin: 0 8px 8px 0;
+}
+
+.pr-sheet.pr-pdf-mode .pr-sig .pr-box {
+  display: block;
+  text-align: center;
+  line-height: 110px;
+}
+
+.pr-sheet.pr-pdf-mode .pr-sigimg {
+  display: inline-block;
+  vertical-align: middle;
+  width: auto;
+  height: 72px;
+  max-width: 100%;
+  max-height: 72px;
+  object-fit: contain;
+  line-height: normal;
+}
+
+@media print {
+  .pr-top,
+  .pr-acts,
+  .pr-no-print {
+    display: none !important;
+  }
+
+  .pr-sheet {
+    box-shadow: none;
+    border: none;
+    margin: 0;
+    max-width: none;
+  }
+
+  .pr-section {
+    break-inside: avoid;
+  }
+
+  .pr-rub {
+    break-inside: avoid;
+  }
+}

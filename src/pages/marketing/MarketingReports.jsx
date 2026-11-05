@@ -77,7 +77,7 @@ const CATALOG_BY_TAB = {
 const PAGE_SIZES = [25, 50, 100, 200];
 
 const ENQUIRY_STATUS_OPTIONS = ["New", "In Progress", "Follow Up", "Closed"];
-const ENQUIRY_SOURCE_OPTIONS = ["Email", "Phone", "Website", "Referral", "Exhibition", "Other"];
+const ENQUIRY_SOURCE_OPTIONS = ["Email", "Phone", "Website", "Referral", "Exhibition", "Tender", "Other"];
 
 function isoDateToday() {
   return new Date().toISOString().slice(0, 10);

@@ -848,6 +848,14 @@
   page-break-inside: avoid;
 }
 
+.qm-sign-image {
+  display: block;
+  max-height: 72px;
+  max-width: 200px;
+  margin: 8px 0 4px;
+  object-fit: contain;
+}
+
 .qm-preview .qm-totals {
   margin-top: 10px;
 }

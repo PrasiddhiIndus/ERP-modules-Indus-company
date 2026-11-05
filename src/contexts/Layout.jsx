@@ -12,6 +12,7 @@ import { canAccessRulesConsole } from "../pages/adminOperations/rulesConsole/rul
 import { syncSalaryFiguresHidden } from "../pages/adminOperations/salaryAdmin/salaryPrivacy";
 import { canAccessCompliance } from "../pages/compliance/payroll/complianceAccess";
 import { fetchMyMisAccess } from "../pages/adminOperations/salaryAdmin/mis/misDb";
+import { useProbationReviewsAccess } from "../pages/adminOperations/probationReviews/probationAccess";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import { resolveModule } from "../lib/activityDescriptors";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
@@ -206,6 +207,8 @@ const Layout = () => {
   const ievCostingTabs = getOpenableIevCostingTabs(userProfile, accessibleModules, subModulePaths);
   const enquiryTabs = getOpenableProjectsEnquiryTabs(userProfile, accessibleModules, subModulePaths);
   const hasFullAdmin = Boolean(accessibleModules?.has("admin"));
+  // Probation Reviews: L1 managers with reportees + HR 10935 only (not implied by Admin access).
+  const { canAccess: canSeeProbationReviews } = useProbationReviewsAccess();
   const { isConsoleVisible } = useAuditConsole();
   const navigate = useNavigate();
   const location = useLocation();
@@ -429,6 +432,8 @@ const Layout = () => {
     if (pathname.startsWith("/app/fire-tender-vehicle") || pathname.startsWith("/app/operations")) setOperationsOpen(true);
     if (pathname.startsWith("/app/operations")) setManpowerOperationsOpen(true);
     if (
+      pathname.startsWith("/app/projects/dashboard") ||
+      pathname.startsWith("/app/projects/reports") ||
       pathname.startsWith("/app/projects/po") ||
       pathname.startsWith("/app/projects/enquiry") ||
       pathname.startsWith("/app/projects/quotation") ||
@@ -823,7 +828,7 @@ const Layout = () => {
             )}
 
             {/* Admin */}
-            {(can("admin") || canAccessSalaryAdmin(userProfile, user)) && (
+            {(can("admin") || canAccessSalaryAdmin(userProfile, user) || canSeeProbationReviews) && (
             <div>
               <button
                 onClick={() => {
@@ -940,6 +945,13 @@ const Layout = () => {
                       </NavLink>
                       {/* NAV_HIDDEN: Compliance & Documents, Salary Inputs */}
                   </>
+                  )}
+
+                  {canSeeProbationReviews && (
+                  <NavLink to="admin/probation-reviews" className={subNavClass}>
+                    <UserCheck className="h-4 w-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate">Probation Reviews</span>
+                  </NavLink>
                   )}
 
                   {canSub("admin.salary-admin") && (
@@ -1493,6 +1505,8 @@ const Layout = () => {
               <button
                 onClick={() => setProjectsOpen(!projectsOpen)}
                 className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${
+                  pathname.startsWith("/app/projects/dashboard") ||
+                  pathname.startsWith("/app/projects/reports") ||
                   pathname.startsWith("/app/projects/po") ||
                   pathname.startsWith("/app/projects/enquiry") ||
                   pathname.startsWith("/app/projects/quotation") ||
@@ -1516,13 +1530,9 @@ const Layout = () => {
 
               {projectsOpen && (
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                  <NavLink to="projects-management" className={subNavClass}>
-                    <FolderOpen className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Projects Management</span>
-                  </NavLink>
-                  <NavLink to="projects-billing" className={subNavClass}>
-                    <Calculator className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Projects Billing</span>
+                  <NavLink to="projects/dashboard" className={subNavClass}>
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate">Project Dashboard</span>
                   </NavLink>
                   <NavLink
                     to={enquiryTabs.length ? `projects/enquiry/${enquiryTabs[0]}` : "projects/enquiry"}
@@ -1533,19 +1543,23 @@ const Layout = () => {
                   </NavLink>
                   <NavLink to="projects/quotation" className={subNavClass}>
                     <ClipboardList className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Quotation Maker</span>
-                  </NavLink>
-                  <NavLink to="projects/po" className={subNavClass}>
-                    <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">PO / WO Entry</span>
-                  </NavLink>
-                  <NavLink to="projects/po/contact-log" className={subNavClass}>
-                    <History className="w-4 h-4 shrink-0 text-ink-muted" />
-                    <span className="type-meta type-truncate">PO Contact Log</span>
+                    <span className="type-meta type-truncate">Quotation Master</span>
                   </NavLink>
                   <NavLink to="/app/projects-po-at-glance" end className={subNavClass}>
                     <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
-                    <span className="type-meta type-truncate">PO At Glance</span>
+                    <span className="type-meta type-truncate">PO at Glance</span>
+                  </NavLink>
+                  <NavLink to="projects/po" className={subNavClass}>
+                    <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate">Contract Management</span>
+                  </NavLink>
+                  <NavLink to="projects-management" className={subNavClass}>
+                    <FolderOpen className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate">Management / Planning</span>
+                  </NavLink>
+                  <NavLink to="projects/reports" className={subNavClass}>
+                    <FileSpreadsheet className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate">Project Reports</span>
                   </NavLink>
                 </div>
               )}

@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, Clock, History, Loader2, Pencil, RefreshCw, Search, X } from "lucide-react";
-import { toast } from "../../../lib/toast";
-import { amFinance } from "../../projects/oc/ocApi";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { History, Loader2, RefreshCw, Search, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, Clock } from "lucide-react";
+import OcCreationForm from "../../projects/oc/OcCreationForm";
 import { formatIndianAmount, formatOcDate } from "../../projects/oc/ocModel";
 import { FINANCE_PO_DEPARTMENTS, financePoDepartment } from "./financePoDepartments";
-import { friendlyFinancePoError, listFinancePoOcHistory, listFinancePos, setFinancePoOcNo } from "./financePoApi";
+import { friendlyFinancePoError, listFinancePos } from "./financePoApi";
+import FinancePoHistoryDrawer from "./FinancePoHistoryDrawer";
 
 const PAGE_SIZES = [25, 50, 100];
 const OC_STATUS = [
@@ -41,7 +41,7 @@ function SortTh({ id, label, sort, onSort, className = "" }) {
   const active = sort.key === id;
   const Icon = !active ? ArrowUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
   return (
-    <th className={`px-3 py-2 ${className}`}>
+    <th className={`px-2 py-1.5 ${className}`}>
       <button type="button" onClick={() => onSort(id)} className="inline-flex items-center gap-1 uppercase hover:text-slate-800">
         {label} <Icon className={`h-3 w-3 ${active ? "text-slate-700" : "text-slate-300"}`} />
       </button>
@@ -49,122 +49,6 @@ function SortTh({ id, label, sort, onSort, className = "" }) {
   );
 }
 
-function OcDialog({ row, onClose, onSaved }) {
-  const dept = financePoDepartment(row.department);
-  const [ocNo, setOcNo] = useState(row.oc_no || "");
-  const [ocDate, setOcDate] = useState(row.oc_date || new Date().toISOString().slice(0, 10));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [history, setHistory] = useState(null);
-  const inFlight = useRef(false);
-
-  useEffect(() => {
-    let alive = true;
-    listFinancePoOcHistory(row.department, row.id)
-      .then((h) => alive && setHistory(h))
-      .catch((e) => {
-        console.warn("[Master PO At Glance] history", e);
-        if (alive) setHistory([]);
-      });
-    return () => { alive = false; };
-  }, [row.department, row.id]);
-
-  const trimmed = ocNo.trim();
-  const validation = !trimmed ? "OC No. is required." : trimmed.length > 80 ? "OC No. must be 80 characters or fewer." : "";
-  const unchanged = trimmed === (row.oc_no || "") && (ocDate || null) === (row.oc_date || null);
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (inFlight.current || validation || unchanged) return;
-    inFlight.current = true;
-    setSaving(true);
-    setError("");
-    try {
-      const res = await setFinancePoOcNo({
-        department: row.department, id: row.id, ocNo: trimmed, ocDate, expectedUpdatedAt: row.updated_at,
-      });
-      toast.success(`OC No. ${res.oc_no} saved for ${dept.label} PO ${row.po_wo_no}.`);
-      onSaved({ ...row, oc_no: res.oc_no, oc_date: res.oc_date, updated_at: res.updated_at });
-    } catch (err) {
-      setError(friendlyFinancePoError(err, "Could not save the OC No."));
-    } finally {
-      inFlight.current = false;
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" onMouseDown={(e) => e.target === e.currentTarget && !saving && onClose()}>
-      <form onSubmit={submit} className="w-full max-w-md rounded-xl bg-white shadow-xl">
-        <div className="flex items-start justify-between border-b border-slate-200 px-4 py-3">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">{row.oc_no ? "Update OC No." : "Enter OC No."}</h3>
-            <p className="mt-0.5 text-xs text-slate-500">Only the OC No. and OC date change. The PO, its approvals and signatures stay as they are.</p>
-          </div>
-          <button type="button" onClick={onClose} disabled={saving} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600" aria-label="Close">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="space-y-3 px-4 py-3 text-sm">
-          <dl className="grid grid-cols-[7rem_1fr] gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-xs">
-            <dt className="text-slate-500">Department</dt><dd><DeptBadge department={row.department} /></dd>
-            <dt className="text-slate-500">PO/WO No.</dt><dd className="font-mono font-semibold text-slate-900">{row.po_wo_no}</dd>
-            <dt className="text-slate-500">Client</dt><dd className="text-slate-800">{row.client_name || "—"}</dd>
-            <dt className="text-slate-500">Value</dt><dd className="tabular-nums text-slate-800">{money(row)}</dd>
-          </dl>
-          <label className="block">
-            <span className="text-xs font-medium text-slate-700">OC No. <span className="text-red-600">*</span></span>
-            <input
-              autoFocus
-              value={ocNo}
-              maxLength={80}
-              onChange={(e) => { setOcNo(e.target.value); setError(""); }}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-sm focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100"
-              placeholder="Enter OC number"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-medium text-slate-700">OC date</span>
-            <input
-              type="date"
-              value={ocDate || ""}
-              onChange={(e) => setOcDate(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100"
-            />
-          </label>
-          {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
-          <div>
-            <p className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-600"><History className="h-3.5 w-3.5" /> OC No. history</p>
-            {history === null ? (
-              <p className="text-xs text-slate-400">Loading…</p>
-            ) : history.length === 0 ? (
-              <p className="text-xs text-slate-400">No changes recorded from this page yet.</p>
-            ) : (
-              <ul className="max-h-28 space-y-0.5 overflow-y-auto text-xs text-slate-600">
-                {history.map((h) => (
-                  <li key={h.id}>
-                    <span className="font-mono">{h.old_oc_no || "—"}</span> → <span className="font-mono font-medium text-slate-800">{h.new_oc_no}</span>
-                    <span className="text-slate-400"> · {h.changed_by_name || "Unknown"} · {new Date(h.changed_at).toLocaleString("en-IN")}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-4 py-3">
-          <button type="button" onClick={onClose} disabled={saving} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">Cancel</button>
-          <button
-            type="submit"
-            disabled={saving || !!validation || unchanged}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />} {saving ? "Saving…" : "Save OC No."}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
 
 /**
  * Finance → Master PO At Glance: every department's PO At Glance records in one list, read from each
@@ -174,23 +58,20 @@ export default function MasterPoAtGlance() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [isFinance, setIsFinance] = useState(false);
   const [dept, setDept] = useState("all");
   const [status, setStatus] = useState("all");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState({ key: "po_date", dir: "desc" });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [editing, setEditing] = useState(null);
-  const [lastSaved, setLastSaved] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [historyPo, setHistoryPo] = useState(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setLoadError("");
     try {
-      const [fin, list] = await Promise.all([amFinance(), listFinancePos()]);
-      setIsFinance(fin);
-      setRows(list);
+      setRows(await listFinancePos());
     } catch (e) {
       setLoadError(friendlyFinancePoError(e, "Could not load POs."));
       setRows([]);
@@ -235,39 +116,72 @@ export default function MasterPoAtGlance() {
   const visible = filtered.slice((current - 1) * pageSize, current * pageSize);
 
   const onSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
-  const onSaved = (updated) => {
-    setRows((rs) => rs.map((r) => (rowKey(r) === rowKey(updated) ? { ...r, ...updated } : r)));
-    setLastSaved(rowKey(updated));
-    setEditing(null);
-  };
+  const openPreview = (row) => setPreview({ department: row.department, id: row.id });
+  const openHistory = (row) => setHistoryPo({
+    department: row.department,
+    id: row.id,
+    po_wo_no: row.po_wo_no,
+    client_name: row.client_name,
+  });
 
   const chip = (active) =>
     `rounded-md px-2.5 py-1 text-xs font-medium ${active ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100"}`;
 
+  const shell = "finance-module -mx-5 -my-5 flex h-[calc(100dvh-3.75rem)] flex-col overflow-hidden bg-slate-50 sm:-mx-8 sm:-my-7";
+
+  if (preview) {
+    const profile = financePoDepartment(preview.department).profile;
+    return (
+      <div className={shell}>
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+          {profile ? (
+            <OcCreationForm
+              department={profile}
+              ocId={preview.id}
+              canEdit={false}
+              financeReview
+              onBack={() => {
+                setPreview(null);
+                refresh();
+              }}
+            />
+          ) : (
+            <p className="text-sm text-red-700">This department preview is not available.</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const summary = [
+    { label: "Total", value: counts.total, cls: "text-slate-900" },
+    { label: "Pending OC", value: counts.pending, cls: "text-amber-700" },
+    { label: "OC entered", value: counts.entered, cls: "text-emerald-700" },
+    ...FINANCE_PO_DEPARTMENTS.map((d) => ({ label: d.label, value: counts.byDept[d.key] || 0, cls: "text-slate-900" })),
+  ];
+
   return (
-    <div className="min-h-screen bg-slate-50 finance-module">
-      <div className="border-b border-gray-200 bg-white px-4 py-3 shadow-sm sm:px-6">
-        <h1 className="text-xl font-bold text-gray-900">Master PO At Glance</h1>
-        <p className="mt-0.5 text-xs text-gray-500">Finance · POs from every department · OC No. entry</p>
+    <div className={shell}>
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 bg-white px-3 py-2">
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold leading-tight text-gray-900">Master PO At Glance</h1>
+          <p className="truncate text-[11px] text-gray-500">Open a PO to review it, sign for Finance, and enter the OC Number after the other departments have signed</p>
+        </div>
       </div>
 
-      <div className="mx-auto max-w-[1600px] space-y-3 px-4 py-4 sm:px-6">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-          {[
-            { label: "Total POs", value: counts.total, cls: "text-slate-900" },
-            { label: "Pending OC entry", value: counts.pending, cls: "text-amber-700" },
-            { label: "OC entered", value: counts.entered, cls: "text-emerald-700" },
-            ...FINANCE_PO_DEPARTMENTS.map((d) => ({ label: d.label, value: counts.byDept[d.key] || 0, cls: "text-slate-900" })),
-          ].map((c) => (
-            <div key={c.label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{c.label}</p>
-              <p className={`text-lg font-semibold tabular-nums ${c.cls}`}>{loading ? "–" : c.value}</p>
-            </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-2 px-3 py-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs">
+          {summary.map((c, i) => (
+            <span key={c.label} className="inline-flex items-baseline gap-1">
+              {i > 0 && <span className="px-1 text-slate-300" aria-hidden>·</span>}
+              <span className="text-slate-500">{c.label}</span>
+              <span className={`font-semibold tabular-nums ${c.cls}`}>{loading ? "–" : c.value}</span>
+            </span>
           ))}
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-2 border-b border-slate-200 p-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex shrink-0 flex-col gap-2 border-b border-slate-200 px-2.5 py-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-3">
               <select
                 value={dept}
@@ -317,11 +231,11 @@ export default function MasterPoAtGlance() {
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[64rem] text-sm">
-                  <thead className="bg-slate-50 text-left text-[11px] font-semibold tracking-wide text-slate-500">
+              <div className="min-h-0 flex-1 overflow-auto">
+                <table className="w-full min-w-[52rem] text-xs">
+                  <thead className="sticky top-0 z-10 bg-slate-50 text-left text-[10px] font-semibold tracking-wide text-slate-500">
                     <tr>
-                      <th className="px-3 py-2 uppercase">Sr.</th>
+                      <th className="px-2 py-1.5 uppercase">Sr.</th>
                       <SortTh id="po_wo_no" label="PO/WO No." sort={sort} onSort={onSort} />
                       <SortTh id="department" label="Department" sort={sort} onSort={onSort} />
                       <SortTh id="po_date" label="PO Date" sort={sort} onSort={onSort} />
@@ -329,8 +243,8 @@ export default function MasterPoAtGlance() {
                       <SortTh id="contract_value" label="PO Amount" sort={sort} onSort={onSort} className="text-right" />
                       <SortTh id="approval" label="Approval" sort={sort} onSort={onSort} />
                       <SortTh id="oc_no" label="OC No." sort={sort} onSort={onSort} />
-                      <th className="px-3 py-2 uppercase">OC Status</th>
-                      <th className="px-3 py-2 text-right uppercase">Actions</th>
+                      <th className="px-2 py-1.5 uppercase">OC Status</th>
+                      <th className="px-2 py-1.5 text-right uppercase">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -340,14 +254,14 @@ export default function MasterPoAtGlance() {
                       const signedLabels = d.slots.filter((s) => r.signed_slots?.includes(s.slot)).map((s) => s.label);
                       const pendingLabels = d.slots.filter((s) => !r.signed_slots?.includes(s.slot)).map((s) => s.label);
                       return (
-                        <tr key={rowKey(r)} className={lastSaved === rowKey(r) ? "bg-emerald-50/60" : "hover:bg-slate-50"}>
-                          <td className="px-3 py-1.5 tabular-nums text-slate-500">{(current - 1) * pageSize + i + 1}</td>
-                          <td className="px-3 py-1.5 font-mono text-xs text-slate-900">{r.po_wo_no || "—"}</td>
-                          <td className="px-3 py-1.5"><DeptBadge department={r.department} /></td>
-                          <td className="px-3 py-1.5 text-slate-600">{formatOcDate(r.po_date) || "—"}</td>
-                          <td className="max-w-[16rem] truncate px-3 py-1.5 text-slate-900" title={r.project_description || ""}>{r.client_name || "—"}</td>
-                          <td className="px-3 py-1.5 text-right tabular-nums text-slate-900">{r.contract_value == null ? "—" : money(r)}</td>
-                          <td className="px-3 py-1.5">
+                        <tr key={rowKey(r)} onClick={() => openPreview(r)} className="cursor-pointer hover:bg-red-50/40">
+                          <td className="px-2 py-1 tabular-nums text-slate-500">{(current - 1) * pageSize + i + 1}</td>
+                          <td className="px-2 py-1 font-mono text-slate-900">{r.po_wo_no || "—"}</td>
+                          <td className="px-2 py-1"><DeptBadge department={r.department} /></td>
+                          <td className="whitespace-nowrap px-2 py-1 text-slate-600">{formatOcDate(r.po_date) || "—"}</td>
+                          <td className="max-w-[14rem] truncate px-2 py-1 text-slate-900" title={r.project_description || ""}>{r.client_name || "—"}</td>
+                          <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums text-slate-900">{r.contract_value == null ? "—" : money(r)}</td>
+                          <td className="px-2 py-1">
                             <span
                               className={`text-xs ${a.done ? "text-emerald-700" : "text-slate-600"}`}
                               title={[signedLabels.length && `Signed: ${signedLabels.join(", ")}`, pendingLabels.length && `Pending: ${pendingLabels.join(", ")}`].filter(Boolean).join("\n")}
@@ -355,29 +269,28 @@ export default function MasterPoAtGlance() {
                               {a.done ? "All signed" : `${a.signed}/${a.total} signed`}
                             </span>
                           </td>
-                          <td className="px-3 py-1.5 font-mono text-xs text-slate-900">
+                          <td className="whitespace-nowrap px-2 py-1 font-mono text-slate-900">
                             {r.oc_no || "—"}
-                            {r.oc_date && <span className="ml-1 font-sans text-[11px] text-slate-400">{formatOcDate(r.oc_date)}</span>}
+                            {r.oc_date && <span className="ml-1 font-sans text-[10px] text-slate-400">{formatOcDate(r.oc_date)}</span>}
                           </td>
-                          <td className="px-3 py-1.5">
+                          <td className="px-2 py-1">
                             {r.oc_no ? (
                               <span className="inline-flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Entered</span>
                             ) : (
                               <span className="inline-flex items-center gap-1 text-xs text-amber-700"><Clock className="h-3.5 w-3.5" /> Pending</span>
                             )}
                           </td>
-                          <td className="px-3 py-1.5 text-right">
-                            {isFinance && (
-                              <button
-                                type="button"
-                                onClick={() => setEditing(r)}
-                                className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ${
-                                  r.oc_no ? "text-slate-600 hover:bg-slate-100" : "bg-red-600 text-white hover:bg-red-700"
-                                }`}
-                              >
-                                <Pencil className="h-3.5 w-3.5" /> {r.oc_no ? "Edit OC" : "Enter OC"}
-                              </button>
-                            )}
+                          <td className="px-2 py-1 text-right">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openHistory(r);
+                              }}
+                              className="inline-flex items-center gap-1 rounded border border-slate-300 px-1.5 py-0.5 text-[11px] font-medium text-slate-700 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                            >
+                              <History className="h-3.5 w-3.5" /> History
+                            </button>
                           </td>
                         </tr>
                       );
@@ -385,7 +298,7 @@ export default function MasterPoAtGlance() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex flex-col gap-2 border-t border-slate-200 px-3 py-2 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex shrink-0 flex-col gap-2 border-t border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between">
                 <span>
                   {(current - 1) * pageSize + 1}–{Math.min(current * pageSize, filtered.length)} of {filtered.length}
                 </span>
@@ -402,8 +315,7 @@ export default function MasterPoAtGlance() {
           )}
         </div>
       </div>
-
-      {editing && <OcDialog row={editing} onClose={() => setEditing(null)} onSaved={onSaved} />}
+      <FinancePoHistoryDrawer open={Boolean(historyPo)} onClose={() => setHistoryPo(null)} po={historyPo} />
     </div>
   );
 }

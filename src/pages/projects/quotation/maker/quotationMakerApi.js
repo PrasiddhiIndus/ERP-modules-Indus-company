@@ -2,6 +2,8 @@
  * Quotation Maker — persist / load / duplicate against projects schema.
  */
 
+import { supabase } from '../../../../lib/supabase';
+import { fetchOcSignatureUrl } from '../../oc/ocApi';
 import {
   buildOfferNo,
   deriveClientCode,
@@ -153,6 +155,11 @@ function headerPayload(form, totals, { userId } = {}) {
     updated_at: new Date().toISOString(),
     ...(userId && !form.id ? { created_by: userId } : {}),
   };
+}
+
+/** Signature image already uploaded in Indus One for this employee's code. Empty when none is on file. */
+export async function fetchCreatorSignatureUrl(userId) {
+  return fetchOcSignatureUrl(userId);
 }
 
 export async function fetchMakerQuotation(id) {

@@ -1803,6 +1803,43 @@ app.post('/api/maintenance/oc/signoff-notify', einvoiceRateLimit, requireAuth, a
   }
 });
 
+app.post('/api/employee-signature/file', requireAuth, async (req, res) => {
+  try {
+    const userId = String(req.body?.userId || '').trim();
+    if (!userId) return res.status(400).json({ error: 'Choose the employee whose signature to open.' });
+    const jwt = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    const userDb = createClient(getSupabaseUrlForServer(), getSupabaseAnonKeyForServer(), {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: jwt ? { headers: { Authorization: `Bearer ${jwt}` } } : undefined,
+    });
+    const { data, error } = await userDb.rpc('employee_signature_file_for_user', { p_user_id: userId });
+    if (error) {
+      const status = String(error.code || '') === '42501' ? 403 : 400;
+      return res.status(status).json({ error: error.message || 'Could not load this signature.' });
+    }
+    const employeeCode = String(data?.employeeCode || '').trim();
+    const objectKey = String(data?.objectKey || '').trim();
+    const prefix = `signature/${employeeCode}/`;
+    if (!employeeCode || !objectKey.startsWith(prefix) || objectKey.includes('..')) {
+      return res.status(404).json({ error: 'No digital signature found for your employee code.' });
+    }
+    const url = await getSignedUrl(
+      getR2S3Client(),
+      new GetObjectCommand({
+        Bucket: getR2BucketName(),
+        Key: objectKey,
+        ResponseContentType: data.contentType || 'image/png',
+        ResponseContentDisposition: 'inline',
+      }),
+      { expiresIn: 600 },
+    );
+    return res.json({ url });
+  } catch (err) {
+    console.error('[employee-signature]', err?.message || err);
+    return res.status(500).json({ error: 'Could not open the signature.' });
+  }
+});
+
 app.post('/api/projects/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
   try {
     const result = await notifyOcSignoffAssignees({
