@@ -2,6 +2,8 @@
  * Quotation Maker — persist / load / duplicate against projects schema.
  */
 
+import { supabase } from '../../../../lib/supabase';
+import { getEmployeeDocumentFileUrl } from '../../../../lib/adminEmployeeDocuments';
 import {
   buildOfferNo,
   deriveClientCode,
@@ -153,6 +155,21 @@ function headerPayload(form, totals, { userId } = {}) {
     updated_at: new Date().toISOString(),
     ...(userId && !form.id ? { created_by: userId } : {}),
   };
+}
+
+/** Signature image already uploaded for this employee's code. Empty when none is on file. */
+export async function fetchCreatorSignatureUrl(userId) {
+  if (!userId) return '';
+  const { data, error } = await supabase.rpc('employee_signature_file_for_user', { p_user_id: userId });
+  if (error || !data?.objectKey) return '';
+  try {
+    return await getEmployeeDocumentFileUrl(data.employeeMasterId, {
+      objectKey: data.objectKey,
+      fileName: data.fileName,
+    });
+  } catch {
+    return '';
+  }
 }
 
 export async function fetchMakerQuotation(id) {

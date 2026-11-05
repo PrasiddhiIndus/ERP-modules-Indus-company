@@ -89,6 +89,8 @@ import {
   Operations,
   ProjectsBilling,
   ProjectsManagement,
+  ProjectsDashboard,
+  ProjectsReports,
   ProjectsPoHub,
   ProjectsEnquiryHub,
   ProjectsQuotationHub,
@@ -704,6 +706,8 @@ function App() {
             <Route path="fire-tender-vehicle-management" element={<FireTenderVehicleManagement />} />
             
             {/* Projects */}
+            <Route path="projects/dashboard" element={<ProjectsDashboard />} />
+            <Route path="projects/reports" element={<ProjectsReports />} />
             <Route path="projects-management" element={<ProjectsManagement />} />
             <Route path="projects-billing" element={<ProjectsBilling />} />
             <Route path="projects/po" element={<ProjectsPoHub />} />

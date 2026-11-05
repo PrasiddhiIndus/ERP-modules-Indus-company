@@ -1133,6 +1133,8 @@ export const MODULE_PATH_PREFIXES = {
   tracking: ["/app/billing/tracking"],
   operations: ["/app/operations", "/app/fire-tender-vehicle-management"],
   projects: [
+    "/app/projects/dashboard",
+    "/app/projects/reports",
     "/app/projects/po",
     "/app/projects/enquiry",
     "/app/projects/quotation",

@@ -99,6 +99,8 @@ export const Procurement = lazy(() => import("../pages/procurement/Procurement")
 export const Operations = lazy(() => import("../pages/operations/Operations"));
 export const ProjectsBilling = lazy(() => import("../pages/projectsBilling/ProjectsBilling"));
 export const ProjectsManagement = lazy(() => import("../pages/projectsManagement/ProjectsManagement"));
+export const ProjectsDashboard = lazy(() => import("../pages/projects/ProjectsDashboard"));
+export const ProjectsReports = lazy(() => import("../pages/projects/ProjectsReports"));
 export const ProjectsPoHub = lazy(() => import("../pages/projects/ProjectsPoHub"));
 export const ProjectsEnquiryHub = lazy(() => import("../pages/projects/enquiry/ProjectsEnquiryHub"));
 export const ProjectsQuotationHub = lazy(() => import("../pages/projects/quotation/ProjectsQuotationHub"));

@@ -11,6 +11,7 @@ import {
 import {
   amFinance, friendlyOcError, loadOc, loadSignoffAssignees, myEmployeeCode, notifyOcSignoff, saveOc,
 } from "./ocApi";
+import { getFinancePoDetail, setFinancePoOcNo, signFinancePo, friendlyFinancePoError } from "../../finance/poAtGlance/financePoApi";
 import { IEV_OC_DEPARTMENT } from "./ocDepartment";
 
 const inputCls =
@@ -21,6 +22,13 @@ const valueCellCls = "border-b border-r border-slate-300 px-3 py-2";
 const headingCls = "md:col-span-4 flex items-center justify-between gap-2 border-b border-r border-slate-300 bg-slate-200/70 px-3 py-2 text-xs font-bold text-slate-800";
 const smallBtn =
   "inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50";
+const freezeCls =
+  "[&_*]:pointer-events-none [&_button]:opacity-60 [&_input]:bg-slate-100 [&_input]:text-slate-500 [&_select]:bg-slate-100 [&_select]:text-slate-500 [&_textarea]:bg-slate-100 [&_textarea]:text-slate-500";
+
+/** Keeps grid placement (`display: contents`) while greying a block for the Finance preview. */
+function Freeze({ on, children }) {
+  return <div className={on ? `contents ${freezeCls}` : "contents"}>{children}</div>;
+}
 
 function FieldError({ msg }) {
   return msg ? <p className="mt-1 text-xs text-red-600">{msg}</p> : null;
@@ -207,9 +215,12 @@ function SignNotifyModal({ state, onClose, onConfirmSign, assigneeCount }) {
 
 /**
  * PO At Glance form (create / edit). Field order and grid follow the paper form.
- * @param {{ ocId: string|null, canEdit: boolean, onBack: () => void, onSaved: (id: string) => void, department?: object }} props
+ * `financeReview` is the Finance Master PO preview: every department field stays grey,
+ * Finance may sign their own box, and OC No. unlocks only after the other signatories have signed.
+ * Department create/edit is unchanged when this flag is omitted.
+ * @param {{ ocId: string|null, canEdit: boolean, onBack: () => void, onSaved: (id: string) => void, department?: object, financeReview?: boolean }} props
  */
-export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, department = IEV_OC_DEPARTMENT }) {
+export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, department = IEV_OC_DEPARTMENT, financeReview = false }) {
   const SIGNOFF_SLOTS = department.slots;
   const [form, setForm] = useState(() => emptyOcForm(SIGNOFF_SLOTS));
   const [initial, setInitial] = useState(() => JSON.stringify(emptyOcForm(SIGNOFF_SLOTS)));
@@ -228,18 +239,28 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   useEffect(() => {
     let alive = true;
     amFinance().then((f) => alive && setIsFinance(f));
-    Promise.all([loadSignoffAssignees(department), myEmployeeCode()])
-      .then(([a, code]) => {
+    const codeLoad = myEmployeeCode()
+      .then((code) => {
         if (!alive) return;
-        setAssignees(a);
         setMyCode(code);
         setCodeLoaded(true);
+      })
+      .catch((err) => console.error("[PO At Glance] employee code", err));
+    if (financeReview) {
+      return () => {
+        alive = false;
+      };
+    }
+    Promise.all([loadSignoffAssignees(department), codeLoad])
+      .then(([a]) => {
+        if (!alive) return;
+        setAssignees(a);
       })
       .catch((err) => console.error("[PO At Glance] sign-off assignment", err));
     return () => {
       alive = false;
     };
-  }, [department]);
+  }, [department, financeReview]);
 
   const isLockedFor = (slot) => {
     const a = assignees[slot];
@@ -256,26 +277,49 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     }
     let alive = true;
     setLoading(true);
-    loadOc(ocId, department)
-      .then((bundle) => {
+    const load = financeReview
+      ? getFinancePoDetail(department.key, ocId).then((bundle) => {
+          if (!alive || !bundle) return;
+          const mapped = Object.fromEntries(
+            (bundle.assignees || []).map((a) => [a.slot, { employee_code: a.employee_code, employee_name: a.employee_name }])
+          );
+          setAssignees(mapped);
+          const f = formFromRecord(bundle, SIGNOFF_SLOTS);
+          f.updated_at = bundle.master?.updated_at || null;
+          setForm(f);
+          setInitial(JSON.stringify(f));
+        })
+      : loadOc(ocId, department).then((bundle) => {
+          if (!alive) return;
+          const f = formFromRecord(bundle, SIGNOFF_SLOTS);
+          setForm(f);
+          setInitial(JSON.stringify(f));
+        });
+    load
+      .catch((err) => {
         if (!alive) return;
-        const f = formFromRecord(bundle, SIGNOFF_SLOTS);
-        setForm(f);
-        setInitial(JSON.stringify(f));
+        const message = financeReview
+          ? friendlyFinancePoError(err, "Could not load this PO At Glance.")
+          : friendlyOcError(err, "Could not load this PO At Glance.", department);
+        toast.error(message);
       })
-      .catch((err) => alive && toast.error(friendlyOcError(err, "Could not load this PO At Glance.", department)))
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- SIGNOFF_SLOTS comes from department
-  }, [ocId, department]);
+  }, [ocId, department, financeReview]);
 
   const dirty = useMemo(() => JSON.stringify(form) !== initial, [form, initial]);
   const words = useMemo(() => contractValueInWords(form.contract_value, form.currency), [form.contract_value, form.currency]);
   const msTotal = milestoneTotal(form.payment_milestones);
   const readOnly = !canEdit;
   const saved = Boolean(form.id);
+  const waitingSignoffs = SIGNOFF_SLOTS.filter(
+    (s) => s.slot !== "FINANCE" && isBlank(form.signoff?.[s.slot]?.saved_by)
+  );
+  const ocUnlocked = !financeReview || waitingSignoffs.length === 0;
+  const ocReadOnly = financeReview ? !ocUnlocked : !isFinance;
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
   const setIn = (group, key, value) => setForm((f) => ({ ...f, [group]: { ...f[group], [key]: value } }));
@@ -347,6 +391,81 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     }
   };
 
+  const handleFinanceSave = async () => {
+    const financeSlot = form.signoff?.FINANCE;
+    const signaturePending = signoffPending(financeSlot);
+    const ocChanged = String(form.oc_no || "").trim() !== String(JSON.parse(initial).oc_no || "").trim()
+      || String(form.oc_date || "") !== String(JSON.parse(initial).oc_date || "");
+    if (!signaturePending && !ocChanged) return;
+    if (ocChanged && !ocUnlocked) {
+      toast.error("OC Number stays locked until every other required signatory has signed.");
+      return;
+    }
+    if (ocChanged && !String(form.oc_no || "").trim()) {
+      setErrors({ oc_no: "OC No. is required." });
+      return;
+    }
+    setSaving(true);
+    setErrors({});
+    try {
+      let expectedUpdatedAt = form.updated_at || null;
+      if (signaturePending) {
+        await signFinancePo({
+          department: department.key,
+          id: form.id,
+          signedBy: String(financeSlot.signed_by || "").trim(),
+        });
+        const afterSign = await getFinancePoDetail(department.key, form.id);
+        expectedUpdatedAt = afterSign?.master?.updated_at || expectedUpdatedAt;
+        try {
+          const mail = await notifyOcSignoff({
+            ocId: form.id,
+            signatures: [{ slot: "FINANCE", signed_by: String(financeSlot.signed_by || "").trim() }],
+            signerName: String(financeSlot.signed_by || "").trim(),
+          }, department);
+          setSignNotify({
+            open: true,
+            mode: "result",
+            ok: true,
+            signatures: [{ slot: "FINANCE", label: "Finance Department", signed_by: financeSlot.signed_by }],
+            ocNo: form.oc_no,
+            client: form.client_name,
+            from: mail?.from,
+            sent: mail?.sent || [],
+            skipped: mail?.skipped || [],
+          });
+        } catch (mailErr) {
+          console.error("[PO At Glance] finance sign-off email failed", mailErr);
+          toast.error("Signature saved. The notification email could not be sent.");
+        }
+      }
+      if (ocChanged) {
+        await setFinancePoOcNo({
+          department: department.key,
+          id: form.id,
+          ocNo: String(form.oc_no || "").trim(),
+          ocDate: form.oc_date || null,
+          expectedUpdatedAt,
+        });
+      }
+      const bundle = await getFinancePoDetail(department.key, form.id);
+      const mapped = Object.fromEntries(
+        (bundle.assignees || []).map((a) => [a.slot, { employee_code: a.employee_code, employee_name: a.employee_name }])
+      );
+      setAssignees(mapped);
+      const f = formFromRecord(bundle, SIGNOFF_SLOTS);
+      f.updated_at = bundle.master?.updated_at || null;
+      setForm(f);
+      setInitial(JSON.stringify(f));
+      toast.success(signaturePending && ocChanged ? "Finance signature and OC Number saved." : signaturePending ? "Finance signature saved." : "OC Number saved.");
+      onSaved?.(form.id);
+    } catch (e) {
+      toast.error(friendlyFinancePoError(e, "Could not save the Finance update."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleExportWord = async () => {
     setExporting(true);
     try {
@@ -379,7 +498,8 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
           <ArrowLeft className="h-4 w-4" /> All PO At Glance
         </button>
         <div className="flex flex-wrap items-center gap-2">
-          {readOnly && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">View only</span>}
+          {readOnly && !financeReview && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">View only</span>}
+          {financeReview && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">Finance review · other fields are read only</span>}
           {dirty && canEdit && <span className="text-xs text-amber-700">Unsaved changes</span>}
           <button
             type="button"
@@ -400,26 +520,37 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
         </div>
         <h2 className="border-b border-slate-300 py-2 text-center text-base font-bold tracking-wider text-slate-900">{department.formTitle}</h2>
 
-        <fieldset disabled={readOnly} className="min-w-0">
+        <fieldset disabled={readOnly && !financeReview} className="min-w-0">
           <div className="grid grid-cols-1 border-l border-slate-300 md:grid-cols-[minmax(9rem,18%)_1fr_minmax(9rem,16%)_1fr]">
             {/* Section 1 */}
+            <Freeze on={financeReview}>
             <Label>Cost Center in Tally</Label>
             <Value full>
               <input className={inputCls} value={form.cost_center_tally} onChange={(e) => set("cost_center_tally", e.target.value)} />
             </Value>
+            </Freeze>
 
             <Label>OC No.</Label>
             <Value>
               <input
-                className={`${cls("oc_no")} font-mono read-only:bg-slate-50 read-only:text-slate-600`}
+                className={`${cls("oc_no")} font-mono read-only:bg-slate-100 read-only:text-slate-500`}
                 maxLength={80}
                 value={form.oc_no}
-                readOnly={!isFinance}
-                placeholder={isFinance ? "" : "Filled by Finance"}
-                title={isFinance ? undefined : "Only the Finance Department can fill or change the OC No."}
+                readOnly={ocReadOnly}
+                disabled={financeReview && !ocUnlocked}
+                placeholder={financeReview ? (ocUnlocked ? "" : "Locked until the other departments sign") : isFinance ? "" : "Filled by Finance"}
+                title={ocReadOnly && !financeReview ? "Only the Finance Department can fill or change the OC No." : undefined}
                 onChange={(e) => set("oc_no", e.target.value)}
               />
-              {!isFinance && canEdit && (
+              {financeReview && !ocUnlocked && (
+                <p className="mt-1 flex items-start gap-1 text-[11px] text-amber-800">
+                  <Lock className="mt-0.5 h-3 w-3 shrink-0" />
+                  OC Number stays locked until every other required signatory has signed
+                  {waitingSignoffs.length ? ` (${waitingSignoffs.map((s) => s.label).join(", ")})` : ""}.
+                  It unlocks after those signatures are complete.
+                </p>
+              )}
+              {!financeReview && !isFinance && canEdit && (
                 <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">
                   <Lock className="h-3 w-3" /> Only the Finance Department can fill or change the OC No.
                 </p>
@@ -428,9 +559,10 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
             </Value>
             <Label>OC No. Date</Label>
             <Value>
-              <input type="date" className={inputCls} value={form.oc_date} onChange={(e) => set("oc_date", e.target.value)} />
+              <input type="date" className={`${inputCls} read-only:bg-slate-100 read-only:text-slate-500 disabled:bg-slate-100 disabled:text-slate-500`} value={form.oc_date} readOnly={ocReadOnly} disabled={financeReview && !ocUnlocked} onChange={(e) => set("oc_date", e.target.value)} />
             </Value>
 
+            <Freeze on={financeReview}>
             <Label required>Client Name &amp; Address</Label>
             <Value>
               <input className={cls("client_name")} placeholder="Client name" value={form.client_name} onChange={(e) => set("client_name", e.target.value)} />
@@ -759,24 +891,26 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
               <input type="date" className={`${inputCls} max-w-xs`} value={form.remarks_date} onChange={(e) => set("remarks_date", e.target.value)} />
             </Value>
 
+            </Freeze>
+
             {/* Section 6 — dissemination */}
             <div className={`${headingCls} flex-wrap`}>
               <span>{OC_SIGNOFF_HEADING}</span>
-              {canEdit && codeLoaded && !myCode && (
+              {(canEdit || financeReview) && codeLoaded && !myCode && (
                 <span className="font-normal text-amber-700">
                   Your login is not linked to an employee code, so you cannot sign. Ask an administrator to link it in User Management.
                 </span>
               )}
             </div>
             {SIGNOFF_SLOTS.map(({ slot, label }) => (
+              <Freeze key={slot} on={financeReview && slot !== "FINANCE"}>
               <SignatureBox
-                key={slot}
                 label={label}
                 value={form.signoff[slot]}
-                disabled={readOnly}
+                disabled={financeReview ? slot !== "FINANCE" : readOnly}
                 assignee={assignees[slot]}
                 assigneeCount={department.assigneeCount}
-                locked={isLockedFor(slot)}
+                locked={isLockedFor(slot) || (financeReview && slot !== "FINANCE")}
                 onChange={(v) => setForm((f) => ({ ...f, signoff: { ...f.signoff, [slot]: v } }))}
                 onRequestSign={(signName) => {
                   setPendingSignSlot(slot);
@@ -789,12 +923,13 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                   });
                 }}
               />
+              </Freeze>
             ))}
           </div>
         </fieldset>
       </div>
 
-      {canEdit && (
+      {(canEdit || financeReview) && (
         <div className="flex flex-wrap items-center justify-end gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
           {dirty && <span className="text-xs text-amber-700">Unsaved changes</span>}
           <button type="button" onClick={handleBack} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
@@ -802,11 +937,12 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
           </button>
           <button
             type="button"
-            onClick={handleSave}
-            disabled={saving}
+            onClick={financeReview ? handleFinanceSave : handleSave}
+            disabled={saving || (financeReview && !dirty)}
             className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
           >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {saved ? "Save changes" : "Save PO At Glance"}
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {financeReview ? "Save Finance update" : saved ? "Save changes" : "Save PO At Glance"}
           </button>
         </div>
       )}

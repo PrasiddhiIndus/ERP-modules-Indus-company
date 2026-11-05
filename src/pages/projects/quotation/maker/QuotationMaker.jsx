@@ -29,6 +29,7 @@ import {
   validateForSent,
 } from './quotationMakerModel';
 import {
+  fetchCreatorSignatureUrl,
   fetchMakerQuotation,
   logMakerAudit,
   reserveQuotationNo,
@@ -112,10 +113,30 @@ export default function QuotationMaker() {
   const [draggingMakeCol, setDraggingMakeCol] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [boqImportOpen, setBoqImportOpen] = useState(false);
+  const [signatureUrl, setSignatureUrl] = useState('');
   const autosaveTimer = useRef(null);
   const skipAutosave = useRef(true);
 
   const readOnly = !canEditQuotation(user, userProfile, form);
+  const signatureUserId = form.created_by || user?.id || null;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!signatureUserId) {
+      setSignatureUrl('');
+      return undefined;
+    }
+    fetchCreatorSignatureUrl(signatureUserId)
+      .then((url) => {
+        if (!cancelled) setSignatureUrl(url || '');
+      })
+      .catch(() => {
+        if (!cancelled) setSignatureUrl('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [signatureUserId]);
   const type = normalizeType(form.quotation_type);
   const typeMeta = QUOTATION_TYPES[type];
   const totals = useMemo(() => computeTotals(rows, type), [rows, type]);
@@ -756,7 +777,7 @@ export default function QuotationMaker() {
           <span className="qm-num">6</span> Preview (what will print)
         </div>
       </div>
-      <QuotationMakerPreview form={form} rows={rows} />
+      <QuotationMakerPreview form={form} rows={rows} signatureUrl={signatureUrl} />
 
       {confirmDeleteId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 qm-noprint">
