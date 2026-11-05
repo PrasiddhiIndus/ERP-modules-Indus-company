@@ -72,7 +72,10 @@ export function emptyOcForm(slots = SIGNOFF_SLOTS) {
     contacts: [blankContact(), blankContact()],
     remarks: "",
     remarks_date: "",
-    signoff: Object.fromEntries(slots.map(({ slot }) => [slot, { signed_by: "", saved_by: "", signed_at: "" }])),
+    created_by: null,
+    po_document_name: "",
+    po_document_path: "",
+    signoff: Object.fromEntries(slots.map(({ slot }) => [slot, { signed_by: "", saved_by: "", signed_at: "", signed_user_id: "" }])),
   };
 }
 
@@ -105,6 +108,9 @@ export function formFromRecord({ master, security = [], conditions = [], penalty
     other_information: str(master.other_information),
     remarks: str(master.remarks),
     remarks_date: str(master.remarks_date),
+    created_by: master.created_by || null,
+    po_document_name: str(master.po_document_name),
+    po_document_path: str(master.po_document_path),
   });
   form.payment_milestones = [...milestones].sort((a, b) => a.seq - b.seq).map((m) => ({
     key: nextKey(), percent: num(m.percent), trigger: str(m.trigger), due_days: num(m.due_days), notes: str(m.notes),
@@ -129,7 +135,12 @@ export function formFromRecord({ master, security = [], conditions = [], penalty
   }));
   for (const s of signoff) {
     if (form.signoff[s.slot]) {
-      form.signoff[s.slot] = { signed_by: str(s.signed_by), saved_by: str(s.signed_by), signed_at: str(s.signed_at) };
+      form.signoff[s.slot] = {
+        signed_by: str(s.signed_by),
+        saved_by: str(s.signed_by),
+        signed_at: str(s.signed_at),
+        signed_user_id: str(s.signed_user_id),
+      };
     }
   }
   return form;

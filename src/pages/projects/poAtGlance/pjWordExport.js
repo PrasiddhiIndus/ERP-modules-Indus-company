@@ -2,7 +2,7 @@
  * Projects PO At Glance — Word export in the Projects format (IFSPL/PJT-OC/F&A/002), a copy of the M&M layout
  * (src/pages/maintenance/poAtGlance/mmWordExport.js) with two differences from M&M: each clause (LD, SD, EMD,
  * DLP, Warranty) is one row — label, Yes/No, detail — and there are four dissemination sign-off boxes:
- * User (Project Dept.), Planning Department, Vertical Head, Finance Department.
+ * OC Creation, Execution Department, Department Head, Finance Department.
  * Uses the same form data as IEV PO At Glance (ocModel shape); only the layout differs.
  */
 import {
@@ -161,12 +161,19 @@ function clauseRows(label, value, detail) {
   ];
 }
 
-function signatureCell(slot, form, i) {
+/**
+ * One sign-off box: the signer's signature image (when given), name, and signing date and time.
+ * Only saved (completed) signatures are printed; `signatures[slot]` = { data, type, width, height } from pjSignatureImages.js.
+ */
+function signatureCell(slot, form, i, signatures = {}) {
   const s = form.signoff[slot] || {};
+  const name = s.saved_by !== undefined ? s.saved_by : s.signed_by;
   const signedAt = formatSignedAt(s.signed_at);
-  const kids = s.signed_by
+  const img = name ? signatures[slot] : null;
+  const kids = name
     ? [
-      para([run(s.signed_by, { bold: true, size: 18 })], { align: AlignmentType.CENTER }),
+      ...(img ? [para([new ImageRun({ type: img.type, data: img.data, transformation: { width: img.width, height: img.height } })], { align: AlignmentType.CENTER })] : []),
+      para([run(name, { bold: true, size: 18 })], { align: AlignmentType.CENTER }),
       para([run(signedAt ? `Digitally signed on ${signedAt}` : "", { italics: true, size: 14 })], { align: AlignmentType.CENTER }),
     ]
     : [para([run("")], { align: AlignmentType.CENTER })];
@@ -175,9 +182,9 @@ function signatureCell(slot, form, i) {
 
 /**
  * @param {object} form  PO At Glance form state (ocModel shape, Projects sign-off slots)
- * @param {{ logo?: ArrayBuffer|Uint8Array|null }} [opts]  Indus Fire Safety logo (JPEG) for the header
+ * @param {{ logo?: ArrayBuffer|Uint8Array|null, signatures?: object }} [opts]  Indus Fire Safety logo (JPEG) for the header; signature images by slot
  */
-export function buildPjOcDocument(form, { logo = null } = {}) {
+export function buildPjOcDocument(form, { logo = null, signatures = {} } = {}) {
   const sec = pjSecurity(form);
   const otherInfo = [
     ...String(form.other_information || "").split("\n").filter(Boolean),
@@ -241,7 +248,7 @@ export function buildPjOcDocument(form, { logo = null } = {}) {
   const signTable = table(SIGN, [
     row([cell([para([run(OC_SIGNOFF_HEADING, { bold: true })])], { cols: SIGN, span: 4 })], 19.65),
     row(PJ_OC_SIGNOFF_SLOTS.map((s, i) => cell(s.label, { cols: SIGN, from: i, align: AlignmentType.CENTER })), 12.3),
-    row(PJ_OC_SIGNOFF_SLOTS.map((s, i) => signatureCell(s.slot, form, i)), 44.05),
+    row(PJ_OC_SIGNOFF_SLOTS.map((s, i) => signatureCell(s.slot, form, i, signatures)), 44.05),
   ]);
 
   const header = new Header({
@@ -288,5 +295,6 @@ async function loadLogo() {
   }
 }
 
-export const buildPjOcDocx = async (form) => Packer.toBlob(buildPjOcDocument(form, { logo: await loadLogo() }));
+export const buildPjOcDocx = async (form, { signatures = {} } = {}) =>
+  Packer.toBlob(buildPjOcDocument(form, { logo: await loadLogo(), signatures }));
 export const buildPjOcDocxBuffer = (form, opts) => Packer.toBuffer(buildPjOcDocument(form, opts));

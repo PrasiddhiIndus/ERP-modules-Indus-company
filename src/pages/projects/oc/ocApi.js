@@ -1,5 +1,6 @@
 ﻿import { supabase } from "../../../lib/supabase";
 import { fetchApiWithAuth } from "../../../lib/apiBase";
+import { getEmployeeDocumentFileUrl } from "../../../lib/adminEmployeeDocuments";
 import { IEV_OC_DEPARTMENT } from "./ocDepartment";
 
 // Every call takes the department profile (ocDepartment.js); IEV when omitted.
@@ -11,6 +12,9 @@ export function friendlyOcError(error, fallback = "Something went wrong. Please 
   const msg = String(error.message || error);
   const code = String(error.code || "");
   if (/^Only the Finance Department can fill or change the OC No\./.test(msg)) return msg;
+  if (/can sign only after the previous stage|Only the person who created this OC|cannot be removed while a later stage/.test(msg)) {
+    return msg;
+  }
   if (/^Only .+ can sign the .+ box\.$/.test(msg) || /^No one is assigned to sign the /.test(msg)) {
     return msg.replace("OC Sign-off Assignment", "PO At Glance Sign-off Assignment");
   }
@@ -113,6 +117,83 @@ export async function amFinance() {
     return false;
   }
   return data === true;
+}
+
+/** Digital signature already stored in Indus One for this login's employee code. */
+export async function fetchOcSignatureUrl(userId) {
+  if (!userId) return "";
+  const { data, error } = await supabase.rpc("employee_signature_file_for_user", { p_user_id: userId });
+  if (error || !data?.objectKey) return "";
+  const objectKey = String(data.objectKey);
+  try {
+    if (objectKey.startsWith("signature/")) {
+      const res = await fetchApiWithAuth("/api/employee-signature/file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      if (!res.ok) return "";
+      return res.data?.url || "";
+    }
+    return await getEmployeeDocumentFileUrl(data.employeeMasterId, {
+      objectKey,
+      fileName: data.fileName,
+    });
+  } catch {
+    return "";
+  }
+}
+
+const PO_DOCUMENT_BUCKET = "projects-po-documents";
+
+/** Stores the original purchase order on a saved Projects PO At Glance record. */
+export async function uploadProjectPoDocument(ocId, file) {
+  const safeName = String(file.name || "purchase-order").replace(/[^\w.\-() ]+/g, "_");
+  const path = `${ocId}/${Date.now()}-${safeName}`;
+  const { error: uploadError } = await supabase.storage.from(PO_DOCUMENT_BUCKET).upload(path, file, {
+    upsert: false,
+    contentType: file.type || undefined,
+  });
+  if (uploadError) throw uploadError;
+  const { error } = await supabase.rpc("pj_oc_set_po_document", {
+    p_id: ocId,
+    p_name: file.name,
+    p_path: path,
+  });
+  if (error) throw error;
+  return { po_document_name: file.name, po_document_path: path };
+}
+
+/** Short-lived link so the preview can open the original purchase order. */
+export async function projectPoDocumentUrl(path) {
+  const { data, error } = await supabase.storage.from(PO_DOCUMENT_BUCKET).createSignedUrl(path, 3600);
+  if (error) throw error;
+  return data?.signedUrl || "";
+}
+
+/** Projects only: every approval / modification action on one OC, oldest first. */
+export async function loadProjectApprovalLog(ocId) {
+  const { data, error } = await supabase
+    .from("pj_oc_approval_log")
+    .select("id, action, slot, remarks, actor_name, backfilled, created_at")
+    .eq("oc_id", ocId)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+/** Projects only: the assigned Department Head sends the OC back to its creator (remarks required). */
+export async function requestProjectOcModification(ocId, remarks) {
+  const { error } = await supabase.rpc("pj_oc_request_modification", { p_oc_id: ocId, p_remarks: remarks });
+  if (error) throw error;
+}
+
+/** Projects only: sign one stage now with the logged-in user's own Indus One signature. */
+export async function signProjectOcStage(ocId, slot) {
+  const { data, error } = await supabase.rpc("pj_oc_sign_stage", { p_oc_id: ocId, p_slot: slot });
+  if (error) throw error;
+  return data;
 }
 
 export async function deleteOc(id, dept = IEV_OC_DEPARTMENT) {

@@ -350,6 +350,14 @@ export function getNavVisibleModuleKeys(profile, accessibleModules, userMetadata
   return visible;
 }
 
+/** Corporate HR/Admin → Probation Reviews (list + /:id). Access is decided by probationAccess.js. */
+export const PROBATION_REVIEWS_APP_PATH = "/app/admin/probation-reviews";
+
+export function isProbationReviewsAppPath(pathname) {
+  const p = normalizeAppPath(pathname);
+  return p === PROBATION_REVIEWS_APP_PATH || p.startsWith(`${PROBATION_REVIEWS_APP_PATH}/`);
+}
+
 /** Rules Console: granted only by its own key — a full Admin module does not imply it. */
 export const RULES_CONSOLE_SUBMODULE_KEY = "admin.rules-console";
 
@@ -1649,6 +1657,10 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
 
   // Payroll MIS for vertical heads: the page and database check report access themselves.
   if (normalizeAppPath(pathname) === "/app/admin/payroll-mis") return true;
+
+  // Probation Reviews: L1 managers with reportees and HR (10935), not Admin module grants.
+  // ProbationReviewsGuard and the indus_one probation RPCs decide access; this opens no other Admin path.
+  if (isProbationReviewsAppPath(pathname)) return true;
 
   // Hard gate: Compliance (Payroll, IFSPL, General) — allowlisted emails, or the section granted in User Management
   if (isCompliancePath(pathname)) {

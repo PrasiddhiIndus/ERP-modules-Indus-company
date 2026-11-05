@@ -12,6 +12,7 @@ import { canAccessRulesConsole } from "../pages/adminOperations/rulesConsole/rul
 import { syncSalaryFiguresHidden } from "../pages/adminOperations/salaryAdmin/salaryPrivacy";
 import { canAccessCompliance } from "../pages/compliance/payroll/complianceAccess";
 import { fetchMyMisAccess } from "../pages/adminOperations/salaryAdmin/mis/misDb";
+import { useProbationReviewsAccess } from "../pages/adminOperations/probationReviews/probationAccess";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import { resolveModule } from "../lib/activityDescriptors";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
@@ -206,6 +207,8 @@ const Layout = () => {
   const ievCostingTabs = getOpenableIevCostingTabs(userProfile, accessibleModules, subModulePaths);
   const enquiryTabs = getOpenableProjectsEnquiryTabs(userProfile, accessibleModules, subModulePaths);
   const hasFullAdmin = Boolean(accessibleModules?.has("admin"));
+  // Probation Reviews: L1 managers with reportees + HR 10935 only (not implied by Admin access).
+  const { canAccess: canSeeProbationReviews } = useProbationReviewsAccess();
   const { isConsoleVisible } = useAuditConsole();
   const navigate = useNavigate();
   const location = useLocation();
@@ -825,7 +828,7 @@ const Layout = () => {
             )}
 
             {/* Admin */}
-            {(can("admin") || canAccessSalaryAdmin(userProfile, user)) && (
+            {(can("admin") || canAccessSalaryAdmin(userProfile, user) || canSeeProbationReviews) && (
             <div>
               <button
                 onClick={() => {
@@ -942,6 +945,13 @@ const Layout = () => {
                       </NavLink>
                       {/* NAV_HIDDEN: Compliance & Documents, Salary Inputs */}
                   </>
+                  )}
+
+                  {canSeeProbationReviews && (
+                  <NavLink to="admin/probation-reviews" className={subNavClass}>
+                    <UserCheck className="h-4 w-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate">Probation Reviews</span>
+                  </NavLink>
                   )}
 
                   {canSub("admin.salary-admin") && (
@@ -1549,7 +1559,7 @@ const Layout = () => {
                   </NavLink>
                   <NavLink to="projects/reports" className={subNavClass}>
                     <FileSpreadsheet className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Reports in Projects</span>
+                    <span className="type-meta type-truncate">Project Reports</span>
                   </NavLink>
                 </div>
               )}

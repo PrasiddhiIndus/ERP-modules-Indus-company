@@ -3,7 +3,7 @@
  */
 
 import { supabase } from '../../../../lib/supabase';
-import { getEmployeeDocumentFileUrl } from '../../../../lib/adminEmployeeDocuments';
+import { fetchOcSignatureUrl } from '../../oc/ocApi';
 import {
   buildOfferNo,
   deriveClientCode,
@@ -157,19 +157,9 @@ function headerPayload(form, totals, { userId } = {}) {
   };
 }
 
-/** Signature image already uploaded for this employee's code. Empty when none is on file. */
+/** Signature image already uploaded in Indus One for this employee's code. Empty when none is on file. */
 export async function fetchCreatorSignatureUrl(userId) {
-  if (!userId) return '';
-  const { data, error } = await supabase.rpc('employee_signature_file_for_user', { p_user_id: userId });
-  if (error || !data?.objectKey) return '';
-  try {
-    return await getEmployeeDocumentFileUrl(data.employeeMasterId, {
-      objectKey: data.objectKey,
-      fileName: data.fileName,
-    });
-  } catch {
-    return '';
-  }
+  return fetchOcSignatureUrl(userId);
 }
 
 export async function fetchMakerQuotation(id) {

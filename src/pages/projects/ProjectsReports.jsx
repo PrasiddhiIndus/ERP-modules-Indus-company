@@ -4,7 +4,7 @@ import ProjectsSectionPage from "./ProjectsSectionPage";
 export default function ProjectsReports() {
   return (
     <ProjectsSectionPage
-      title="Reports in Projects"
+      title="Project Reports"
       description="Project reports will appear here."
     />
   );

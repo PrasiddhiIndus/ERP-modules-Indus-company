@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { saveAs } from "file-saver";
-import { ArrowLeft, BadgeCheck, Clock, FileDown, Loader2, Lock, Mail, PenLine, Plus, Save, Trash2, X } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Clock, Eye, FileDown, Loader2, Lock, Mail, PenLine, Plus, Save, Trash2, X } from "lucide-react";
 import { toast } from "../../../lib/toast";
+import { useAuth } from "../../../contexts/AuthContext";
 import {
   OC_CONTACTS_HEADING, OC_SECURITY_HEADING,
   OC_SIGNOFF_HEADING, PERIOD_UNITS, SECURITY_TYPES, blankContact, blankMilestone,
@@ -9,10 +10,14 @@ import {
   ocExportFileName, signoffPending, toSavePayload, validateOcForm,
 } from "./ocModel";
 import {
-  amFinance, friendlyOcError, loadOc, loadSignoffAssignees, myEmployeeCode, notifyOcSignoff, saveOc,
+  amFinance, fetchOcSignatureUrl, friendlyOcError, listEmployeeOptions, loadOc, loadSignoffAssignees,
+  loadProjectApprovalLog, myEmployeeCode, notifyOcSignoff, projectPoDocumentUrl, requestProjectOcModification, saveOc,
+  signProjectOcStage, uploadProjectPoDocument,
 } from "./ocApi";
 import { getFinancePoDetail, setFinancePoOcNo, signFinancePo, friendlyFinancePoError } from "../../finance/poAtGlance/financePoApi";
 import { IEV_OC_DEPARTMENT } from "./ocDepartment";
+import ProjectsApprovalPanel, { openModificationRequest } from "../poAtGlance/ProjectsApprovalPanel";
+import PjDocumentPreviewModal from "../poAtGlance/PjDocumentPreviewModal";
 
 const inputCls =
   "w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100 disabled:bg-slate-50 disabled:text-slate-600";
@@ -23,7 +28,13 @@ const headingCls = "md:col-span-4 flex items-center justify-between gap-2 border
 const smallBtn =
   "inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50";
 const freezeCls =
-  "[&_*]:pointer-events-none [&_button]:opacity-60 [&_input]:bg-slate-100 [&_input]:text-slate-500 [&_select]:bg-slate-100 [&_select]:text-slate-500 [&_textarea]:bg-slate-100 [&_textarea]:text-slate-500";
+  "[&_*]:pointer-events-none [&_button]:opacity-60 [&_input]:bg-slate-100 [&_input]:text-slate-500 [&_select]:bg-slate-100 [&_select]:text-slate-500 [&_textarea]:bg-slate-100 [&_textarea]:text-slate-500 [&_[data-active]]:pointer-events-auto [&_[data-active]]:opacity-100";
+
+/** Finance preview uses tighter spacing. Department PO screens stay on the regular density. */
+const OcDensityContext = React.createContext(false);
+function useDense() {
+  return React.useContext(OcDensityContext);
+}
 
 /** Keeps grid placement (`display: contents`) while greying a block for the Finance preview. */
 function Freeze({ on, children }) {
@@ -35,8 +46,9 @@ function FieldError({ msg }) {
 }
 
 function Label({ children, required }) {
+  const dense = useDense();
   return (
-    <div className={labelCellCls}>
+    <div className={dense ? "border-b border-r border-slate-300 bg-slate-100 px-2 py-1 text-[11px] font-semibold leading-tight text-slate-700" : labelCellCls}>
       {children}
       {required && <span className="ml-0.5 text-red-600">*</span>}
     </div>
@@ -44,7 +56,8 @@ function Label({ children, required }) {
 }
 
 function Value({ children, full = false }) {
-  return <div className={`${valueCellCls} ${full ? "md:col-span-3" : ""}`}>{children}</div>;
+  const dense = useDense();
+  return <div className={`${dense ? "border-b border-r border-slate-300 px-2 py-1" : valueCellCls} ${full ? "md:col-span-3" : ""}`}>{children}</div>;
 }
 
 /** Yes / No with a third "not filled" state (click the selected option again to clear). */
@@ -70,31 +83,72 @@ function YesNo({ value, onChange, name }) {
   );
 }
 
+const STAGE_CHIP = {
+  Pending: "bg-amber-100 text-amber-800",
+  Approved: "bg-sky-100 text-sky-800",
+  Completed: "bg-emerald-100 text-emerald-800",
+  Returned: "bg-amber-100 text-amber-800",
+};
+
 /** Digital sign-off: the signer types their name; the date and time are recorded on save. */
-function SignatureBox({ label, value, onChange, disabled, assignee, locked, onRequestSign, assigneeCount }) {
+function SignatureBox({
+  label, value, onChange, disabled, assignee, locked, onRequestSign, assigneeCount, status, signatureUrl, caption, note,
+  oneClickSign = false, onSign, signing = false, signBlockedReason = "", mySignatureUrl = "",
+}) {
+  const dense = useDense();
   const pending = signoffPending(value);
   const signedAt = !pending && !isBlank(value.signed_by) ? formatSignedAt(value.signed_at) : "";
   const signName = assignee?.employee_name;
 
   return (
-    <div className={`flex flex-col gap-2 border-b border-r border-slate-300 p-3 ${locked ? "bg-slate-100" : ""}`}>
-      <p className="text-xs font-semibold text-slate-700">{label}</p>
+    <div className={`flex flex-col border-b border-r border-slate-300 ${dense ? "gap-1 p-2" : "gap-2 p-3"} ${locked ? "bg-slate-100" : ""}`}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-slate-700">{label}</p>
+        {status && (
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${STAGE_CHIP[status] || "bg-slate-100 text-slate-600"}`}>
+            {status}
+          </span>
+        )}
+      </div>
       <p className="flex items-center gap-1 text-[11px] text-slate-500">
         {locked && <Lock className="h-3 w-3 shrink-0" />}
-        {assignee ? `Assigned to ${assignee.employee_name} (${assignee.employee_code})` : "No one assigned yet"}
+        {caption || (assignee ? `Assigned to ${assignee.employee_name} (${assignee.employee_code})` : "No one assigned yet")}
       </p>
+      {signatureUrl && (
+        <img src={signatureUrl} alt="" className={`object-contain object-left ${dense ? "h-10 max-w-[140px]" : "h-16 max-w-[180px]"}`} />
+      )}
       <label className="text-[11px] text-slate-500">
         Name (digital signature)
         <input
           className={inputCls}
-          placeholder={locked ? "" : "Type your name to sign"}
+          placeholder={locked || oneClickSign ? "" : "Type your name to sign"}
           value={value.signed_by}
           disabled={locked}
-          readOnly={locked}
+          readOnly={locked || oneClickSign}
           onChange={(e) => onChange({ ...value, signed_by: e.target.value })}
         />
       </label>
-      {!disabled && !locked && isBlank(value.signed_by) && signName && (
+      {oneClickSign && !disabled && !locked && isBlank(value.saved_by) && (
+        <>
+          {mySignatureUrl && (
+            <div className="rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1">
+              <p className="text-[10px] text-slate-500">Your signature (Indus One)</p>
+              <img src={mySignatureUrl} alt="Your digital signature" className="h-12 max-w-[170px] object-contain object-left" />
+            </div>
+          )}
+          <button
+            type="button"
+            data-active
+            disabled={signing || Boolean(signBlockedReason)}
+            className="inline-flex items-center gap-1.5 self-start rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={onSign}
+          >
+            {signing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PenLine className="h-3.5 w-3.5" />} Sign
+          </button>
+          {signBlockedReason && <p className="text-[11px] text-amber-800">{signBlockedReason}</p>}
+        </>
+      )}
+      {!oneClickSign && !disabled && !locked && isBlank(value.signed_by) && signName && (
         <button
           type="button"
           className={`${smallBtn} self-start`}
@@ -112,15 +166,16 @@ function SignatureBox({ label, value, onChange, disabled, assignee, locked, onRe
             <BadgeCheck className="mt-px h-3.5 w-3.5 shrink-0 text-emerald-600" />
             <span className="text-emerald-800">Digitally signed on {signedAt}</span>
           </>
-        ) : pending ? (
+        ) : pending && !oneClickSign ? (
           <>
             <Clock className="mt-px h-3.5 w-3.5 shrink-0 text-amber-600" />
             <span className="text-amber-800">Date and time are recorded when you save. The {assigneeCount} assigned users will be emailed.</span>
           </>
         ) : (
-          <span className="text-slate-400">Not signed</span>
+          <span className="text-slate-400">{status === "Pending" ? "Pending" : "Not signed"}</span>
         )}
       </p>
+      {note && <p className="text-[11px] text-slate-500">{note}</p>}
     </div>
   );
 }
@@ -160,7 +215,19 @@ function SignNotifyModal({ state, onClose, onConfirmSign, assigneeCount }) {
             </ul>
           ) : null}
 
-          {mode === "confirm" ? (
+          {mode === "confirm" && state.signatureUrl ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-[11px] text-slate-500">Your digital signature (from Indus One)</p>
+              <img src={state.signatureUrl} alt="Your digital signature" className="mt-1 h-16 max-w-[200px] object-contain object-left" />
+            </div>
+          ) : null}
+
+          {mode === "confirm" && state.direct ? (
+            <p className="text-xs text-slate-600">
+              Your signature will be placed on this PO now and the signing date and time recorded. A notification will be
+              emailed to the {assigneeCount} users assigned under PO At Glance Sign-off.
+            </p>
+          ) : mode === "confirm" ? (
             <p className="text-xs text-slate-600">
               On save, a notification will be emailed from the Outreach module&apos;s verified From mailbox to the {assigneeCount}
               users assigned under PO At Glance Sign-off.
@@ -221,6 +288,7 @@ function SignNotifyModal({ state, onClose, onConfirmSign, assigneeCount }) {
  * @param {{ ocId: string|null, canEdit: boolean, onBack: () => void, onSaved: (id: string) => void, department?: object, financeReview?: boolean }} props
  */
 export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, department = IEV_OC_DEPARTMENT, financeReview = false }) {
+  const { user, userProfile } = useAuth();
   const SIGNOFF_SLOTS = department.slots;
   const [form, setForm] = useState(() => emptyOcForm(SIGNOFF_SLOTS));
   const [initial, setInitial] = useState(() => JSON.stringify(emptyOcForm(SIGNOFF_SLOTS)));
@@ -235,6 +303,31 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   const [myCode, setMyCode] = useState("");
   const [codeLoaded, setCodeLoaded] = useState(false);
   const [isFinance, setIsFinance] = useState(false);
+  const [creatorName, setCreatorName] = useState("");
+  const [creatorSignatureUrl, setCreatorSignatureUrl] = useState("");
+  const [uploadingPo, setUploadingPo] = useState(false);
+  const [approvalLog, setApprovalLog] = useState([]);
+  const [approvalLogLoading, setApprovalLogLoading] = useState(false);
+  const showApprovalAudit = Boolean(department.approvalAudit) && !financeReview;
+  const oneClickSign = Boolean(department.ownSignature) && !financeReview;
+  const [mySignatureUrl, setMySignatureUrl] = useState("");
+  const [mySignatureLoaded, setMySignatureLoaded] = useState(false);
+  const [slotSignatureUrls, setSlotSignatureUrls] = useState({});
+  const [signingSlot, setSigningSlot] = useState(null);
+  const [docPreview, setDocPreview] = useState(null);
+  const showDocPreview = Boolean(department.documentPreview) && !financeReview;
+
+  const refreshApprovalLog = async (id) => {
+    if (!showApprovalAudit || !id) return;
+    setApprovalLogLoading(true);
+    try {
+      setApprovalLog(await loadProjectApprovalLog(id));
+    } catch (err) {
+      console.error("[PO At Glance] approval history", err);
+    } finally {
+      setApprovalLogLoading(false);
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -262,6 +355,105 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     };
   }, [department, financeReview]);
 
+  useEffect(() => {
+    const slot = department.autoCreatorSlot;
+    if (!slot || financeReview) return undefined;
+    if (!myCode) {
+      setCreatorName(userProfile?.full_name || user?.email || "");
+      return undefined;
+    }
+    let alive = true;
+    listEmployeeOptions(department)
+      .then((people) => {
+        if (!alive) return;
+        const me = (people || []).find(
+          (e) => String(e.employee_code).trim().toLowerCase() === String(myCode).trim().toLowerCase()
+        );
+        setCreatorName(me?.full_name || userProfile?.full_name || user?.email || "");
+      })
+      .catch((err) => console.error("[PO At Glance] creator name", err));
+    return () => {
+      alive = false;
+    };
+  }, [department, financeReview, myCode, user?.email, userProfile?.full_name]);
+
+  const autoSignedUserId = department.autoCreatorSlot
+    ? form.signoff?.[department.autoCreatorSlot]?.signed_user_id
+    : "";
+
+  useEffect(() => {
+    const slot = department.autoCreatorSlot;
+    if (!slot) return undefined;
+    const iAmCreator = !form.created_by || form.created_by === user?.id;
+    const target = autoSignedUserId || (iAmCreator ? user?.id : "");
+    if (!target) {
+      setCreatorSignatureUrl("");
+      return undefined;
+    }
+    let alive = true;
+    fetchOcSignatureUrl(target).then((url) => {
+      if (alive) setCreatorSignatureUrl(url || "");
+    });
+    return () => {
+      alive = false;
+    };
+  }, [department.autoCreatorSlot, autoSignedUserId, form.created_by, user?.id]);
+
+  // Projects: the logged-in employee's own signature, fetched from Indus One by their employee code.
+  useEffect(() => {
+    if (!oneClickSign || !user?.id) return undefined;
+    let alive = true;
+    setMySignatureLoaded(false);
+    fetchOcSignatureUrl(user.id).then((url) => {
+      if (!alive) return;
+      setMySignatureUrl(url || "");
+      setMySignatureLoaded(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [oneClickSign, user?.id]);
+
+  // Projects: each signed stage shows the signature of the login that signed it.
+  const signedStageKey = oneClickSign
+    ? SIGNOFF_SLOTS.filter(({ slot }) => slot !== department.autoCreatorSlot)
+      .map(({ slot }) => `${slot}:${form.signoff?.[slot]?.saved_by ? form.signoff[slot].signed_user_id || "" : ""}`)
+      .join("|")
+    : "";
+  useEffect(() => {
+    if (!signedStageKey) return undefined;
+    let alive = true;
+    const pairs = signedStageKey.split("|").map((p) => p.split(":")).filter(([, uid]) => uid);
+    Promise.all(pairs.map(([slot, uid]) => fetchOcSignatureUrl(uid).then((url) => [slot, url || ""])))
+      .then((entries) => alive && setSlotSignatureUrls(Object.fromEntries(entries)));
+    return () => {
+      alive = false;
+    };
+  }, [signedStageKey]);
+
+  useEffect(() => {
+    const slot = department.autoCreatorSlot;
+    if (!slot || !creatorName || financeReview || department.ownSignature) return;
+    const iAmCreator = !form.created_by || form.created_by === user?.id;
+    if (!iAmCreator) return;
+    setForm((f) => {
+      const current = f.signoff?.[slot];
+      if (!current || current.saved_by || current.signed_by) return f;
+      return { ...f, signoff: { ...f.signoff, [slot]: { ...current, signed_by: creatorName } } };
+    });
+    setInitial((prev) => {
+      try {
+        const parsed = JSON.parse(prev);
+        const current = parsed.signoff?.[slot];
+        if (!current || current.saved_by || current.signed_by) return prev;
+        current.signed_by = creatorName;
+        return JSON.stringify(parsed);
+      } catch {
+        return prev;
+      }
+    });
+  }, [creatorName, department.autoCreatorSlot, department.ownSignature, financeReview, form.created_by, user?.id]);
+
   const isLockedFor = (slot) => {
     const a = assignees[slot];
     return !a || !myCode || String(a.employee_code).trim().toLowerCase() !== String(myCode).trim().toLowerCase();
@@ -270,6 +462,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   useEffect(() => {
     if (!ocId) {
       const blank = emptyOcForm(SIGNOFF_SLOTS);
+      setApprovalLog([]);
       setForm(blank);
       setInitial(JSON.stringify(blank));
       setLoading(false);
@@ -294,6 +487,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
           const f = formFromRecord(bundle, SIGNOFF_SLOTS);
           setForm(f);
           setInitial(JSON.stringify(f));
+          refreshApprovalLog(ocId);
         });
     load
       .catch((err) => {
@@ -320,6 +514,29 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   );
   const ocUnlocked = !financeReview || waitingSignoffs.length === 0;
   const ocReadOnly = financeReview ? !ocUnlocked : !isFinance;
+  const allStagesSigned = department.sequentialSignoff
+    && SIGNOFF_SLOTS.every((s) => !isBlank(form.signoff?.[s.slot]?.saved_by));
+  const previousStageApproved = (slot) => {
+    if (!department.sequentialSignoff) return true;
+    const index = SIGNOFF_SLOTS.findIndex((s) => s.slot === slot);
+    if (index <= 0) return true;
+    return !isBlank(form.signoff?.[SIGNOFF_SLOTS[index - 1].slot]?.saved_by);
+  };
+  const openReturn = showApprovalAudit ? openModificationRequest(approvalLog) : null;
+  const iAmOcCreator = !form.created_by || form.created_by === user?.id;
+  const canRequestModification = showApprovalAudit && saved && !dirty && !openReturn
+    && !isBlank(form.signoff?.PLANNING?.saved_by)
+    && isBlank(form.signoff?.VERTICAL_HEAD?.saved_by)
+    && isBlank(form.signoff?.FINANCE?.saved_by)
+    && !isLockedFor("VERTICAL_HEAD");
+  const stageStatus = (slot) => {
+    if (!department.sequentialSignoff) return null;
+    const signed = !isBlank(form.signoff?.[slot]?.saved_by);
+    if (openReturn && slot === SIGNOFF_SLOTS[0].slot && !signed) return "Returned";
+    if (allStagesSigned && signed) return "Completed";
+    if (signed) return "Approved";
+    return "Pending";
+  };
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
   const setIn = (group, key, value) => setForm((f) => ({ ...f, [group]: { ...f[group], [key]: value } }));
@@ -330,27 +547,79 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   const err = (k) => errors[k];
   const cls = (k) => `${inputCls} ${errors[k] ? errCls : ""}`;
 
+  const openPoDocument = async () => {
+    try {
+      const url = await projectPoDocumentUrl(form.po_document_path);
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      toast.error(friendlyOcError(err, "Could not open the purchase order.", department));
+    }
+  };
+
+  const onPoFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !form.id) return;
+    setUploadingPo(true);
+    try {
+      const savedDoc = await uploadProjectPoDocument(form.id, file);
+      setForm((f) => ({ ...f, ...savedDoc }));
+      setInitial((prev) => {
+        try {
+          return JSON.stringify({ ...JSON.parse(prev), ...savedDoc });
+        } catch {
+          return prev;
+        }
+      });
+      toast.success("Original purchase order uploaded.");
+    } catch (err) {
+      toast.error(friendlyOcError(err, "Could not upload the purchase order.", department));
+    } finally {
+      setUploadingPo(false);
+    }
+  };
+
   const handleSave = async () => {
+    if (department.sequentialSignoff) {
+      let previousReady = true;
+      for (const stage of SIGNOFF_SLOTS) {
+        const row = form.signoff[stage.slot] || {};
+        const hasName = !isBlank(row.signed_by);
+        if (hasName && !previousReady) {
+          toast.error(`${stage.label} can sign only after the previous stage is approved.`);
+          return null;
+        }
+        previousReady = !isBlank(row.saved_by) || hasName;
+      }
+    }
     const found = validateOcForm(form);
     setErrors(found);
     if (Object.keys(found).length) {
       toast.error("Please fix the highlighted fields.");
       topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
+      return null;
     }
-    const newSignatures = SIGNOFF_SLOTS.filter(({ slot }) => signoffPending(form.signoff[slot])).map(({ slot, label }) => ({
-      slot,
-      label,
-      signed_by: String(form.signoff[slot]?.signed_by || "").trim(),
-    }));
+    const payload = toSavePayload(form, SIGNOFF_SLOTS);
+    if (oneClickSign) {
+      payload.signoff = (payload.signoff || []).filter((s) => !isBlank(form.signoff?.[s.slot]?.saved_by));
+    }
+    const newSignatures = oneClickSign
+      ? []
+      : SIGNOFF_SLOTS.filter(({ slot }) => signoffPending(form.signoff[slot])).map(({ slot, label }) => ({
+        slot,
+        label,
+        signed_by: String(form.signoff[slot]?.signed_by || "").trim(),
+      }));
     setSaving(true);
     try {
-      const res = await saveOc(toSavePayload(form, SIGNOFF_SLOTS), department);
+      const res = await saveOc(payload, department);
       const bundle = await loadOc(res.id, department);
       const f = formFromRecord(bundle, SIGNOFF_SLOTS);
       setForm(f);
       setInitial(JSON.stringify(f));
-      toast.success(saved ? "PO At Glance updated." : res.oc_no ? `PO At Glance for OC No. ${res.oc_no} created.` : "PO At Glance created.");
+      refreshApprovalLog(res.id);
+      toast.success(openReturn && !isBlank(f.signoff?.[SIGNOFF_SLOTS[0].slot]?.saved_by)
+        ? "PO At Glance resubmitted. Approval restarts from Stage 1." : saved ? "PO At Glance updated." : res.oc_no ? `PO At Glance for OC No. ${res.oc_no} created.` : "PO At Glance created.");
       onSaved?.(res.id);
 
       if (newSignatures.length) {
@@ -384,8 +653,10 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
           });
         }
       }
+      return res.id;
     } catch (e) {
       toast.error(friendlyOcError(e, "Could not save the PO At Glance.", department));
+      return null;
     } finally {
       setSaving(false);
     }
@@ -466,6 +737,94 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     }
   };
 
+  /** Projects: Sign → save the PO if needed, confirm with the user's own signature, then sign that stage. */
+  const handleStageSign = async (slot, label) => {
+    if (!mySignatureUrl) {
+      toast.error("No digital signature was found for your employee code. Upload your signature in Indus One first.");
+      return;
+    }
+    let ocId = form.id;
+    if (!ocId || dirty) {
+      ocId = await handleSave();
+      if (!ocId) return;
+    }
+    setPendingSignSlot(slot);
+    setSignNotify({
+      open: true,
+      mode: "confirm",
+      direct: true,
+      ocId,
+      signatureUrl: mySignatureUrl,
+      signatures: [{ slot, label, signed_by: assignees[slot]?.employee_name || creatorName || "" }],
+      ocNo: form.oc_no,
+      client: form.client_name,
+    });
+  };
+
+  const signStageNow = async (slot, ocId = form.id) => {
+    const label = SIGNOFF_SLOTS.find((s) => s.slot === slot)?.label || slot;
+    setSigningSlot(slot);
+    try {
+      const res = await signProjectOcStage(ocId, slot);
+      const bundle = await loadOc(ocId, department);
+      const f = formFromRecord(bundle, SIGNOFF_SLOTS);
+      setForm(f);
+      setInitial(JSON.stringify(f));
+      refreshApprovalLog(ocId);
+      onSaved?.(ocId);
+      const signedBy = String(res?.signed_by || f.signoff?.[slot]?.saved_by || "").trim();
+      toast.success(`${label} signed on ${formatSignedAt(res?.signed_at || f.signoff?.[slot]?.signed_at)}.`);
+      const showSigned = (notice) => {
+        if (showDocPreview) {
+          setDocPreview({ form: f, title: `Signed PO preview — ${label}`, notice });
+          return true;
+        }
+        return false;
+      };
+      try {
+        const mail = await notifyOcSignoff({ ocId, signatures: [{ slot, signed_by: signedBy }], signerName: signedBy }, department);
+        const sentTo = (mail?.sent || []).join(", ");
+        if (!showSigned({ ok: true, text: `Notification emailed${mail?.from ? ` from ${mail.from}` : ""}${sentTo ? ` to ${sentTo}` : ""}.` })) {
+          setSignNotify({
+            open: true, mode: "result", ok: true, signatures: [{ slot, label, signed_by: signedBy }],
+            ocNo: f.oc_no, client: f.client_name, from: mail?.from, sent: mail?.sent || [], skipped: mail?.skipped || [],
+          });
+        }
+      } catch (mailErr) {
+        console.error("[PO At Glance] sign-off email failed", mailErr);
+        const text = mailErr?.message || "Could not send the notification email.";
+        if (!showSigned({ ok: false, text: `Signature saved, but the notification email was not sent: ${text}` })) {
+          setSignNotify({
+            open: true, mode: "result", ok: false, signatures: [{ slot, label, signed_by: signedBy }],
+            ocNo: f.oc_no, client: f.client_name, error: text,
+          });
+        }
+      }
+    } catch (e) {
+      toast.error(friendlyOcError(e, "Could not sign this stage.", department));
+    } finally {
+      setSigningSlot(null);
+    }
+  };
+
+  /** Department Head → back to the creator. Returns true when done so the dialog can close. */
+  const handleRequestModification = async (remarks) => {
+    try {
+      await requestProjectOcModification(form.id, remarks);
+      const bundle = await loadOc(form.id, department);
+      const f = formFromRecord(bundle, SIGNOFF_SLOTS);
+      setForm(f);
+      setInitial(JSON.stringify(f));
+      await refreshApprovalLog(form.id);
+      toast.success("Modification requested. The OC has been returned to its creator.");
+      onSaved?.(form.id);
+      return true;
+    } catch (e) {
+      toast.error(friendlyOcError(e, "Could not request the modification.", department));
+      return false;
+    }
+  };
+
   const handleExportWord = async () => {
     setExporting(true);
     try {
@@ -491,9 +850,14 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     );
   }
 
+  const sectionHead = financeReview
+    ? "md:col-span-4 flex items-center justify-between gap-2 border-b border-r border-slate-300 bg-slate-200/70 px-2 py-1 text-[11px] font-bold leading-tight text-slate-800"
+    : headingCls;
+
   return (
-    <div ref={topRef} className="space-y-3">
-      <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white/95 px-4 py-2 shadow-sm backdrop-blur">
+    <OcDensityContext.Provider value={financeReview}>
+    <div ref={topRef} className={financeReview ? "space-y-2" : "space-y-3"}>
+      <div className={`sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 border border-slate-200 bg-white/95 shadow-sm backdrop-blur ${financeReview ? "rounded-lg px-3 py-1.5" : "rounded-xl px-4 py-2"}`}>
         <button type="button" onClick={handleBack} className="inline-flex items-center gap-1 text-sm font-medium text-slate-600 hover:text-slate-900">
           <ArrowLeft className="h-4 w-4" /> All PO At Glance
         </button>
@@ -501,6 +865,17 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
           {readOnly && !financeReview && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">View only</span>}
           {financeReview && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">Finance review · other fields are read only</span>}
           {dirty && canEdit && <span className="text-xs text-amber-700">Unsaved changes</span>}
+          {showDocPreview && (
+            <button
+              type="button"
+              onClick={() => setDocPreview({ form, title: "PO preview", notice: null })}
+              disabled={!saved || dirty}
+              title={!saved ? "Save the PO At Glance first" : dirty ? "Save your changes first" : "Preview the PO with its signatures"}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Eye className="h-4 w-4" /> Preview
+            </button>
+          )}
           <button
             type="button"
             onClick={handleExportWord}
@@ -513,14 +888,29 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
-        <div className="flex flex-col gap-1 border-b border-slate-300 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm font-bold tracking-wide text-slate-900">{department.companyName}</p>
+      {showApprovalAudit && saved && (
+        <ProjectsApprovalPanel
+          slots={SIGNOFF_SLOTS}
+          signoff={form.signoff}
+          log={approvalLog}
+          loading={approvalLogLoading}
+          canRequestModification={canRequestModification}
+          iAmCreator={iAmOcCreator}
+          onRequestModification={handleRequestModification}
+        />
+      )}
+
+      <div className={`overflow-hidden border border-slate-300 bg-white shadow-sm ${financeReview ? "rounded-lg" : "rounded-xl"}`}>
+        <div className={`flex flex-col border-b border-slate-300 sm:flex-row sm:items-center sm:justify-between ${financeReview ? "gap-0.5 px-3 py-1.5" : "gap-1 px-4 py-3"}`}>
+          <p className={`font-bold tracking-wide text-slate-900 ${financeReview ? "text-xs" : "text-sm"}`}>{department.companyName}</p>
           <p className="text-[11px] text-slate-500">{department.docRef}</p>
         </div>
-        <h2 className="border-b border-slate-300 py-2 text-center text-base font-bold tracking-wider text-slate-900">{department.formTitle}</h2>
+        <h2 className={`border-b border-slate-300 text-center font-bold tracking-wider text-slate-900 ${financeReview ? "py-1 text-sm" : "py-2 text-base"}`}>{department.formTitle}</h2>
 
-        <fieldset disabled={readOnly && !financeReview} className="min-w-0">
+        <fieldset
+          disabled={readOnly && !financeReview}
+          className={financeReview ? "min-w-0 [&_input]:!py-1 [&_input]:!text-xs [&_select]:!py-1 [&_select]:!text-xs [&_textarea]:!py-1 [&_textarea]:!text-xs" : "min-w-0"}
+        >
           <div className="grid grid-cols-1 border-l border-slate-300 md:grid-cols-[minmax(9rem,18%)_1fr_minmax(9rem,16%)_1fr]">
             {/* Section 1 */}
             <Freeze on={financeReview}>
@@ -584,6 +974,38 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
               <input type="date" className={cls("po_date")} value={form.po_date} onChange={(e) => set("po_date", e.target.value)} />
               <FieldError msg={err("po_date")} />
             </Value>
+
+            {department.poDocument && (
+              <>
+                <Label>Original PO</Label>
+                <Value full>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {form.po_document_name ? (
+                      <button type="button" data-active className={smallBtn} onClick={openPoDocument}>
+                        View {form.po_document_name}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-500">No original purchase order uploaded.</span>
+                    )}
+                    {canEdit && !financeReview && (
+                      <label className={`${smallBtn} cursor-pointer ${!form.id || uploadingPo ? "opacity-50" : ""}`}>
+                        {uploadingPo ? "Uploading…" : form.po_document_name ? "Replace original PO" : "Upload original PO"}
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
+                          disabled={!form.id || uploadingPo}
+                          onChange={onPoFile}
+                        />
+                      </label>
+                    )}
+                  </div>
+                  {canEdit && !financeReview && !form.id && (
+                    <p className="mt-1 text-[11px] text-slate-500">Save this PO first, then upload the original document.</p>
+                  )}
+                </Value>
+              </>
+            )}
 
             <Label required>Project Description</Label>
             <Value full>
@@ -725,7 +1147,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
             </Value>
 
             {/* Section 2 — security items */}
-            <div className={headingCls}>
+            <div className={sectionHead}>
               <span>{OC_SECURITY_HEADING}</span>
               {canEdit && (
                 <button type="button" className={smallBtn} onClick={() => addRow("security_items", blankSecurityRow)}>
@@ -844,7 +1266,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
             </Value>
 
             {/* Section 4 — contacts */}
-            <div className={headingCls}>
+            <div className={sectionHead}>
               <span>{OC_CONTACTS_HEADING}</span>
               {canEdit && (
                 <button type="button" className={smallBtn} onClick={() => addRow("contacts", blankContact)}>
@@ -894,7 +1316,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
             </Freeze>
 
             {/* Section 6 — dissemination */}
-            <div className={`${headingCls} flex-wrap`}>
+            <div className={`${sectionHead} flex-wrap`}>
               <span>{OC_SIGNOFF_HEADING}</span>
               {(canEdit || financeReview) && codeLoaded && !myCode && (
                 <span className="font-normal text-amber-700">
@@ -902,15 +1324,45 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                 </span>
               )}
             </div>
-            {SIGNOFF_SLOTS.map(({ slot, label }) => (
+            {department.sequentialSignoff && (
+              <p className="md:col-span-4 border-b border-r border-slate-300 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                Each stage opens only after the previous stage is approved. OC Creation uses the signature of the person creating this OC.
+              </p>
+            )}
+            {SIGNOFF_SLOTS.map(({ slot, label }) => {
+              const auto = department.autoCreatorSlot === slot;
+              const open = previousStageApproved(slot);
+              const iAmCreator = !form.created_by || form.created_by === user?.id;
+              const stageUnsigned = isBlank(form.signoff[slot]?.saved_by);
+              const creatorCanSign = auto && oneClickSign && iAmCreator && stageUnsigned;
+              const locked = auto
+                ? !creatorCanSign
+                : isLockedFor(slot) || !open || (financeReview && slot !== "FINANCE");
+              const note = !open
+                ? "This stage opens after the previous stage is approved."
+                : auto && isBlank(form.signoff[slot]?.saved_by) && !iAmCreator
+                  ? "Waiting for the person who created this OC."
+                  : "";
+              return (
               <Freeze key={slot} on={financeReview && slot !== "FINANCE"}>
               <SignatureBox
                 label={label}
                 value={form.signoff[slot]}
                 disabled={financeReview ? slot !== "FINANCE" : readOnly}
-                assignee={assignees[slot]}
+                assignee={auto ? null : assignees[slot]}
                 assigneeCount={department.assigneeCount}
-                locked={isLockedFor(slot) || (financeReview && slot !== "FINANCE")}
+                locked={locked}
+                status={stageStatus(slot)}
+                signatureUrl={auto ? (stageUnsigned ? "" : creatorSignatureUrl) : oneClickSign ? slotSignatureUrls[slot] || "" : ""}
+                oneClickSign={oneClickSign && (!auto || iAmCreator)}
+                signing={signingSlot === slot}
+                signBlockedReason={
+                  mySignatureLoaded && !mySignatureUrl ? "No digital signature found for your employee code. Upload it in Indus One." : ""
+                }
+                onSign={() => handleStageSign(slot, label)}
+                mySignatureUrl={oneClickSign ? mySignatureUrl : ""}
+                caption={auto ? "Signed by the person who creates this OC." : undefined}
+                note={note}
                 onChange={(v) => setForm((f) => ({ ...f, signoff: { ...f.signoff, [slot]: v } }))}
                 onRequestSign={(signName) => {
                   setPendingSignSlot(slot);
@@ -924,13 +1376,14 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                 }}
               />
               </Freeze>
-            ))}
+              );
+            })}
           </div>
         </fieldset>
       </div>
 
       {(canEdit || financeReview) && (
-        <div className="flex flex-wrap items-center justify-end gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className={`flex flex-wrap items-center justify-end border border-slate-200 bg-white shadow-sm ${financeReview ? "gap-2 rounded-lg px-3 py-2" : "gap-3 rounded-xl px-4 py-3"}`}>
           {dirty && <span className="text-xs text-amber-700">Unsaved changes</span>}
           <button type="button" onClick={handleBack} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
             Cancel
@@ -942,9 +1395,22 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
             className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {financeReview ? "Save Finance update" : saved ? "Save changes" : "Save PO At Glance"}
+            {financeReview
+              ? "Save Finance update"
+              : openReturn && iAmOcCreator ? "Resubmit for approval" : saved ? "Save changes" : "Save PO At Glance"}
           </button>
         </div>
+      )}
+
+      {showDocPreview && (
+        <PjDocumentPreviewModal
+          open={Boolean(docPreview)}
+          title={docPreview?.title}
+          notice={docPreview?.notice}
+          fileName={`${ocExportFileName(docPreview?.form || form)}.docx`}
+          buildBlob={() => department.buildDocx(docPreview?.form || form)}
+          onClose={() => setDocPreview(null)}
+        />
       )}
 
       <SignNotifyModal
@@ -955,6 +1421,14 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
           setPendingSignSlot(null);
         }}
         onConfirmSign={() => {
+          if (signNotify?.direct && pendingSignSlot) {
+            const slot = pendingSignSlot;
+            const ocId = signNotify.ocId;
+            setSignNotify(null);
+            setPendingSignSlot(null);
+            signStageNow(slot, ocId);
+            return;
+          }
           if (!pendingSignSlot || !signNotify?.signatures?.[0]?.signed_by) {
             setSignNotify(null);
             setPendingSignSlot(null);
@@ -972,5 +1446,6 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
         }}
       />
     </div>
+    </OcDensityContext.Provider>
   );
 }

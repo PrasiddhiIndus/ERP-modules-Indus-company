@@ -341,6 +341,12 @@ export const SalaryProcessReportPage = lazy(
 export const PayrollMisRoutePage = lazy(
   () => import("../pages/adminOperations/salaryAdmin/mis/PayrollMisRoute.jsx")
 );
+export const ProbationReviewsPage = lazy(
+  () => import("../pages/adminOperations/probationReviews/ProbationReviewsPage.jsx")
+);
+export const ProbationReviewDetailPage = lazy(
+  () => import("../pages/adminOperations/probationReviews/ProbationReviewDetailPage.jsx")
+);
 export const PayrollRuleMasterPage = lazy(
   () => import("../pages/adminOperations/salaryAdmin/PayrollRuleMaster.jsx")
 );

@@ -6,6 +6,7 @@ export function friendlyFinancePoError(error, fallback = "Something went wrong. 
   console.error("[Master PO At Glance]", error);
   const msg = String(error.message || error);
   const code = String(error.code || "");
+  if (/can sign only after the previous stage|Only the person who created this OC/.test(msg)) return msg;
   if (code === "42501" || /permission denied|row-level security|do not have access/i.test(msg)) {
     return /Master PO At Glance|Finance Department/i.test(msg)
       ? msg

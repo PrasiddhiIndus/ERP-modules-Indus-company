@@ -28,7 +28,7 @@ export default function OcSignoffAssignmentPage() {
 
 /** Assignment table for one department's sign-off boxes (IEV by default). */
 export function OcSignoffAssignmentPanel({ canConfigure, department = IEV_OC_DEPARTMENT }) {
-  const SIGNOFF_SLOTS = department.slots;
+  const SIGNOFF_SLOTS = department.slots.filter((slot) => slot.slot !== department.autoCreatorSlot);
   const [employees, setEmployees] = useState([]);
   const [saved, setSaved] = useState({});
   const [draft, setDraft] = useState({});
@@ -105,6 +105,9 @@ export function OcSignoffAssignmentPanel({ canConfigure, department = IEV_OC_DEP
             <p className="mt-0.5 text-xs text-slate-500">
               Choose who signs each box under “{OC_SIGNOFF_HEADING}”. On a PO At Glance, each person can sign only the box assigned
               to them; every other box is grey and read-only. A box with no one assigned cannot be signed.
+              {department.autoCreatorSlot
+                ? " OC Creation is signed automatically by the person who creates the OC and is not assigned here. Each later stage opens only after the previous stage is approved."
+                : ""}
             </p>
           </div>
           {canConfigure && (
