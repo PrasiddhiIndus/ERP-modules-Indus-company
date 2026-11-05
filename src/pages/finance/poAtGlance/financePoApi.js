@@ -6,6 +6,7 @@ export function friendlyFinancePoError(error, fallback = "Something went wrong. 
   console.error("[Master PO At Glance]", error);
   const msg = String(error.message || error);
   const code = String(error.code || "");
+  if (/can sign only after the previous stage|Only the person who created this OC/.test(msg)) return msg;
   if (code === "42501" || /permission denied|row-level security|do not have access/i.test(msg)) {
     return /Master PO At Glance|Finance Department/i.test(msg)
       ? msg
@@ -18,6 +19,27 @@ export function friendlyFinancePoError(error, fallback = "Something went wrong. 
   if (code === "P0001" || code === "22023") return msg;
   if (/failed to fetch|network/i.test(msg)) return "Network error. Check your connection and try again.";
   return fallback;
+}
+
+/** Full PO At Glance form for one department record (same shape the department screen loads). */
+export async function getFinancePoDetail(department, id) {
+  const { data, error } = await supabase.rpc("finance_po_glance_detail", {
+    p_department: department,
+    p_id: id,
+  });
+  if (error) throw error;
+  return data;
+}
+
+/** Records the Finance Department signature only. The assigned finance signer is checked on the server. */
+export async function signFinancePo({ department, id, signedBy }) {
+  const { data, error } = await supabase.rpc("finance_po_sign", {
+    p_department: department,
+    p_id: id,
+    p_signed_by: signedBy,
+  });
+  if (error) throw error;
+  return data;
 }
 
 /** POs of every department (header fields + signed sign-off slots). Finance only. */
@@ -42,6 +64,16 @@ export async function setFinancePoOcNo({ department, id, ocNo, ocDate, expectedU
 
 export async function listFinancePoOcHistory(department, id) {
   const { data, error } = await supabase.rpc("finance_po_oc_history", { p_department: department, p_id: id });
+  if (error) throw error;
+  return data || [];
+}
+
+/** Who changed which field, from what, to what, and when. */
+export async function listFinancePoFieldHistory(department, id) {
+  const { data, error } = await supabase.rpc("finance_po_field_history", {
+    p_department: department,
+    p_id: id,
+  });
   if (error) throw error;
   return data || [];
 }

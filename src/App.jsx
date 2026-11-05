@@ -10,6 +10,7 @@ import { AuditConsoleProvider } from "./contexts/AuditConsoleContext";
 import { AppAccessConfigProvider } from "./contexts/AppAccessConfigContext";
 import SalaryAdminGuard from "./pages/adminOperations/salaryAdmin/SalaryAdminGuard";
 import RulesConsoleGuard from "./pages/adminOperations/rulesConsole/RulesConsoleGuard";
+import ProbationReviewsGuard from "./pages/adminOperations/probationReviews/ProbationReviewsGuard";
 import ComplianceGuard from "./pages/compliance/payroll/ComplianceGuard";
 import { checkSupabaseConnection } from "./lib/supabase";
 import { runBackendDiagnostics } from "./lib/backendDiagnostics";
@@ -89,6 +90,8 @@ import {
   Operations,
   ProjectsBilling,
   ProjectsManagement,
+  ProjectsDashboard,
+  ProjectsReports,
   ProjectsPoHub,
   ProjectsEnquiryHub,
   ProjectsQuotationHub,
@@ -160,6 +163,8 @@ import {
   SalaryProcessingPage,
   SalaryProcessReportPage,
   PayrollMisRoutePage,
+  ProbationReviewsPage,
+  ProbationReviewDetailPage,
   SalaryComponentsMasterPage,
   CtcCalculatorPage,
   PayrollRuleMasterPage,
@@ -622,6 +627,14 @@ function App() {
               <Route path="mis" element={<PayrollMisRoutePage />} />
             </Route>
             <Route path="admin/payroll-mis" element={<PayrollMisRoutePage standalone />} />
+            <Route
+              path="admin/probation-reviews"
+              element={<ProbationReviewsGuard><ProbationReviewsPage /></ProbationReviewsGuard>}
+            />
+            <Route
+              path="admin/probation-reviews/:id"
+              element={<ProbationReviewsGuard><ProbationReviewDetailPage /></ProbationReviewsGuard>}
+            />
             <Route path="admin/salary-admin/salary-master" element={<Navigate to="/app/admin/salary-admin/dashboard" replace />} />
             <Route
               path="admin/salary-admin/salary-master/:employeeId"
@@ -704,6 +717,8 @@ function App() {
             <Route path="fire-tender-vehicle-management" element={<FireTenderVehicleManagement />} />
             
             {/* Projects */}
+            <Route path="projects/dashboard" element={<ProjectsDashboard />} />
+            <Route path="projects/reports" element={<ProjectsReports />} />
             <Route path="projects-management" element={<ProjectsManagement />} />
             <Route path="projects-billing" element={<ProjectsBilling />} />
             <Route path="projects/po" element={<ProjectsPoHub />} />

@@ -502,124 +502,6 @@ export default function EnquiryDashboard() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-blue-600" />
-            <h3 className="text-sm font-semibold text-gray-900">Filters</h3>
-            {filterCount > 0 && (
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                {filterCount} active
-              </span>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
-            <span>
-              Showing <strong className="text-gray-900">{filteredRows.length}</strong> of{' '}
-              <strong className="text-gray-900">{rows.length}</strong> enquiries
-            </span>
-            {filterCount > 0 && (
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 font-medium"
-              >
-                <X className="w-3 h-3" />
-                Clear all
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-          <label className="block xl:col-span-2">
-            <span className="text-xs font-medium text-gray-600 mb-1 block">Search</span>
-            <input
-              type="search"
-              value={filters.search}
-              onChange={(e) => setFilter('search', e.target.value)}
-              placeholder="Client, location, scope…"
-              className={selectCls}
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-medium text-gray-600 mb-1 block">Month</span>
-            <select value={filters.month} onChange={(e) => setFilter('month', e.target.value)} className={selectCls}>
-              <option value="">All months</option>
-              {MONTH_OPTIONS.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-xs font-medium text-gray-600 mb-1 block">Year</span>
-            <select value={filters.year} onChange={(e) => setFilter('year', e.target.value)} className={selectCls}>
-              <option value="">All years</option>
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-xs font-medium text-gray-600 mb-1 block">Receipt from</span>
-            <DateInput
-              value={filters.dateFrom}
-              onChange={(v) => setFilter('dateFrom', v)}
-              className={selectCls}
-              placeholder="dd/mm/yyyy"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-medium text-gray-600 mb-1 block">Receipt to</span>
-            <DateInput
-              value={filters.dateTo}
-              onChange={(v) => setFilter('dateTo', v)}
-              className={selectCls}
-              placeholder="dd/mm/yyyy"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-medium text-gray-600 mb-1 block">Current status</span>
-            <select value={filters.status} onChange={(e) => setFilter('status', e.target.value)} className={selectCls}>
-              <option value="">All status</option>
-              {statusOptions.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-xs font-medium text-gray-600 mb-1 block">Assigned to</span>
-            <select value={filters.assignee} onChange={(e) => setFilter('assignee', e.target.value)} className={selectCls}>
-              <option value="">All assignees</option>
-              <option value="__unassigned__">Unassigned</option>
-              {assigneeOptions.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-xs font-medium text-gray-600 mb-1 block">Priority</span>
-            <select value={filters.priority} onChange={(e) => setFilter('priority', e.target.value)} className={selectCls}>
-              <option value="">All priorities</option>
-              <option value="__unset__">Not set</option>
-              {priorityOptions.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-xs font-medium text-gray-600 mb-1 block">Enquiry from</span>
-            <select value={filters.enquiryFrom} onChange={(e) => setFilter('enquiryFrom', e.target.value)} className={selectCls}>
-              <option value="">All sources</option>
-              <option value="__unset__">Not specified</option>
-              {sourceOptions.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </div>
-
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 gap-3">
         <KpiCard icon={ClipboardList} label="Total" value={stats.total} sub="Sum of all boxes" tone="blue" onClick={openHandler('total', 'Total')} />
         <KpiCard icon={Users} label="Not Started" value={stats.notStarted} sub="Assigned, not yet due" tone="amber" onClick={openHandler('notStarted', 'Not Started')} />
@@ -794,6 +676,124 @@ export default function EnquiryDashboard() {
             </p>
           )}
         </ChartCard>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-blue-600" />
+            <h3 className="text-sm font-semibold text-gray-900">Filters</h3>
+            {filterCount > 0 && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                {filterCount} active
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+            <span>
+              Showing <strong className="text-gray-900">{filteredRows.length}</strong> of{' '}
+              <strong className="text-gray-900">{rows.length}</strong> enquiries
+            </span>
+            {filterCount > 0 && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 font-medium"
+              >
+                <X className="w-3 h-3" />
+                Clear all
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          <label className="block xl:col-span-2">
+            <span className="text-xs font-medium text-gray-600 mb-1 block">Search</span>
+            <input
+              type="search"
+              value={filters.search}
+              onChange={(e) => setFilter('search', e.target.value)}
+              placeholder="Client, location, scope…"
+              className={selectCls}
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 mb-1 block">Month</span>
+            <select value={filters.month} onChange={(e) => setFilter('month', e.target.value)} className={selectCls}>
+              <option value="">All months</option>
+              {MONTH_OPTIONS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 mb-1 block">Year</span>
+            <select value={filters.year} onChange={(e) => setFilter('year', e.target.value)} className={selectCls}>
+              <option value="">All years</option>
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 mb-1 block">Receipt from</span>
+            <DateInput
+              value={filters.dateFrom}
+              onChange={(v) => setFilter('dateFrom', v)}
+              className={selectCls}
+              placeholder="dd/mm/yyyy"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 mb-1 block">Receipt to</span>
+            <DateInput
+              value={filters.dateTo}
+              onChange={(v) => setFilter('dateTo', v)}
+              className={selectCls}
+              placeholder="dd/mm/yyyy"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 mb-1 block">Current status</span>
+            <select value={filters.status} onChange={(e) => setFilter('status', e.target.value)} className={selectCls}>
+              <option value="">All status</option>
+              {statusOptions.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 mb-1 block">Assigned to</span>
+            <select value={filters.assignee} onChange={(e) => setFilter('assignee', e.target.value)} className={selectCls}>
+              <option value="">All assignees</option>
+              <option value="__unassigned__">Unassigned</option>
+              {assigneeOptions.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 mb-1 block">Priority</span>
+            <select value={filters.priority} onChange={(e) => setFilter('priority', e.target.value)} className={selectCls}>
+              <option value="">All priorities</option>
+              <option value="__unset__">Not set</option>
+              {priorityOptions.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 mb-1 block">Enquiry from</span>
+            <select value={filters.enquiryFrom} onChange={(e) => setFilter('enquiryFrom', e.target.value)} className={selectCls}>
+              <option value="">All sources</option>
+              <option value="__unset__">Not specified</option>
+              {sourceOptions.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
     </div>
   );

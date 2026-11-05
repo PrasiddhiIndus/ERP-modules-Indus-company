@@ -30,9 +30,9 @@ const ProjectsQuotationHub = () => {
   }, [location.pathname, navigate]);
 
   const tabs = [
-    { id: 'quotation-entry', label: 'Make a Quotation', component: QuotationMaker },
-    { id: 'quotation-list', label: 'Quotation List', component: QuotationMakerList },
     { id: 'quotation-dashboard', label: 'Dashboard', component: QuotationDashboard },
+    { id: 'quotation-list', label: 'Total Quotations', component: QuotationMakerList },
+    { id: 'quotation-entry', label: 'Make a Quotation', component: QuotationMaker },
     { id: 'quotation-board', label: 'Board', component: QuotationBoard },
     { id: 'quotation-dropdown', label: 'Masters', component: QuotationDropdown },
     { id: 'quotation-templates', label: 'Templates', component: QuotationTemplates },
@@ -50,7 +50,7 @@ const ProjectsQuotationHub = () => {
       <div className="min-h-screen bg-gray-50">
         <div className="bg-white shadow-sm border-b border-gray-200">
           <div className="px-4 sm:px-5 py-3">
-            <h1 className="text-2xl font-bold text-gray-900">Projects — Quotation Maker</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Projects — Quotation Master</h1>
             <p className="text-gray-600 mt-1">
               Simple guided quotations for fire-safety projects — headings, items, parts, live preview, and print.
             </p>

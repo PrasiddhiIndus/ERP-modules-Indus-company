@@ -1,0 +1,96 @@
+/*
+ * Indus One design tokens + the few `io-*` utilities the Probation Reviews pages use,
+ * copied from Indus One `indus-one-theme.css` so the ERP page renders like Indus One.
+ * Everything is scoped under `.probation-io` so nothing leaks into other ERP pages.
+ * The appraisal form itself is styled by probationReview.css (verbatim copy).
+ */
+
+.probation-io {
+  --ink-primary: #0f172a;
+  --ink-secondary: #475569;
+  --ink-muted: #94a3b8;
+  --border-default: #e6e8f0;
+  --border-subtle: #eef0f5;
+  --surface-card: #ffffff;
+  --surface-canvas: #f6f7fb;
+  --card-muted: #f9fafc;
+  --accent-primary: #3b5bfb;
+  --accent-primary-hover: #2f4be0;
+  --accent-primary-wash: #eef1ff;
+  --status-success: #15803d;
+  --status-success-wash: #e6f6ec;
+  --status-warning-ink: #92400e;
+  --status-warning-wash: #fff4e0;
+  --status-danger: #c93636;
+  --status-danger-wash: #fdecec;
+  --status-neutral-wash: #f3f4f6;
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --radius-badge: 6px;
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
+  --ease: 150ms ease;
+  color: var(--ink-primary);
+}
+
+.probation-io .io-text { color: var(--ink-primary); }
+.probation-io .io-text-secondary { color: var(--ink-secondary); }
+.probation-io .io-text-muted { color: var(--ink-muted); }
+
+.probation-io .io-panel {
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-default);
+  background-color: var(--surface-card);
+  box-shadow: var(--shadow-card);
+}
+
+.probation-io .io-link {
+  color: var(--accent-primary);
+  font-weight: 500;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.probation-io .io-link:hover { color: var(--accent-primary-hover); }
+
+.probation-io .io-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-control);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--ink-primary);
+  transition: background-color var(--ease);
+}
+.probation-io .io-btn-secondary:hover:not(:disabled) { background: var(--surface-canvas); }
+.probation-io .io-btn-sm { height: 36px; padding: 0 14px; font-size: 13px; }
+
+.probation-io .io-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius-badge);
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.probation-io .io-badge-success { background: var(--status-success-wash); color: var(--status-success); }
+.probation-io .io-badge-warning { background: var(--status-warning-wash); color: var(--status-warning-ink); }
+.probation-io .io-badge-danger { background: var(--status-danger-wash); color: var(--status-danger); }
+.probation-io .io-badge-neutral { background: var(--status-neutral-wash); color: var(--ink-secondary); }
+
+.probation-io .io-row-divider { border-bottom: 1px solid var(--border-subtle); }
+
+.probation-io .font-mono-io {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-weight: 500;
+}

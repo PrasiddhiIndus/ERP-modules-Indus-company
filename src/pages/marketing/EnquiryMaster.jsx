@@ -1216,6 +1216,7 @@ const EnquiryMaster = () => {
                     <option value="Website">Website</option>
                     <option value="Referral">Referral</option>
                     <option value="Expo">Expo</option>
+                    <option value="Tender">Tender</option>
                     <option value="Other">Other</option>
                   </select>
                 </div>
