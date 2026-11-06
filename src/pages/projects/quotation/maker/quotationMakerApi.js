@@ -3,6 +3,7 @@
  */
 
 import { supabase } from '../../../../lib/supabase';
+import { fetchApiWithAuth } from '../../../../lib/apiBase';
 import { fetchOcSignatureUrl } from '../../oc/ocApi';
 import {
   buildOfferNo,
@@ -160,6 +161,32 @@ function headerPayload(form, totals, { userId } = {}) {
 /** Signature image already uploaded in Indus One for this employee's code. Empty when none is on file. */
 export async function fetchCreatorSignatureUrl(userId) {
   return fetchOcSignatureUrl(userId);
+}
+
+function signatureExtension(contentType) {
+  const type = String(contentType || '').toLowerCase();
+  if (type.includes('png')) return 'png';
+  if (type.includes('jpeg') || type.includes('jpg')) return 'jpeg';
+  if (type.includes('gif')) return 'gif';
+  return null;
+}
+
+/** Same signature file as bytes, so PDF and Excel can embed it without a remote image link. */
+export async function fetchCreatorSignatureFile(userId) {
+  if (!userId) return null;
+  const res = await fetchApiWithAuth('/api/employee-signature/file', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, bytes: true }),
+  });
+  const base64 = res.ok ? String(res.data?.base64 || '') : '';
+  if (!base64) return null;
+  const contentType = String(res.data?.contentType || 'image/png');
+  return {
+    base64,
+    extension: signatureExtension(contentType),
+    dataUrl: `data:${contentType};base64,${base64}`,
+  };
 }
 
 export async function fetchMakerQuotation(id) {
