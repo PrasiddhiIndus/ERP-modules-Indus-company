@@ -241,6 +241,22 @@ export function presentDaysFromRegisterTotal(totalPresent) {
   return Math.min(rounded, 31);
 }
 
+/** True when P.Days are above the month’s working days. Does not change amounts. */
+export function presentDaysExceedWorkingDays(presentDaysOrLine, workingDays) {
+  const present = Number(
+    presentDaysOrLine != null && typeof presentDaysOrLine === "object"
+      ? presentDaysOrLine.present_days
+      : presentDaysOrLine
+  );
+  const working = Number(
+    workingDays != null && workingDays !== ""
+      ? workingDays
+      : presentDaysOrLine?.total_days
+  );
+  if (!Number.isFinite(present) || !Number.isFinite(working)) return false;
+  return present > working;
+}
+
 /**
  * Salary P.Days from the daily register: present + paid leave on Mon–Sat only.
  * Sundays (week off) are never counted; 3rd-Saturday WO counts for non-excluded departments.
@@ -1972,6 +1988,22 @@ export async function processSalaryMonth({
       processed_on: processDay,
     },
   }));
+
+  const blockedPresentLines = newLines.filter((line) => presentDaysExceedWorkingDays(line, days));
+  if (blockedPresentLines.length) {
+    const shown = blockedPresentLines
+      .slice(0, 8)
+      .map((line) => line.employee_code || line.employee_name)
+      .filter(Boolean)
+      .join(", ");
+    throw new Error(
+      `Cannot process salary. ${blockedPresentLines.length} employee${
+        blockedPresentLines.length === 1 ? "" : "s"
+      } have P.Days greater than working days (${days}). Correct the highlighted rows first${
+        shown ? `: ${shown}` : ""
+      }.`
+    );
+  }
 
   let runId;
   let revisionNo = 1;
