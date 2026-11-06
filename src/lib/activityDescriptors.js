@@ -1209,6 +1209,113 @@ export function getActivityFormatter(entity, actionKey) {
   return typeof fn === 'function' ? fn : null
 }
 
+/**
+ * Table / function-name prefix → module that OWNS the data.
+ * The audit trail uses this (not the browser URL) to say which module a change belongs to.
+ * Longest / most specific prefixes first.
+ */
+const ENTITY_MODULE_PREFIXES = [
+  ['admin_payroll_', 'Admin · Salary admin'],
+  ['admin_salary_', 'Admin · Salary admin'],
+  ['salary_', 'Admin · Salary admin'],
+  ['admin_leave_', 'Admin · Leave management'],
+  ['leave_requests', 'Admin · Leave management'],
+  ['recalculate_employee_leave', 'Admin · Leave management'],
+  ['recalculate_all_leave', 'Admin · Leave management'],
+  ['admin_attendance_', 'Admin · Attendance'],
+  ['erp_attendance_', 'Admin · Attendance'],
+  ['admin_ifsp_employee_master', 'Admin · Employee master'],
+  ['hr_calling_', 'HR · Recruitment / Calling master'],
+  ['hr_site_iom', 'HR · Site IOM'],
+  ['hr_peek_shared_employee_code', 'HR · Recruitment / Calling master'],
+  ['crm_outreach_', 'Client/In-House Mail Outreach'],
+  ['marketing_', 'Marketing'],
+  ['maintenance_', 'Maintenance'],
+  ['add_on_invoice', 'Billing · Add-on invoices'],
+  ['invoice', 'Billing'],
+  ['credit_debit_note', 'Billing · Credit / debit notes'],
+  ['payment_advice', 'Billing · Money tracking'],
+  ['billing_', 'Billing'],
+  ['mark_billing_cycle', 'Billing · Cycle tracker'],
+  ['sync_billing_cycle', 'Billing · Cycle tracker'],
+  ['admin_grant_user_vertical', 'User management'],
+  ['admin_revoke_user_vertical', 'User management'],
+  ['admin_seed_default_vertical', 'User management'],
+  ['po_wo', 'Commercial · PO/WO'],
+  ['po_', 'Commercial · PO/WO'],
+  ['manpower_enquir', 'Manpower (Commercial MT)'],
+  ['allocate_manpower_enquiry', 'Manpower (Commercial MT)'],
+  ['quotation', 'Projects · Quotation Maker'],
+  ['tenders', 'IEV'],
+  ['costing_rows', 'IEV'],
+  ['revenue_', 'Finance / P&L'],
+  ['expense_', 'Finance / P&L'],
+  ['budget_', 'Finance / P&L'],
+  ['cost_allocations', 'Finance / P&L'],
+  ['contract_periods', 'Finance / P&L'],
+  ['period_entr', 'Finance / P&L'],
+  ['import_export_logs', 'Finance / P&L'],
+  ['data_backups', 'Finance / P&L'],
+  ['replace_site_structure', 'Finance / P&L'],
+  ['replace_budget_lines', 'Finance / P&L'],
+  ['replace_period_entry', 'Finance / P&L'],
+  ['software_subscription', 'Software subscriptions/reminders'],
+  ['site_assignments', 'HR · Site attendance'],
+  ['site_supervisors', 'HR · Site attendance'],
+  ['hr_managers', 'HR · Site attendance'],
+  ['sites', 'HR · Site attendance'],
+  ['people', 'HR · Site attendance'],
+  ['attendance', 'HR · Site attendance'],
+  ['profiles', 'User management'],
+]
+
+/** Non-public PostgREST schema (Content-Profile) → module, used when the table prefix is unknown. */
+const SCHEMA_MODULES = {
+  projects: 'Projects',
+  billing: 'Billing',
+  indus_one: 'Indus One',
+}
+
+/**
+ * Module that owns a table or server function, or null when unknown.
+ * @param {string} entity table name or `rpc:<function>`
+ * @param {string|null} [schema] PostgREST schema (Content-Profile header)
+ */
+export function resolveEntityModule(entity, schema = null) {
+  const name = String(entity || '').toLowerCase().replace(/^rpc:/, '')
+  if (name) {
+    for (const [prefix, label] of ENTITY_MODULE_PREFIXES) {
+      if (name.startsWith(prefix)) return label
+    }
+  }
+  const s = String(schema || '').toLowerCase()
+  if (s && s !== 'public' && SCHEMA_MODULES[s]) return SCHEMA_MODULES[s]
+  return null
+}
+
+/** Server functions that only read data (permission checks, lists, reports). */
+const RPC_READ_RE =
+  /^(get|list|fetch|peek|is|has|can|check|count|search|lookup|find|current|my|load|read|resolve|preview|validate|export|download|view|report|summary|stats|dashboard)_|_(my_access|full_access|access|can_edit|can_view|rows|months|totals|names|roster|list|lookup|count|counts|stats|summary|report|options|dropdowns?|exists|preview)$/
+/** Telemetry / self-logging functions — never user business actions. */
+const RPC_TELEMETRY_RE = /(^|_)(log|logs|heartbeat|ping|touch|track|telemetry)$|^snapshot_db_usage$/
+/** Verbs that mean the function changes data. */
+const RPC_WRITE_RE =
+  /(^|_)(create|insert|add|update|upsert|save|set|delete|remove|approve|reject|submit|cancel|lock|unlock|reprocess|rebuild|recalculate|mark|confirm|convert|allocate|release|grant|revoke|replace|sync|seed|assign|unassign|close|reopen|import|issue|generate|apply|post|finalize|expire|reset|sign|send|archive|restore|transfer|withdraw)(_|$)/
+
+/**
+ * Should a server-function (RPC) call be recorded as an audit action?
+ * supabase-js sends every RPC as POST — including pure reads — so the HTTP verb proves nothing.
+ * Only functions whose name clearly says they change data are audited; unknown ones are skipped
+ * (accuracy over coverage).
+ */
+export function isAuditableRpc(fnName) {
+  const n = String(fnName || '').toLowerCase().replace(/^rpc:/, '')
+  if (!n) return false
+  if (RPC_TELEMETRY_RE.test(n)) return false
+  if (RPC_READ_RE.test(n)) return false
+  return RPC_WRITE_RE.test(n)
+}
+
 export function methodToActionKey(method, entity) {
   const m = String(method || '').toUpperCase()
   const e = String(entity || '').toLowerCase()
