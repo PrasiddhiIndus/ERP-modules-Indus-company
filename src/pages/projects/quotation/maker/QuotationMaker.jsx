@@ -116,6 +116,7 @@ export default function QuotationMaker() {
   const [boqImportOpen, setBoqImportOpen] = useState(false);
   const [signatureUrl, setSignatureUrl] = useState('');
   const [openingText, setOpeningText] = useState(null);
+  const [closingText, setClosingText] = useState(null);
   const autosaveTimer = useRef(null);
   const skipAutosave = useRef(true);
 
@@ -144,10 +145,16 @@ export default function QuotationMaker() {
     let cancelled = false;
     fetchQuotationSettings()
       .then((settings) => {
-        if (!cancelled) setOpeningText(settings.makerOpening);
+        if (!cancelled) {
+          setOpeningText(settings.makerOpening);
+          setClosingText(settings.makerClosing);
+        }
       })
       .catch(() => {
-        if (!cancelled) setOpeningText(null);
+        if (!cancelled) {
+          setOpeningText(null);
+          setClosingText(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -798,6 +805,7 @@ export default function QuotationMaker() {
         rows={rows}
         signatureUrl={signatureUrl}
         openingText={openingText}
+        closingText={closingText}
       />
 
       {confirmDeleteId ? (

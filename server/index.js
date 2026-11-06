@@ -1863,6 +1863,11 @@ app.post('/api/projects/oc/signoff-notify', einvoiceRateLimit, requireAuth, asyn
       senderMailboxId: req.body?.senderMailboxId,
       signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
       department: 'projects',
+      event: req.body?.event,
+      ocNo: req.body?.ocNo,
+      ocDate: req.body?.ocDate,
+      remarks: req.body?.remarks,
+      actorName: req.body?.actorName,
     });
     return res.json(result);
   } catch (err) {
