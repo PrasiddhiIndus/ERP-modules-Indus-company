@@ -30,6 +30,7 @@ import {
   validateForSent,
 } from './quotationMakerModel';
 import {
+  fetchCreatorSignatureFile,
   fetchCreatorSignatureUrl,
   fetchMakerQuotation,
   logMakerAudit,
@@ -370,24 +371,16 @@ export default function QuotationMaker() {
     [readOnly]
   );
 
-  const handlePrint = async () => {
-    try {
-      await logMakerAudit({
-        quotationId: form.id,
-        action: 'print',
-        detail: { quotation_no: form.quotation_no },
-        actorId: user?.id,
-        actorName: ownerDefault,
-      });
-    } catch {
-      /* ignore */
-    }
-    window.print();
-  };
-
   const handleExcel = async () => {
     try {
-      const blob = await exportQuotationToExcelBlob({ form, rows });
+      const signature = await fetchCreatorSignatureFile(signatureUserId).catch(() => null);
+      const blob = await exportQuotationToExcelBlob({
+        form,
+        rows,
+        signature,
+        openingText,
+        closingText,
+      });
       const safe = String(form.quotation_no || 'quotation').replace(/[^\w.-]+/g, '_').slice(0, 80);
       downloadBlob(blob, `Quotation_${safe}.xlsx`);
     } catch (e) {
@@ -398,22 +391,51 @@ export default function QuotationMaker() {
   const handlePdf = async () => {
     const el = document.getElementById('qm-preview');
     if (!el) return;
-    // Ensure scroll parents don't clip the capture (wide SI tables).
-    const shell = el.closest('.qm-preview-shell');
-    const prevShell = shell
-      ? { overflow: shell.style.overflow, height: shell.style.height }
-      : null;
-    const prevEl = { overflow: el.style.overflow, maxHeight: el.style.maxHeight };
+    const host = document.createElement('div');
+    host.setAttribute('aria-hidden', 'true');
+    host.style.cssText = 'position:fixed;left:0;top:0;width:688px;z-index:-1;pointer-events:none;background:#fff;';
+    const clone = el.cloneNode(true);
+    clone.id = 'qm-preview-pdf';
+    clone.classList.add('qm-pdf-export');
+    host.appendChild(clone);
+    document.body.appendChild(host);
     try {
-      if (shell) {
-        shell.style.overflow = 'visible';
-        shell.style.height = 'auto';
+      const signature = await fetchCreatorSignatureFile(signatureUserId).catch(() => null);
+      if (signature?.dataUrl) {
+        let img = clone.querySelector('.qm-sign-image');
+        if (!img) {
+          img = document.createElement('img');
+          img.className = 'qm-sign-image';
+          img.alt = 'Signature';
+          const sign = clone.querySelector('.qm-sign');
+          const name = sign?.querySelector('b');
+          if (sign && name) sign.insertBefore(img, name);
+          else sign?.appendChild(img);
+        }
+        if (img) {
+          img.src = signature.dataUrl;
+          await new Promise((resolve) => {
+            if (img.complete && img.naturalWidth) resolve();
+            else {
+              img.onload = () => resolve();
+              img.onerror = () => resolve();
+            }
+          });
+          if (img.naturalWidth && img.naturalHeight) {
+            const scale = Math.min(150 / img.naturalWidth, 46 / img.naturalHeight, 1);
+            img.style.width = `${Math.max(1, Math.round(img.naturalWidth * scale))}px`;
+            img.style.height = `${Math.max(1, Math.round(img.naturalHeight * scale))}px`;
+          }
+        }
       }
-      el.style.overflow = 'visible';
-      el.style.maxHeight = 'none';
-      el.scrollIntoView({ block: 'nearest' });
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      const blob = await exportNodeToPdfBlob(el, { marginMm: 8 });
+      const blob = await exportNodeToPdfBlob(clone, {
+        marginMm: 16,
+        marginTopMm: 14,
+        marginBottomMm: 18,
+        avoidSplit: true,
+        imageFormat: 'png',
+      });
       const safe = String(form.quotation_no || 'quotation').replace(/[^\w.-]+/g, '_').slice(0, 80);
       downloadBlob(blob, `Quotation_${safe}.pdf`);
       await logMakerAudit({
@@ -426,12 +448,7 @@ export default function QuotationMaker() {
     } catch (err) {
       setMessage({ type: 'error', text: err?.message || 'Could not generate PDF.' });
     } finally {
-      if (shell && prevShell) {
-        shell.style.overflow = prevShell.overflow;
-        shell.style.height = prevShell.height;
-      }
-      el.style.overflow = prevEl.overflow;
-      el.style.maxHeight = prevEl.maxHeight;
+      host.remove();
     }
   };
 
@@ -764,7 +781,7 @@ export default function QuotationMaker() {
 
       <div className="qm-card qm-noprint">
         <div className="qm-step">
-          <span className="qm-num">5</span> Check and print
+          <span className="qm-num">5</span> Check and download
         </div>
         <div className="qm-btns" style={{ marginTop: 12 }}>
           <button
@@ -783,9 +800,6 @@ export default function QuotationMaker() {
           >
             Save &amp; mark Sent
           </button>
-          <button type="button" className="qm-btn good" onClick={() => void handlePrint()}>
-            Print / Save as PDF
-          </button>
           <button type="button" className="qm-btn" onClick={() => void handlePdf()}>
             Download PDF
           </button>
@@ -797,7 +811,7 @@ export default function QuotationMaker() {
 
       <div className="qm-noprint" style={{ marginBottom: 8 }}>
         <div className="qm-step" style={{ marginBottom: 8 }}>
-          <span className="qm-num">6</span> Preview (what will print)
+          <span className="qm-num">6</span> Preview
         </div>
       </div>
       <QuotationMakerPreview
