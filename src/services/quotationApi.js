@@ -462,15 +462,33 @@ export async function createQuotationRevision(source, { userId } = {}) {
   return inserted;
 }
 
+/** Shown on a quotation until a custom opening is saved in Templates. */
+export const DEFAULT_MAKER_OPENING =
+  'Dear Sir,\nWe are thankful for your enquiry. Please find our offer below.';
+
 export async function fetchQuotationSettings() {
   const { data, error } = await projectsTable('quotation_settings').select('*');
   if (error) throw error;
   const map = {};
   for (const row of data || []) map[row.setting_key] = row.setting_value;
+  const savedOpening = map.maker_opening?.text;
   return {
     advancedPricing: Boolean(map.advanced_pricing?.enabled),
+    makerOpening: typeof savedOpening === 'string' ? savedOpening : null,
     raw: map,
   };
+}
+
+export async function setMakerOpeningText(text) {
+  const { error } = await projectsTable('quotation_settings').upsert(
+    {
+      setting_key: 'maker_opening',
+      setting_value: { text: String(text ?? '') },
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'setting_key' }
+  );
+  if (error) throw error;
 }
 
 export async function setAdvancedPricingEnabled(enabled) {

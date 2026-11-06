@@ -683,6 +683,10 @@
   font-size: 12px;
 }
 
+.qm-greet {
+  white-space: pre-line;
+}
+
 /* Preview table — never scroll-clip; always fit width for PDF */
 .qm-preview-table-wrap {
   width: 100%;
