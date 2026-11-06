@@ -29,6 +29,7 @@ import {
   findSavedMonthLine,
   decorateScopeLine,
   workingDaysMonToSat,
+  presentDaysExceedWorkingDays,
   getRunSheetNo,
   getMonthHoldIds,
   setMonthHoldIds,
@@ -148,6 +149,9 @@ function formatProcessDay(ymd) {
 function lineIsSalaryLocked(line) {
   return Boolean(line?.salaryLocked || line?.processStatus === "locked");
 }
+
+const PRESENT_DAYS_OVER_ROW =
+  "bg-red-100 hover:bg-red-100 [&_td]:bg-red-100 [&_input]:bg-red-50";
 
 function resolveLineProcessStatus(line) {
   if (line?.onHold || line?.processStatus === "held") return "held";
@@ -874,6 +878,7 @@ function EmployeeSalaryDetailPage({
 function ScopeSalarySheetTable({
   lines,
   loading,
+  workingDays,
   emptyHint,
   onUpdateLine,
   onOpenEmployee,
@@ -951,6 +956,7 @@ function ScopeSalarySheetTable({
               const checked = selectedIds.some((id) => String(id) === empKey);
               const rowLocked = lineIsSalaryLocked(line);
               const rowReadOnly = readOnly || rowLocked;
+              const daysOver = presentDaysExceedWorkingDays(line, workingDays);
               return (
               <tr
                 key={line.id}
@@ -964,14 +970,20 @@ function ScopeSalarySheetTable({
                     onOpenEmployee(line);
                   }
                 }}
+                title={
+                  daysOver
+                    ? `P.Days (${line.present_days}) exceed working days (${workingDays ?? line.total_days})`
+                    : undefined
+                }
                 className={[
-                  line.has_identity_error
-                    ? "bg-red-50/80"
-                    : rowLocked
-                      ? "bg-emerald-50"
-                      : "bg-white hover:bg-slate-50/80",
-                  checked && !rowLocked ? "bg-amber-50/50" : "",
-                  onOpenEmployee ? "cursor-pointer" : "",
+                  daysOver
+                    ? PRESENT_DAYS_OVER_ROW
+                    : line.has_identity_error
+                      ? "bg-red-50/80"
+                      : rowLocked
+                        ? "bg-emerald-50"
+                        : "bg-white hover:bg-slate-50/80",
+                  !daysOver && checked && !rowLocked ? "bg-amber-50/50" : "",
                 ].join(" ")}
               >
                 {showSelect ? (
@@ -1623,6 +1635,14 @@ export default function SalaryProcessing() {
     }
     const toProcess = pool.filter((e) => !e.salaryLocked);
     const skipped = pool.filter((e) => e.salaryLocked);
+    const overPresentIds = new Set(
+      scopeLines
+        .filter((line) => presentDaysExceedWorkingDays(line, monthDays))
+        .map((line) => String(line.employee_master_id))
+        .filter(Boolean)
+    );
+    const blockedPresentDays = scopeLines.filter((line) => overPresentIds.has(String(line.employee_master_id)));
+    const poolBlocked = blockedPresentDays;
     const inScope = rows.filter((e) => {
       if (processMode === PROCESS_MODES.HOLD) return holdSet.has(String(e.id));
       if (selectedDepartments.length > 0) {
@@ -1632,9 +1652,8 @@ export default function SalaryProcessing() {
     });
     const withoutCtc = inScope.filter((e) => !e.hasCtc).length;
     const onHoldCount = rows.filter((e) => holdSet.has(String(e.id))).length;
-    return { pool, toProcess, skipped, inScope, withoutCtc, onHoldCount };
-  }, [rosterEmployees, processMode, selectedDepartments, holdIds, selectedIds]);
-
+    return { pool, toProcess, blockedPresentDays, poolBlocked, skipped, inScope, withoutCtc, onHoldCount };
+  }, [rosterEmployees, processMode, selectedDepartments, holdIds, selectedIds, scopeLines, monthDays]);
   /** Salary sheet uses the same tab list so All / Processed / Held stay in sync. */
   const scopeEmployees = tabEmployees;
 
@@ -1844,6 +1863,15 @@ export default function SalaryProcessing() {
     const lockedChosen = chosen.filter((l) => lineIsSalaryLocked(l));
     const toPublish = chosen.filter((l) => !lineIsSalaryLocked(l));
     if (!toPublish.length) {
+    const overPresent = toPublish.filter((line) => presentDaysExceedWorkingDays(line, monthDays));
+    if (overPresent.length) {
+      toast.error(
+        `Cannot lock salary. ${overPresent.length} employee${
+          overPresent.length === 1 ? "" : "s"
+        } have P.Days greater than working days (${monthDays}). Correct the red rows first.`
+      );
+      return;
+    }
       toast.warning(
         lockedChosen.length
           ? "These employees are already processed and locked for this month. Their salary will not be updated."
@@ -1875,8 +1903,7 @@ export default function SalaryProcessing() {
     } finally {
       setBusy(false);
     }
-  }, [visibleScopeLines, selectedIds, year, month, loadCandidates]);
-
+  }, [visibleScopeLines, selectedIds, year, month, monthDays, loadCandidates]);
   const openOverviewEmployee = useCallback(
     async (emp) => {
       if (!emp?.id) return;
@@ -1930,6 +1957,12 @@ export default function SalaryProcessing() {
         return;
       }
       setDetailSaving(true);
+      if (presentDaysExceedWorkingDays(line, monthDays)) {
+        toast.error(
+          `Cannot save. P.Days (${line.present_days}) are greater than working days (${monthDays}). Correct them first.`
+        );
+        return;
+      }
       try {
         const key = monthKey(year, month);
         const recomputed = recomputeLineFromEdits(line, monthDays);
@@ -2011,6 +2044,15 @@ export default function SalaryProcessing() {
         return;
       }
       setBusy(true);
+      const blockedRows = processPreview.blockedPresentDays;
+      if (blockedRows.length) {
+        toast.error(
+          `Cannot process salary. ${blockedRows.length} employee${
+            blockedRows.length === 1 ? "" : "s"
+          } have P.Days greater than working days (${monthDays}). Correct the red rows first.`
+        );
+        return;
+      }
       try {
         const key = monthKey(year, month);
         const isBulk = processMode === PROCESS_MODES.BULK && !selectedIds.length;
@@ -2107,6 +2149,8 @@ export default function SalaryProcessing() {
       processPreview.toProcess,
       processPreview.pool,
       loadCandidates,
+      processPreview.blockedPresentDays,
+      processPreview.poolBlocked,
     ]
   );
 
@@ -2130,6 +2174,16 @@ export default function SalaryProcessing() {
     if (salaryFiguresHidden()) return;
     if (!run?.id) return;
     setSaving(true);
+    const working = run.month_days || monthDays;
+    const overPresent = (lines || []).filter((line) => presentDaysExceedWorkingDays(line, working));
+    if (overPresent.length) {
+      toast.error(
+        `Cannot save. ${overPresent.length} employee${
+          overPresent.length === 1 ? "" : "s"
+        } have P.Days greater than working days (${working}). Correct the red rows first.`
+      );
+      return;
+    }
     try {
       const result = await api.save(run.id, lines);
       setRun(result.run);
@@ -2144,8 +2198,7 @@ export default function SalaryProcessing() {
     } finally {
       setSaving(false);
     }
-  }, [run?.id, lines]);
-
+  }, [run?.id, run?.month_days, monthDays, lines]);
   const monthLocked = monthRunLocked(candidates.existingRun);
   const canLockMonth = !USE_MOCK_SALARY_PROCESSING && Boolean(candidates.existingRun?.id);
   const monthLockedAt = candidates.existingRun?.locked_at
@@ -2385,10 +2438,23 @@ export default function SalaryProcessing() {
               </tr>
             </thead>
             <tbody>
-              {filteredLines.map((line, idx) => (
+              {filteredLines.map((line, idx) => {
+                const daysOver = presentDaysExceedWorkingDays(line, run?.month_days || monthDays);
+                return (
                 <tr
                   key={line.id}
-                  className={line.has_master_variance ? "bg-amber-50/70" : "bg-white hover:bg-slate-50/80"}
+                  title={
+                    daysOver
+                      ? `P.Days (${line.present_days}) exceed working days (${run?.month_days || monthDays})`
+                      : undefined
+                  }
+                  className={
+                    daysOver
+                      ? PRESENT_DAYS_OVER_ROW
+                      : line.has_master_variance
+                        ? "bg-amber-50/70"
+                        : "bg-white hover:bg-slate-50/80"
+                  }
                 >
                   <td className="px-1.5 py-1 text-[11px] tabular-nums border-b border-slate-100">{idx + 1}</td>
                   <td className="px-1.5 py-1 text-[11px] font-mono border-b border-slate-100 max-w-[5.5rem]">
@@ -2615,7 +2681,8 @@ export default function SalaryProcessing() {
                     <Money value={line.bank_amount} strong />
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           {!filteredLines.length ? (
@@ -2883,6 +2950,7 @@ export default function SalaryProcessing() {
             <ScopeSalarySheetTable
               lines={visibleScopeLines}
               loading={candidatesLoading || scopeLinesLoading}
+              workingDays={monthDays}
               emptyHint={
                 viewTab === "held"
                   ? "No employees on hold. Select staff and click Hold selected."
@@ -2954,7 +3022,15 @@ export default function SalaryProcessing() {
                   </span>
                 </>
               ) : null}
-              {processPreview.toProcess.length && viewTab !== "held" && viewTab !== "processed" ? (
+              {processPreview.blockedPresentDays.length && viewTab !== "held" && viewTab !== "processed" ? (
+                <>
+                  {" "}
+                  ·{" "}
+                  <span className="font-semibold text-red-700">
+                    Processing blocked — {processPreview.blockedPresentDays.length} with P.Days above working days
+                  </span>
+                </>
+              ) : processPreview.toProcess.length && viewTab !== "held" && viewTab !== "processed" ? (
                 <>
                   {" "}
                   ·{" "}
@@ -3019,8 +3095,20 @@ export default function SalaryProcessing() {
                 <button
                   type="button"
                   className={btnPrimary}
-                  disabled={busy || candidatesLoading || !visibleScopeLines.length || monthLocked}
-                  title={monthLocked ? "Month is locked. Unlock it to make changes." : undefined}
+                  disabled={
+                    busy ||
+                    candidatesLoading ||
+                    !visibleScopeLines.length ||
+                    monthLocked ||
+                    visibleScopeLines.some((line) => presentDaysExceedWorkingDays(line, monthDays))
+                  }
+                  title={
+                    visibleScopeLines.some((line) => presentDaysExceedWorkingDays(line, monthDays))
+                      ? "Correct red rows where P.Days exceed working days before locking salary."
+                      : monthLocked
+                        ? "Month is locked. Unlock it to make changes."
+                        : undefined
+                  }
                   onClick={doPublishProcessedSlips}
                 >
                   {busy ? "Locking…" : "Processed"}
@@ -3040,13 +3128,15 @@ export default function SalaryProcessing() {
                   {processMode === PROCESS_MODES.BULK && candidates.existingRun ? (
                     <button
                       type="button"
-                      disabled={busy || monthLocked}
+                      disabled={busy || monthLocked || processPreview.poolBlocked.length > 0}
                       className={btnGhost}
                       onClick={() => doProcess({ forceFullReprocess: true })}
                       title={
-                        monthLocked
-                          ? "Month is locked. Unlock it to reprocess."
-                          : "Rebuild entire month sheet as new revision"
+                        processPreview.poolBlocked.length
+                          ? `Correct ${processPreview.poolBlocked.length} red row(s) where P.Days exceed working days before reprocessing.`
+                          : monthLocked
+                            ? "Month is locked. Unlock it to reprocess."
+                            : "Rebuild entire month sheet as new revision"
                       }
                     >
                       Full reprocess
@@ -3054,9 +3144,21 @@ export default function SalaryProcessing() {
                   ) : null}
                   <button
                     type="button"
-                    disabled={busy || candidatesLoading || !processPreview.toProcess.length || monthLocked}
-                    title={monthLocked ? "Month is locked. Unlock it to make changes." : undefined}
                     className={btnPrimary}
+                    disabled={
+                      busy ||
+                      candidatesLoading ||
+                      !processPreview.toProcess.length ||
+                      processPreview.blockedPresentDays.length > 0 ||
+                      monthLocked
+                    }
+                    title={
+                      processPreview.blockedPresentDays.length
+                        ? `Correct ${processPreview.blockedPresentDays.length} red row(s) where P.Days exceed working days before processing.`
+                        : monthLocked
+                          ? "Month is locked. Unlock it to make changes."
+                          : undefined
+                    }
                     onClick={() => doProcess()}
                   >
                     <RefreshCw className={`h-3 w-3 ${busy ? "animate-spin" : ""}`} />

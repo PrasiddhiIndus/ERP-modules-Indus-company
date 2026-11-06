@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   capPresentDaysToWorkingDays,
+  presentDaysExceedWorkingDays,
   presentDaysFromRegisterTotal,
   resolveSalaryMonthWorkingDays,
   salaryPresentDaysFromDayMarks,
@@ -11,6 +12,8 @@ import {
   buildMonthlyRegisterGrid,
   mergeApprovedLeaveMarksIntoManualMarks,
   normalizeRegisterMarkForDb,
+  registerPresentDayCreditForCell,
+  registerPresentDaySummaryCreditForCell,
 } from "../src/lib/attendanceDaily.js";
 
 describe("salary working-day slab", () => {
@@ -58,7 +61,51 @@ describe("salary working-day slab", () => {
   });
 });
 
+describe("CO on a weekly off or holiday in Total present", () => {
+  const holidayDates = new Set(["2026-10-20"]);
+  const project = { year: 2026, month: 10, department: "Project", employeeCode: "10372", holidayDates };
+
+  it("counts CO as 0 on WO or NH/PH and as 1 on any other date", () => {
+    // 4 Oct 2026 Sunday, 17 Oct 3rd Saturday (weekly off for Project), 20 Oct holiday, 7 Oct Wednesday.
+    expect(registerPresentDaySummaryCreditForCell("CO", { ...project, day: 4 })).toBe(0);
+    expect(registerPresentDaySummaryCreditForCell("CO", { ...project, day: 17 })).toBe(0);
+    expect(registerPresentDaySummaryCreditForCell("P/CO", { ...project, day: 4 })).toBe(0);
+    expect(registerPresentDaySummaryCreditForCell("CO/P", { ...project, day: 20 })).toBe(0);
+    expect(registerPresentDaySummaryCreditForCell("CO", { ...project, day: 7 })).toBe(1);
+    expect(registerPresentDaySummaryCreditForCell("P/CO", { ...project, day: 7 })).toBe(1);
+    expect(registerPresentDaySummaryCreditForCell("CO/P", { ...project, day: 26 })).toBe(1);
+    // Day-level present credit and a plain NH/PH mark stay as they were.
+    expect(registerPresentDayCreditForCell("CO", { ...project, day: 4 })).toBe(1);
+    expect(registerPresentDaySummaryCreditForCell("NH/PH", { ...project, day: 20 })).toBe(1);
+  });
+
+  it("keeps 10372 October Total present at 27 (CO days are working days)", () => {
+    const dayMarks = {};
+    for (let d = 1; d <= 31; d += 1) dayMarks[d] = "T";
+    dayMarks[7] = "CO";
+    dayMarks[17] = "WO";
+    dayMarks[20] = "NH/PH";
+    dayMarks[24] = "CO";
+    dayMarks[25] = "WO";
+    dayMarks[26] = "CO";
+    dayMarks[27] = "SL";
+    const [row] = attachRegisterRowSummaries(
+      [{ empCode: "10372", employeeName: "Rathod Vijay", department: "Project", dayMarks }],
+      {},
+      31,
+      { year: 2026, month: 10, holidayDates }
+    );
+    expect(row.summary.totalPresent).toBe(27);
+  });
+});
+
 describe("salary P.Days from register Total present", () => {
+  it("flags P.Days only when they are above working days", () => {
+    expect(presentDaysExceedWorkingDays({ present_days: 28 }, 27)).toBe(true);
+    expect(presentDaysExceedWorkingDays({ present_days: 27 }, 27)).toBe(false);
+    expect(presentDaysExceedWorkingDays({ present_days: "" }, 27)).toBe(false);
+  });
+
   it("keeps the register Total present for that month, including a half day", () => {
     expect(presentDaysFromRegisterTotal(26.5)).toBe(26.5);
     expect(presentDaysFromRegisterTotal(28)).toBe(28);

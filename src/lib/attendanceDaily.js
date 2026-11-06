@@ -674,12 +674,33 @@ export function isProductionSaturdayWeekoffPresentCredit(mark, { year, month, da
 }
 
 /**
+ * CO, P/CO, or CO/P taken on a weekly off or NH/PH date.
+ * Total present credits 0. The same marks on any other date stay at 1.
+ */
+function isCoOnWoNhPhDate(mark, ctx = {}) {
+  const raw = String(mark ?? "").trim();
+  const isCo =
+    isRegisterCoMark(raw) ||
+    isRegisterCoPunchCombinedMark(raw) ||
+    halfDayLeaveTypeFromCompositeMark(raw) === "CO";
+  if (!isCo) return false;
+  const { year, month, day, department, employeeCode = null, holidayDates = null } = ctx;
+  if (!year || !month || !day) return false;
+  const iso = registerDateFromDay(monthKeyFromParts(year, month), day);
+  if (!iso) return false;
+  if (isWeeklyOffDate(iso, department, employeeCode)) return true;
+  return Boolean(holidayDates?.has?.(iso) && isAutoHolidayFor(iso, { employeeCode, department }));
+}
+
+/**
  * Present credit for register summary Total present column only.
  * P/PL, P/CL, P/SL count as 1 (display); 3rd-Saturday WO counts as 1 (see above).
  * PL/CL/SL on that paid 3rd-Saturday weekoff also counts as 1 (Total present only).
- * Does not change day-level present/absent logic.
+ * CO / P/CO / CO/P on a weekly off or NH/PH date count as 0; on any other date they count as 1.
+ * Does not change day-level present/absent logic or compensatory-off balance deduction.
  */
 export function registerPresentDaySummaryCreditForCell(mark, ctx = {}) {
+  if (isCoOnWoNhPhDate(mark, ctx)) return 0;
   if (isPaidThirdSaturdayWeekoffCell(mark, ctx)) return 1;
   if (isPaidThirdSaturdayWorkingDeptCell(mark, ctx)) return 1;
   if (isProductionSaturdayWeekoffPresentCredit(mark, ctx)) return 1;
@@ -4270,7 +4291,14 @@ export function computeEmployeeRegisterSummary(
   const excludeOffDayWork = isOffDayWorkExcludedFromPresentMonth(year, month);
   for (let day = 1; day <= daysInMonth; day += 1) {
     const mark = row.dayMarks[day] || "";
-    const cellCtx = { year, month, day, department: row.department, employeeCode: row.empCode || null };
+    const cellCtx = {
+      year,
+      month,
+      day,
+      department: row.department,
+      employeeCode: row.empCode || null,
+      holidayDates,
+    };
     const presentMark = excludeOffDayWork
       ? totalPresentCreditMark(mark, { ...cellCtx, holidayDates })
       : mark;
