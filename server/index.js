@@ -1823,6 +1823,20 @@ app.post('/api/employee-signature/file', requireAuth, async (req, res) => {
     if (!employeeCode || !objectKey.startsWith(prefix) || objectKey.includes('..')) {
       return res.status(404).json({ error: 'No digital signature found for your employee code.' });
     }
+    if (req.body?.bytes) {
+      const obj = await getR2S3Client().send(
+        new GetObjectCommand({ Bucket: getR2BucketName(), Key: objectKey }),
+      );
+      const raw = obj?.Body ? await obj.Body.transformToByteArray() : null;
+      if (!raw?.length) {
+        return res.status(404).json({ error: 'No digital signature found for your employee code.' });
+      }
+      return res.json({
+        contentType: String(data.contentType || obj.ContentType || 'image/png'),
+        fileName: String(data.fileName || 'signature.png'),
+        base64: Buffer.from(raw).toString('base64'),
+      });
+    }
     const url = await getSignedUrl(
       getR2S3Client(),
       new GetObjectCommand({

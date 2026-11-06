@@ -24,6 +24,8 @@ const BORDERS = { top: LINE, bottom: LINE, left: LINE, right: LINE, insideHorizo
 const MARGINS = { top: 0, bottom: 0, left: 108, right: 108 };
 // Tables start 0.55" left of the margin, as in the format (Word measures it to the cell text, so less one cell margin).
 const INDENT = { size: -792 - MARGINS.left, type: WidthType.DXA };
+/** docx-preview does not apply w:tblInd, so the on-screen page must shift tables by this amount. */
+export const PJ_TABLE_INDENT_CSS = `${(INDENT.size * 0.05).toFixed(2)}pt`;
 // Column grids in twips, taken from the Word file.
 const MAIN = [2130, 1710, 2670, 1095, 645, 1365, 1395];
 const CONTACT = [1326, 2081, 2005, 5553];

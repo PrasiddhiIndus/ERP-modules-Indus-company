@@ -749,13 +749,16 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
       if (!ocId) return;
     }
     setPendingSignSlot(slot);
+    const signerName = department.autoCreatorSlot === slot
+      ? (creatorName || userProfile?.full_name || user?.email || "")
+      : (assignees[slot]?.employee_name || creatorName || "");
     setSignNotify({
       open: true,
       mode: "confirm",
       direct: true,
       ocId,
       signatureUrl: mySignatureUrl,
-      signatures: [{ slot, label, signed_by: assignees[slot]?.employee_name || creatorName || "" }],
+      signatures: [{ slot, label, signed_by: signerName }],
       ocNo: form.oc_no,
       client: form.client_name,
     });

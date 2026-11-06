@@ -3,6 +3,7 @@
  * Each completed stage uses the signature of the login that signed it (signed_user_id, stamped by the database),
  * fetched from that employee's own Indus One upload. Nothing here lets a user pick a signature.
  */
+import { fetchApiWithAuth } from "../../../lib/apiBase";
 import { fetchOcSignatureUrl } from "../oc/ocApi";
 import { PJ_OC_SIGNOFF_SLOTS } from "./pjOcDepartment";
 
@@ -28,12 +29,30 @@ async function imageSize(blob) {
   }
 }
 
+/** Same-origin bytes. A direct file link is often blocked when the Word file is built. */
+async function signatureBytes(userId) {
+  const res = await fetchApiWithAuth("/api/employee-signature/file", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId, bytes: true }),
+  });
+  const b64 = res.ok ? String(res.data?.base64 || "") : "";
+  if (!b64) return null;
+  const bin = atob(b64);
+  const data = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) data[i] = bin.charCodeAt(i);
+  return data;
+}
+
 async function loadOne(userId) {
-  const url = await fetchOcSignatureUrl(userId);
-  if (!url) return null;
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const data = new Uint8Array(await res.arrayBuffer());
+  let data = await signatureBytes(userId);
+  if (!data) {
+    const url = await fetchOcSignatureUrl(userId);
+    if (!url) return null;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    data = new Uint8Array(await res.arrayBuffer());
+  }
   const type = imageType(data);
   if (!type) return null; // e.g. a PDF signature file — the export keeps the name and date only
   const { w, h } = await imageSize(new Blob([data]));

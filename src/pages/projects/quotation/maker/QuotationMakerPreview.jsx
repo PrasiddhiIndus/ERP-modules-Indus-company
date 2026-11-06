@@ -15,6 +15,7 @@ import {
   rowTotal,
 } from './quotationMakerModel';
 import { formatDateDdMmYyyy } from '../../../../utils/dateDisplay';
+import { DEFAULT_MAKER_OPENING } from '../../../../services/quotationApi';
 
 function PreviewTableHead({ type, colKeys }) {
   return (
@@ -222,7 +223,7 @@ function PreviewRow({ rows, r, type, colKeys }) {
   return <tr data-pdf-nosplit>{cells}</tr>;
 }
 
-export default function QuotationMakerPreview({ form, rows, signatureUrl = '' }) {
+export default function QuotationMakerPreview({ form, rows, signatureUrl = '', openingText = null }) {
   const type = normalizeType(form.quotation_type);
   const t = QUOTATION_TYPES[type];
   const totals = computeTotals(rows, type);
@@ -278,9 +279,7 @@ export default function QuotationMakerPreview({ form, rows, signatureUrl = '' })
         </p>
 
         <p className="qm-greet" data-pdf-nosplit>
-          Dear Sir,
-          <br />
-          We are thankful for your enquiry. Please find our offer below.
+          {openingText == null ? DEFAULT_MAKER_OPENING : openingText}
         </p>
 
         <div className="qm-preview-table-wrap">
