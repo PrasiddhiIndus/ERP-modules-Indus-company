@@ -33,7 +33,7 @@ export function friendlyOcError(error, fallback = "Something went wrong. Please 
 export async function listOcs(dept = IEV_OC_DEPARTMENT) {
   const { data, error } = await supabase
     .from(dept.tables.master)
-    .select("id, oc_no, oc_date, client_name, po_wo_no, po_date, contract_value, currency, delivery_date, updated_at")
+    .select("id, oc_no, oc_date, client_name, po_wo_no, po_date, contract_value, currency, delivery_date, updated_at, created_by")
     .order("created_at", { ascending: false })
     .limit(500);
   if (error) throw error;
@@ -164,6 +164,26 @@ export async function uploadProjectPoDocument(ocId, file) {
   return { po_document_name: file.name, po_document_path: path };
 }
 
+/** Removes a purchase order file that was already saved with the PO. */
+export async function clearProjectPoDocument(ocId, path) {
+  const { error } = await supabase.rpc("pj_oc_clear_po_document", { p_id: ocId });
+  if (error) throw error;
+  if (path) {
+    const { error: storageError } = await supabase.storage.from(PO_DOCUMENT_BUCKET).remove([path]);
+    if (storageError) console.warn("[PO At Glance] file remove", storageError);
+  }
+}
+
+/** Execution and Department Head save remarks without changing the rest of the PO. */
+export async function setProjectPoRemarks({ id, remarks, remarksDate }) {
+  const { error } = await supabase.rpc("pj_oc_set_remarks", {
+    p_id: id,
+    p_remarks: remarks ?? "",
+    p_remarks_date: remarksDate || null,
+  });
+  if (error) throw error;
+}
+
 /** Short-lived link so the preview can open the original purchase order. */
 export async function projectPoDocumentUrl(path) {
   const { data, error } = await supabase.storage.from(PO_DOCUMENT_BUCKET).createSignedUrl(path, 3600);
@@ -205,11 +225,11 @@ export async function deleteOc(id, dept = IEV_OC_DEPARTMENT) {
  * Email the department's assigned sign-off users (outreach Verified From mailbox) after a PO slot is signed.
  * @param {{ ocId: string, signatures: { slot: string, signed_by: string }[], signerName?: string }} p
  */
-export async function notifyOcSignoff({ ocId, signatures, signerName }, dept = IEV_OC_DEPARTMENT) {
+export async function notifyOcSignoff({ ocId, signatures, signerName, event, ocNo, ocDate, remarks, actorName }, dept = IEV_OC_DEPARTMENT) {
   const res = await fetchApiWithAuth(dept.notifyPath, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ocId, signatures, signerName }),
+    body: JSON.stringify({ ocId, signatures, signerName, event, ocNo, ocDate, remarks, actorName }),
     timeoutMs: 60_000,
   });
   if (!res.ok) throw new Error(res.error || "Could not send the sign-off notification.");

@@ -670,10 +670,27 @@
   color: #5f6368;
 }
 
-.qm-refblock {
-  text-align: right;
+.qm-doc-title {
+  margin: 16px 0 12px;
+  text-align: center;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  line-height: 1.15;
+  color: #111827;
+}
+
+.qm-refrow {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 10px;
   font-size: 12px;
-  flex: none;
+  font-weight: 600;
+}
+
+.qm-closing {
+  margin-top: 14px;
 }
 
 .qm-to,

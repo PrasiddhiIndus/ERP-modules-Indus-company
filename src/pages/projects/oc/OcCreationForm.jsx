@@ -12,9 +12,10 @@ import {
 import {
   amFinance, fetchOcSignatureUrl, friendlyOcError, listEmployeeOptions, loadOc, loadSignoffAssignees,
   loadProjectApprovalLog, myEmployeeCode, notifyOcSignoff, projectPoDocumentUrl, requestProjectOcModification, saveOc,
+  clearProjectPoDocument, setProjectPoRemarks,
   signProjectOcStage, uploadProjectPoDocument,
 } from "./ocApi";
-import { getFinancePoDetail, setFinancePoOcNo, signFinancePo, friendlyFinancePoError } from "../../finance/poAtGlance/financePoApi";
+import { getFinancePoDetail, setFinancePoCostCenter, setFinancePoOcNo, signFinancePo, friendlyFinancePoError } from "../../finance/poAtGlance/financePoApi";
 import { IEV_OC_DEPARTMENT } from "./ocDepartment";
 import ProjectsApprovalPanel, { openModificationRequest } from "../poAtGlance/ProjectsApprovalPanel";
 import PjDocumentPreviewModal from "../poAtGlance/PjDocumentPreviewModal";
@@ -37,8 +38,8 @@ function useDense() {
 }
 
 /** Keeps grid placement (`display: contents`) while greying a block for the Finance preview. */
-function Freeze({ on, children }) {
-  return <div className={on ? `contents ${freezeCls}` : "contents"}>{children}</div>;
+function Freeze({ on, children, className = "" }) {
+  return <div className={`${on ? `contents ${freezeCls}` : "contents"} ${className}`}>{children}</div>;
 }
 
 function FieldError({ msg }) {
@@ -55,9 +56,9 @@ function Label({ children, required }) {
   );
 }
 
-function Value({ children, full = false }) {
+function Value({ children, full = false, className = "" }) {
   const dense = useDense();
-  return <div className={`${dense ? "border-b border-r border-slate-300 px-2 py-1" : valueCellCls} ${full ? "md:col-span-3" : ""}`}>{children}</div>;
+  return <div className={`${dense ? "border-b border-r border-slate-300 px-2 py-1" : valueCellCls} ${full ? "md:col-span-3" : ""} ${className}`}>{children}</div>;
 }
 
 /** Yes / No with a third "not filled" state (click the selected option again to clear). */
@@ -306,9 +307,11 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   const [creatorName, setCreatorName] = useState("");
   const [creatorSignatureUrl, setCreatorSignatureUrl] = useState("");
   const [uploadingPo, setUploadingPo] = useState(false);
+  const [pendingPoFile, setPendingPoFile] = useState(null);
+  const [pendingPoUrl, setPendingPoUrl] = useState("");
   const [approvalLog, setApprovalLog] = useState([]);
   const [approvalLogLoading, setApprovalLogLoading] = useState(false);
-  const showApprovalAudit = Boolean(department.approvalAudit) && !financeReview;
+  const showApprovalAudit = Boolean(department.approvalAudit);
   const oneClickSign = Boolean(department.ownSignature) && !financeReview;
   const [mySignatureUrl, setMySignatureUrl] = useState("");
   const [mySignatureLoaded, setMySignatureLoaded] = useState(false);
@@ -481,6 +484,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
           f.updated_at = bundle.master?.updated_at || null;
           setForm(f);
           setInitial(JSON.stringify(f));
+          refreshApprovalLog(ocId);
         })
       : loadOc(ocId, department).then((bundle) => {
           if (!alive) return;
@@ -524,11 +528,17 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   };
   const openReturn = showApprovalAudit ? openModificationRequest(approvalLog) : null;
   const iAmOcCreator = !form.created_by || form.created_by === user?.id;
-  const canRequestModification = showApprovalAudit && saved && !dirty && !openReturn
-    && !isBlank(form.signoff?.PLANNING?.saved_by)
-    && isBlank(form.signoff?.VERTICAL_HEAD?.saved_by)
-    && isBlank(form.signoff?.FINANCE?.saved_by)
-    && !isLockedFor("VERTICAL_HEAD");
+  const projectsPo = department.key === "projects";
+  const isAssignedReviewer = ["PLANNING", "VERTICAL_HEAD"].some((slot) => !isLockedFor(slot));
+  const projectsRemarksOnly = projectsPo && !financeReview && !isFinance && Boolean(form.id) && !iAmOcCreator && isAssignedReviewer;
+  const fieldsLocked = (readOnly && !financeReview) || projectsRemarksOnly;
+  const canChangeFields = canEdit && !projectsRemarksOnly;
+  const tallyEditable = projectsPo ? financeReview || isFinance : !financeReview;
+  const revisionStage = !projectsPo || isBlank(form.signoff?.PROJECT_USER?.saved_by)
+    ? null
+    : ["PLANNING", "VERTICAL_HEAD", "FINANCE"].find((slot) => isBlank(form.signoff?.[slot]?.saved_by)) || "FINANCE";
+  const canRequestModification = projectsPo && saved && !dirty && !openReturn
+    && Boolean(revisionStage) && !isLockedFor(revisionStage);
   const stageStatus = (slot) => {
     if (!department.sequentialSignoff) return null;
     const signed = !isBlank(form.signoff?.[slot]?.saved_by);
@@ -538,16 +548,41 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     return "Pending";
   };
 
-  const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
-  const setIn = (group, key, value) => setForm((f) => ({ ...f, [group]: { ...f[group], [key]: value } }));
-  const setRow = (list, index, patch) =>
+  const remarkKey = (key) => projectsRemarksOnly && (key === "remarks" || key === "remarks_date");
+  const set = (key, value) => {
+    if (fieldsLocked && !remarkKey(key)) return;
+    setForm((f) => ({ ...f, [key]: value }));
+  };
+  const setIn = (group, key, value) => {
+    if (fieldsLocked) return;
+    setForm((f) => ({ ...f, [group]: { ...f[group], [key]: value } }));
+  };
+  const setRow = (list, index, patch) => {
+    if (fieldsLocked) return;
     setForm((f) => ({ ...f, [list]: f[list].map((r, i) => (i === index ? { ...r, ...patch } : r)) }));
-  const addRow = (list, make) => setForm((f) => ({ ...f, [list]: [...f[list], make()] }));
-  const removeRow = (list, index) => setForm((f) => ({ ...f, [list]: f[list].filter((_, i) => i !== index) }));
+  };
+  const addRow = (list, make) => {
+    if (fieldsLocked) return;
+    setForm((f) => ({ ...f, [list]: [...f[list], make()] }));
+  };
+  const removeRow = (list, index) => {
+    if (fieldsLocked) return;
+    setForm((f) => ({ ...f, [list]: f[list].filter((_, i) => i !== index) }));
+  };
   const err = (k) => errors[k];
   const cls = (k) => `${inputCls} ${errors[k] ? errCls : ""}`;
 
+  const dropPendingPoFile = () => {
+    if (pendingPoUrl) URL.revokeObjectURL(pendingPoUrl);
+    setPendingPoFile(null);
+    setPendingPoUrl("");
+  };
+
   const openPoDocument = async () => {
+    if (pendingPoUrl) {
+      window.open(pendingPoUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
     try {
       const url = await projectPoDocumentUrl(form.po_document_path);
       if (url) window.open(url, "_blank", "noopener,noreferrer");
@@ -559,7 +594,13 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   const onPoFile = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file || !form.id) return;
+    if (!file) return;
+    if (!form.id) {
+      dropPendingPoFile();
+      setPendingPoFile(file);
+      setPendingPoUrl(URL.createObjectURL(file));
+      return;
+    }
     setUploadingPo(true);
     try {
       const savedDoc = await uploadProjectPoDocument(form.id, file);
@@ -579,7 +620,49 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     }
   };
 
+  const removePoFile = async () => {
+    if (pendingPoFile) {
+      dropPendingPoFile();
+      return;
+    }
+    if (!form.id || !form.po_document_path) return;
+    if (!window.confirm("Remove this purchase order file?")) return;
+    setUploadingPo(true);
+    try {
+      await clearProjectPoDocument(form.id, form.po_document_path);
+      const cleared = { po_document_name: "", po_document_path: "" };
+      setForm((f) => ({ ...f, ...cleared }));
+      setInitial((prev) => {
+        try {
+          return JSON.stringify({ ...JSON.parse(prev), ...cleared });
+        } catch {
+          return prev;
+        }
+      });
+      toast.success("Purchase order file removed.");
+    } catch (err) {
+      toast.error(friendlyOcError(err, "Could not remove the purchase order.", department));
+    } finally {
+      setUploadingPo(false);
+    }
+  };
+
   const handleSave = async () => {
+    const creating = !form.id;
+    if (projectsRemarksOnly) {
+      setSaving(true);
+      try {
+        await setProjectPoRemarks({ id: form.id, remarks: form.remarks, remarksDate: form.remarks_date });
+        setInitial(JSON.stringify(form));
+        toast.success("Remarks saved.");
+        return form.id;
+      } catch (e) {
+        toast.error(friendlyOcError(e, "Could not save the remarks.", department));
+        return null;
+      } finally {
+        setSaving(false);
+      }
+    }
     if (department.sequentialSignoff) {
       let previousReady = true;
       for (const stage of SIGNOFF_SLOTS) {
@@ -613,14 +696,34 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     setSaving(true);
     try {
       const res = await saveOc(payload, department);
+      let uploadedDoc = null;
+      if (pendingPoFile) {
+        try {
+          uploadedDoc = await uploadProjectPoDocument(res.id, pendingPoFile);
+          dropPendingPoFile();
+        } catch (fileErr) {
+          console.error("[PO At Glance] purchase order file", fileErr);
+          toast.error("PO saved. The purchase order file could not be uploaded.");
+        }
+      }
       const bundle = await loadOc(res.id, department);
       const f = formFromRecord(bundle, SIGNOFF_SLOTS);
+      if (uploadedDoc) Object.assign(f, uploadedDoc);
       setForm(f);
       setInitial(JSON.stringify(f));
       refreshApprovalLog(res.id);
       toast.success(openReturn && !isBlank(f.signoff?.[SIGNOFF_SLOTS[0].slot]?.saved_by)
         ? "PO At Glance resubmitted. Approval restarts from Stage 1." : saved ? "PO At Glance updated." : res.oc_no ? `PO At Glance for OC No. ${res.oc_no} created.` : "PO At Glance created.");
       onSaved?.(res.id);
+
+      if (projectsPo && creating) {
+        try {
+          await notifyOcSignoff({ ocId: res.id, event: "created" }, department);
+        } catch (mailErr) {
+          console.error("[PO At Glance] create email failed", mailErr);
+          toast.error("PO saved. The notification email could not be sent.");
+        }
+      }
 
       if (newSignatures.length) {
         try {
@@ -665,9 +768,12 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   const handleFinanceSave = async () => {
     const financeSlot = form.signoff?.FINANCE;
     const signaturePending = signoffPending(financeSlot);
-    const ocChanged = String(form.oc_no || "").trim() !== String(JSON.parse(initial).oc_no || "").trim()
-      || String(form.oc_date || "") !== String(JSON.parse(initial).oc_date || "");
-    if (!signaturePending && !ocChanged) return;
+    const savedForm = JSON.parse(initial);
+    const ocChanged = String(form.oc_no || "").trim() !== String(savedForm.oc_no || "").trim()
+      || String(form.oc_date || "") !== String(savedForm.oc_date || "");
+    const tallyChanged = projectsPo
+      && String(form.cost_center_tally || "").trim() !== String(savedForm.cost_center_tally || "").trim();
+    if (!signaturePending && !ocChanged && !tallyChanged) return;
     if (ocChanged && !ocUnlocked) {
       toast.error("OC Number stays locked until every other required signatory has signed.");
       return;
@@ -710,6 +816,13 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
           toast.error("Signature saved. The notification email could not be sent.");
         }
       }
+      if (tallyChanged) {
+        const savedTally = await setFinancePoCostCenter({
+          id: form.id,
+          costCenter: String(form.cost_center_tally || "").trim(),
+        });
+        expectedUpdatedAt = savedTally?.updated_at || expectedUpdatedAt;
+      }
       if (ocChanged) {
         await setFinancePoOcNo({
           department: department.key,
@@ -718,6 +831,19 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
           ocDate: form.oc_date || null,
           expectedUpdatedAt,
         });
+        if (projectsPo) {
+          try {
+            await notifyOcSignoff({
+              ocId: form.id,
+              event: "oc_number",
+              ocNo: String(form.oc_no || "").trim(),
+              ocDate: form.oc_date || "",
+            }, department);
+          } catch (mailErr) {
+            console.error("[PO At Glance] OC number email failed", mailErr);
+            toast.error("OC Number saved. The update email could not be sent.");
+          }
+        }
       }
       const bundle = await getFinancePoDetail(department.key, form.id);
       const mapped = Object.fromEntries(
@@ -728,7 +854,15 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
       f.updated_at = bundle.master?.updated_at || null;
       setForm(f);
       setInitial(JSON.stringify(f));
-      toast.success(signaturePending && ocChanged ? "Finance signature and OC Number saved." : signaturePending ? "Finance signature saved." : "OC Number saved.");
+      toast.success(
+        tallyChanged && !signaturePending && !ocChanged
+          ? "Cost Center in Tally saved."
+          : signaturePending && ocChanged
+            ? "Finance signature and OC Number saved."
+            : signaturePending
+              ? "Finance signature saved."
+              : "OC Number saved."
+      );
       onSaved?.(form.id);
     } catch (e) {
       toast.error(friendlyFinancePoError(e, "Could not save the Finance update."));
@@ -810,16 +944,38 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     }
   };
 
-  /** Department Head → back to the creator. Returns true when done so the dialog can close. */
+  /** Current stage sends the PO back to its creator with remarks. */
   const handleRequestModification = async (remarks) => {
     try {
       await requestProjectOcModification(form.id, remarks);
-      const bundle = await loadOc(form.id, department);
-      const f = formFromRecord(bundle, SIGNOFF_SLOTS);
-      setForm(f);
-      setInitial(JSON.stringify(f));
+      if (financeReview) {
+        const bundle = await getFinancePoDetail(department.key, form.id);
+        setAssignees(Object.fromEntries(
+          (bundle.assignees || []).map((a) => [a.slot, { employee_code: a.employee_code, employee_name: a.employee_name }])
+        ));
+        const f = formFromRecord(bundle, SIGNOFF_SLOTS);
+        f.updated_at = bundle.master?.updated_at || null;
+        setForm(f);
+        setInitial(JSON.stringify(f));
+      } else {
+        const bundle = await loadOc(form.id, department);
+        const f = formFromRecord(bundle, SIGNOFF_SLOTS);
+        setForm(f);
+        setInitial(JSON.stringify(f));
+      }
       await refreshApprovalLog(form.id);
-      toast.success("Modification requested. The OC has been returned to its creator.");
+      try {
+        await notifyOcSignoff({
+          ocId: form.id,
+          event: "revision",
+          remarks,
+          actorName: creatorName || userProfile?.full_name || user?.email || "",
+        }, department);
+      } catch (mailErr) {
+        console.error("[PO At Glance] revision email failed", mailErr);
+        toast.error("Sent for revision. The update email could not be sent.");
+      }
+      toast.success("Sent for revision. It is back with the person who created it.");
       onSaved?.(form.id);
       return true;
     } catch (e) {
@@ -841,7 +997,8 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   };
 
   const handleBack = () => {
-    if (dirty && canEdit && !window.confirm("Discard unsaved changes?")) return;
+    if ((dirty || pendingPoFile) && (canEdit || projectsRemarksOnly) && !window.confirm("Discard unsaved changes?")) return;
+    dropPendingPoFile();
     onBack();
   };
 
@@ -865,7 +1022,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
           <ArrowLeft className="h-4 w-4" /> All PO At Glance
         </button>
         <div className="flex flex-wrap items-center gap-2">
-          {readOnly && !financeReview && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">View only</span>}
+          {(readOnly || projectsRemarksOnly) && !financeReview && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">View only</span>}
           {financeReview && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">Finance review · other fields are read only</span>}
           {dirty && canEdit && <span className="text-xs text-amber-700">Unsaved changes</span>}
           {showDocPreview && (
@@ -911,17 +1068,39 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
         <h2 className={`border-b border-slate-300 text-center font-bold tracking-wider text-slate-900 ${financeReview ? "py-1 text-sm" : "py-2 text-base"}`}>{department.formTitle}</h2>
 
         <fieldset
-          disabled={readOnly && !financeReview}
-          className={financeReview ? "min-w-0 [&_input]:!py-1 [&_input]:!text-xs [&_select]:!py-1 [&_select]:!text-xs [&_textarea]:!py-1 [&_textarea]:!text-xs" : "min-w-0"}
+          disabled={readOnly && !financeReview && !projectsRemarksOnly}
+          className={`${financeReview ? "min-w-0 [&_input]:!py-1 [&_input]:!text-xs [&_select]:!py-1 [&_select]:!text-xs [&_textarea]:!py-1 [&_textarea]:!text-xs" : "min-w-0"}${projectsRemarksOnly ? " po-remarks-only" : ""}`}
         >
           <div className="grid grid-cols-1 border-l border-slate-300 md:grid-cols-[minmax(9rem,18%)_1fr_minmax(9rem,16%)_1fr]">
             {/* Section 1 */}
-            <Freeze on={financeReview}>
-            <Label>Cost Center in Tally</Label>
-            <Value full>
-              <input className={inputCls} value={form.cost_center_tally} onChange={(e) => set("cost_center_tally", e.target.value)} />
-            </Value>
-            </Freeze>
+            {projectsPo ? (
+              <>
+                <Label>Cost Center in Tally</Label>
+                <Value full>
+                  <input
+                    className={`${inputCls} read-only:bg-slate-100 read-only:text-slate-500`}
+                    value={form.cost_center_tally}
+                    readOnly={!tallyEditable}
+                    placeholder={tallyEditable ? "" : "Filled by Finance"}
+                    onChange={(e) => {
+                      if (tallyEditable) set("cost_center_tally", e.target.value);
+                    }}
+                  />
+                  {!tallyEditable && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">
+                      <Lock className="h-3 w-3" /> Only the Finance Department can fill or change this.
+                    </p>
+                  )}
+                </Value>
+              </>
+            ) : (
+              <Freeze on={financeReview}>
+                <Label>Cost Center in Tally</Label>
+                <Value full>
+                  <input className={inputCls} value={form.cost_center_tally} onChange={(e) => set("cost_center_tally", e.target.value)} />
+                </Value>
+              </Freeze>
+            )}
 
             <Label>OC No.</Label>
             <Value>
@@ -981,30 +1160,37 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
             {department.poDocument && (
               <>
                 <Label>Original PO</Label>
-                <Value full>
+                <Value full className="po-remarks-open">
                   <div className="flex flex-wrap items-center gap-2">
-                    {form.po_document_name ? (
+                    {pendingPoFile || form.po_document_name ? (
                       <button type="button" data-active className={smallBtn} onClick={openPoDocument}>
-                        View {form.po_document_name}
+                        View {pendingPoFile?.name || form.po_document_name}
                       </button>
                     ) : (
                       <span className="text-xs text-slate-500">No original purchase order uploaded.</span>
                     )}
-                    {canEdit && !financeReview && (
-                      <label className={`${smallBtn} cursor-pointer ${!form.id || uploadingPo ? "opacity-50" : ""}`}>
-                        {uploadingPo ? "Uploading…" : form.po_document_name ? "Replace original PO" : "Upload original PO"}
-                        <input
-                          type="file"
-                          className="hidden"
-                          accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
-                          disabled={!form.id || uploadingPo}
-                          onChange={onPoFile}
-                        />
-                      </label>
+                    {canChangeFields && !financeReview && (
+                      <>
+                        <label className={`${smallBtn} cursor-pointer ${uploadingPo ? "opacity-50" : ""}`}>
+                          {uploadingPo ? "Uploading…" : pendingPoFile || form.po_document_name ? "Replace original PO" : "Upload original PO"}
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
+                            disabled={uploadingPo}
+                            onChange={onPoFile}
+                          />
+                        </label>
+                        {(pendingPoFile || form.po_document_path) && (
+                          <button type="button" className={smallBtn} disabled={uploadingPo} onClick={removePoFile}>
+                            Remove
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
-                  {canEdit && !financeReview && !form.id && (
-                    <p className="mt-1 text-[11px] text-slate-500">Save this PO first, then upload the original document.</p>
+                  {canChangeFields && !financeReview && pendingPoFile && !form.id && (
+                    <p className="mt-1 text-[11px] text-slate-500">This file is kept when you save. Cancel discards it.</p>
                   )}
                 </Value>
               </>
@@ -1094,7 +1280,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                           </td>
                           <td className="py-1 pr-2"><input className={inputCls} value={m.notes} onChange={(e) => setRow("payment_milestones", i, { notes: e.target.value })} /></td>
                           <td className="py-1">
-                            {canEdit && (
+                            {canChangeFields && (
                               <button type="button" aria-label="Remove milestone" onClick={() => removeRow("payment_milestones", i)} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
@@ -1108,7 +1294,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                   <FieldError msg={err("payment_milestones")} />
                 </div>
               )}
-              {canEdit && (
+              {canChangeFields && (
                 <button type="button" className={`${smallBtn} mt-2`} onClick={() => addRow("payment_milestones", blankMilestone)}>
                   <Plus className="h-3 w-3" /> Add milestone
                 </button>
@@ -1152,7 +1338,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
             {/* Section 2 — security items */}
             <div className={sectionHead}>
               <span>{OC_SECURITY_HEADING}</span>
-              {canEdit && (
+              {canChangeFields && (
                 <button type="button" className={smallBtn} onClick={() => addRow("security_items", blankSecurityRow)}>
                   <Plus className="h-3 w-3" /> Add
                 </button>
@@ -1173,7 +1359,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                       <option value="">Select</option>
                       {SECURITY_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                     </select>
-                    {canEdit && (
+                    {canChangeFields && (
                       <button type="button" aria-label="Remove security item" onClick={() => removeRow("security_items", i)} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -1271,7 +1457,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
             {/* Section 4 — contacts */}
             <div className={sectionHead}>
               <span>{OC_CONTACTS_HEADING}</span>
-              {canEdit && (
+              {canChangeFields && (
                 <button type="button" className={smallBtn} onClick={() => addRow("contacts", blankContact)}>
                   <Plus className="h-3 w-3" /> Add contact
                 </button>
@@ -1285,7 +1471,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                 <div className={valueCellCls}>
                   <div className="flex items-center gap-1">
                     <input className={inputCls} placeholder="Department" value={c.department} onChange={(e) => setRow("contacts", i, { department: e.target.value })} />
-                    {canEdit && (
+                    {canChangeFields && (
                       <button type="button" aria-label="Remove contact" onClick={() => removeRow("contacts", i)} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -1308,11 +1494,14 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
 
             {/* Section 5 — remarks */}
             <Label>Remarks</Label>
-            <Value full>
+            <Value full className="po-remarks-open">
+              {projectsRemarksOnly && (
+                <p className="mb-1 text-[11px] text-slate-500">You can add remarks. The rest of this PO is view only.</p>
+              )}
               <textarea rows={2} className={inputCls} value={form.remarks} onChange={(e) => set("remarks", e.target.value)} />
             </Value>
             <Label>Date</Label>
-            <Value full>
+            <Value full className="po-remarks-open">
               <input type="date" className={`${inputCls} max-w-xs`} value={form.remarks_date} onChange={(e) => set("remarks_date", e.target.value)} />
             </Value>
 
@@ -1347,7 +1536,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                   ? "Waiting for the person who created this OC."
                   : "";
               return (
-              <Freeze key={slot} on={financeReview && slot !== "FINANCE"}>
+              <Freeze key={slot} className="po-sign-open" on={financeReview && slot !== "FINANCE"}>
               <SignatureBox
                 label={label}
                 value={form.signoff[slot]}
@@ -1383,9 +1572,28 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
             })}
           </div>
         </fieldset>
+        {projectsRemarksOnly && (
+          <style>{`
+            .po-remarks-only input,
+            .po-remarks-only textarea,
+            .po-remarks-only select,
+            .po-remarks-only button,
+            .po-remarks-only label {
+              pointer-events: none;
+            }
+            .po-remarks-only .po-remarks-open,
+            .po-remarks-only .po-remarks-open input,
+            .po-remarks-only .po-remarks-open textarea,
+            .po-remarks-only .po-remarks-open button,
+            .po-remarks-only .po-sign-open,
+            .po-remarks-only .po-sign-open * {
+              pointer-events: auto;
+            }
+          `}</style>
+        )}
       </div>
 
-      {(canEdit || financeReview) && (
+      {(canEdit || financeReview || projectsRemarksOnly) && (
         <div className={`flex flex-wrap items-center justify-end border border-slate-200 bg-white shadow-sm ${financeReview ? "gap-2 rounded-lg px-3 py-2" : "gap-3 rounded-xl px-4 py-3"}`}>
           {dirty && <span className="text-xs text-amber-700">Unsaved changes</span>}
           <button type="button" onClick={handleBack} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
@@ -1400,7 +1608,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {financeReview
               ? "Save Finance update"
-              : openReturn && iAmOcCreator ? "Resubmit for approval" : saved ? "Save changes" : "Save PO At Glance"}
+              : projectsRemarksOnly ? "Save remarks" : openReturn && iAmOcCreator ? "Resubmit for approval" : saved ? "Save changes" : "Save PO At Glance"}
           </button>
         </div>
       )}
