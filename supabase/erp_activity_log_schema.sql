@@ -48,9 +48,12 @@ begin
   ) then
     create policy erp_activity_log_insert on public.erp_activity_log
       for insert to authenticated
-      with check (true);
+      with check (auth.uid() is not null);
   end if;
 end$$;
+
+-- Audit integrity (server-stamped user_id / user_email / created_at, append-only):
+-- run supabase/migrations/20261106170000_erp_activity_log_audit_integrity.sql after this file.
 
 -- Optional: live Activity drawer updates (Realtime). In Supabase SQL editor:
 -- ALTER PUBLICATION supabase_realtime ADD TABLE public.erp_activity_log;

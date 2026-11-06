@@ -18,6 +18,20 @@ function dueLabel(days) {
   return `${days} day${days === 1 ? '' : 's'} left`;
 }
 
+/** Same remaining days as each row. A mixed list uses “within” so the heading does not claim one date for every enquiry. */
+function dueHeading(dueRows) {
+  const count = dueRows.length;
+  const noun = `enquir${count === 1 ? 'y' : 'ies'}`;
+  const days = [...new Set(dueRows.map((item) => item.days))];
+  if (days.length === 1) {
+    if (days[0] === 0) return `${count} ${noun} due today`;
+    return `${count} ${noun} due in ${days[0]} day${days[0] === 1 ? '' : 's'}`;
+  }
+  const furthest = Math.max(...days);
+  if (furthest === 0) return `${count} ${noun} due today`;
+  return `${count} ${noun} due within ${furthest} day${furthest === 1 ? '' : 's'}`;
+}
+
 /** Bottom-right reminder of open enquiries due within DUE_SOON_DAYS days. */
 export default function EnquiryDueSoonPopup() {
   const navigate = useNavigate();
@@ -86,7 +100,7 @@ export default function EnquiryDueSoonPopup() {
         <BellRing className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-amber-900">
-            {ids.length} enquir{ids.length === 1 ? 'y' : 'ies'} due in {DUE_SOON_DAYS} days
+            {dueHeading(dueRows)}
           </p>
           <p className="text-xs text-amber-800/80">Open enquiries close to their target date</p>
         </div>
