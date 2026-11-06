@@ -5,6 +5,7 @@ import { useAuth } from '../../../../contexts/AuthContext';
 import { normalizeAppRole, ROLES } from '../../../../config/roles';
 import { downloadBlob, exportNodeToPdfBlob } from '../../../../lib/exportNodeToPdf';
 import { QUOTATION_BASE } from '../quotationConstants';
+import { fetchQuotationSettings } from '../../../../services/quotationApi';
 import {
   QUOTATION_TYPES,
   STANDARD_TERMS,
@@ -114,6 +115,7 @@ export default function QuotationMaker() {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [boqImportOpen, setBoqImportOpen] = useState(false);
   const [signatureUrl, setSignatureUrl] = useState('');
+  const [openingText, setOpeningText] = useState(null);
   const autosaveTimer = useRef(null);
   const skipAutosave = useRef(true);
 
@@ -137,6 +139,20 @@ export default function QuotationMaker() {
       cancelled = true;
     };
   }, [signatureUserId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchQuotationSettings()
+      .then((settings) => {
+        if (!cancelled) setOpeningText(settings.makerOpening);
+      })
+      .catch(() => {
+        if (!cancelled) setOpeningText(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const type = normalizeType(form.quotation_type);
   const typeMeta = QUOTATION_TYPES[type];
   const totals = useMemo(() => computeTotals(rows, type), [rows, type]);
@@ -777,7 +793,12 @@ export default function QuotationMaker() {
           <span className="qm-num">6</span> Preview (what will print)
         </div>
       </div>
-      <QuotationMakerPreview form={form} rows={rows} signatureUrl={signatureUrl} />
+      <QuotationMakerPreview
+        form={form}
+        rows={rows}
+        signatureUrl={signatureUrl}
+        openingText={openingText}
+      />
 
       {confirmDeleteId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 qm-noprint">

@@ -1,14 +1,28 @@
 import React, { useEffect, useRef, useState } from "react";
 import { saveAs } from "file-saver";
 import { FileDown, Loader2, Mail, X } from "lucide-react";
+import { PJ_TABLE_INDENT_CSS } from "./pjWordExport";
 
 /**
- * Projects PO At Glance: on-screen preview of the exported Word document (same file as Export Word),
- * including every completed signature with its signing date and time.
+ * Projects PO At Glance: on-screen preview of the same Word file as Download Word.
+ * The page is rendered at its real size (headers, tables, signature, signing time).
  * @param {{ open: boolean, onClose: () => void, buildBlob: () => Promise<Blob>, fileName: string, title?: string, notice?: { ok: boolean, text: string } | null }} props
  */
+const PREVIEW_OPTIONS = {
+  inWrapper: true,
+  breakPages: true,
+  ignoreLastRenderedPageBreak: true,
+  ignoreWidth: false,
+  ignoreHeight: false,
+  ignoreFonts: false,
+  renderHeaders: true,
+  renderFooters: true,
+  useBase64URL: true,
+};
+
 export default function PjDocumentPreviewModal({ open, onClose, buildBlob, fileName, title = "Signed PO preview", notice = null }) {
   const hostRef = useRef(null);
+  const styleRef = useRef(null);
   const [blob, setBlob] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -26,11 +40,12 @@ export default function PjDocumentPreviewModal({ open, onClose, buildBlob, fileN
         setBlob(b);
         if (hostRef.current) {
           hostRef.current.innerHTML = "";
-          await renderAsync(b, hostRef.current, undefined, { inWrapper: true, breakPages: true, ignoreLastRenderedPageBreak: true });
+          if (styleRef.current) styleRef.current.innerHTML = "";
+          await renderAsync(b, hostRef.current, styleRef.current || undefined, PREVIEW_OPTIONS);
         }
       } catch (e) {
         console.error("[PO At Glance] document preview", e);
-        if (alive) setError("Could not build the document preview. You can still use Export Word.");
+        if (alive) setError("Could not build the document preview. You can still use Download Word.");
       } finally {
         if (alive) setLoading(false);
       }
@@ -43,8 +58,8 @@ export default function PjDocumentPreviewModal({ open, onClose, buildBlob, fileN
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true">
-      <div className="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-xl border border-slate-200 bg-white shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-2 sm:p-4" role="dialog" aria-modal="true">
+      <div className="flex h-[96vh] w-[min(98vw,1280px)] flex-col rounded-xl border border-slate-200 bg-white shadow-xl">
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
           <div className="flex items-center gap-2">
@@ -66,14 +81,37 @@ export default function PjDocumentPreviewModal({ open, onClose, buildBlob, fileN
             <Mail className="h-3.5 w-3.5 shrink-0" /> {notice.text}
           </p>
         )}
-        <div className="min-h-[16rem] flex-1 overflow-auto bg-slate-100 p-3">
+        <div className="min-h-0 flex-1 overflow-auto bg-neutral-500">
           {loading && (
-            <p className="flex items-center justify-center gap-2 py-16 text-sm text-slate-500">
+            <p className="flex items-center justify-center gap-2 py-16 text-sm text-white">
               <Loader2 className="h-4 w-4 animate-spin" /> Preparing the document…
             </p>
           )}
-          {error && <p className="py-16 text-center text-sm text-amber-800">{error}</p>}
-          <div ref={hostRef} className={loading || error ? "hidden" : ""} />
+          {error && <p className="py-16 text-center text-sm text-amber-100">{error}</p>}
+          <div ref={styleRef} />
+          <div ref={hostRef} className={`pj-doc-preview ${loading || error ? "hidden" : ""}`} />
+          <style>{`
+            .pj-doc-preview .docx-wrapper {
+              background: transparent;
+              padding: 28px 24px 36px;
+              align-items: center;
+              width: max-content;
+              min-width: 100%;
+              box-sizing: border-box;
+            }
+            .pj-doc-preview section.docx {
+              overflow: hidden;
+              margin-left: auto;
+              margin-right: auto;
+              box-sizing: border-box;
+            }
+            .pj-doc-preview section.docx > article > table {
+              margin-inline-start: ${PJ_TABLE_INDENT_CSS};
+            }
+            .pj-doc-preview section.docx img {
+              max-width: none;
+            }
+          `}</style>
         </div>
       </div>
     </div>
