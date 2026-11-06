@@ -42,6 +42,49 @@ import BoqImportModal from './BoqImportModal';
 import { exportQuotationToExcelBlob } from './quotationMakerExcel';
 import './quotationMaker.css';
 
+function pdfHeaderHtml(th) {
+  if (th.classList.contains('qm-th-sr')) return 'Sr. No.';
+  const text = th.textContent.replace(/\s+/g, ' ').trim();
+  if (/supply/i.test(text) && /total/i.test(text)) return 'Supply<br>total';
+  if (/supply/i.test(text)) return 'Supply<br>rate';
+  if (/install/i.test(text) && /total/i.test(text)) return 'Install<br>total';
+  if (/install/i.test(text)) return 'Install<br>rate';
+  if (th.classList.contains('qm-th-amt') && /price|service|rate|unit/i.test(text) && !/total/i.test(text)) {
+    return 'Rate';
+  }
+  return null;
+}
+
+/** PDF-only heading and total layout. The on-screen preview is left as it is. */
+function prepareQuotationPdfClone(clone) {
+  clone.querySelectorAll('th').forEach((th) => {
+    const html = pdfHeaderHtml(th);
+    if (html) th.innerHTML = html;
+  });
+
+  const box = clone.querySelector('.qm-tbox');
+  if (!box) return;
+  const table = document.createElement('table');
+  table.className = 'qm-total-table';
+  table.setAttribute('data-pdf-nosplit', '');
+  const head = document.createElement('thead');
+  head.innerHTML = '<tr><th>Particulars</th><th>Amount (₹)</th></tr>';
+  const body = document.createElement('tbody');
+  box.querySelectorAll(':scope > div').forEach((row) => {
+    const spans = row.querySelectorAll('span');
+    const tr = document.createElement('tr');
+    if (row.classList.contains('qm-grand')) tr.className = 'qm-grand';
+    const label = document.createElement('td');
+    const amount = document.createElement('td');
+    label.textContent = spans[0]?.textContent || '';
+    amount.textContent = spans[1]?.textContent || '';
+    tr.append(label, amount);
+    body.appendChild(tr);
+  });
+  table.append(head, body);
+  box.replaceWith(table);
+}
+
 function canEditQuotation(user, userProfile, form) {
   const role = normalizeAppRole(userProfile?.role);
   if ([ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUPER_ADMIN_PRO].includes(role)) {
@@ -422,12 +465,13 @@ export default function QuotationMaker() {
             }
           });
           if (img.naturalWidth && img.naturalHeight) {
-            const scale = Math.min(150 / img.naturalWidth, 46 / img.naturalHeight, 1);
+            const scale = Math.min(190 / img.naturalWidth, 68 / img.naturalHeight, 1);
             img.style.width = `${Math.max(1, Math.round(img.naturalWidth * scale))}px`;
             img.style.height = `${Math.max(1, Math.round(img.naturalHeight * scale))}px`;
           }
         }
       }
+      prepareQuotationPdfClone(clone);
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const blob = await exportNodeToPdfBlob(clone, {
         marginMm: 16,

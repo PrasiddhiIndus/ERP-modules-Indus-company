@@ -1056,16 +1056,52 @@
 
 .qm-pdf-export .qm-ptable th,
 .qm-pdf-export .qm-ptable td {
-  padding: 4px 4px;
+  padding: 5px 4px;
 }
 
-.qm-pdf-export .qm-ptable .qm-amt-cell,
-.qm-pdf-export .qm-ptable .qm-num-cell,
-.qm-pdf-export .qm-ptable .qm-unit-cell,
-.qm-pdf-export .qm-ptable .qm-qty-cell,
 .qm-pdf-export .qm-ptable th {
-  white-space: normal;
-  overflow-wrap: anywhere;
+  text-align: center !important;
+  vertical-align: middle !important;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #0f172a;
+  background: #dbe6f6 !important;
+  white-space: normal !important;
+  word-break: keep-all !important;
+  overflow-wrap: normal !important;
+}
+
+.qm-pdf-export .qm-ptable th.qm-th-sr,
+.qm-pdf-export .qm-ptable td.qm-num-cell {
+  width: 58px;
+  text-align: center !important;
+  white-space: nowrap !important;
+}
+
+.qm-pdf-export .qm-ptable th.qm-th-unit,
+.qm-pdf-export .qm-ptable td.qm-unit-cell,
+.qm-pdf-export .qm-ptable th.qm-th-qty,
+.qm-pdf-export .qm-ptable td.qm-qty-cell {
+  width: 46px;
+  text-align: center !important;
+  white-space: nowrap !important;
+}
+
+.qm-pdf-export .qm-ptable th.qm-th-amt {
+  width: 78px;
+  text-align: center !important;
+}
+
+.qm-pdf-export .qm-ptable.qm-si th.qm-th-amt,
+.qm-pdf-export .qm-ptable.qm-extra th.qm-th-amt {
+  width: 68px;
+}
+
+.qm-pdf-export .qm-ptable td.qm-amt-cell {
+  text-align: right !important;
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
 }
 
 .qm-pdf-export .qm-terms-title {
@@ -1084,27 +1120,40 @@
 }
 
 .qm-pdf-export .qm-totals {
-  margin-top: 6px;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
 }
 
-.qm-pdf-export .qm-tbox {
-  width: auto;
-  min-width: 230px;
-  max-width: 270px;
-  padding: 6px 8px;
-  border-radius: 0;
+.qm-pdf-export .qm-total-table {
+  width: 280px;
+  border-collapse: collapse;
   font-size: 12px;
 }
 
-.qm-pdf-export .qm-tbox > div {
-  gap: 16px;
-  padding: 2px 0;
+.qm-pdf-export .qm-total-table th,
+.qm-pdf-export .qm-total-table td {
+  border: 1px solid #7a8699;
+  padding: 6px 8px;
+  vertical-align: middle;
 }
 
-.qm-pdf-export .qm-tbox .qm-grand {
-  font-size: 13px;
-  margin-top: 4px;
-  padding-top: 4px;
+.qm-pdf-export .qm-total-table th {
+  background: #dbe6f6;
+  text-align: center;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.qm-pdf-export .qm-total-table td:last-child {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.qm-pdf-export .qm-total-table tr.qm-grand td {
+  font-weight: 700;
+  background: #eef3fb;
 }
 
 .qm-pdf-export .qm-sign {
@@ -1113,9 +1162,9 @@
 
 .qm-pdf-export .qm-sign-image {
   display: block;
-  max-height: 46px;
-  max-width: 150px;
-  margin: 2px 0;
+  max-height: 68px;
+  max-width: 190px;
+  margin: 4px 0 2px;
   object-fit: contain;
   object-position: left center;
 }

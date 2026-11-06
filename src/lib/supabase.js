@@ -16,6 +16,8 @@ import {
 } from './supabaseConfig'
 import {
   resolveModule,
+  resolveEntityModule,
+  isAuditableRpc,
   humanEntityName,
   getActivityFormatter,
   methodToActionKey,
@@ -55,8 +57,72 @@ const ACTIVITY_FLUSH_MS = 2000
 const ACTIVITY_MAX_BATCH = 20
 let activityQueue = []
 let activityFlushTimer = null
-let lastEnqueuedSig = null
-let lastEnqueuedAt = 0
+/** A request with no click / key press in this window is marked as automatic (timer, refresh, sync). */
+const ACTIVITY_USER_GESTURE_WINDOW_MS = 120000
+let lastUserGestureAt = 0
+if (typeof window !== 'undefined') {
+  const markGesture = () => {
+    lastUserGestureAt = Date.now()
+  }
+  try {
+    window.addEventListener('pointerdown', markGesture, { capture: true, passive: true })
+    window.addEventListener('keydown', markGesture, { capture: true, passive: true })
+    // Do not lose queued entries when the tab is closed or hidden.
+    window.addEventListener('pagehide', () => void flushActivityQueue())
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') void flushActivityQueue()
+    })
+  } catch {
+    /* ignore */
+  }
+}
+
+function activityTriggerNow() {
+  const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
+  if (hidden) return 'automatic'
+  return Date.now() - lastUserGestureAt <= ACTIVITY_USER_GESTURE_WINDOW_MS ? 'user' : 'automatic'
+}
+
+/** Decode claims of the JWT actually sent with a request (no verification — PostgREST verifies it). */
+function decodeJwtClaims(token) {
+  try {
+    const part = String(token || '').split('.')[1]
+    if (!part) return null
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4)
+    const json = decodeURIComponent(
+      atob(padded)
+        .split('')
+        .map((c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`)
+        .join('')
+    )
+    return JSON.parse(json)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The authenticated user the database will see for this request (auth.uid()).
+ * Returns null for anon-key requests — those are never attributed to a person.
+ */
+function requestActor(headers) {
+  const auth = String(headers?.Authorization || headers?.authorization || '').trim()
+  const token = auth.replace(/^Bearer\s+/i, '')
+  if (!token || token === supabaseAnonKey) return null
+  const claims = decodeJwtClaims(token)
+  if (!claims?.sub || claims.role === 'anon') return null
+  return { token, userId: String(claims.sub), email: claims.email ? String(claims.email) : null }
+}
+
+function headerValue(headers, name) {
+  if (!headers) return null
+  const lower = name.toLowerCase()
+  for (const k of Object.keys(headers)) {
+    if (k.toLowerCase() === lower) return headers[k]
+  }
+  return null
+}
 
 const ACTIVITY_IGNORE_TABLES = new Set([
   'invoice_line_item',
@@ -230,11 +296,32 @@ function summarizePatchChanges(obj, maxParts = 4) {
  * @param {unknown} rawBody request body
  * @param {unknown} [responseRow] parsed response row (first element if array)
  */
-function buildActivityDetails(method, entity, route, fullUrl, rawBody, responseRow = null) {
+/** Field-level new values from the request body (sensitive fields kept as name only). */
+function structuredChanges(obj, max = 25) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return []
+  const out = []
+  for (const key of Object.keys(obj)) {
+    if (out.length >= max) break
+    if (key === 'updated_at' || key === 'created_at') continue
+    if (PATCH_KEY_HIDE_VALUE.has(key)) {
+      out.push({ field: key, new: '(hidden)' })
+      continue
+    }
+    const sv = shortenVal(obj[key], 120)
+    out.push({ field: key, new: sv === '…' ? '(complex value)' : sv || '(empty)' })
+  }
+  return out
+}
+
+function buildActivityDetails(method, entity, route, fullUrl, rawBody, responseRow = null, schema = null) {
   const m = String(method || '').toUpperCase()
   const e = String(entity || '').toLowerCase()
   const entityLabel = humanEntityName(entity)
-  const moduleLabel = resolveModule(route) || screenHint(route)
+  // Module = owner of the changed data. The page URL is only context, never proof of module access.
+  const pageLabel = resolveModule(route) || screenHint(route)
+  const entityModule = resolveEntityModule(e, schema)
+  const moduleLabel = entityModule || pageLabel
+  const moduleSource = entityModule ? 'data' : pageLabel ? 'page' : null
   const rowRef = parseRestRowId(fullUrl)
   const actionKey = methodToActionKey(m, e)
   const action =
@@ -257,6 +344,16 @@ function buildActivityDetails(method, entity, route, fullUrl, rawBody, responseR
     responseRow && typeof responseRow === 'object' ? responseRow : tryParseJsonBody(responseRow)
   )
 
+  const common = {
+    entity_label: entityLabel,
+    screen: pageLabel,
+    module: moduleLabel,
+    module_source: moduleSource,
+    record_id: rowRef?.full || null,
+    changes: actionKey === 'UPDATE' || actionKey === 'INSERT' ? structuredChanges(safeReq) : [],
+    http_method: m,
+  }
+
   const formatter = getActivityFormatter(e, actionKey)
   if (formatter) {
     try {
@@ -271,15 +368,12 @@ function buildActivityDetails(method, entity, route, fullUrl, rawBody, responseR
           detail = detail ? `${detail} · row ${rowRef.short}` : `Row ${rowRef.short}`
         }
         return {
+          ...common,
           action,
           badge: formatted.badge || (actionKey === 'INSERT' ? 'CREATED' : actionKey),
           summary: formatted.summary,
           detail,
-          entity_label: entityLabel,
-          screen: moduleLabel,
-          module: moduleLabel,
           record_ref: formatted.record_ref || rowRef?.short || null,
-          http_method: m,
         }
       }
     } catch (err) {
@@ -298,15 +392,12 @@ function buildActivityDetails(method, entity, route, fullUrl, rawBody, responseR
   if (e.startsWith('rpc:')) {
     const fn = e.replace(/^rpc:/, '').replace(/_/g, ' ')
     return {
-      action: m === 'POST' ? 'INSERT' : 'CALL',
+      ...common,
+      action: 'CALL',
       badge: 'RPC',
-      summary: m === 'POST' ? `ran server function “${fn}”` : `called “${fn}”`,
-      detail: moduleLabel ? `Screen: ${moduleLabel}` : '',
-      entity_label: entityLabel,
-      screen: moduleLabel,
-      module: moduleLabel,
+      summary: `ran server function “${fn}”`,
+      detail: '',
       record_ref: null,
-      http_method: m,
     }
   }
 
@@ -331,24 +422,19 @@ function buildActivityDetails(method, entity, route, fullUrl, rawBody, responseR
     summaryCore = `changed ${entityLabel}`
   }
 
-  const bits = [summaryCore]
-  if (moduleLabel) bits.push(`(${moduleLabel})`)
-  const summary = bits.join(' ')
+  const summary = summaryCore
 
   if (rowRef && (m === 'PATCH' || m === 'DELETE')) {
     detailLine = detailLine ? `${detailLine} · row ${rowRef.short}` : `Row ${rowRef.short}`
   }
 
   return {
+    ...common,
     action,
     badge,
     summary,
     detail: detailLine,
-    entity_label: entityLabel,
-    screen: moduleLabel,
-    module: moduleLabel,
     record_ref: rowRef?.short || null,
-    http_method: m,
   }
 }
 
@@ -379,7 +465,33 @@ function shouldLogRequest(url, options) {
   if (String(url).includes('/functions/v1/')) return false
   const e = String(entity).toLowerCase()
   if (ACTIVITY_IGNORE_TABLES.has(e)) return false
+  // RPCs always travel as POST (even reads such as permission checks) — audit only data-changing ones.
+  if (e.startsWith('rpc:')) return isAuditableRpc(e)
   return true
+}
+
+/**
+ * Rows the database actually changed, from PostgREST's Content-Range / JSON body.
+ * Returns 0 when nothing changed (e.g. RLS filtered the row out), a number when known, or null.
+ */
+function affectedRowCount(res, responseText) {
+  try {
+    if (responseText) {
+      const t = responseText.trim()
+      if (t.startsWith('[')) {
+        const arr = JSON.parse(t)
+        if (Array.isArray(arr)) return arr.length
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  const range = String(res.headers.get('content-range') || '').trim()
+  if (!range) return null
+  if (/^\*\/(\*|0)$/.test(range)) return 0
+  const m = /^(\d+)-(\d+)\//.exec(range)
+  if (m) return Number(m[2]) - Number(m[1]) + 1
+  return null
 }
 
 async function flushActivityQueue() {
@@ -391,65 +503,58 @@ async function flushActivityQueue() {
     activityFlushTimer = null
   }
 
-  try {
-    if (!supabaseUrlLooksValid(supabaseUrl)) return
-    const { data } = await supabase.auth.getSession()
-    const token = data?.session?.access_token
-    const user = data?.session?.user
-    if (!token) return
+  if (!supabaseUrlLooksValid(supabaseUrl)) return
+  const url = `${String(supabaseUrl).replace(/\/+$/, '')}/rest/v1/${ACTIVITY_TABLE}`
 
-    const url = `${String(supabaseUrl).replace(/\/+$/, '')}/rest/v1/${ACTIVITY_TABLE}`
-    const res = await baseFetch(url, {
-      method: 'POST',
-      headers: {
-        apikey: supabaseAnonKey,
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
-      },
-      body: JSON.stringify(
-        batch.map((r) => ({
-          ...r,
-          user_id: r.user_id ?? user?.id ?? null,
-          user_email: r.user_email ?? user?.email ?? null,
-          module: r.module ?? r.details?.module ?? r.details?.screen ?? null,
-          record_ref: r.record_ref ?? r.details?.record_ref ?? null,
-        }))
-      ),
-    })
-    if (!res.ok) {
-      let detail = ''
-      try {
-        detail = (await res.text()).slice(0, 400)
-      } catch {
-        /* ignore */
-      }
-      if (import.meta.env.DEV) {
+  // Each entry is written with the SAME JWT that performed the operation, never with whatever
+  // session happens to be current at flush time (another tab / account switch / logout).
+  const byToken = new Map()
+  for (const item of batch) {
+    if (!item?.token || !item?.row) continue
+    if (!byToken.has(item.token)) byToken.set(item.token, [])
+    byToken.get(item.token).push(item.row)
+  }
+
+  for (const [token, rows] of byToken) {
+    try {
+      const res = await baseFetch(url, {
+        method: 'POST',
+        keepalive: true,
+        headers: {
+          apikey: supabaseAnonKey,
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify(rows),
+      })
+      if (!res.ok && import.meta.env.DEV) {
+        let detail = ''
+        try {
+          detail = (await res.text()).slice(0, 400)
+        } catch {
+          /* ignore */
+        }
         console.warn(`[Activity log] Could not write to ${ACTIVITY_TABLE} (HTTP ${res.status}).`, detail || '')
       }
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.warn('[Activity log] Flush failed:', err?.message || err)
+      }
+      // Never block the app for logging failures.
     }
-  } catch (err) {
-    if (import.meta.env.DEV) {
-      console.warn('[Activity log] Flush failed:', err?.message || err)
-    }
-    // Never block the app for logging failures.
   }
 }
 
-function enqueueActivityLog(row) {
-  // Dedupe burst clicks: identical verb + target + body hint within 3s → keep one.
-  const d = row?.details || {}
-  const sig = d.summary
-    ? `${d.badge || ''}__${d.summary}__${row?.details?.path || ''}__${String(d.detail || '').slice(0, 120)}`
-    : null
-  const now = Date.now()
-  if (sig && lastEnqueuedSig === sig && now - lastEnqueuedAt < 3000) return
-  if (sig) {
-    lastEnqueuedSig = sig
-    lastEnqueuedAt = now
-  }
-
-  activityQueue.push(row)
+/**
+ * Queue exactly one audit row per completed database request.
+ * No summary-based dedupe: two identical requests are two real operations.
+ * @param {object} row erp_activity_log row
+ * @param {string} token JWT that performed the operation (used to write the row; never stored)
+ */
+function enqueueActivityLog(row, token) {
+  if (!token) return
+  activityQueue.push({ row, token })
   if (activityQueue.length >= ACTIVITY_MAX_BATCH) {
     void flushActivityQueue()
     return
@@ -762,23 +867,31 @@ const customFetch = async (url, options = {}) => {
     )
   }
 
+  // Audit context is captured when the request STARTS: the JWT actually sent (= auth.uid() in the
+  // database), the page it was sent from, and whether a user gesture preceded it.
+  const auditActor = shouldLogRequest(url, options) ? requestActor(fetchOptions.headers) : null
+  const auditRoute = auditActor && typeof window !== 'undefined' ? window.location.pathname : null
+  const auditTrigger = auditActor ? activityTriggerNow() : null
+
   try {
     const res = await baseFetch(url, fetchOptions)
     clearTimer()
 
-    // Activity log for mutations (batched). Keep payload minimal to avoid load/PII.
-    if (shouldLogRequest(url, options)) {
+    // Audit trail for data-changing requests (batched). Anonymous requests are never attributed.
+    if (auditActor) {
       const entity = parseRestEntity(url)
-      const route = typeof window !== 'undefined' ? window.location.pathname : null
+      const schema = headerValue(fetchOptions.headers, 'Content-Profile') || 'public'
       const bodyCandidate = options.body
 
       // Parse response only for logged mutations (generated fields like tax_invoice_number).
       let responseRow = null
+      let responseText = ''
       try {
         const ct = res.headers.get('content-type') || ''
         if (ct.includes('application/json')) {
           const text = await res.clone().text()
           if (text && text.length <= 96000) {
+            responseText = text
             responseRow = tryParseJsonBody(text)
           }
         }
@@ -786,28 +899,50 @@ const customFetch = async (url, options = {}) => {
         /* ignore — Prefer: return=minimal yields empty body */
       }
 
-      const details = buildActivityDetails(method, entity, route, url, bodyCandidate, responseRow)
-      if (details.summary) {
-        enqueueActivityLog({
-          action: details.action,
-          entity,
-          route,
-          module: details.module || details.screen || null,
-          record_ref: details.record_ref || null,
-          success: res.ok,
-          status_code: res.status,
-          details: {
-            path: pathLog,
-            summary: details.summary,
-            badge: details.badge,
-            detail: details.detail || null,
-            entity_label: details.entity_label || null,
-            screen: details.screen || null,
-            module: details.module || details.screen || null,
+      const isRpc = String(entity || '').startsWith('rpc:')
+      const rows = res.ok && !isRpc ? affectedRowCount(res, responseText) : null
+      // A successful write that changed 0 rows (row not found / hidden by RLS) did not happen.
+      const changedNothing = res.ok && rows === 0
+
+      const details = changedNothing
+        ? null
+        : buildActivityDetails(method, entity, auditRoute, url, bodyCandidate, responseRow, schema)
+      if (details?.summary) {
+        const failed = !res.ok
+        enqueueActivityLog(
+          {
+            action: details.action,
+            entity,
+            route: auditRoute,
+            module: details.module || null,
             record_ref: details.record_ref || null,
-            http_method: details.http_method || method,
+            success: !failed,
+            status_code: res.status,
+            user_id: auditActor.userId,
+            user_email: auditActor.email,
+            details: {
+              path: pathLog,
+              summary: details.summary,
+              badge: details.badge,
+              detail: details.detail || null,
+              entity_label: details.entity_label || null,
+              schema,
+              screen: details.screen || null,
+              module: details.module || null,
+              module_source: details.module_source || null,
+              record_ref: details.record_ref || null,
+              record_id: details.record_id || null,
+              changes: details.changes?.length ? details.changes : null,
+              old_values_captured: false,
+              rows_affected: rows,
+              http_method: details.http_method || method,
+              trigger: auditTrigger,
+              origin: 'erp_web_client',
+              outcome: failed ? (res.status === 401 || res.status === 403 ? 'denied' : 'failed') : 'success',
+            },
           },
-        })
+          auditActor.token
+        )
       }
     }
 

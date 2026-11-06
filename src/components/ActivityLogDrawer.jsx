@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { formatDateTimeDdMmYyyy } from '../utils/dateDisplay';
+import { ERP_TIMEZONE } from '../utils/dateDisplay';
 import { supabase } from '../lib/supabase';
 import { Clock, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
@@ -10,9 +10,64 @@ function isoSinceHoursAgo(hours) {
   return d.toISOString();
 }
 
+/** Audit timestamps always in IST (dd/mm/yyyy HH:mm:ss), independent of the viewer's device zone. */
+const IST_PARTS = new Intl.DateTimeFormat('en-GB', {
+  timeZone: ERP_TIMEZONE,
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
+
 function fmtTime(ts) {
   if (!ts) return '';
-  return formatDateTimeDdMmYyyy(ts) || String(ts);
+  const dt = new Date(ts);
+  if (Number.isNaN(dt.getTime())) return String(ts);
+  const p = Object.fromEntries(IST_PARTS.formatToParts(dt).map((x) => [x.type, x.value]));
+  return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}:${p.second} IST`;
+}
+
+function outcomeOf(r) {
+  const o = String(r?.details?.outcome || '').toLowerCase();
+  if (o) return o;
+  if (r?.success === false) return r?.status_code === 401 || r?.status_code === 403 ? 'denied' : 'failed';
+  return 'success';
+}
+
+/** Resolve user_id → profile (email, employee code) → employee master (full name). */
+async function fetchActors(userIds) {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  if (!ids.length) return {};
+  const out = {};
+  try {
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, email, username, employee_code')
+      .in('id', ids);
+    const codes = [...new Set((profiles || []).map((p) => String(p.employee_code || '').trim()).filter(Boolean))];
+    let names = {};
+    if (codes.length) {
+      const { data: emps } = await supabase
+        .from('admin_ifsp_employee_master')
+        .select('employee_code, full_name')
+        .in('employee_code', codes);
+      names = Object.fromEntries((emps || []).map((e) => [String(e.employee_code).trim(), e.full_name]));
+    }
+    for (const p of profiles || []) {
+      const code = String(p.employee_code || '').trim() || null;
+      out[p.id] = {
+        name: (code && names[code]) || p.username || null,
+        code,
+        email: p.email || null,
+      };
+    }
+  } catch {
+    /* identity enrichment is optional — raw user_email still shown */
+  }
+  return out;
 }
 
 function friendlyUserNameFromEmail(email) {
@@ -61,6 +116,7 @@ export default function ActivityLogDrawer({ open, onClose }) {
   const [error, setError] = useState('');
   const [moduleFilter, setModuleFilter] = useState('');
   const [moduleOptions, setModuleOptions] = useState([]);
+  const [actors, setActors] = useState({});
   /** Rolling window: “last 1 hour” is recomputed whenever we load while the drawer is open. */
   const sinceHourAgoRef = useRef(isoSinceHoursAgo(1));
   const pageRef = useRef(0);
@@ -193,6 +249,24 @@ export default function ActivityLogDrawer({ open, onClose }) {
     };
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return undefined;
+    const missing = [...new Set(rows.map((r) => r?.user_id).filter((id) => id && !(id in actors)))];
+    if (!missing.length) return undefined;
+    let cancelled = false;
+    void fetchActors(missing).then((found) => {
+      if (cancelled) return;
+      setActors((prev) => {
+        const next = { ...prev };
+        for (const id of missing) next[id] = found[id] || null;
+        return next;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, rows, actors]);
+
   const filterChips = useMemo(() => moduleOptions, [moduleOptions]);
 
   if (!open) return null;
@@ -264,32 +338,61 @@ export default function ActivityLogDrawer({ open, onClose }) {
         <ul className="divide-y divide-slate-100">
           {rows.map((r) => {
             const badge = badgeFromRow(r);
-            const email = r.user_email || '';
-            const whoLabel = email
-              ? friendlyUserNameFromEmail(email)
-              : r.user_id
-                ? `User ${String(r.user_id).slice(0, 8)}…`
-                : 'Someone';
+            const actor = r.user_id ? actors[r.user_id] : null;
+            const email = actor?.email || r.user_email || '';
+            const whoLabel =
+              actor?.name ||
+              (email
+                ? friendlyUserNameFromEmail(email)
+                : r.user_id
+                  ? `User ${String(r.user_id).slice(0, 8)}…`
+                  : 'Unknown user');
             const summary =
               r.details?.summary ||
               `${String(r.details?.verb || '').trim() || badge.toLowerCase()} · ${String(r.entity || 'record')}`.trim();
             const ref = recordRefOf(r);
             const mod = moduleOf(r);
+            const outcome = outcomeOf(r);
+            const changes = Array.isArray(r.details?.changes) ? r.details.changes : null;
+            const isAuto = r.details?.trigger === 'automatic';
+            const moduleFromPage = r.details?.module_source === 'page';
             return (
-              <li key={r.id} className="px-4 py-3">
+              <li
+                key={r.id}
+                className={`px-4 py-3 ${outcome !== 'success' ? 'bg-red-50/60' : ''}`}
+              >
                 <div className="flex items-start justify-between gap-2">
-                  <span
-                    className={`shrink-0 inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide ${badgeToneClass(badge)}`}
-                    title={`Action: ${badge}`}
-                  >
-                    {badge.replace(/_/g, ' ')}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span
+                      className={`shrink-0 inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide ${badgeToneClass(badge)}`}
+                      title={`Action: ${badge}`}
+                    >
+                      {badge.replace(/_/g, ' ')}
+                    </span>
+                    {outcome !== 'success' ? (
+                      <span
+                        className="inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-red-600 text-white"
+                        title={`HTTP ${r.status_code || '—'} — the database did not apply this change`}
+                      >
+                        {outcome === 'denied' ? 'Denied' : 'Failed'}
+                      </span>
+                    ) : null}
+                    {isAuto ? (
+                      <span
+                        className="inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-amber-100 text-amber-900 ring-1 ring-amber-200/70"
+                        title="No click or key press preceded this request — likely an automatic refresh, sync or timer"
+                      >
+                        Automatic
+                      </span>
+                    ) : null}
+                  </div>
                   <span className="text-[11px] text-slate-500 shrink-0 tabular-nums">{fmtTime(r.created_at)}</span>
                 </div>
                 <p className="text-xs text-slate-900 mt-1.5 leading-snug">
                   <span className="font-semibold text-slate-950" title={email || undefined}>
-                    {email || whoLabel}
-                  </span>{' '}
+                    {whoLabel}
+                  </span>
+                  {actor?.code ? <span className="text-slate-500"> ({actor.code})</span> : null}{' '}
                   <span className="text-slate-800">{summary}</span>
                   {ref ? (
                     <span className="ml-1.5 inline-flex align-middle px-1.5 py-0.5 rounded bg-slate-100 text-[9px] font-semibold text-slate-700 ring-1 ring-slate-200/80">
@@ -297,7 +400,32 @@ export default function ActivityLogDrawer({ open, onClose }) {
                     </span>
                   ) : null}
                 </p>
-                {r.details?.detail ? (
+                {email ? <p className="text-[10px] text-slate-500 mt-0.5 truncate">{email}</p> : null}
+                {changes?.length ? (
+                  <details className="mt-1.5 group">
+                    <summary className="text-[11px] text-slate-600 cursor-pointer list-none inline-flex items-center gap-1 hover:text-slate-800">
+                      <span className="font-medium text-slate-700">Changes ({changes.length})</span>
+                      <span className="text-slate-400 group-open:hidden">show</span>
+                      <span className="text-slate-400 hidden group-open:inline">hide</span>
+                    </summary>
+                    <ul className="mt-1 space-y-0.5">
+                      {changes.map((c, i) => (
+                        <li key={`${c.field}-${i}`} className="text-[11px] text-slate-600 break-words">
+                          <span className="font-mono text-slate-700">{c.field}</span>:{' '}
+                          {c.old !== undefined ? (
+                            <>
+                              <span className="line-through text-slate-400">{String(c.old)}</span> →{' '}
+                            </>
+                          ) : null}
+                          <span className="text-slate-800">{String(c.new)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {r.details?.old_values_captured === false ? (
+                      <p className="text-[10px] text-slate-400 mt-0.5">Previous values were not recorded for this entry.</p>
+                    ) : null}
+                  </details>
+                ) : r.details?.detail ? (
                   <details className="mt-1.5 group">
                     <summary className="text-[11px] text-slate-600 cursor-pointer list-none inline-flex items-center gap-1 hover:text-slate-800">
                       <span className="font-medium text-slate-700">Changes</span>
@@ -312,8 +440,26 @@ export default function ActivityLogDrawer({ open, onClose }) {
                 <div className="text-[10px] text-slate-500 mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5">
                   {r.details?.entity_label ? <span>Type: {r.details.entity_label}</span> : null}
                   {mod ? (
-                    <span className="text-slate-500">
-                      Module: <span className="text-slate-600">{mod}</span>
+                    <span
+                      className="text-slate-500"
+                      title={
+                        moduleFromPage
+                          ? 'Taken from the page the request was sent from — not proof of module access'
+                          : undefined
+                      }
+                    >
+                      {moduleFromPage ? 'Sent from page' : 'Module'}: <span className="text-slate-600">{mod}</span>
+                    </span>
+                  ) : null}
+                  {r.entity ? (
+                    <span>
+                      Record: <span className="font-mono text-slate-600">{r.entity}</span>
+                      {r.details?.record_id ? (
+                        <span className="font-mono text-slate-400" title={r.details.record_id}>
+                          {' '}
+                          #{String(r.details.record_id).slice(0, 8)}
+                        </span>
+                      ) : null}
                     </span>
                   ) : null}
                 </div>
@@ -327,8 +473,10 @@ export default function ActivityLogDrawer({ open, onClose }) {
                     REST: {r.details?.path || '—'}
                   </p>
                 ) : null}
-                {r.success === false ? (
-                  <p className="mt-1 text-[11px] text-red-700">Failed (HTTP {r.status_code || '—'})</p>
+                {outcome !== 'success' ? (
+                  <p className="mt-1 text-[11px] text-red-700">
+                    {outcome === 'denied' ? 'Permission denied' : 'Failed'} (HTTP {r.status_code || '—'}) — not applied
+                  </p>
                 ) : null}
               </li>
             );
