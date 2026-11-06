@@ -15,7 +15,7 @@ import {
   rowTotal,
 } from './quotationMakerModel';
 import { formatDateDdMmYyyy } from '../../../../utils/dateDisplay';
-import { DEFAULT_MAKER_OPENING } from '../../../../services/quotationApi';
+import { DEFAULT_MAKER_CLOSING, DEFAULT_MAKER_OPENING } from '../../../../services/quotationApi';
 
 function PreviewTableHead({ type, colKeys }) {
   return (
@@ -223,7 +223,13 @@ function PreviewRow({ rows, r, type, colKeys }) {
   return <tr data-pdf-nosplit>{cells}</tr>;
 }
 
-export default function QuotationMakerPreview({ form, rows, signatureUrl = '', openingText = null }) {
+export default function QuotationMakerPreview({
+  form,
+  rows,
+  signatureUrl = '',
+  openingText = null,
+  closingText = null,
+}) {
   const type = normalizeType(form.quotation_type);
   const t = QUOTATION_TYPES[type];
   const totals = computeTotals(rows, type);
@@ -257,11 +263,13 @@ export default function QuotationMakerPreview({ form, rows, signatureUrl = '', o
               <div className="qm-iso">ISO 9001 : 2015 Certified Company</div>
             </div>
           </div>
-          <div className="qm-refblock">
-            <b>QUOTATION</b>
-            <div className="qp-line">Ref: {form.quotation_no || '—'}</div>
-            <div>Date: {dateLabel}</div>
-          </div>
+        </div>
+
+        <h1 className="qm-doc-title">QUOTATION</h1>
+
+        <div className="qm-refrow" data-pdf-nosplit>
+          <div>Ref: {form.quotation_no || '—'}</div>
+          <div>Date: {dateLabel}</div>
         </div>
 
         <p className="qm-to" data-pdf-nosplit>
@@ -334,6 +342,10 @@ export default function QuotationMakerPreview({ form, rows, signatureUrl = '', o
             </li>
           ))}
         </ol>
+
+        <p className="qm-greet qm-closing" data-pdf-nosplit>
+          {closingText == null ? DEFAULT_MAKER_CLOSING : closingText}
+        </p>
 
         <p className="qm-sign" data-pdf-nosplit>
           Thanks &amp; regards

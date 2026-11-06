@@ -4,7 +4,7 @@ import { Eye, FilePlus2, Loader2, Pencil, Search, Trash2 } from "lucide-react";
 import { useAuth } from "../../../contexts/AuthContext";
 import { IEV_OC_DEPARTMENT } from "./ocDepartment";
 import { toast } from "../../../lib/toast";
-import { deleteOc, friendlyOcError, listOcs } from "./ocApi";
+import { amFinance, deleteOc, friendlyOcError, listOcs, loadSignoffAssignees, myEmployeeCode } from "./ocApi";
 import { formatIndianAmount, formatOcDate } from "./ocModel";
 import OcCreationForm from "./OcCreationForm";
 
@@ -13,8 +13,11 @@ import OcCreationForm from "./OcCreationForm";
  * IEV Costing by default; `department` (ocDepartment.js) switches to another department's records.
  */
 export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
-  const { userProfile, accessibleModules } = useAuth();
+  const { user, userProfile, accessibleModules } = useAuth();
   const canEdit = department.canEdit(userProfile, accessibleModules);
+  const [reviewerCodes, setReviewerCodes] = useState([]);
+  const [myCode, setMyCode] = useState("");
+  const [financeUser, setFinanceUser] = useState(false);
   const canDelete = department.canDelete(userProfile, accessibleModules);
   const [params, setParams] = useSearchParams();
   const openId = params.get("oc");
@@ -38,6 +41,32 @@ export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
   useEffect(() => {
     if (!openId) refresh();
   }, [openId, refresh]);
+
+  useEffect(() => {
+    if (department.key !== "projects") return undefined;
+    let alive = true;
+    Promise.all([loadSignoffAssignees(department), myEmployeeCode(), amFinance()])
+      .then(([map, code, finance]) => {
+        if (!alive) return;
+        setReviewerCodes(
+          ["PLANNING", "VERTICAL_HEAD"].map((slot) => map[slot]?.employee_code).filter(Boolean)
+        );
+        setMyCode(code || "");
+        setFinanceUser(finance === true);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [department]);
+
+  const reviewerView = (row) => {
+    if (department.key !== "projects" || financeUser) return false;
+    const mine = String(myCode || "").trim().toLowerCase();
+    const assigned = reviewerCodes.some((code) => String(code).trim().toLowerCase() === mine);
+    if (!assigned || !mine) return false;
+    return Boolean(row.created_by) && row.created_by !== user?.id;
+  };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -143,8 +172,8 @@ export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
                         }}
                         className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-0.5 text-xs font-medium text-slate-700 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
                       >
-                        {canEdit ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                        {canEdit ? "Edit" : "View"}
+                        {canEdit && !reviewerView(r) ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        {canEdit && !reviewerView(r) ? "Edit" : "View"}
                       </button>
                       {canDelete && (
                         <button

@@ -42,6 +42,11 @@ export async function sendOutboundMail({
   });
 }
 
+/** Projects PO At Glance: one conversation. Later calls reply on replyToMessageId. */
+export async function sendThreadedMail(options) {
+  return ACTIVE_PROVIDER.sendThreadedMail(options);
+}
+
 export { MAIL_NOT_CONFIGURED_MESSAGE, isMicrosoftGraphMailConfigured, getMicrosoftGraphMailConfig } from './mailConfig.js';
 export { graphMailProvider as microsoftGraphMailProvider };
 

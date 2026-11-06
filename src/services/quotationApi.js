@@ -466,29 +466,43 @@ export async function createQuotationRevision(source, { userId } = {}) {
 export const DEFAULT_MAKER_OPENING =
   'Dear Sir,\nWe are thankful for your enquiry. Please find our offer below.';
 
+/** Shown before Thanks & regards until a custom closing is saved in Templates. */
+export const DEFAULT_MAKER_CLOSING =
+  'Hope, you will find our offer as most competitive in the market. We look forward to be associated with your esteemed organization through our qualitative services!';
+
 export async function fetchQuotationSettings() {
   const { data, error } = await projectsTable('quotation_settings').select('*');
   if (error) throw error;
   const map = {};
   for (const row of data || []) map[row.setting_key] = row.setting_value;
   const savedOpening = map.maker_opening?.text;
+  const savedClosing = map.maker_closing?.text;
   return {
     advancedPricing: Boolean(map.advanced_pricing?.enabled),
     makerOpening: typeof savedOpening === 'string' ? savedOpening : null,
+    makerClosing: typeof savedClosing === 'string' ? savedClosing : null,
     raw: map,
   };
 }
 
-export async function setMakerOpeningText(text) {
+async function upsertMakerText(settingKey, text) {
   const { error } = await projectsTable('quotation_settings').upsert(
     {
-      setting_key: 'maker_opening',
+      setting_key: settingKey,
       setting_value: { text: String(text ?? '') },
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'setting_key' }
   );
   if (error) throw error;
+}
+
+export async function setMakerOpeningText(text) {
+  await upsertMakerText('maker_opening', text);
+}
+
+export async function setMakerClosingText(text) {
+  await upsertMakerText('maker_closing', text);
 }
 
 export async function setAdvancedPricingEnabled(enabled) {

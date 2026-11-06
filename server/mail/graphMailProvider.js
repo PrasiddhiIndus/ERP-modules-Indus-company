@@ -270,6 +270,133 @@ export async function sendMail({
   }
 }
 
+function resolveSendMailbox(config, from) {
+  const requestedSender = String(from || '').trim().toLowerCase();
+  const salaryFrom = String(config.salaryOutboundEmail || '').trim().toLowerCase();
+  const sendAsSender =
+    Boolean(requestedSender) &&
+    (config.allowedSenders.includes(requestedSender) ||
+      (Boolean(salaryFrom) && requestedSender === salaryFrom));
+  return sendAsSender ? requestedSender : config.notificationEmail;
+}
+
+function graphErrorMessage(err) {
+  return String(err?.body?.error?.message || err?.message || 'Mail delivery failed').trim();
+}
+
+/**
+ * One message to every recipient, or a reply in an existing Graph conversation.
+ * A reply keeps the conversation id and the original subject and recipients.
+ */
+export async function sendThreadedMail({
+  from,
+  fromName,
+  toList,
+  subject,
+  html,
+  replyToMessageId,
+}) {
+  const config = getMicrosoftGraphMailConfig();
+  if (!config) throw httpError(MAIL_NOT_CONFIGURED_MESSAGE, 503);
+
+  const recipients = [];
+  const seen = new Set();
+  for (const row of Array.isArray(toList) ? toList : []) {
+    const email = String(row?.email || row || '').trim();
+    if (!email.includes('@')) continue;
+    const key = email.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    recipients.push({ email, name: String(row?.name || '').trim() });
+  }
+  if (!recipients.length) throw httpError('Recipient email is required.', 400);
+
+  const mailbox = resolveSendMailbox(config, from);
+  const toRecipients = recipients.map((row) => ({
+    emailAddress: { address: row.email, name: row.name || undefined },
+  }));
+  const messageSubject = String(subject || '').trim();
+  const accessToken = await fetchAccessToken(config);
+  const client = await createGraphClient(async () => accessToken);
+  const userPath = `/users/${encodeURIComponent(mailbox)}`;
+
+  const sendDraft = async (draftId) => {
+    await withTimeout(
+      client.api(`${userPath}/messages/${draftId}/send`).post({}),
+      config.timeoutMs,
+      'Microsoft Graph send'
+    );
+  };
+
+  if (replyToMessageId) {
+    try {
+      const draft = await withTimeout(
+        client
+          .api(`${userPath}/messages/${replyToMessageId}/createReply`)
+          .header('Prefer', 'IdType="ImmutableId"')
+          .post({
+            message: {
+              subject: messageSubject,
+              body: { contentType: 'HTML', content: String(html || '') },
+              toRecipients,
+            },
+          }),
+        config.timeoutMs,
+        'Microsoft Graph createReply'
+      );
+      await sendDraft(draft.id);
+      logMailInfo('graph.thread.reply', {
+        mailbox,
+        toCount: recipients.length,
+        subject: messageSubject.slice(0, 120),
+      });
+      return {
+        ok: true,
+        messageId: draft.id,
+        conversationId: draft.conversationId || null,
+        mailbox,
+        threaded: true,
+      };
+    } catch (err) {
+      const status = Number(err?.statusCode || err?.status) || 0;
+      logMailError('graph.thread.reply_failed', { status, message: graphErrorMessage(err) });
+      if (status !== 404) throw httpError(graphErrorMessage(err), status || 502);
+    }
+  }
+
+  const draft = await withTimeout(
+    client
+      .api(`${userPath}/messages`)
+      .header('Prefer', 'IdType="ImmutableId"')
+      .post({
+        subject: messageSubject,
+        body: { contentType: 'HTML', content: String(html || '') },
+        toRecipients,
+        from: {
+          emailAddress: {
+            address: mailbox,
+            name: String(fromName || '').trim() || undefined,
+          },
+        },
+      }),
+    config.timeoutMs,
+    'Microsoft Graph create message'
+  );
+  await sendDraft(draft.id);
+  logMailInfo('graph.thread.root', {
+    mailbox,
+    toCount: recipients.length,
+    subject: messageSubject.slice(0, 120),
+  });
+  return {
+    ok: true,
+    messageId: draft.id,
+    conversationId: draft.conversationId || null,
+    mailbox,
+    threaded: false,
+  };
+}
+
 export function isConfigured() {
   return isMicrosoftGraphMailConfigured();
 }
