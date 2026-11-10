@@ -2,6 +2,21 @@ import { supabase } from "../../../lib/supabase";
 
 export const EMPLOYEE_MASTER_HISTORY_TABLE = "admin_ifsp_employee_master_field_history";
 
+/** Derived / system fields — not shown as manual user edits (matches trigger skip list). */
+export const EMPLOYEE_MASTER_HISTORY_SYSTEM_FIELD_KEYS = new Set([
+  "updated_at",
+  "created_at",
+  "timestamp",
+  "updated_by",
+  "created_by",
+  "status_changed_by",
+  "status_changed_at",
+  "ifspl_experience",
+  "years_of_experience",
+  "l1_manager_name",
+  "l2_manager_name",
+]);
+
 function displayValue(v) {
   const s = v == null ? "" : String(v).trim();
   return s || "(empty)";
@@ -58,5 +73,8 @@ export async function fetchEmployeeMasterFieldHistory(employeeMasterId) {
     console.warn("Employee Master history load failed:", error);
     throw error;
   }
-  return data || [];
+  // Hide system/derived rows already written before the trigger skip list was expanded.
+  return (data || []).filter(
+    (row) => !EMPLOYEE_MASTER_HISTORY_SYSTEM_FIELD_KEYS.has(String(row?.field_key || ""))
+  );
 }
