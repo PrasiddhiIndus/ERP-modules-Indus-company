@@ -52,7 +52,7 @@ export default function EmployeeMasterHistoryDrawer({ open, onClose, employee })
     >
       <div className="flex items-center justify-between gap-2 mb-3">
         <p className="text-xs text-gray-500">
-          Every field change on this employee record (who, field, previous value, new value, date &amp; time).
+          Manual field changes on this employee record (who, field, previous value, new value, date &amp; time).
         </p>
         <button
           type="button"
