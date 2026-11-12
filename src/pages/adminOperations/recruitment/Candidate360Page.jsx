@@ -53,8 +53,12 @@ import {
   retryCommunication,
   setCandidateResume,
   updateCandidate,
+  isRecruitmentConflict,
   withdrawOffer,
 } from "./recruitmentService";
+
+const CANDIDATE_CONFLICT_MESSAGE =
+  "This candidate was updated elsewhere. The latest data has been loaded. Please review and save again.";
 import {
   ActionModal,
   AsyncBoundary,
@@ -155,10 +159,12 @@ function StageTracker({ stage, outcome }) {
   );
 }
 
-function EditProfileModal({ open, candidate, onClose }) {
+function EditProfileModal({ open, candidate, onClose, onReload }) {
   const [form, setForm] = useState({});
   const [requisitions, setRequisitions] = useState([]);
   const canChangeRequisition = candidate && STAGE_INDEX[candidate.stage] < STAGE_INDEX.offer;
+  // Seed form when the modal opens (or candidate id changes). Do not reset on version
+  // refresh after a conflict — keep the user's unsaved edits for review.
   useEffect(() => {
     if (!open || !candidate) return;
     setForm({
@@ -177,14 +183,16 @@ function EditProfileModal({ open, candidate, onClose }) {
       skills: candidate.skills,
       requisitionId: candidate.requisitionId || "",
     });
-    if (canChangeRequisition) {
+    const canLink = STAGE_INDEX[candidate.stage] < STAGE_INDEX.offer;
+    if (canLink) {
       listRequisitions()
         .then((reqs) => setRequisitions(reqs.filter((r) => ["approved", "open"].includes(r.status))))
         .catch(() => setRequisitions([]));
     } else {
       setRequisitions([]);
     }
-  }, [open, candidate, canChangeRequisition]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally omit candidate.version
+  }, [open, candidate?.id]);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const fields = [
     ["fullName", "Full name"],
@@ -209,9 +217,19 @@ function EditProfileModal({ open, candidate, onClose }) {
       widthClass="max-w-2xl"
       canSubmit={!mustKeepRequisition || Boolean(form.requisitionId)}
       onSubmit={async () => {
-        await updateCandidate(candidate.id, form, candidate.version);
-        toast.success("Profile updated");
-        onClose();
+        try {
+          await updateCandidate(candidate.id, form, candidate.version);
+          toast.success("Profile updated");
+          onClose();
+          await onReload?.();
+        } catch (err) {
+          if (isRecruitmentConflict(err)) {
+            await onReload?.();
+            toast.warning("Update conflict", CANDIDATE_CONFLICT_MESSAGE);
+            throw new Error(CANDIDATE_CONFLICT_MESSAGE);
+          }
+          throw err;
+        }
       }}
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -531,6 +549,11 @@ function Workspace({ data, onReload }) {
   const [tab, setTab] = useState("overview");
   const [modal, setModal] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  // Track the latest known version so a successful save updates it before follow-ups.
+  const [candidateVersion, setCandidateVersion] = useState(c.version);
+  useEffect(() => {
+    setCandidateVersion(c.version);
+  }, [c.id, c.version]);
   const open = (name, payload = null) => {
     setMenuOpen(false);
     setModal({ name, payload });
@@ -569,11 +592,12 @@ function Workspace({ data, onReload }) {
           return [k, v];
         })
       );
-      await updateCandidate(
+      const saved = await updateCandidate(
         c.id,
         { expectedCtc: Number(ctc), expectedCtcBreakup: breakup },
-        c.version
+        candidateVersion
       );
+      if (saved?.version != null) setCandidateVersion(saved.version);
       const openOffer = (offers || []).find((o) =>
         ["generated", "sent", "viewed", "accepted"].includes(o.status)
       );
@@ -595,6 +619,11 @@ function Workspace({ data, onReload }) {
       await onReload?.();
     } catch (err) {
       hideRecruitmentBusy();
+      if (isRecruitmentConflict(err)) {
+        await onReload?.();
+        toast.warning("Update conflict", CANDIDATE_CONFLICT_MESSAGE);
+        return;
+      }
       toast.error("Could not save CTC", err?.message || "Please try again.");
     }
   };
@@ -929,7 +958,12 @@ function Workspace({ data, onReload }) {
         }
         onClose={close}
       />
-      <EditProfileModal open={is("edit")} candidate={c} onClose={close} />
+      <EditProfileModal
+        open={is("edit")}
+        candidate={{ ...c, version: candidateVersion }}
+        onClose={close}
+        onReload={onReload}
+      />
       <ResumeModal open={is("resume")} candidate={c} onClose={close} />
       <NoteModal open={is("note")} candidate={c} onClose={close} />
       <CloseCandidateModal open={is("close")} candidate={c} onClose={close} />
