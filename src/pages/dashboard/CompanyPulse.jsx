@@ -20,18 +20,18 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import { inrShort } from "../finance/lib/formatters";
-import { buildPulseModules, healthTone } from "./companyPulseModel";
-import CompanyAttendance from "./CompanyAttendance.jsx";
-import CompanyBooks from "./CompanyBooks.jsx";
+import {
+  BarCompareChart,
+  ComposedTrendChart,
+  makeMoneyAxisFormatter,
+  RadialScoreChart,
+} from "../../components/charts/DashboardCharts";
+import { TOKENS } from "../../theme/tokens";
+import { inrShort, pct } from "../finance/lib/formatters";
+import { buildPulseModules } from "./companyPulseModel";
+import { buildPulseDetail } from "./companyPulseDetailModel";
+import CompanyPulseDetail from "./CompanyPulseDetail.jsx";
 import "./companyPulse.css";
-
-const FILTERS = [
-  ["all", "All"],
-  ["rev", "Revenue"],
-  ["att", "Needs attention"],
-  ["mine", "My access"],
-];
 
 const ICONS = {
   hr: Users,
@@ -52,41 +52,88 @@ const ICONS = {
   crmOutreach: Mail,
 };
 
-const ORBIT = 40;
-
-const WHEEL_LABEL = {
-  compliance: "Comply",
-  operations: "Ops",
-  procurement: "Procure",
-  marketing: "Market",
+const CHART = {
+  rev: TOKENS.accent,
+  exp: TOKENS.critical,
+  net: TOKENS.success,
+  bill: TOKENS.accentElectric,
+  collect: TOKENS.teal,
+  watch: TOKENS.warning,
 };
 
-function matches(view, filter) {
-  if (filter === "rev") return view.revenue;
-  if (filter === "att") return view.attention;
-  if (filter === "mine") return view.canOpen;
-  return true;
-}
-
 function statusOf(view) {
-  if (view.planned) return { label: "Planned", color: "var(--text-muted)" };
+  if (view.planned) return { label: "Planned", color: TOKENS.textMuted };
   if (view.score == null) {
     return view.attention
-      ? { label: "Needs a look", color: "var(--cp-watch)" }
-      : { label: "Overview", color: "var(--cp-brand)" };
+      ? { label: "Needs look", color: TOKENS.warning }
+      : { label: "Live", color: TOKENS.accent };
   }
-  const color = healthTone(view.score);
-  if (view.score < 75) return { label: "Needs a look", color };
+  const color = resolveTone(view.score);
+  if (view.score < 75) return { label: "At risk", color };
   if (view.attention || view.score < 85) return { label: "Watch", color };
   return { label: "Steady", color };
 }
 
-function polar(index, count) {
-  const angle = -Math.PI / 2 + (index * 2 * Math.PI) / Math.max(count, 1);
-  return {
-    x: 50 + ORBIT * Math.cos(angle),
-    y: 50 + ORBIT * Math.sin(angle),
-  };
+function resolveTone(score) {
+  if (score == null) return TOKENS.accent;
+  if (score >= 85) return TOKENS.success;
+  if (score >= 75) return TOKENS.warning;
+  return TOKENS.critical;
+}
+
+function primaryMetric(view) {
+  const first = view.metrics?.[0];
+  if (first) return first;
+  if (view.planned) return { label: "Status", value: "Soon" };
+  return { label: "Status", value: view.canOpen ? "Open" : "Locked" };
+}
+
+function AttDonut({ stats }) {
+  const expected = stats?.expected || 0;
+  const segments = [
+    ["on", TOKENS.success],
+    ["late", TOKENS.warning],
+    ["leave", TOKENS.info],
+    ["absent", TOKENS.critical],
+  ];
+  const radius = 34;
+  const circ = 2 * Math.PI * radius;
+  let cursor = 0;
+  const rings = segments.map(([key, color]) => {
+    const count = stats?.[key] || 0;
+    const length = expected ? (count / expected) * circ : 0;
+    const ring = { key, color, count, length, offset: cursor };
+    cursor += length;
+    return ring;
+  });
+  const idle = !expected;
+  return (
+    <svg className="cp-att-donut" viewBox="0 0 100 100" role="img" aria-label="Attendance today">
+      <circle cx="50" cy="50" r={radius} fill="none" stroke={TOKENS.border} strokeWidth="10" />
+      {rings.map((ring) =>
+        ring.length > 0 ? (
+          <circle
+            key={ring.key}
+            cx="50"
+            cy="50"
+            r={radius}
+            fill="none"
+            stroke={ring.color}
+            strokeWidth="10"
+            strokeDasharray={`${ring.length} ${circ - ring.length}`}
+            strokeDashoffset={-ring.offset}
+            transform="rotate(-90 50 50)"
+          />
+        ) : null
+      )}
+      <text x="50" y="48" textAnchor="middle" className="cp-att-pct">
+        {idle ? "—" : `${(stats.pct || 0).toFixed(0)}%`}
+      </text>
+      <text x="50" y="62" textAnchor="middle" className="cp-att-sub">
+        {idle ? "Off" : `${stats.present}/${expected}`}
+      </text>
+    </svg>
+  );
 }
 
 export default function CompanyPulse({
@@ -110,12 +157,23 @@ export default function CompanyPulse({
   billRate,
   collectRate,
   onOpen,
-  showAttendance,
   attendance,
-  attendanceLoading,
-  attendanceError,
-  onOpenAttendance,
 }) {
+  const [chartsReady, setChartsReady] = useState(false);
+  const [detail, setDetail] = useState(null);
+  const [clock, setClock] = useState(() => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+
+  useEffect(() => {
+    setChartsReady(true);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setClock(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const pulse = useMemo(
     () =>
       buildPulseModules({
@@ -131,33 +189,7 @@ export default function CompanyPulse({
   );
 
   const listed = useMemo(() => pulse.views.filter((view) => view.visible), [pulse.views]);
-  const [filter, setFilter] = useState("all");
-  const [picked, setPicked] = useState("");
-  const [clock, setClock] = useState(() => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setClock(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-    }, 30000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const focus = listed.filter((view) => matches(view, filter));
-  const selected = focus.find((view) => view.id === picked) || focus[0] || null;
-  const attentionCount = listed.filter((view) => view.attention).length;
-  const seriesFor = (view) => {
-    if (!view) return null;
-    if (view.id === "hr") {
-      const values = (attendance?.trend || []).filter((point) => point.expected > 0).map((point) => point.pct);
-      return values.length > 1 ? { label: "Attendance", values } : null;
-    }
-    if (view.id === "finance" || view.revenue) {
-      const values = (pl?.trend || []).map((row) => Number(row.profit) || 0);
-      if (values.length < 2 || values.every((value) => value === 0)) return null;
-      return { label: "Profit this period", values };
-    }
-    return null;
-  };
+  const attention = useMemo(() => listed.filter((view) => view.attention), [listed]);
 
   const ledgerPath = "/app/accounts-finance/reports/site-ledger";
   const ledgerOpen = Boolean(allowPath?.(ledgerPath));
@@ -167,143 +199,203 @@ export default function CompanyPulse({
   const hrView = pulse.views.find((view) => view.id === "hr");
   const adminView = pulse.views.find((view) => view.id === "admin");
   const peoplePath = hrView?.canOpen ? hrView.openPath : adminView?.canOpen ? adminView.openPath : "";
+  const attendancePath = allowPath?.("/app/attendance")
+    ? "/app/attendance"
+    : allowPath?.("/app/hr")
+      ? "/app/hr"
+      : "";
 
-  const kpis = [
+  const detailCtx = useMemo(
+    () => ({
+      modules,
+      commercialStats,
+      pl,
+      billRate,
+      collectRate,
+      attendance,
+      rangeLabel,
+      health: pulse.health,
+      views: pulse.views,
+      paths: {
+        people: peoplePath,
+        attendance: attendancePath,
+        ledger: ledgerOpen ? ledgerPath : "",
+        receivables: receivablesPath,
+      },
+    }),
+    [
+      attendance,
+      attendancePath,
+      billRate,
+      collectRate,
+      commercialStats,
+      ledgerOpen,
+      modules,
+      peoplePath,
+      pl,
+      pulse.health,
+      pulse.views,
+      rangeLabel,
+      receivablesPath,
+    ]
+  );
+
+  const openDetail = (kind, extra = {}) => {
+    const next = buildPulseDetail(kind, { ...detailCtx, ...extra });
+    if (next) setDetail(next);
+  };
+
+  const heroes = [
     {
-      label: "Active people",
+      id: "people",
+      kind: "people",
+      label: "People",
       value: loading ? "—" : (Number(modules.people) || 0).toLocaleString("en-IN"),
-      color: "var(--cp-brand)",
-      path: peoplePath,
-      enabled: Boolean(peoplePath),
+      hint: modules.leavePending ? `${modules.leavePending} leave waiting` : "Active roster",
+      color: TOKENS.accent,
+      enabled: pulse.management || Boolean(peoplePath) || Boolean(attendancePath),
     },
     {
+      id: "revenue",
+      kind: "revenue",
       label: "Revenue",
       value: loading ? "—" : inrShort(pl.revenue),
-      color: "var(--cp-watch)",
-      path: ledgerPath,
-      enabled: ledgerOpen,
+      hint: rangeLabel,
+      color: CHART.rev,
+      enabled: pulse.management || ledgerOpen,
     },
     {
+      id: "profit",
+      kind: "profit",
       label: "Net result",
       value: loading ? "—" : inrShort(pl.profit),
-      color: (Number(pl.profit) || 0) < 0 ? "var(--cp-risk)" : "var(--cp-good)",
-      path: ledgerPath,
-      enabled: ledgerOpen,
+      hint: pl.revenue ? `Margin ${pct(pl.margin)}` : "No books yet",
+      color: (Number(pl.profit) || 0) < 0 ? CHART.exp : CHART.net,
+      enabled: pulse.management || ledgerOpen,
     },
     {
-      label: "Receivables",
-      value: loading ? "—" : inrShort(commercialStats.outstanding),
-      color: "var(--cp-risk)",
-      path: receivablesPath,
-      enabled: Boolean(receivablesPath),
+      id: "billed",
+      kind: "billed",
+      label: "Billed",
+      value: loading ? "—" : inrShort(commercialStats.billed),
+      hint: `Book cover ${billRate}%`,
+      color: CHART.bill,
+      enabled: pulse.management || Boolean(receivablesPath),
     },
-  ].filter((kpi) => pulse.management || kpi.enabled);
+    {
+      id: "outstanding",
+      kind: "outstanding",
+      label: "Outstanding",
+      value: loading ? "—" : inrShort(commercialStats.outstanding),
+      hint: `Collected ${collectRate}%`,
+      color: CHART.exp,
+      enabled: pulse.management || Boolean(receivablesPath),
+    },
+    {
+      id: "sites",
+      kind: "sites",
+      label: "Sites / loss",
+      value: loading ? "—" : `${pl.sitesReporting || 0} / ${pl.lossSites || 0}`,
+      hint: pl.thinSites ? `${pl.thinSites} thin margin` : "Reporting sites",
+      color: pl.lossSites ? CHART.exp : CHART.net,
+      enabled: pulse.management || ledgerOpen,
+    },
+  ].filter((item) => item.enabled);
 
-  const choose = (view) => {
-    if (picked === view.id) {
-      openView(view);
-      return;
-    }
-    setPicked(view.id);
-    if (!matches(view, filter)) setFilter("all");
-  };
+  const sites = useMemo(() => {
+    const rows = pl?.siteRows || [];
+    const profitable = rows.filter((row) => row.profit > 0);
+    return (profitable.length ? profitable : rows).slice(0, 6);
+  }, [pl?.siteRows]);
 
-  const openView = (view) => {
-    if (view?.canOpen && view.openPath) onOpen?.(view.openPath);
-  };
+  const trendAxis = useMemo(() => {
+    const values = [];
+    for (const row of pl?.trend || []) values.push(row.revenue, row.expense, row.profit);
+    return makeMoneyAxisFormatter(values);
+  }, [pl?.trend]);
 
-  const onWheelKey = (event) => {
-    if (!listed.length) return;
-    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-    event.preventDefault();
-    const ids = listed.map((view) => view.id);
-    const current = ids.indexOf(selected?.id);
-    const step = event.key === "ArrowRight" ? 1 : -1;
-    const next = ids[(Math.max(0, current) + step + ids.length) % ids.length];
-    setPicked(next);
-    setFilter("all");
-  };
+  const siteAxis = useMemo(() => makeMoneyAxisFormatter(sites.map((row) => row.profit)), [sites]);
+  const companyAtt = attendance?.company;
+  const healthColor = resolveTone(pulse.health);
 
   return (
-    <div className="cp">
-      <header className="cp-head">
-        <div className="cp-title">
-          <p className="cp-kicker">Main dashboard</p>
-          <h1>Company Pulse</h1>
-          <p className="cp-sub">
-            {pulse.management
-              ? "Each module once. Open its dashboard for the detail."
-              : "Your modules only. Open one for its dashboard."}
-          </p>
-        </div>
-        <div className="cp-status-row">
-          <div className="cp-live" style={{ "--dot": financeError ? "var(--cp-watch)" : "var(--cp-good)" }}>
-            <i />
-            <span>{financeError ? "Finance delayed" : "Live"} · {clock}</span>
+    <div className="cp cp-bird">
+      <header className="cp-chrome">
+        <div className="cp-chrome-title">
+          <div>
+            <p className="cp-kicker">Company ops · bird’s-eye</p>
+            <h1>Company Pulse</h1>
           </div>
-          <button type="button" className="cp-icon-btn" onClick={onRefresh} disabled={loading}>
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-            Refresh
+          <button
+            type="button"
+            className="cp-health-pill"
+            style={{ "--c": healthColor }}
+            onClick={() => openDetail("health")}
+            title="Company health detail"
+          >
+            <b>{pulse.health == null ? "—" : pulse.health}</b>
+            <span>health</span>
           </button>
         </div>
-        <div className="cp-timeline">
-          <div className="cp-timeline-main">
-            <span className="cp-timeline-label">Timeline</span>
-            <div className="cp-presets" role="group" aria-label="Timeline">
-              {presets.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  className={activePresetId === preset.id ? "is-on" : ""}
-                  onClick={() => onPreset?.(preset)}
-                >
-                  {preset.label}
-                </button>
+
+        <div className="cp-chrome-tools">
+          <div className="cp-live" style={{ "--dot": financeError ? TOKENS.warning : TOKENS.success }}>
+            <i />
+            <span>
+              {financeError ? "Finance delayed" : "Live"} · {clock}
+            </span>
+          </div>
+          <div className="cp-presets" role="group" aria-label="Timeline">
+            {presets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className={activePresetId === preset.id ? "is-on" : ""}
+                onClick={() => onPreset?.(preset)}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <label className="cp-range">
+            <select className="cp-select" value={fromKey} onChange={(event) => onFrom?.(event.target.value)} aria-label="From month">
+              {monthChoices.map((month) => (
+                <option key={`from-${month.key}`} value={month.key}>
+                  {month.label}
+                </option>
               ))}
-            </div>
-          </div>
-          <div className="cp-ranges">
-            <label className="cp-range">
-              From
-              <select className="cp-select" value={fromKey} onChange={(event) => onFrom?.(event.target.value)} aria-label="From month">
-                {monthChoices.map((month) => (
-                  <option key={`from-${month.key}`} value={month.key}>
-                    {month.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <span className="cp-range-join" aria-hidden="true" />
-            <label className="cp-range">
-              To
-              <select className="cp-select" value={toKey} onChange={(event) => onTo?.(event.target.value)} aria-label="To month">
-                {monthChoices.map((month) => (
-                  <option key={`to-${month.key}`} value={month.key}>
-                    {month.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <span className="cp-window">{rangeLabel}</span>
-          </div>
+            </select>
+          </label>
+          <label className="cp-range">
+            <select className="cp-select" value={toKey} onChange={(event) => onTo?.(event.target.value)} aria-label="To month">
+              {monthChoices.map((month) => (
+                <option key={`to-${month.key}`} value={month.key}>
+                  {month.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className="cp-icon-btn" onClick={onRefresh} disabled={loading}>
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+          </button>
         </div>
       </header>
 
       {financeError ? <p className="cp-warn">{financeError}</p> : null}
 
-      {kpis.length ? (
-        <section className="cp-kpis" aria-label="Company figures">
-          {kpis.map((kpi) => (
+      {heroes.length ? (
+        <section className="cp-heroes" aria-label="Company figures">
+          {heroes.map((item) => (
             <button
-              key={kpi.label}
+              key={item.id}
               type="button"
-              className="cp-kpi"
-              style={{ "--c": kpi.color }}
-              disabled={!kpi.enabled}
-              onClick={() => kpi.enabled && kpi.path && onOpen?.(kpi.path)}
+              className="cp-hero"
+              style={{ "--c": item.color }}
+              onClick={() => openDetail(item.kind)}
             >
-              <span>{kpi.label}</span>
-              <b>{kpi.value}</b>
+              <span>{item.label}</span>
+              <b>{item.value}</b>
+              <em>{item.hint}</em>
             </button>
           ))}
         </section>
@@ -312,311 +404,199 @@ export default function CompanyPulse({
       {listed.length === 0 ? (
         <p className="cp-empty">No modules are assigned to this login.</p>
       ) : (
-        <section className="cp-board">
-          <div className="cp-flow">
-            <div className="cp-panel">
-              <div className="cp-panel-head">
-                <h2>Modules</h2>
-                <div className="cp-tabs" role="tablist" aria-label="Module filter">
-                  {FILTERS.map(([id, label]) => (
-                    <button key={id} type="button" className={filter === id ? "is-on" : ""} onClick={() => setFilter(id)}>
-                      {label}
-                      {id === "att" && attentionCount > 0 ? <em>{attentionCount}</em> : null}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {focus.length === 0 ? <p className="cp-empty cp-empty-in">Nothing in this filter for this login.</p> : null}
-
-              <div
-                className="cp-orbit"
-                role="listbox"
-                aria-label="Modules"
-                tabIndex={0}
-                onKeyDown={onWheelKey}
-              >
-                <svg className="cp-spokes" viewBox="0 0 100 100" aria-hidden="true">
-                  <circle className="cp-track" cx="50" cy="50" r={ORBIT} />
-                  {listed.map((view, index) => {
-                    const point = polar(index, listed.length);
-                    const tone = statusOf(view).color;
-                    const dim = !matches(view, filter);
-                    return (
-                      <line
-                        key={view.id}
-                        x1="50"
-                        y1="50"
-                        x2={point.x}
-                        y2={point.y}
-                        className={dim ? "is-dim" : selected?.id === view.id ? "is-on" : ""}
-                        style={{ "--c": tone }}
-                      />
-                    );
-                  })}
-                  <circle className="cp-hub" cx="50" cy="50" r="15" />
-                </svg>
-
-                <div
-                  className="cp-core"
-                  style={{
-                    "--c": "var(--cp-brand)",
-                    "--p": pulse.health ?? 100,
-                  }}
-                >
-                  <b>{pulse.health == null ? "—" : pulse.health}</b>
-                  <span>health</span>
-                </div>
-
-                {listed.map((view, index) => {
-                  const point = polar(index, listed.length);
-                  const status = statusOf(view);
-                  const dim = !matches(view, filter);
-                  const hot = !view.planned && view.score != null && view.score < 75;
-                  const on = selected?.id === view.id;
-                  const Icon = ICONS[view.id] || FolderKanban;
-                  const shortName = WHEEL_LABEL[view.id] || view.short;
-                  return (
-                    <button
-                      key={view.id}
-                      type="button"
-                      role="option"
-                      aria-selected={on}
-                      aria-label={view.name}
-                      title={view.canOpen ? view.name : `${view.name} — no access`}
-                      className={`cp-node${on ? " is-on" : ""}${view.canOpen ? "" : " is-locked"}${dim ? " is-dim" : ""}${hot ? " is-hot" : ""}`}
-                      style={{
-                        left: `${point.x}%`,
-                        top: `${point.y}%`,
-                        "--c": status.color,
-                        "--p": view.score ?? 0,
-                        animationDelay: `${Math.min(index, 16) * 32}ms`,
-                      }}
-                      onClick={() => choose(view)}
-                    >
-                      <span className={`cp-disc${view.planned ? " is-plan" : view.score == null ? " is-plain" : ""}`}>
-                        <Icon size={16} strokeWidth={2.25} />
-                        <small>{shortName}</small>
-                      </span>
-                      {view.revenue ? <i className="cp-rev" aria-hidden="true">₹</i> : null}
-                      {!view.canOpen ? (
-                        <i className="cp-lockdot" aria-hidden="true">
-                          <Lock size={9} />
-                        </i>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
+        <section className="cp-ops" aria-label="Company operations overview">
+          <div className="cp-matrix-panel">
+            <div className="cp-panel-head">
+              <h2>Ops matrix</h2>
+              <span>
+                {listed.length} modules
+                {attention.length ? ` · ${attention.length} need a look` : ""}
+              </span>
             </div>
-
+            <div className="cp-matrix" role="list">
+              {listed.map((view, index) => {
+                const status = statusOf(view);
+                const Icon = ICONS[view.id] || FolderKanban;
+                const metric = primaryMetric(view);
+                const score = view.score;
+                return (
+                  <button
+                    key={view.id}
+                    type="button"
+                    role="listitem"
+                    className={`cp-cell${view.attention ? " is-att" : ""}${view.canOpen ? "" : " is-locked"}${view.planned ? " is-plan" : ""}`}
+                    style={{
+                      "--c": status.color,
+                      "--p": score == null ? 0 : score,
+                      animationDelay: `${Math.min(index, 18) * 18}ms`,
+                    }}
+                    title={`${view.name} detail`}
+                    onClick={() => openDetail("module", { view })}
+                  >
+                    <span className="cp-cell-top">
+                      <span className="cp-cell-icon">
+                        <Icon size={14} strokeWidth={2.25} />
+                      </span>
+                      <strong>{view.short}</strong>
+                      {!view.canOpen ? <Lock size={11} /> : view.revenue ? <i className="cp-rev">₹</i> : null}
+                    </span>
+                    <span className="cp-cell-metric">
+                      <small>{metric.label}</small>
+                      <b>{loading ? "—" : metric.value}</b>
+                    </span>
+                    <span className="cp-cell-bar" aria-hidden="true">
+                      <i style={{ width: `${score == null ? 8 : Math.max(8, score)}%` }} />
+                    </span>
+                    <span className="cp-cell-foot">
+                      <em>{status.label}</em>
+                      <span>{score == null ? "—" : score}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <aside className="cp-panel cp-detail">
-            {selected ? <Detail view={selected} loading={loading} series={seriesFor(selected)} onOpen={(path) => path && onOpen?.(path)} /> : (
-              <p className="cp-empty cp-empty-in">Pick a module, or clear the filter.</p>
-            )}
+          <div className="cp-books-panel">
+            <div className="cp-panel-head">
+              <h2>Books · {rangeLabel}</h2>
+              <button type="button" className="cp-text-link" onClick={() => openDetail("books")}>
+                Detail <ArrowUpRight size={13} />
+              </button>
+            </div>
+            <div className="cp-books-body">
+              <div className="cp-books-legend" aria-hidden="true">
+                <span>
+                  <i style={{ background: CHART.rev }} />
+                  Revenue
+                </span>
+                <span>
+                  <i style={{ background: CHART.exp }} />
+                  Expense
+                </span>
+                <span>
+                  <i style={{ background: CHART.net }} />
+                  Profit
+                </span>
+              </div>
+              <div className="cp-chart-block">
+                {chartsReady && (pl?.trend || []).length ? (
+                  <ComposedTrendChart
+                    data={pl.trend}
+                    areas={[{ key: "revenue", name: "Revenue", color: CHART.rev, fillOpacity: 0.18 }]}
+                    bars={[{ key: "expense", name: "Expense", color: CHART.exp }]}
+                    lines={[{ key: "profit", name: "Profit", color: CHART.net, width: 2.5 }]}
+                    height={168}
+                    showLegend={false}
+                    compact
+                    formatter={(value) => inrShort(value)}
+                    yTickFormatter={trendAxis}
+                    onPointClick={(row) => openDetail("month", { month: row })}
+                  />
+                ) : (
+                  <p className="cp-note">{chartsReady ? "No ledger movement in this range." : " "}</p>
+                )}
+              </div>
+              <div className="cp-chart-block cp-chart-sites">
+                <p className="cp-mini-label">Profit by site</p>
+                {chartsReady && sites.length ? (
+                  <BarCompareChart
+                    data={sites}
+                    layout="horizontal"
+                    xKey="name"
+                    series={[{ key: "profit", name: "Profit", color: CHART.net }]}
+                    height={140}
+                    categoryWidth={88}
+                    formatter={(value) => inrShort(value)}
+                    yTickFormatter={siteAxis}
+                    onBarClick={(row) => openDetail("site", { site: row })}
+                  />
+                ) : (
+                  <p className="cp-note">{chartsReady ? "No site profit in this range." : " "}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <aside className="cp-today-panel">
+            <div className="cp-panel-head">
+              <h2>Today</h2>
+              <button type="button" className="cp-text-link" onClick={() => openDetail("attendance")}>
+                Detail <ArrowUpRight size={13} />
+              </button>
+            </div>
+
+            <div className="cp-today-body">
+              <button type="button" className="cp-att-block" onClick={() => openDetail("attendance")}>
+                <AttDonut stats={companyAtt} />
+                <div className="cp-att-copy">
+                  <span>Present today</span>
+                  <b>{companyAtt?.expected ? `${companyAtt.present} / ${companyAtt.expected}` : "—"}</b>
+                  <small>
+                    Late {companyAtt?.late || 0} · Leave {companyAtt?.leave || 0} · Absent {companyAtt?.absent || 0}
+                  </small>
+                </div>
+              </button>
+
+              <div className="cp-gauges">
+                {chartsReady ? (
+                  <>
+                    <div className="cp-gauge">
+                      <RadialScoreChart
+                        value={billRate}
+                        label="Billed vs book"
+                        color={CHART.bill}
+                        height={118}
+                        onClick={() => openDetail("billRate")}
+                      />
+                    </div>
+                    <div className="cp-gauge">
+                      <RadialScoreChart
+                        value={collectRate}
+                        label="Collected"
+                        color={collectRate >= 70 ? CHART.collect : CHART.watch}
+                        height={118}
+                        onClick={() => openDetail("collectRate")}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="cp-gauge cp-gauge-hold" />
+                    <div className="cp-gauge cp-gauge-hold" />
+                  </>
+                )}
+              </div>
+
+              <div className="cp-attention">
+                <p className="cp-mini-label">Needs a look</p>
+                {attention.length === 0 ? (
+                  <p className="cp-note">Nothing flagged in modules you can see.</p>
+                ) : (
+                  <ul>
+                    {attention.slice(0, 6).map((view) => {
+                      const metric = primaryMetric(view);
+                      return (
+                        <li key={view.id}>
+                          <button type="button" onClick={() => openDetail("module", { view })}>
+                            <span>{view.short}</span>
+                            <em>
+                              {metric.label} {loading ? "—" : metric.value}
+                            </em>
+                            {view.canOpen ? <ArrowUpRight size={12} /> : <Lock size={11} />}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </div>
           </aside>
         </section>
       )}
 
-      {showAttendance ? (
-        <CompanyAttendance
-          loading={attendanceLoading}
-          error={attendanceError}
-          snapshot={attendance}
-          canOpen={Boolean(onOpenAttendance)}
-          onOpen={onOpenAttendance}
-        />
-      ) : null}
-
-      {pulse.management || ledgerOpen ? (
-        <CompanyBooks
-          pl={pl}
-          rangeLabel={rangeLabel}
-          canOpen={ledgerOpen}
-          onOpen={() => onOpen?.(ledgerPath)}
-          onOpenMonth={(row) => {
-            const key = row?.key;
-            onOpen?.(key ? `${ledgerPath}?slFrom=${key}&slTo=${key}&slMonth=${key}` : ledgerPath);
-          }}
-          onOpenSite={(row) => {
-            const id = row?.id ? encodeURIComponent(row.id) : "";
-            onOpen?.(id ? `${ledgerPath}?slSite=${id}` : ledgerPath);
-          }}
-        />
-      ) : null}
+      <CompanyPulseDetail detail={detail} onClose={() => setDetail(null)} onOpen={onOpen} />
     </div>
   );
 }
-
-function metricSize(value) {
-  const text = String(value ?? "");
-  const number = Number(text.replace(/[^\d.-]/g, ""));
-  if (!Number.isFinite(number)) return 0;
-  const amount = Math.abs(number);
-  if (/cr/i.test(text)) return amount * 100;
-  if (/\bL\b|₹[\d.]+ L/.test(text)) return amount * 10;
-  if (/k$/i.test(text.trim())) return amount;
-  return amount;
-}
-
-function shortChip(label) {
-  return String(label || "")
-    .replace(/\s*\([^)]*\)/g, " ")
-    .replace(/\s+dashboard$/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function Spark({ series }) {
-  const values = (series?.values || []).filter((value) => Number.isFinite(value));
-  if (values.length < 2) return null;
-  const low = Math.min(...values);
-  const high = Math.max(...values);
-  const span = high - low || 1;
-  const width = 280;
-  const height = 52;
-  const step = (width - 8) / (values.length - 1);
-  const points = values.map((value, index) => {
-    const x = 4 + index * step;
-    const y = 6 + (1 - (value - low) / span) * (height - 14);
-    return `${x},${y}`;
-  });
-  const line = points.join(" ");
-  return (
-    <div className="cp-spark">
-      <span>{series.label}</span>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={series.label}>
-        <polygon points={`4,${height - 2} ${line} ${width - 4},${height - 2}`} />
-        <polyline points={line} />
-      </svg>
-    </div>
-  );
-}
-
-function ScoreRing({ score, color }) {
-  const value = score == null ? 0 : Math.max(0, Math.min(100, Number(score) || 0));
-  const radius = 26;
-  const circ = 2 * Math.PI * radius;
-  return (
-    <svg className="cp-score" viewBox="0 0 68 68" role="img" aria-label={score == null ? "No score" : `Score ${score}`}>
-      <circle cx="34" cy="34" r={radius} fill="none" stroke="var(--border)" strokeWidth="5" />
-      {value > 0 ? (
-        <circle
-          className="cp-score-arc"
-          cx="34"
-          cy="34"
-          r={radius}
-          fill="none"
-          stroke={color}
-          strokeWidth="5"
-          strokeLinecap="round"
-          strokeDasharray={`${(value / 100) * circ} ${circ}`}
-          transform="rotate(-90 34 34)"
-        />
-      ) : null}
-      <text x="34" y="38" textAnchor="middle">
-        {score == null ? "—" : score}
-      </text>
-    </svg>
-  );
-}
-
-function Detail({ view, loading, series, onOpen }) {
-  const status = statusOf(view);
-  const Icon = ICONS[view.id] || FolderKanban;
-  const metrics = (view.metrics || []).slice(0, 4);
-  const links = (view.links || []).slice(0, 4);
-  const covers = links.length
-    ? links.map((link) => ({ ...link, locked: false }))
-    : (view.subs || []).slice(0, 4).map((sub) => ({
-        key: sub.key,
-        label: shortChip(sub.label),
-        path: sub.path,
-        locked: true,
-      }));
-  const sizes = metrics.map((metric) => metricSize(metric.value));
-  const peak = Math.max(0, ...sizes);
-
-  return (
-    <div className="cp-detail-body" key={view.id} style={{ "--c": status.color }}>
-      <div className="cp-dh">
-        <span className="cp-mark">
-          <Icon size={22} />
-        </span>
-        <div className="cp-dh-copy">
-          <p>{status.label}{view.revenue ? " · Revenue" : ""}</p>
-          <h3>{view.name}</h3>
-        </div>
-        <ScoreRing score={view.score} color={status.color} />
-      </div>
-
-      {metrics.length ? (
-        <div className={`cp-mets${metrics.length === 1 ? " is-one" : ""}`}>
-          {metrics.map((metric) => (
-            <div key={metric.label} className="cp-met">
-              <span>{metric.label}</span>
-              <b>{loading ? "—" : metric.value}</b>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="cp-callout">{view.note || "Open the module dashboard for the live figures."}</p>
-      )}
-
-      {view.note && metrics.length ? <p className="cp-note">{view.note}</p> : null}
-
-      <Spark series={series} />
-
-      {peak > 0 ? (
-        <div className="cp-bars" aria-label="What stands out">
-          {metrics.map((metric, index) => (
-            <div key={metric.label} className="cp-bar">
-              <span>{metric.label}</span>
-              <i>
-                <b style={{ width: `${Math.max(8, (sizes[index] / peak) * 100)}%` }} />
-              </i>
-              <em>{loading ? "—" : metric.value}</em>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {covers.length ? (
-        <div className="cp-inside">
-          <span>Inside this module</span>
-          <div className="cp-subs">
-            {covers.map((link) => (
-              <button
-                key={link.key}
-                type="button"
-                className={link.locked ? "is-lock" : ""}
-                disabled={link.locked}
-                onClick={() => !link.locked && onOpen?.(link.path)}
-              >
-                {link.locked ? <Lock size={11} /> : null}
-                {link.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      <button type="button" className="cp-go" disabled={!view.canOpen} onClick={() => view.canOpen && onOpen?.(view.openPath)}>
-        {view.canOpen ? (
-          <>
-            Open {view.short} dashboard
-            <ArrowUpRight size={15} />
-          </>
-        ) : (
-          <span className="cp-lock">
-            <Lock size={14} />
-            No access
-          </span>
-        )}
-      </button>
-    </div>
-  );
-}
-
