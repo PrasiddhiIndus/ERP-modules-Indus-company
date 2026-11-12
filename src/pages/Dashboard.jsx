@@ -20,7 +20,7 @@ import { resolveContractForBillingParentPo } from "../utils/billingInvoiceRollup
 import { PageShell } from "../components/erpUi";
 import { isPathAllowed } from "../config/roles";
 import CompanyPulse from "./dashboard/CompanyPulse";
-import { buildTimelinePresets, isManagementRole } from "./dashboard/companyPulseModel";
+import { buildTimelinePresets } from "./dashboard/companyPulseModel";
 import { loadCompanyAttendance } from "./dashboard/companyAttendance";
 
 const META_PREFIX = "__META__:";
@@ -246,8 +246,6 @@ const Dashboard = () => {
     poCount: 0,
   });
   const [attendance, setAttendance] = useState(null);
-  const [attendanceLoading, setAttendanceLoading] = useState(false);
-  const [attendanceError, setAttendanceError] = useState("");
   const mountedRef = useRef(false);
   const refreshTimerRef = useRef(null);
   const attendanceLoadedRef = useRef(false);
@@ -315,22 +313,13 @@ const Dashboard = () => {
 
       if (force || !attendanceLoadedRef.current) {
         attendanceLoadedRef.current = true;
-        setAttendanceLoading(true);
-        setAttendanceError("");
         loadCompanyAttendance(undefined, {
           onUpdate: (snapshot) => {
-            if (mountedRef.current) {
-              setAttendance(snapshot);
-              setAttendanceLoading(false);
-            }
+            if (mountedRef.current) setAttendance(snapshot);
           },
-        })
-          .catch((error) => {
-            if (mountedRef.current) setAttendanceError(error?.message || "Attendance is unavailable right now.");
-          })
-          .finally(() => {
-            if (mountedRef.current) setAttendanceLoading(false);
-          });
+        }).catch(() => {
+          /* spark stays empty when attendance is unavailable */
+        });
       }
 
       const [fin, posRaw, invRaw, footprint] = await Promise.all([financeP, posP, invP, modulesP]);
@@ -568,7 +557,7 @@ const Dashboard = () => {
   const activePresetId = presets.find((preset) => preset.from === fromKey && preset.to === toKey)?.id || "";
 
   return (
-    <PageShell className="erp-page-stack max-w-[1400px] mx-auto">
+    <PageShell className="erp-page-stack max-w-[1400px] mx-auto min-h-0 h-full space-y-0">
       <CompanyPulse
         loading={loading}
         financeError={financeError}
@@ -599,11 +588,14 @@ const Dashboard = () => {
         billRate={billRate}
         collectRate={collectRate}
         onOpen={go}
-        showAttendance={isManagementRole(userProfile) || allowPath("/app/attendance") || allowPath("/app/hr")}
         attendance={attendance}
-        attendanceLoading={attendanceLoading}
-        attendanceError={attendanceError}
-        onOpenAttendance={allowPath("/app/attendance") ? () => go("/app/attendance") : allowPath("/app/hr") ? () => go("/app/hr") : null}
+        onOpenAttendance={
+          allowPath("/app/attendance")
+            ? () => go("/app/attendance")
+            : allowPath("/app/hr")
+              ? () => go("/app/hr")
+              : null
+        }
       />
     </PageShell>
   );
