@@ -721,8 +721,36 @@ export async function createCandidate(payload, { confirmDuplicate = false, reque
   );
 }
 
-export function updateCandidate(id, payload, version) {
-  return call("admin_recruitment_candidate_update", { p_id: id, p_payload: payload, p_expected_version: version ?? null }, "Could not update the candidate.");
+/** True when an RPC failed with optimistic-lock SQLSTATE 40001. */
+export function isRecruitmentConflict(err) {
+  return Boolean(err && (err.conflict === true || String(err.code || "") === "40001"));
+}
+
+/**
+ * Update a candidate profile / CTC snapshot.
+ * On success returns a mapped candidate including the new `version`.
+ * On optimistic-lock failure throws an Error with `{ conflict: true, code: '40001' }`
+ * (does not notify listeners — caller should reload and ask the user to review).
+ */
+export async function updateCandidate(id, payload, version) {
+  const { data, error } = await supabase.rpc("admin_recruitment_candidate_update", {
+    p_id: id,
+    p_payload: payload,
+    p_expected_version: version ?? null,
+  });
+  if (error) {
+    const code = String(error?.code || "");
+    const msg = String(error?.message || "").trim();
+    if (code === "40001" || /updated by someone else/i.test(msg)) {
+      const err = new Error(msg || "This record was updated by someone else. Refresh and try again.");
+      err.conflict = true;
+      err.code = "40001";
+      throw err;
+    }
+    throw new Error(friendly(error, "Could not update the candidate."));
+  }
+  notify();
+  return mapCandidate(data);
 }
 
 export function addCandidateNote(id, note) {
