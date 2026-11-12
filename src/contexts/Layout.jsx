@@ -30,6 +30,7 @@ import { Breadcrumbs } from "../components/erpUi";
 const EnquiryDueSoonPopup = lazy(() => import("../pages/projects/enquiry/EnquiryDueSoonPopup"));
 const EnquiryOverduePopup = lazy(() => import("../pages/projects/enquiry/EnquiryOverduePopup"));
 const EnquiryCompletedPopup = lazy(() => import("../pages/projects/enquiry/EnquiryCompletedPopup"));
+import { beginProjectsVisit, endProjectsVisit } from "../pages/projects/enquiry/enquiryPopupVisit";
 import {
   LogOut,
   User,
@@ -272,6 +273,12 @@ const Layout = () => {
   useEffect(() => {
     prefetchAllDashboards();
   }, []);
+
+  // One Projects visit id for overdue reminder: set on entry, clear on leave (not on in-module refresh).
+  useEffect(() => {
+    if (pathname.startsWith("/app/projects")) beginProjectsVisit();
+    else endProjectsVisit();
+  }, [pathname]);
 
   // Warm likely destination chunks on sidebar hover/focus (no behavior change).
   useEffect(() => {
@@ -1911,7 +1918,8 @@ const Layout = () => {
         <div className="fixed bottom-4 right-4 z-[900] flex w-[340px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] flex-col gap-3 overflow-y-auto">
           <Suspense fallback={null}>
             <EnquiryCompletedPopup />
-            <EnquiryOverduePopup />
+            {/* Overdue: only on Enquiry Master Dashboard, once per Projects visit */}
+            {pathname.includes("/projects/enquiry/enquiry-dashboard") ? <EnquiryOverduePopup /> : null}
             <EnquiryDueSoonPopup />
           </Suspense>
         </div>

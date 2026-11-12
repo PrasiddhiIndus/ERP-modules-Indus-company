@@ -7,18 +7,46 @@ import { getEnquiryFieldValue, PROJECTS_SCHEMA, projectsTable } from '../../../s
 import { formatDisplayDate } from './enquiryConstants';
 import { getDaysLeft, isOverdueOpen, startOfToday } from './enquiryDeadlines';
 import { isAssignedToAny, isEnquiryApprover, namesForUser } from './enquiryRoles';
+import { OVERDUE_SHOWN_VISIT_KEY, PROJECTS_VISIT_KEY, beginProjectsVisit } from './enquiryPopupVisit';
 
 const DISMISS_KEY = 'projects-enquiry-overdue-dismissed';
 const ENQUIRY_DATABASE_PATH = '/app/projects/enquiry/enquiry-database';
 const MAX_LISTED = 5;
 
-function dismissStamp(ids) {
-  return `${startOfToday().toDateString()}|${[...ids].sort().join(',')}`;
+function readSession(key) {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(key, value) {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function alreadyShownThisVisit() {
+  const visit = readSession(PROJECTS_VISIT_KEY);
+  if (!visit) return false;
+  return readSession(OVERDUE_SHOWN_VISIT_KEY) === visit;
+}
+
+function markShownThisVisit() {
+  beginProjectsVisit();
+  const visit = readSession(PROJECTS_VISIT_KEY);
+  if (!visit) return;
+  writeSession(OVERDUE_SHOWN_VISIT_KEY, visit);
 }
 
 /**
  * Red reminder of overdue open enquiries: the assigned person sees their own;
  * Manager / Admin / Super Admin see every overdue enquiry.
+ *
+ * Shown once per Projects module visit (not again on in-module navigation or refresh).
  */
 export default function EnquiryOverduePopup() {
   const navigate = useNavigate();
@@ -26,7 +54,7 @@ export default function EnquiryOverduePopup() {
   const seesAll = isEnquiryApprover(userProfile);
   const [rows, setRows] = useState([]);
   const [assigneeOptions, setAssigneeOptions] = useState([]);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(() => alreadyShownThisVisit());
 
   useEffect(() => {
     let cancelled = false;
@@ -67,25 +95,26 @@ export default function EnquiryOverduePopup() {
 
   useEffect(() => {
     if (!ids.length) return;
-    try {
-      setDismissed(sessionStorage.getItem(DISMISS_KEY) === dismissStamp(ids));
-    } catch {
-      setDismissed(false);
+    if (alreadyShownThisVisit()) {
+      setDismissed(true);
+      return;
     }
+    // First time this Projects visit: show, then remember so refresh / re-open does not repeat.
+    markShownThisVisit();
+    setDismissed(false);
   }, [ids]);
 
   if (!ids.length || dismissed) return null;
 
   const dismiss = () => {
-    try {
-      sessionStorage.setItem(DISMISS_KEY, dismissStamp(ids));
-    } catch {
-      /* storage unavailable — hide for this view only */
-    }
+    markShownThisVisit();
+    writeSession(DISMISS_KEY, '1');
     setDismissed(true);
   };
 
   const openAll = () => {
+    markShownThisVisit();
+    setDismissed(true);
     navigate(ENQUIRY_DATABASE_PATH, {
       state: { dashboardView: { label: seesAll ? 'Overdue' : 'My overdue enquiries', ids } },
     });
