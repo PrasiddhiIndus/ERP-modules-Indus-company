@@ -69,28 +69,29 @@ function renderPulse({ role, allowPath }) {
       pl,
       billRate: 40,
       collectRate: 50,
-      billingTrend: [
-        { key: "2026-04", value: 100000 },
-        { key: "2026-05", value: 120000 },
-      ],
+      attendance: {
+        company: { on: 10, late: 2, leave: 1, absent: 1, present: 12, expected: 14, pct: 85.7 },
+      },
     })
   );
 }
 
-describe("Company Pulse dashboard", () => {
-  it("lists every module for management and opens only assigned paths", () => {
+describe("Company Pulse bird's-eye", () => {
+  it("shows ops matrix, books, and today in one view for management", () => {
     const html = renderPulse({
       role: "admin",
-      allowPath: (path) => String(path).startsWith("/app/hr"),
+      allowPath: (path) => String(path).startsWith("/app/hr") || String(path).includes("accounts-finance"),
     });
     expect(html).toContain("Company Pulse");
-    expect(html).toContain("This year");
+    expect(html).toContain("cp-bird");
+    expect(html).toContain("Ops matrix");
+    expect(html).toContain("Books ·");
+    expect(html).toContain("Today");
+    expect(html).toContain("People");
     expect(html).toContain("Marketing");
     expect(html).toContain("Procurement");
-    expect(html).toContain("is-locked");
-    expect(html).toContain("Open HR");
-    expect(html).not.toContain("Result trend");
-    expect(html).not.toContain("Commercial book");
+    expect(html).toContain("Present today");
+    expect(html).not.toContain("cp-orbit");
   });
 
   it("hides modules outside an executive assignment", () => {
@@ -98,12 +99,13 @@ describe("Company Pulse dashboard", () => {
       role: "executive",
       allowPath: (path) => String(path).startsWith("/app/hr"),
     });
-    expect(html).toContain("Open HR");
+    expect(html).toContain("Ops matrix");
+    expect(html).toContain("HR");
     expect(html).not.toContain("Marketing");
     expect(html).not.toContain(">AMC<");
   });
 
-  it("adds one attendance block under the modules", () => {
+  it("keeps attendance summary on the board without stacked sections", () => {
     const html = renderToStaticMarkup(
       React.createElement(CompanyPulse, {
         loading: false,
@@ -128,23 +130,16 @@ describe("Company Pulse dashboard", () => {
         pl,
         billRate: 0,
         collectRate: 0,
-        showAttendance: true,
         attendance: {
-          target: 92,
           company: { on: 10, late: 2, leave: 1, absent: 1, present: 12, expected: 14, pct: 85.7 },
           departments: [{ name: "Operations", on: 4, late: 1, leave: 0, absent: 0, present: 5, expected: 5, pct: 100 }],
-          trend: [
-            { iso: "2026-11-03", weekday: "Tue", label: "3/11", full: "Tuesday, 3 Nov", pct: 90, present: 9, expected: 10 },
-          ],
         },
       })
     );
-    expect(html).toContain("Company attendance today");
-    expect(html).toContain("Attendance by department");
-    expect(html).toContain("Revenue · expense · profit");
-    expect(html).toContain("Profit by site");
-    expect(html).toContain("Operations");
-    expect(html).not.toContain("Company attendance trend");
-    expect(html).not.toContain("Result trend");
+    expect(html).toContain("cp-matrix");
+    expect(html).toContain("Present today");
+    expect(html).toContain("12 / 14");
+    expect(html).not.toContain("Company attendance today");
+    expect(html).not.toContain("Attendance by department");
   });
 });

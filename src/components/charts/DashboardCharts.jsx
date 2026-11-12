@@ -466,11 +466,17 @@ export function ComposedTrendChart({
   formatter,
   yTickFormatter = compactInrTick,
   onPointClick,
+  showLegend = true,
+  compact = false,
 }) {
   const gid = useId().replace(/:/g, "");
+  const axis = compact ? { ...AXIS, fontSize: 10 } : AXIS;
   return (
     <ResponsiveContainer width="100%" height={height} minWidth={0}>
-      <ComposedChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
+      <ComposedChart
+        data={data}
+        margin={compact ? { top: 4, right: 8, left: 0, bottom: 0 } : { top: 8, right: 12, left: 4, bottom: 8 }}
+      >
         <defs>
           {areas.map((s, i) => (
             <linearGradient key={s.key} id={`cmp-${gid}-${i}`} x1="0" y1="0" x2="0" y2="1">
@@ -480,17 +486,17 @@ export function ComposedTrendChart({
           ))}
         </defs>
         <CartesianGrid strokeDasharray="3 6" stroke={GRID} vertical={false} />
-        <XAxis dataKey={xKey} tick={AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" tickMargin={6} />
+        <XAxis dataKey={xKey} tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" tickMargin={compact ? 2 : 6} />
         <YAxis
-          tick={AXIS}
+          tick={axis}
           axisLine={false}
           tickLine={false}
-          width={58}
+          width={compact ? 42 : 58}
           tickFormatter={yTickFormatter}
-          tickMargin={6}
+          tickMargin={compact ? 2 : 6}
         />
         <Tooltip content={<ChartTooltip formatter={formatter} />} />
-        <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+        {showLegend ? <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} /> : null}
         {areas.map((s, i) => (
           <Area
             key={s.key}
@@ -514,7 +520,7 @@ export function ComposedTrendChart({
             name={s.name || s.key}
             fill={s.color || resolveChartSeries()[(i + 2) % resolveChartSeries().length]}
             radius={[4, 4, 0, 0]}
-            maxBarSize={28}
+            maxBarSize={compact ? 18 : 28}
             cursor={onPointClick ? "pointer" : "default"}
             onClick={(entry) => onPointClick?.(entry?.payload || entry)}
           />
@@ -527,7 +533,7 @@ export function ComposedTrendChart({
             name={s.name || s.key}
             stroke={s.color || resolveChartSeries()[(i + 1) % resolveChartSeries().length]}
             strokeWidth={s.width || 2}
-            dot={{ r: 3 }}
+            dot={compact ? false : { r: 3 }}
             activeDot={
               onPointClick
                 ? { r: 5, cursor: "pointer", onClick: (_, p) => onPointClick(p?.payload) }

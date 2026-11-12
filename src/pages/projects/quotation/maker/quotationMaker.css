@@ -312,12 +312,11 @@
   overflow: visible;
 }
 
-/* Header alignment matches cell content under each column */
+/* Create Quotation: headings and entries share the same centre alignment */
+.qm-table th,
+.qm-table td,
 .qm-table th.qm-col-description,
-.qm-table td.qm-col-description {
-  text-align: left;
-}
-
+.qm-table td.qm-col-description,
 .qm-table th.qm-col-sr,
 .qm-table td.qm-col-sr,
 .qm-table th.qm-col-unit,
@@ -325,17 +324,11 @@
 .qm-table th.qm-col-qty,
 .qm-table td.qm-col-qty,
 .qm-table th.qm-col-actions,
-.qm-table td.qm-col-actions {
-  text-align: center;
-}
-
+.qm-table td.qm-col-actions,
 .qm-table th.qm-col-make,
 .qm-table td.qm-col-make,
 .qm-table th.qm-col-remarks,
-.qm-table td.qm-col-remarks {
-  text-align: left;
-}
-
+.qm-table td.qm-col-remarks,
 .qm-table th.qm-col-price_unit,
 .qm-table th.qm-col-supply_unit,
 .qm-table th.qm-col-install_unit,
@@ -348,7 +341,12 @@
 .qm-table td.qm-col-supply_total,
 .qm-table td.qm-col-install_total,
 .qm-table td.qm-col-total {
-  text-align: right;
+  text-align: center;
+}
+
+.qm-table .qm-cell,
+.qm-table .qm-cell-grow {
+  text-align: center;
 }
 
 .qm-table tr.heading td {
@@ -362,8 +360,7 @@
 }
 
 .qm-heading-total-label {
-  text-align: right;
-  padding-right: 10px !important;
+  text-align: center;
   color: #0f172a;
 }
 
@@ -433,7 +430,7 @@
 }
 
 .qm-money {
-  text-align: right;
+  text-align: center;
   white-space: nowrap;
   font-weight: 700;
   font-size: 11px;
@@ -529,12 +526,9 @@
   min-height: 28px;
 }
 
-.qm-cell.c {
-  text-align: center;
-}
-
+.qm-cell.c,
 .qm-cell.r {
-  text-align: right;
+  text-align: center;
 }
 
 .qm-cell.ind {
@@ -759,23 +753,22 @@
   white-space: pre-wrap;
 }
 
-.qm-ptable .qm-num-cell {
+.qm-ptable th,
+.qm-ptable .qm-num-cell,
+.qm-ptable .qm-desc-cell,
+.qm-ptable .qm-unit-cell,
+.qm-ptable .qm-qty-cell,
+.qm-ptable .qm-amt-cell {
   text-align: center;
-  white-space: nowrap;
 }
 
-.qm-ptable .qm-desc-cell {
-  text-align: left;
-}
-
+.qm-ptable .qm-num-cell,
 .qm-ptable .qm-unit-cell,
 .qm-ptable .qm-qty-cell {
-  text-align: center;
   white-space: nowrap;
 }
 
 .qm-ptable .qm-amt-cell {
-  text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   font-size: 0.95em;
