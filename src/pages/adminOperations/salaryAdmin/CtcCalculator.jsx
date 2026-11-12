@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Eraser, RefreshCw, Save } from "lucide-react";
 import {
   CollapsibleHelp,
@@ -206,6 +206,8 @@ export default function CtcCalculator({
   const [rulesError, setRulesError] = useState("");
   const [usingSeed, setUsingSeed] = useState(false);
   const [saving, setSaving] = useState(false);
+  /** Sync in-flight guard — blocks a second click before React re-renders `saving`. */
+  const savingRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -345,7 +347,8 @@ export default function CtcCalculator({
   const canSave = Boolean(onSave) && Boolean(display) && !calc.error && !saving;
 
   const handleSave = async () => {
-    if (!canSave || !display) return;
+    if (!canSave || !display || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       await onSave({
@@ -355,6 +358,7 @@ export default function CtcCalculator({
         display,
       });
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
