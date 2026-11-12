@@ -218,6 +218,10 @@ export function SearchBox({ value, onChange, placeholder = "Search…", classNam
   );
 }
 
+/** Shared list-page toolbar: search · quick filters · (ml-auto) count + primary action. */
+export const toolbarClass = "flex flex-wrap items-end gap-3 px-4 py-3";
+export const searchClass = "w-full sm:w-72";
+
 export function Field({ label, children, className = "" }) {
   return (
     <label className={`flex min-w-0 flex-col gap-1 ${className}`}>

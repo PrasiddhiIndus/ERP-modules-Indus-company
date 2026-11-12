@@ -14,13 +14,14 @@ import {
   SearchBox,
   SelectField,
   StatusPill,
-  Tabs,
   btn,
   fmtDate,
   fmtDateTime,
   inputClass,
   runAction,
+  searchClass,
   textareaClass,
+  toolbarClass,
   useCapabilities,
   useRecruitmentData,
 } from "./RecruitmentUi";
@@ -36,7 +37,8 @@ export default function CommunicationPage() {
   const [params, setParams] = useSearchParams();
   const candidateParam = params.get("candidate") || "";
   const { data, loading, error, reload } = useRecruitmentData(loadCommunicationPage);
-  const [tab, setTab] = useState("history");
+  // Email log (Reports) and Email templates (Settings) share this route; the sub-nav sets ?tab=.
+  const tab = params.get("tab") === "templates" ? "templates" : "history";
   const [search, setSearch] = useState("");
   const [templateKey, setTemplateKey] = useState("");
   const [delivery, setDelivery] = useState("");
@@ -61,7 +63,6 @@ export default function CommunicationPage() {
 
   const open = messages.find((m) => m.id === openId) || null;
   const filterCandidate = candidates.find((c) => c.id === candidateParam);
-  const failedCount = messages.filter((m) => m.deliveryStatus === "failed").length;
 
   const clearCandidate = () => {
     const next = new URLSearchParams(params);
@@ -93,33 +94,11 @@ export default function CommunicationPage() {
   return (
     <div className="space-y-3">
       <div className="rounded-card border border-border bg-surface shadow-card">
-        <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-1">
-          <Tabs
-            ariaLabel="Communication"
-            value={tab}
-            onChange={setTab}
-            tabs={[
-              { key: "history", label: "Email history", count: messages.length },
-              { key: "templates", label: "Templates", count: templates.length },
-            ]}
-          />
-          <div className="flex gap-2">
-            {tab === "templates" && canEditTemplates ? (
-              <button type="button" className={btn.secondary} onClick={() => setEditTemplate({ key: null, name: "", category: "general", subject: "", body: "", active: true })}>
-                <Plus className="h-3.5 w-3.5" /> New template
-              </button>
-            ) : null}
-            <button type="button" className={btn.primary} onClick={() => setComposeOpen(true)}>
-              <PenSquare className="h-3.5 w-3.5" /> Compose email
-            </button>
-          </div>
-        </div>
-
         <AsyncBoundary loading={loading} error={error} onRetry={reload}>
           {tab === "history" ? (
             <>
-              <div className="flex flex-wrap items-end gap-3 px-4 py-3">
-                <SearchBox value={search} onChange={setSearch} placeholder="Search subject, recipient, candidate…" className="w-full sm:w-72" />
+              <div className={toolbarClass}>
+                <SearchBox value={search} onChange={setSearch} placeholder="Search subject, recipient, candidate…" className={searchClass} />
                 <SelectField label="Template" value={templateKey} onChange={setTemplateKey} options={templates.map((t) => ({ value: t.key, label: t.name }))} className="w-48" />
                 <SelectField label="Delivery" value={delivery} onChange={setDelivery} options={DELIVERY_STATUSES.map((s) => ({ value: s.key, label: s.label }))} className="w-36" />
                 {filterCandidate ? (
@@ -127,17 +106,29 @@ export default function CommunicationPage() {
                     Candidate: {filterCandidate.name} ×
                   </button>
                 ) : null}
-                {failedCount ? (
-                  <button type="button" className={`${btn.ghost} text-critical`} onClick={() => setDelivery("failed")}>
-                    {failedCount} failed
+                <div className="ml-auto flex items-center gap-2">
+                  <span className="text-[11px] text-ink-muted">
+                    {filtered.length} of {messages.length}
+                  </span>
+                  <button type="button" className={btn.primary} onClick={() => setComposeOpen(true)}>
+                    <PenSquare className="h-3.5 w-3.5" /> Compose email
                   </button>
-                ) : null}
+                </div>
               </div>
               <div className="px-4 pb-4">
                 <DataTable columns={columns} rows={filtered} onRowClick={(m) => setOpenId(m.id)} initialSort={{ key: "sentAt", dir: "desc" }} emptyTitle="No emails" emptyMessage="Emails sent to candidates appear here." />
               </div>
             </>
           ) : (
+            <>
+            {canEditTemplates ? (
+              <div className={toolbarClass}>
+                <span className="text-[11px] text-ink-muted">{templates.length} templates</span>
+                <button type="button" className={`${btn.primary} ml-auto`} onClick={() => setEditTemplate({ key: null, name: "", category: "general", subject: "", body: "", active: true })}>
+                  <Plus className="h-3.5 w-3.5" /> New template
+                </button>
+              </div>
+            ) : null}
             <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
               {templates.map((t) => (
                 <article key={t.key} className="flex flex-col rounded-lg border border-border p-3">
@@ -162,6 +153,7 @@ export default function CommunicationPage() {
                 </article>
               ))}
             </div>
+            </>
           )}
         </AsyncBoundary>
       </div>
