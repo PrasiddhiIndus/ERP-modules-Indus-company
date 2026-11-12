@@ -459,6 +459,10 @@ export async function getCapabilities({ fresh = false } = {}) {
 // ---------------------------------------------------------------------------
 // Reads
 // ---------------------------------------------------------------------------
+/** Approver names resolved this page load (display only). Signed-in users have SELECT-only
+ *  on admin_recruitment_requisitions, so names are never written back from the client. */
+const approverNameCache = new Map();
+
 export async function listRequisitions() {
   const [rows, cands] = await Promise.all([
     selectAll(T.requisitions, "*", (q) => q.order("created_at", { ascending: false })),
@@ -480,21 +484,20 @@ export async function listRequisitions() {
   if (needApprover.length) {
     await Promise.all(
       needApprover.map(async (r) => {
+        if (approverNameCache.has(r.id)) {
+          if (approverNameCache.get(r.id)) r.decidedBy = approverNameCache.get(r.id);
+          return;
+        }
         try {
-          const { data } = await supabase.rpc("admin_recruitment_requisition_approver_name", {
+          const { data, error } = await supabase.rpc("admin_recruitment_requisition_approver_name", {
             p_requisition_id: r.id,
           });
+          if (error) return;
           const name = data ? String(data).trim() : "";
-          if (!name) return;
-          r.decidedBy = name;
-          // Persist so Status column stays filled without re-RPC
-          await supabase
-            .from(T.requisitions)
-            .update({ decided_by_name: name })
-            .eq("id", r.id)
-            .is("decided_by_name", null);
+          approverNameCache.set(r.id, name);
+          if (name) r.decidedBy = name;
         } catch {
-          /* ignore */
+          /* display-only; leave the column blank */
         }
       })
     );
