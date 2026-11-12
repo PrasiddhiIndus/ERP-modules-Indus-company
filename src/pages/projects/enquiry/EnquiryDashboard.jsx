@@ -298,7 +298,7 @@ function ChartCard({ title, subtitle, action, children, className = '' }) {
   );
 }
 
-function KpiCard({ icon: Icon, label, value, sub, tone = 'blue', onClick }) {
+function KpiCard({ icon: Icon, label, value, sub, tone = 'blue', onClick, highlight = false }) {
   const tones = {
     blue: 'bg-blue-50 text-blue-700 border-blue-100',
     amber: 'bg-amber-50 text-amber-700 border-amber-100',
@@ -315,7 +315,7 @@ function KpiCard({ icon: Icon, label, value, sub, tone = 'blue', onClick }) {
       title={value && onClick ? `Open these ${value} enquiries in the Enquiry Database` : undefined}
       className={`enquiry-kpi-3d w-full h-full flex flex-col text-left rounded-xl border p-3 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-default ${
         value && onClick ? 'cursor-pointer hover:shadow-md hover:-translate-y-0.5' : ''
-      } ${tones[tone] || tones.blue}`}
+      } ${tones[tone] || tones.blue}${highlight ? ' enquiry-kpi-overdue-highlight' : ''}`}
     >
       <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-white/70 shrink-0">
         <Icon className="w-4 h-4" />
@@ -509,7 +509,15 @@ export default function EnquiryDashboard() {
         <KpiCard icon={CheckCircle2} label="Completed" value={stats.completed} sub="On or before target date" tone="green" onClick={openHandler('completed', 'Completed')} />
         <KpiCard icon={AlertTriangle} label="Regret" value={stats.regret} tone="red" onClick={openHandler('regret', 'Regret')} />
         <KpiCard icon={Users} label="Unassigned" value={stats.unassigned} sub="Open, no assignee, not yet due" tone="slate" onClick={openHandler('unassigned', 'Unassigned')} />
-        <KpiCard icon={AlertTriangle} label="Overdue" value={stats.overdue} sub="Open, past target date" tone="red" onClick={openHandler('overdue', 'Overdue')} />
+        <KpiCard
+          icon={AlertTriangle}
+          label="Overdue"
+          value={stats.overdue}
+          sub="Open, past target date"
+          tone="red"
+          highlight={stats.overdue > 0}
+          onClick={openHandler('overdue', 'Overdue')}
+        />
         <KpiCard
           icon={AlertTriangle}
           label={`Due in ${DUE_SOON_DAYS} days`}
