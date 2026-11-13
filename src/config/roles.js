@@ -946,6 +946,7 @@ export const NAV_MODULE_TREE = [
       { value: "commercialMt.configuration",     label: "Manpower Configuration",     pathPrefix: "/app/manpower/configuration" },
       { value: "commercialMt.po-entry",          label: "Contract Management",        pathPrefix: "/app/commercial/manpower-training/po-entry" },
       { value: "commercialMt.contact-log",       label: "Contact Log",                pathPrefix: "/app/commercial/manpower-training/contact-log" },
+      { value: "commercialMt.fire-tender-management", label: "Fire Tender Management", pathPrefix: "/app/commercial/manpower-training/fire-tender-management" },
     ],
   },
   {

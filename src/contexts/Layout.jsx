@@ -1172,6 +1172,10 @@ const Layout = () => {
                     <ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Contact Log</span>
                   </NavLink>
+                  <NavLink to="/app/commercial/manpower-training/fire-tender-management" className={subNavClass}>
+                    <Truck className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate">Fire Tender Management</span>
+                  </NavLink>
                 </div>
               )}
             </div>
