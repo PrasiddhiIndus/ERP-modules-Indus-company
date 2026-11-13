@@ -146,7 +146,30 @@ export async function fetchOcSignatureUrl(userId) {
 
 const PO_DOCUMENT_BUCKET = "projects-po-documents";
 
-/** Stores the original purchase order on a saved Projects PO At Glance record. */
+function docsFromRpc(data, fallbackName, fallbackPath) {
+  const list = Array.isArray(data) ? data : [];
+  const cleaned = list
+    .filter((d) => d && String(d.path || "").trim())
+    .map((d) => ({
+      name: String(d.name || "Purchase order").trim() || "Purchase order",
+      path: String(d.path).trim(),
+      uploaded_at: d.uploaded_at || null,
+    }));
+  if (cleaned.length) {
+    return {
+      po_documents: cleaned,
+      po_document_name: cleaned[0].name,
+      po_document_path: cleaned[0].path,
+    };
+  }
+  return {
+    po_documents: [],
+    po_document_name: fallbackName || "",
+    po_document_path: fallbackPath || "",
+  };
+}
+
+/** Stores an original purchase order file on a saved Projects PO At Glance record (appends). */
 export async function uploadProjectPoDocument(ocId, file) {
   const safeName = String(file.name || "purchase-order").replace(/[^\w.\-() ]+/g, "_");
   const path = `${ocId}/${Date.now()}-${safeName}`;
@@ -155,21 +178,49 @@ export async function uploadProjectPoDocument(ocId, file) {
     contentType: file.type || undefined,
   });
   if (uploadError) throw uploadError;
-  const { error } = await supabase.rpc("pj_oc_set_po_document", {
+  const { data, error } = await supabase.rpc("pj_oc_set_po_document", {
     p_id: ocId,
     p_name: file.name,
     p_path: path,
   });
   if (error) throw error;
-  return { po_document_name: file.name, po_document_path: path };
+  return docsFromRpc(data, file.name, path);
 }
 
-/** Removes a purchase order file that was already saved with the PO. */
-export async function clearProjectPoDocument(ocId, path) {
-  const { error } = await supabase.rpc("pj_oc_clear_po_document", { p_id: ocId });
+/** Uploads several original PO files; returns the merged document list. */
+export async function uploadProjectPoDocuments(ocId, files) {
+  let latest = { po_documents: [], po_document_name: "", po_document_path: "" };
+  for (const file of files || []) {
+    latest = await uploadProjectPoDocument(ocId, file);
+  }
+  return latest;
+}
+
+/** Removes one purchase order file that was already saved with the PO. */
+export async function removeProjectPoDocument(ocId, path) {
+  const { data, error } = await supabase.rpc("pj_oc_remove_po_document", {
+    p_id: ocId,
+    p_path: path,
+  });
   if (error) throw error;
   if (path) {
     const { error: storageError } = await supabase.storage.from(PO_DOCUMENT_BUCKET).remove([path]);
+    if (storageError) console.warn("[PO At Glance] file remove", storageError);
+  }
+  return docsFromRpc(data);
+}
+
+/** Removes every purchase order file that was already saved with the PO. */
+export async function clearProjectPoDocument(ocId, pathOrPaths) {
+  const paths = Array.isArray(pathOrPaths)
+    ? pathOrPaths.filter(Boolean)
+    : pathOrPaths
+      ? [pathOrPaths]
+      : [];
+  const { error } = await supabase.rpc("pj_oc_clear_po_document", { p_id: ocId });
+  if (error) throw error;
+  if (paths.length) {
+    const { error: storageError } = await supabase.storage.from(PO_DOCUMENT_BUCKET).remove(paths);
     if (storageError) console.warn("[PO At Glance] file remove", storageError);
   }
 }

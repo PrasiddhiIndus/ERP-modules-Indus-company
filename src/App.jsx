@@ -725,6 +725,9 @@ function App() {
             <Route path="projects-management" element={<ProjectsManagement />} />
             <Route path="projects-billing" element={<ProjectsBilling />} />
             <Route path="projects/po" element={<ProjectsPoHub />} />
+            <Route path="projects/po/po-wo-sub-coordinator" element={<ProjectsPoHub />} />
+            <Route path="projects/po/budget" element={<ProjectsPoHub />} />
+            <Route path="projects/po/expense" element={<ProjectsPoHub />} />
             <Route path="projects/po/po-entry" element={<ProjectsPoHub />} />
             <Route path="projects/po/contact-log" element={<ProjectsPoHub />} />
             <Route path="projects/enquiry" element={<ProjectsEnquiryHub />} />

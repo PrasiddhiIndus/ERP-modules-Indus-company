@@ -1,7 +1,13 @@
 import { supabase } from '../../../lib/supabase';
 import { PROJECTS_SCHEMA, projectsTable } from '../../../services/projectsApi';
+import { startOfToday, toLocalDate } from './enquiryDeadlines';
 
 const rpc = (name, args) => supabase.schema(PROJECTS_SCHEMA).rpc(name, args);
+
+/** After first save, only these fields stay editable on the enquiry. */
+export const POST_SAVE_EDITABLE_KEYS = ['target_date', 'completed_on', 'current_status', 'remarks'];
+
+const POST_SAVE_EDITABLE = new Set(POST_SAVE_EDITABLE_KEYS);
 
 /** Normalize a stored / draft value for change comparison. */
 export function normalizeEnquiryCompareValue(value) {
@@ -39,10 +45,10 @@ export function diffEnquiryFields(before, after, fields = []) {
 export function editErrorMessage(err, fallback = 'Something went wrong. Please try again.') {
   const msg = String(err?.message || err || '');
   console.error('Enquiry edit', err);
-  if (/enquiry_edit_requests|request_enquiry_edit|decide_enquiry_edit|apply_enquiry_completed|enquiry_notifications|schema cache|does not exist/i.test(msg)) {
+  if (/enquiry_edit_requests|request_enquiry_edit|decide_enquiry_edit|apply_enquiry_completed|apply_enquiry_progress|enquiry_notifications|schema cache|does not exist/i.test(msg)) {
     return 'Edit approval is not set up yet. Ask your administrator to apply the latest update.';
   }
-  if (/only a manager|no longer exists|already (approved|rejected)|do not have access|no field changes|managers can save|Regret must be sent|Only Completed status/i.test(msg)) {
+  if (/only a manager|only this employee|reporting manager|no longer exists|already (approved|rejected)|do not have access|no field changes|managers can save|Regret must be sent|Only Completed status|Only Not Started|past completed date|Completed date is not/i.test(msg)) {
     return msg;
   }
   if (/row-level security|42501/i.test(msg)) {
@@ -85,24 +91,88 @@ export async function applyEnquiryCompleted(enquiryId, proposedData) {
   return data;
 }
 
+/** Non-manager path: apply Not Started / Work in Progress without L1. */
+export async function applyEnquiryProgress(enquiryId, proposedData) {
+  const { data, error } = await rpc('apply_enquiry_progress', {
+    p_enquiry_id: enquiryId,
+    p_proposed_data: proposedData || {},
+  });
+  if (error) throw error;
+  return data;
+}
+
 function statusFromChanges(changes = []) {
   const row = (changes || []).find((c) => c.field_key === 'current_status');
   return String(row?.new_value || '').trim().toLowerCase();
 }
 
-/** True when the only edits are marking status Completed (+ optional completed_on). */
+function statusFromData(data = {}) {
+  return String(data?.current_status || '').trim().toLowerCase();
+}
+
+/** Completed Date value is strictly before today (local). */
+export function isPastCompletedOnValue(value) {
+  const d = toLocalDate(value);
+  return Boolean(d && d < startOfToday());
+}
+
+/** Entering a past Completed Date requires L1 approval. */
+export function isPastCompletedDateChange(changes = []) {
+  const row = (changes || []).find((c) => c.field_key === 'completed_on');
+  if (!row) return false;
+  return isPastCompletedOnValue(row.new_value);
+}
+
+/** True when the only edits are Completed status and/or Completed Date. */
 export function isCompletedOnlyChange(changes = []) {
   const keys = new Set((changes || []).map((c) => c.field_key));
   if (!keys.size) return false;
   for (const key of keys) {
     if (key !== 'current_status' && key !== 'completed_on') return false;
   }
-  return statusFromChanges(changes) === 'completed';
+  const statusChange = statusFromChanges(changes);
+  if (statusChange) return statusChange === 'completed';
+  return keys.has('completed_on');
+}
+
+/**
+ * Progress status (Not Started / Work in Progress) with only post-save fields —
+ * applies immediately without L1.
+ */
+export function isProgressDirectChange(changes = [], data = {}) {
+  const status = statusFromData(data);
+  if (status !== 'not started' && status !== 'work in progress') return false;
+  const keys = new Set((changes || []).map((c) => c.field_key));
+  if (!keys.size) return false;
+  for (const key of keys) {
+    if (!POST_SAVE_EDITABLE.has(key)) return false;
+  }
+  if (isPastCompletedDateChange(changes)) return false;
+  return true;
 }
 
 /** True when status is being set to Regret (needs L1 for non-managers). */
 export function isRegretStatusChange(changes = []) {
   return statusFromChanges(changes) === 'regret';
+}
+
+/**
+ * How a non-manager save should be treated:
+ *   none | progress | completed | regret | l1
+ */
+export function enquiryEditSaveMode(changes = [], data = {}) {
+  if (!changes?.length) return 'none';
+  if (isPastCompletedDateChange(changes)) return 'l1';
+  if (isRegretStatusChange(changes) || statusFromData(data) === 'regret') return 'regret';
+  if (isProgressDirectChange(changes, data)) return 'progress';
+  if (
+    isCompletedOnlyChange(changes) &&
+    statusFromData(data) === 'completed' &&
+    !isPastCompletedOnValue(data?.completed_on)
+  ) {
+    return 'completed';
+  }
+  return 'l1';
 }
 
 export async function decideEnquiryEdit(requestId, approve, note) {

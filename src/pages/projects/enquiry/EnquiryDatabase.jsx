@@ -30,11 +30,12 @@ import EnquiryEditRequests from './EnquiryEditRequests';
 import EnquiryChangeHistory from './EnquiryChangeHistory';
 import { deletionErrorMessage, listPendingDeletionRequests, requestEnquiryDeletion } from './enquiryDeletionApi';
 import {
+  POST_SAVE_EDITABLE_KEYS,
   applyEnquiryCompleted,
+  applyEnquiryProgress,
   diffEnquiryFields,
   editErrorMessage,
-  isCompletedOnlyChange,
-  isRegretStatusChange,
+  enquiryEditSaveMode,
   listPendingEditRequests,
   requestEnquiryEdit,
 } from './enquiryEditApi';
@@ -103,10 +104,12 @@ export default function EnquiryDatabase() {
   const [saving, setSaving] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
 
-  const editableFields = useMemo(
-    () => orderAssignmentFields(databaseFields.filter((f) => !f.read_only)),
+  /** All enquiry fields for the edit panel; only POST_SAVE_EDITABLE_KEYS stay writable. */
+  const editPanelFields = useMemo(
+    () => orderAssignmentFields(databaseFields.filter((f) => f.field_key !== 'serial_number')),
     [databaseFields]
   );
+  const postSaveEditable = useMemo(() => new Set(POST_SAVE_EDITABLE_KEYS), []);
   const hasTargetColumn = useMemo(
     () => databaseFields.some((f) => f.field_key === 'target_date'),
     [databaseFields]
@@ -297,9 +300,17 @@ export default function EnquiryDatabase() {
         return;
       }
 
-      // Non-managers: Completed (status-only) applies now + Projects notification.
-      // Regret (and any other edits) go to L1 approval.
-      if (isCompletedOnlyChange(changes) && isCompletedStatus(data.current_status)) {
+      // Non-managers: WIP / Not Started and Completed (not past date) apply now.
+      // Past completed date, Regret, and other edits go to that employee's L1.
+      const mode = enquiryEditSaveMode(changes, data);
+      if (mode === 'progress') {
+        await applyEnquiryProgress(editDraft.id, data);
+        setSavedNotice(`Enquiry #${editDraft.serial_number} updated.`);
+        await fetchRows();
+        cancelEdit();
+        return;
+      }
+      if (mode === 'completed') {
         await applyEnquiryCompleted(editDraft.id, data);
         setSavedNotice(
           `Enquiry #${editDraft.serial_number} marked Completed. Projects team will see a notification.`
@@ -311,7 +322,7 @@ export default function EnquiryDatabase() {
 
       await requestEnquiryEdit(editDraft.id, data, null);
       setSavedNotice(
-        isRegretStatusChange(changes) || isRegretStatus(data.current_status)
+        mode === 'regret' || isRegretStatus(data.current_status)
           ? `Regret for enquiry #${editDraft.serial_number} sent for L1 approval.`
           : `Changes to enquiry #${editDraft.serial_number} sent for L1 approval.`
       );
@@ -390,11 +401,10 @@ export default function EnquiryDatabase() {
     if (lockedReceipt) data[RECEIPT_DATE_KEY] = lockedReceipt;
     if (isClosedStatus(data.current_status) && !data.completed_on) data.completed_on = todayIso();
     const changes = diffEnquiryFields(editingRow.data || {}, data, databaseFields);
-    if (!changes.length) return 'none';
-    if (isCompletedOnlyChange(changes)) return 'completed';
-    if (isRegretStatusChange(changes)) return 'regret';
-    return 'l1';
+    return enquiryEditSaveMode(changes, data);
   }, [editDraft, editingRow, databaseFields, canApproveEdits]);
+
+  const showEditRequests = canApproveEdits || editRequests.length > 0;
 
   if (addOpen) {
     return (
@@ -412,7 +422,7 @@ export default function EnquiryDatabase() {
         </div>
       )}
 
-      {canApproveEdits && (
+      {showEditRequests && (
         <EnquiryEditRequests
           requests={editRequests}
           serialById={serialById}
@@ -622,26 +632,35 @@ export default function EnquiryDatabase() {
               <h3 className="text-sm font-semibold text-gray-900">Editing serial #{editDraft.serial_number}</h3>
               {!canApproveEdits && draftSaveMode !== 'none' && (
                 <p className="mt-0.5 text-[11px] text-amber-800">
-                  {draftSaveMode === 'completed'
-                    ? 'Marking Completed applies immediately and notifies the Projects module.'
-                    : draftSaveMode === 'regret'
-                      ? 'Regret is sent to your manager (L1) for approval before it applies.'
-                      : 'Changes are sent to your manager (L1) for approval before they apply'}
-                  {draftSaveMode !== 'completed' && pendingEditByEnquiryId.has(editingId)
+                  {draftSaveMode === 'progress'
+                    ? 'Not Started and Work in Progress save immediately (no L1 approval).'
+                    : draftSaveMode === 'completed'
+                      ? 'Marking Completed with today or a future date applies immediately and notifies the Projects module.'
+                      : draftSaveMode === 'regret'
+                        ? 'Regret is sent to your L1 manager for approval before it applies.'
+                        : 'A past completed date and other changes are sent to your L1 manager for approval before they apply'}
+                  {draftSaveMode !== 'progress' &&
+                  draftSaveMode !== 'completed' &&
+                  pendingEditByEnquiryId.has(editingId)
                     ? ' (replaces the pending request)'
-                    : draftSaveMode === 'l1'
+                    : draftSaveMode === 'l1' || draftSaveMode === 'regret'
                       ? '.'
                       : ''}
                 </p>
               )}
+              <p className="mt-0.5 text-[11px] text-gray-600">
+                All details are shown. Only Target Date, Completed Date, Current Status, and Remarks can be changed.
+              </p>
             </div>
             <button type="button" onClick={cancelEdit} className="p-1 rounded hover:bg-white">
               <X className="h-4 w-4" />
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[40vh] overflow-y-auto pr-1">
-            {editableFields.map((field) => {
+            {editPanelFields.map((field) => {
               const locked =
+                field.read_only ||
+                !postSaveEditable.has(field.field_key) ||
                 (field.field_key === TARGET_BASIS_KEY && Boolean(savedAssignedOn)) ||
                 (field.field_key === RECEIPT_DATE_KEY && Boolean(savedReceiptDate));
               return (
@@ -651,15 +670,16 @@ export default function EnquiryDatabase() {
                     <EnquiryFieldInput
                       field={locked ? { ...field, read_only: true } : field}
                       value={editDraft[field.field_key]}
-                      onChange={(v) =>
+                      onChange={(v) => {
+                        if (locked) return;
                         setEditDraft((prev) => {
                           const next = { ...prev, [field.field_key]: v };
                           if (field.field_key === 'current_status' && isClosedStatus(v)) {
                             next.completed_on = todayIso();
                           }
                           return field.field_key === TARGET_BASIS_KEY ? withAutoTargetDate(next) : next;
-                        })
-                      }
+                        });
+                      }}
                       valuesForKindKey={valuesForKindKey}
                       valuesForKindId={valuesForKindId}
                       className={`w-full min-w-[8rem] px-2 py-1.5 text-xs border border-gray-200 rounded-md ${
@@ -667,7 +687,11 @@ export default function EnquiryDatabase() {
                       }`}
                     />
                   </div>
-                  {locked && <p className="mt-0.5 text-[10px] text-gray-500">Locked after it was saved</p>}
+                  {locked && (
+                    <p className="mt-0.5 text-[10px] text-gray-500">
+                      {postSaveEditable.has(field.field_key) ? 'Locked after it was saved' : 'View only'}
+                    </p>
+                  )}
                 </label>
               );
             })}
@@ -680,16 +704,18 @@ export default function EnquiryDatabase() {
               className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
             >
               {saving
-                ? canApproveEdits || draftSaveMode === 'completed'
+                ? canApproveEdits || draftSaveMode === 'completed' || draftSaveMode === 'progress'
                   ? 'Saving…'
                   : 'Sending…'
                 : canApproveEdits
                   ? 'Save changes'
-                  : draftSaveMode === 'completed'
-                    ? 'Mark Completed'
-                    : draftSaveMode === 'regret'
-                      ? 'Send Regret for L1 approval'
-                      : 'Send for L1 approval'}
+                  : draftSaveMode === 'progress'
+                    ? 'Save changes'
+                    : draftSaveMode === 'completed'
+                      ? 'Mark Completed'
+                      : draftSaveMode === 'regret'
+                        ? 'Send Regret for L1 approval'
+                        : 'Send for L1 approval'}
             </button>
             <button type="button" onClick={cancelEdit} className="px-4 py-2 text-sm border border-gray-200 rounded-lg">
               Cancel

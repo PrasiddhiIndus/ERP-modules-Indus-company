@@ -13,12 +13,21 @@ import OcCreationForm from "./OcCreationForm";
  * IEV Costing by default; `department` (ocDepartment.js) switches to another department's records.
  */
 export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
-  const { user, userProfile, accessibleModules } = useAuth();
-  const canEdit = department.canEdit(userProfile, accessibleModules);
+  const { userProfile, accessibleModules } = useAuth();
+  const baseCanEdit = department.canEdit(userProfile, accessibleModules);
   const [reviewerCodes, setReviewerCodes] = useState([]);
   const [myCode, setMyCode] = useState("");
   const [financeUser, setFinanceUser] = useState(false);
+  const [reviewerLoaded, setReviewerLoaded] = useState(department.key !== "projects");
   const canDelete = department.canDelete(userProfile, accessibleModules);
+  const isExecutionOrDeptHead = useMemo(() => {
+    if (department.key !== "projects" || financeUser) return false;
+    const mine = String(myCode || "").trim().toLowerCase();
+    if (!mine) return false;
+    return reviewerCodes.some((code) => String(code).trim().toLowerCase() === mine);
+  }, [department.key, financeUser, myCode, reviewerCodes]);
+  // Execution / Department Head may view, remark, and sign — not create or edit details.
+  const canEdit = baseCanEdit && !(reviewerLoaded && isExecutionOrDeptHead);
   const [params, setParams] = useSearchParams();
   const openId = params.get("oc");
   const [rows, setRows] = useState([]);
@@ -53,19 +62,19 @@ export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
         );
         setMyCode(code || "");
         setFinanceUser(finance === true);
+        setReviewerLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (alive) setReviewerLoaded(true);
+      });
     return () => {
       alive = false;
     };
   }, [department]);
 
-  const reviewerView = (row) => {
+  const reviewerView = () => {
     if (department.key !== "projects" || financeUser) return false;
-    const mine = String(myCode || "").trim().toLowerCase();
-    const assigned = reviewerCodes.some((code) => String(code).trim().toLowerCase() === mine);
-    if (!assigned || !mine) return false;
-    return Boolean(row.created_by) && row.created_by !== user?.id;
+    return isExecutionOrDeptHead;
   };
 
   const filtered = useMemo(() => {
@@ -87,6 +96,21 @@ export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
   };
 
   if (openId) {
+    if (openId === "new" && reviewerLoaded && isExecutionOrDeptHead) {
+      return (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
+          <p className="font-medium">Execution Team and Department Head cannot create PO At Glance entries.</p>
+          <p className="mt-1 text-amber-800">You can open an existing entry to add remarks and sign your stage.</p>
+          <button
+            type="button"
+            onClick={() => open(null)}
+            className="mt-4 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-100"
+          >
+            Back to list
+          </button>
+        </div>
+      );
+    }
     return (
       <OcCreationForm
         department={department}
@@ -172,8 +196,8 @@ export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
                         }}
                         className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-0.5 text-xs font-medium text-slate-700 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
                       >
-                        {canEdit && !reviewerView(r) ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                        {canEdit && !reviewerView(r) ? "Edit" : "View"}
+                        {canEdit && !reviewerView() ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        {canEdit && !reviewerView() ? "Edit" : "View"}
                       </button>
                       {canDelete && (
                         <button

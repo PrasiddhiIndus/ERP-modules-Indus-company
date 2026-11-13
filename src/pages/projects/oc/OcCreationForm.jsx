@@ -7,13 +7,13 @@ import {
   OC_CONTACTS_HEADING, OC_SECURITY_HEADING,
   OC_SIGNOFF_HEADING, PERIOD_UNITS, SECURITY_TYPES, blankContact, blankMilestone,
   blankSecurityRow, contractValueInWords, emptyOcForm, formFromRecord, formatSignedAt, isBlank, milestoneTotal,
-  ocExportFileName, signoffPending, toSavePayload, validateOcForm,
+  normalizePoDocuments, ocExportFileName, signoffPending, toSavePayload, validateOcForm,
 } from "./ocModel";
 import {
   amFinance, fetchOcSignatureUrl, friendlyOcError, listEmployeeOptions, loadOc, loadSignoffAssignees,
   loadProjectApprovalLog, myEmployeeCode, notifyOcSignoff, projectPoDocumentUrl, requestProjectOcModification, saveOc,
-  clearProjectPoDocument, setProjectPoRemarks,
-  signProjectOcStage, uploadProjectPoDocument,
+  clearProjectPoDocument, removeProjectPoDocument, setProjectPoRemarks,
+  signProjectOcStage, uploadProjectPoDocuments,
 } from "./ocApi";
 import { getFinancePoDetail, setFinancePoCostCenter, setFinancePoOcNo, signFinancePo, friendlyFinancePoError } from "../../finance/poAtGlance/financePoApi";
 import { IEV_OC_DEPARTMENT } from "./ocDepartment";
@@ -301,14 +301,15 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   const [exporting, setExporting] = useState(false);
   const topRef = useRef(null);
   const [assignees, setAssignees] = useState({});
+  const [assigneesLoaded, setAssigneesLoaded] = useState(false);
   const [myCode, setMyCode] = useState("");
   const [codeLoaded, setCodeLoaded] = useState(false);
   const [isFinance, setIsFinance] = useState(false);
   const [creatorName, setCreatorName] = useState("");
   const [creatorSignatureUrl, setCreatorSignatureUrl] = useState("");
   const [uploadingPo, setUploadingPo] = useState(false);
-  const [pendingPoFile, setPendingPoFile] = useState(null);
-  const [pendingPoUrl, setPendingPoUrl] = useState("");
+  /** @type {[{ file: File, url: string }]} */
+  const [pendingPoFiles, setPendingPoFiles] = useState([]);
   const [approvalLog, setApprovalLog] = useState([]);
   const [approvalLogLoading, setApprovalLogLoading] = useState(false);
   const showApprovalAudit = Boolean(department.approvalAudit);
@@ -350,9 +351,13 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     Promise.all([loadSignoffAssignees(department), codeLoad])
       .then(([a]) => {
         if (!alive) return;
-        setAssignees(a);
+        setAssignees(a || {});
+        setAssigneesLoaded(true);
       })
-      .catch((err) => console.error("[PO At Glance] sign-off assignment", err));
+      .catch((err) => {
+        console.error("[PO At Glance] sign-off assignment", err);
+        if (alive) setAssigneesLoaded(true);
+      });
     return () => {
       alive = false;
     };
@@ -527,12 +532,14 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     return !isBlank(form.signoff?.[SIGNOFF_SLOTS[index - 1].slot]?.saved_by);
   };
   const openReturn = showApprovalAudit ? openModificationRequest(approvalLog) : null;
-  const iAmOcCreator = !form.created_by || form.created_by === user?.id;
+  const iAmOcCreator = Boolean(form.created_by) && form.created_by === user?.id;
   const projectsPo = department.key === "projects";
+  // Execution Team (PLANNING) / Department Head (VERTICAL_HEAD): never edit PO details.
   const isAssignedReviewer = ["PLANNING", "VERTICAL_HEAD"].some((slot) => !isLockedFor(slot));
-  const projectsRemarksOnly = projectsPo && !financeReview && !isFinance && Boolean(form.id) && !iAmOcCreator && isAssignedReviewer;
-  const fieldsLocked = (readOnly && !financeReview) || projectsRemarksOnly;
-  const canChangeFields = canEdit && !projectsRemarksOnly;
+  const projectsRemarksOnly = projectsPo && !financeReview && !isFinance && isAssignedReviewer;
+  const reviewerGatePending = projectsPo && !financeReview && !isFinance && (!codeLoaded || !assigneesLoaded);
+  const fieldsLocked = (readOnly && !financeReview) || projectsRemarksOnly || reviewerGatePending;
+  const canChangeFields = canEdit && !projectsRemarksOnly && !reviewerGatePending;
   const tallyEditable = projectsPo ? financeReview || isFinance : !financeReview;
   const revisionStage = !projectsPo || isBlank(form.signoff?.PROJECT_USER?.saved_by)
     ? null
@@ -572,19 +579,39 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   const err = (k) => errors[k];
   const cls = (k) => `${inputCls} ${errors[k] ? errCls : ""}`;
 
-  const dropPendingPoFile = () => {
-    if (pendingPoUrl) URL.revokeObjectURL(pendingPoUrl);
-    setPendingPoFile(null);
-    setPendingPoUrl("");
+  const dropPendingPoFiles = () => {
+    pendingPoFiles.forEach((p) => {
+      if (p?.url) URL.revokeObjectURL(p.url);
+    });
+    setPendingPoFiles([]);
   };
 
-  const openPoDocument = async () => {
-    if (pendingPoUrl) {
-      window.open(pendingPoUrl, "_blank", "noopener,noreferrer");
+  const applyPoDocuments = (docsPatch) => {
+    const docs = normalizePoDocuments(docsPatch);
+    const patch = {
+      po_documents: docs,
+      po_document_name: docs[0]?.name || "",
+      po_document_path: docs[0]?.path || "",
+    };
+    setForm((f) => ({ ...f, ...patch }));
+    setInitial((prev) => {
+      try {
+        return JSON.stringify({ ...JSON.parse(prev), ...patch });
+      } catch {
+        return prev;
+      }
+    });
+  };
+
+  const openPoDocument = async (doc) => {
+    if (doc?.url) {
+      window.open(doc.url, "_blank", "noopener,noreferrer");
       return;
     }
+    const path = doc?.path || form.po_document_path;
+    if (!path) return;
     try {
-      const url = await projectPoDocumentUrl(form.po_document_path);
+      const url = await projectPoDocumentUrl(path);
       if (url) window.open(url, "_blank", "noopener,noreferrer");
     } catch (err) {
       toast.error(friendlyOcError(err, "Could not open the purchase order.", department));
@@ -592,27 +619,21 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   };
 
   const onPoFile = async (event) => {
-    const file = event.target.files?.[0];
+    const picked = Array.from(event.target.files || []);
     event.target.value = "";
-    if (!file) return;
+    if (!picked.length) return;
     if (!form.id) {
-      dropPendingPoFile();
-      setPendingPoFile(file);
-      setPendingPoUrl(URL.createObjectURL(file));
+      setPendingPoFiles((prev) => [
+        ...prev,
+        ...picked.map((file) => ({ file, url: URL.createObjectURL(file) })),
+      ]);
       return;
     }
     setUploadingPo(true);
     try {
-      const savedDoc = await uploadProjectPoDocument(form.id, file);
-      setForm((f) => ({ ...f, ...savedDoc }));
-      setInitial((prev) => {
-        try {
-          return JSON.stringify({ ...JSON.parse(prev), ...savedDoc });
-        } catch {
-          return prev;
-        }
-      });
-      toast.success("Original purchase order uploaded.");
+      const savedDoc = await uploadProjectPoDocuments(form.id, picked);
+      applyPoDocuments(savedDoc);
+      toast.success(picked.length > 1 ? `${picked.length} purchase order files uploaded.` : "Original purchase order uploaded.");
     } catch (err) {
       toast.error(friendlyOcError(err, "Could not upload the purchase order.", department));
     } finally {
@@ -620,26 +641,43 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     }
   };
 
-  const removePoFile = async () => {
-    if (pendingPoFile) {
-      dropPendingPoFile();
-      return;
-    }
-    if (!form.id || !form.po_document_path) return;
-    if (!window.confirm("Remove this purchase order file?")) return;
+  const removePendingPoFile = (index) => {
+    setPendingPoFiles((prev) => {
+      const next = [...prev];
+      const [gone] = next.splice(index, 1);
+      if (gone?.url) URL.revokeObjectURL(gone.url);
+      return next;
+    });
+  };
+
+  const removePoFile = async (doc) => {
+    if (!form.id || !doc?.path) return;
+    if (!window.confirm(`Remove ${doc.name || "this purchase order file"}?`)) return;
     setUploadingPo(true);
     try {
-      await clearProjectPoDocument(form.id, form.po_document_path);
-      const cleared = { po_document_name: "", po_document_path: "" };
-      setForm((f) => ({ ...f, ...cleared }));
-      setInitial((prev) => {
-        try {
-          return JSON.stringify({ ...JSON.parse(prev), ...cleared });
-        } catch {
-          return prev;
-        }
-      });
+      const updated = await removeProjectPoDocument(form.id, doc.path);
+      applyPoDocuments(updated);
       toast.success("Purchase order file removed.");
+    } catch (err) {
+      toast.error(friendlyOcError(err, "Could not remove the purchase order.", department));
+    } finally {
+      setUploadingPo(false);
+    }
+  };
+
+  const clearAllPoFiles = async () => {
+    if (pendingPoFiles.length) {
+      dropPendingPoFiles();
+      return;
+    }
+    const docs = form.po_documents?.length ? form.po_documents : normalizePoDocuments(form);
+    if (!form.id || !docs.length) return;
+    if (!window.confirm("Remove all original purchase order files?")) return;
+    setUploadingPo(true);
+    try {
+      await clearProjectPoDocument(form.id, docs.map((d) => d.path));
+      applyPoDocuments({ po_documents: [] });
+      toast.success("Purchase order files removed.");
     } catch (err) {
       toast.error(friendlyOcError(err, "Could not remove the purchase order.", department));
     } finally {
@@ -650,6 +688,10 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   const handleSave = async () => {
     const creating = !form.id;
     if (projectsRemarksOnly) {
+      if (!form.id) {
+        toast.error("Execution Team and Department Head cannot create PO At Glance entries.");
+        return null;
+      }
       setSaving(true);
       try {
         await setProjectPoRemarks({ id: form.id, remarks: form.remarks, remarksDate: form.remarks_date });
@@ -697,10 +739,10 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     try {
       const res = await saveOc(payload, department);
       let uploadedDoc = null;
-      if (pendingPoFile) {
+      if (pendingPoFiles.length) {
         try {
-          uploadedDoc = await uploadProjectPoDocument(res.id, pendingPoFile);
-          dropPendingPoFile();
+          uploadedDoc = await uploadProjectPoDocuments(res.id, pendingPoFiles.map((p) => p.file));
+          dropPendingPoFiles();
         } catch (fileErr) {
           console.error("[PO At Glance] purchase order file", fileErr);
           toast.error("PO saved. The purchase order file could not be uploaded.");
@@ -997,8 +1039,8 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   };
 
   const handleBack = () => {
-    if ((dirty || pendingPoFile) && (canEdit || projectsRemarksOnly) && !window.confirm("Discard unsaved changes?")) return;
-    dropPendingPoFile();
+    if ((dirty || pendingPoFiles.length) && (canEdit || projectsRemarksOnly) && !window.confirm("Discard unsaved changes?")) return;
+    dropPendingPoFiles();
     onBack();
   };
 
@@ -1022,7 +1064,11 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
           <ArrowLeft className="h-4 w-4" /> All PO At Glance
         </button>
         <div className="flex flex-wrap items-center gap-2">
-          {(readOnly || projectsRemarksOnly) && !financeReview && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">View only</span>}
+          {(readOnly || projectsRemarksOnly) && !financeReview && (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+              {projectsRemarksOnly ? "Remarks & sign only" : "View only"}
+            </span>
+          )}
           {financeReview && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">Finance review · other fields are read only</span>}
           {dirty && canEdit && <span className="text-xs text-amber-700">Unsaved changes</span>}
           {showDocPreview && (
@@ -1161,37 +1207,67 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
               <>
                 <Label>Original PO</Label>
                 <Value full className="po-remarks-open">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {pendingPoFile || form.po_document_name ? (
-                      <button type="button" data-active className={smallBtn} onClick={openPoDocument}>
-                        View {pendingPoFile?.name || form.po_document_name}
-                      </button>
-                    ) : (
-                      <span className="text-xs text-slate-500">No original purchase order uploaded.</span>
-                    )}
-                    {canChangeFields && !financeReview && (
-                      <>
-                        <label className={`${smallBtn} cursor-pointer ${uploadingPo ? "opacity-50" : ""}`}>
-                          {uploadingPo ? "Uploading…" : pendingPoFile || form.po_document_name ? "Replace original PO" : "Upload original PO"}
-                          <input
-                            type="file"
-                            className="hidden"
-                            accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
-                            disabled={uploadingPo}
-                            onChange={onPoFile}
-                          />
-                        </label>
-                        {(pendingPoFile || form.po_document_path) && (
-                          <button type="button" className={smallBtn} disabled={uploadingPo} onClick={removePoFile}>
-                            Remove
-                          </button>
+                  {(() => {
+                    const savedDocs = form.po_documents?.length
+                      ? form.po_documents
+                      : normalizePoDocuments(form);
+                    const hasAny = pendingPoFiles.length > 0 || savedDocs.length > 0;
+                    return (
+                      <div className="space-y-2">
+                        {!hasAny && (
+                          <span className="text-xs text-slate-500">No original purchase order uploaded.</span>
                         )}
-                      </>
-                    )}
-                  </div>
-                  {canChangeFields && !financeReview && pendingPoFile && !form.id && (
-                    <p className="mt-1 text-[11px] text-slate-500">This file is kept when you save. Cancel discards it.</p>
-                  )}
+                        {pendingPoFiles.map((p, index) => (
+                          <div key={`pending-${p.file.name}-${index}`} className="flex flex-wrap items-center gap-2">
+                            <button type="button" data-active className={smallBtn} onClick={() => openPoDocument(p)}>
+                              View {p.file.name}
+                            </button>
+                            {canChangeFields && !financeReview && (
+                              <button type="button" className={smallBtn} disabled={uploadingPo} onClick={() => removePendingPoFile(index)}>
+                                Remove
+                              </button>
+                            )}
+                            <span className="text-[11px] text-slate-500">Pending save</span>
+                          </div>
+                        ))}
+                        {savedDocs.map((doc) => (
+                          <div key={doc.path} className="flex flex-wrap items-center gap-2">
+                            <button type="button" data-active className={smallBtn} onClick={() => openPoDocument(doc)}>
+                              View {doc.name}
+                            </button>
+                            {canChangeFields && !financeReview && (
+                              <button type="button" className={smallBtn} disabled={uploadingPo} onClick={() => removePoFile(doc)}>
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {canChangeFields && !financeReview && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className={`${smallBtn} cursor-pointer ${uploadingPo ? "opacity-50" : ""}`}>
+                              {uploadingPo ? "Uploading…" : hasAny ? "Add attachments" : "Upload original PO"}
+                              <input
+                                type="file"
+                                className="hidden"
+                                accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
+                                multiple
+                                disabled={uploadingPo}
+                                onChange={onPoFile}
+                              />
+                            </label>
+                            {hasAny && (
+                              <button type="button" className={smallBtn} disabled={uploadingPo} onClick={clearAllPoFiles}>
+                                Remove all
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {canChangeFields && !financeReview && pendingPoFiles.length > 0 && !form.id && (
+                          <p className="text-[11px] text-slate-500">These files are kept when you save. Cancel discards them.</p>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </Value>
               </>
             )}

@@ -54,7 +54,7 @@ export default function EnquiryEditRequests({ requests, serialById, onDecided })
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-950">
         <span className="inline-flex items-center gap-2">
           <History className="h-4 w-4" />
-          {requests.length} enquiry edit request{requests.length === 1 ? '' : 's'} waiting for L1 approval
+          {requests.length} enquiry edit request{requests.length === 1 ? '' : 's'} waiting for your L1 approval
         </span>
         <button
           type="button"

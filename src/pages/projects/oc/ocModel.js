@@ -75,12 +75,30 @@ export function emptyOcForm(slots = SIGNOFF_SLOTS) {
     created_by: null,
     po_document_name: "",
     po_document_path: "",
+    po_documents: [],
     signoff: Object.fromEntries(slots.map(({ slot }) => [slot, { signed_by: "", saved_by: "", signed_at: "", signed_user_id: "" }])),
   };
 }
 
 const str = (v) => (v === null || v === undefined ? "" : String(v));
 const num = (v) => (v === null || v === undefined || v === "" ? "" : String(Number(v)));
+
+/** Normalize Original PO attachments from master row (jsonb + legacy single fields). */
+export function normalizePoDocuments(master = {}) {
+  const raw = Array.isArray(master.po_documents) ? master.po_documents : [];
+  const cleaned = raw
+    .filter((d) => d && String(d.path || "").trim())
+    .map((d) => ({
+      name: str(d.name) || "Purchase order",
+      path: str(d.path),
+      uploaded_at: d.uploaded_at || null,
+    }));
+  if (cleaned.length) return cleaned;
+  if (str(master.po_document_path)) {
+    return [{ name: str(master.po_document_name) || "Purchase order", path: str(master.po_document_path), uploaded_at: null }];
+  }
+  return [];
+}
 
 /** Builds form state from the saved rows (see ocApi.loadOc). */
 export function formFromRecord({ master, security = [], conditions = [], penalty, milestones = [], contacts = [], signoff = [] }, slots = SIGNOFF_SLOTS) {
@@ -109,9 +127,14 @@ export function formFromRecord({ master, security = [], conditions = [], penalty
     remarks: str(master.remarks),
     remarks_date: str(master.remarks_date),
     created_by: master.created_by || null,
+    po_documents: normalizePoDocuments(master),
     po_document_name: str(master.po_document_name),
     po_document_path: str(master.po_document_path),
   });
+  if (form.po_documents.length && !form.po_document_path) {
+    form.po_document_name = form.po_documents[0].name;
+    form.po_document_path = form.po_documents[0].path;
+  }
   form.payment_milestones = [...milestones].sort((a, b) => a.seq - b.seq).map((m) => ({
     key: nextKey(), percent: num(m.percent), trigger: str(m.trigger), due_days: num(m.due_days), notes: str(m.notes),
   }));
