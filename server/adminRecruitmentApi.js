@@ -220,14 +220,14 @@ export function registerAdminRecruitmentRoutes(app, deps) {
   }
 
   const EMPLOYEE_MASTER_LETTER_FIELDS =
-    'id, employee_code, employee_id, full_name, date_of_birth, address, personal_no, email_id';
+    'id, employee_code, employee_id, full_name, date_of_birth, address, personal_no, email_id, department';
 
   function masterEmployeeCode(row) {
     return String(row?.employee_code || row?.employee_id || '').trim();
   }
 
   /**
-   * Appointment letter pulls full name, current address, employee code, and DOB from
+   * Appointment letter pulls full name, current address, employee code, DOB, and department from
    * Employee Master (source of truth). Match by employee_master_id → code/id → email/mobile.
    */
   async function enrichAppointmentCandidate(svc, candidate) {
@@ -366,6 +366,11 @@ export function registerAdminRecruitmentRoutes(app, deps) {
       // Letter header address — Employee Master "Current address" (not permanent).
       base.current_address = currentAddress;
       base.address = currentAddress;
+    }
+    const masterDepartment = String(match.department || '').trim();
+    if (masterDepartment) {
+      // Annexure II Department — Employee Master (not appointment/offer department).
+      base.department = masterDepartment;
     }
     if (match.id && !base.employee_master_id) {
       base.employee_master_id = match.id;
