@@ -600,7 +600,8 @@ function appointmentPlaceholders(appt, offer, candidate, companyName) {
     '{{ANNUAL_CTC}}': formatInrAmount(annual),
     '{{AX_LOCATION}}': axLocation,
     '{{EMPLOYEE_CODE}}': employeeCode,
-    '{{DEPARTMENT}}': String(appt?.department || offer?.department || '').trim() || '—',
+    // Annexure II: prefer Employee Master department (enrichAppointmentCandidate).
+    '{{DEPARTMENT}}': String(candidate?.department || appt?.department || offer?.department || '').trim() || '—',
     '{{SEGMENT}}': String(appt?.segment || 'IFSPL, HO').trim(),
     '{{DOB}}': formatDobShort(candidate?.date_of_birth || candidate?.dob),
     '{{DOJ_SHORT}}': formatDojShort(joining),
