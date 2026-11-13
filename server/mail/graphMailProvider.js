@@ -280,13 +280,100 @@ function resolveSendMailbox(config, from) {
   return sendAsSender ? requestedSender : config.notificationEmail;
 }
 
-function graphErrorMessage(err) {
-  return String(err?.body?.error?.message || err?.message || 'Mail delivery failed').trim();
+function graphMessagePath(userPath, messageId) {
+  // Graph message ids are base64 and often contain `/`, `+`, `=` — must be path-encoded.
+  return `${userPath}/messages/${encodeURIComponent(String(messageId || '').trim())}`;
+}
+
+function odataQuote(value) {
+  return String(value || '').replace(/'/g, "''");
+}
+
+async function readGraphError(err) {
+  let body = err?.body;
+  if (body && typeof body.getReader === 'function') {
+    try {
+      const text = await new Response(body).text();
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = null;
+    }
+  } else if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      /* keep string */
+    }
+  }
+  const message = String(
+    (body && typeof body === 'object' ? body?.error?.message : null) ||
+      err?.message ||
+      'Mail delivery failed'
+  ).trim();
+  const code = String(
+    (body && typeof body === 'object' ? body?.error?.code : null) || err?.code || ''
+  ).trim();
+  const status = Number(err?.statusCode || err?.status) || 0;
+  return { message: message || 'Mail delivery failed', code, status };
+}
+
+async function getMessageMeta(client, userPath, messageId) {
+  const id = String(messageId || '').trim();
+  if (!id) return null;
+  try {
+    return await withTimeout(
+      client
+        .api(graphMessagePath(userPath, id))
+        .header('Prefer', 'IdType="ImmutableId"')
+        .select('id,conversationId,internetMessageId,subject,sentDateTime')
+        .get(),
+      20_000,
+      'Microsoft Graph get message'
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Latest Sent Items message in a conversation — used after replyAll (202, no body) and for recovery. */
+async function findLatestSentInConversation(client, userPath, conversationId) {
+  const cid = String(conversationId || '').trim();
+  if (!cid) return null;
+  try {
+    const res = await withTimeout(
+      client
+        .api(`${userPath}/mailFolders/sentitems/messages`)
+        .header('Prefer', 'IdType="ImmutableId"')
+        .filter(`conversationId eq '${odataQuote(cid)}'`)
+        .orderby('sentDateTime desc')
+        .top(1)
+        .select('id,conversationId,internetMessageId,subject,sentDateTime')
+        .get(),
+      20_000,
+      'Microsoft Graph sentitems lookup'
+    );
+    return res?.value?.[0] || null;
+  } catch (err) {
+    const detail = await readGraphError(err);
+    logMailError('graph.thread.sentitems_lookup_failed', {
+      status: detail.status,
+      message: detail.message,
+    });
+    return null;
+  }
+}
+
+async function resolveAnchorMessage(client, userPath, { messageId, conversationId }) {
+  const byId = await getMessageMeta(client, userPath, messageId);
+  if (byId?.id) return byId;
+  return findLatestSentInConversation(client, userPath, conversationId);
 }
 
 /**
- * One message to every recipient, or a reply in an existing Graph conversation.
- * A reply keeps the conversation id and the original subject and recipients.
+ * One conversation for PO At Glance updates.
+ * Root: create draft → send → store Sent Items id.
+ * Later: replyAll on that Sent Items message (keeps Outlook/Graph conversation).
+ * createReply is wrong for mail we ourselves sent (it targets the sender = us).
  */
 export async function sendThreadedMail({
   from,
@@ -295,6 +382,8 @@ export async function sendThreadedMail({
   subject,
   html,
   replyToMessageId,
+  conversationId,
+  mailboxHint,
 }) {
   const config = getMicrosoftGraphMailConfig();
   if (!config) throw httpError(MAIL_NOT_CONFIGURED_MESSAGE, 503);
@@ -311,90 +400,207 @@ export async function sendThreadedMail({
   }
   if (!recipients.length) throw httpError('Recipient email is required.', 400);
 
-  const mailbox = resolveSendMailbox(config, from);
+  // Prefer the mailbox that owns the prior message so replyAll finds it.
+  const hinted = String(mailboxHint || '').trim().toLowerCase();
+  const mailbox =
+    (hinted &&
+    (config.allowedSenders.includes(hinted) ||
+      hinted === String(config.notificationEmail || '').toLowerCase() ||
+      hinted === String(config.salaryOutboundEmail || '').toLowerCase())
+      ? hinted
+      : null) || resolveSendMailbox(config, from);
+
   const toRecipients = recipients.map((row) => ({
     emailAddress: { address: row.email, name: row.name || undefined },
   }));
   const messageSubject = String(subject || '').trim();
+  const htmlBody = String(html || '');
   const accessToken = await fetchAccessToken(config);
   const client = await createGraphClient(async () => accessToken);
   const userPath = `/users/${encodeURIComponent(mailbox)}`;
 
-  const sendDraft = async (draftId) => {
+  const sendDraftMessage = async (draftId) => {
     await withTimeout(
-      client.api(`${userPath}/messages/${draftId}/send`).post({}),
+      client.api(`${graphMessagePath(userPath, draftId)}/send`).post({}),
       config.timeoutMs,
       'Microsoft Graph send'
     );
   };
 
-  if (replyToMessageId) {
-    try {
-      const draft = await withTimeout(
-        client
-          .api(`${userPath}/messages/${replyToMessageId}/createReply`)
-          .header('Prefer', 'IdType="ImmutableId"')
-          .post({
-            message: {
-              subject: messageSubject,
-              body: { contentType: 'HTML', content: String(html || '') },
-              toRecipients,
-            },
-          }),
-        config.timeoutMs,
-        'Microsoft Graph createReply'
-      );
-      await sendDraft(draft.id);
-      logMailInfo('graph.thread.reply', {
-        mailbox,
-        toCount: recipients.length,
-        subject: messageSubject.slice(0, 120),
-      });
-      return {
-        ok: true,
-        messageId: draft.id,
-        conversationId: draft.conversationId || null,
-        mailbox,
-        threaded: true,
+  const replyPayload = {
+    message: {
+      // Do not override subject — Graph keeps Re: / conversationIndex for threading.
+      body: { contentType: 'HTML', content: htmlBody },
+      toRecipients,
+    },
+  };
+
+  const finishThreadedSend = async (anchorId, priorConversationId, mode) => {
+    let sentMeta = null;
+    for (let attempt = 0; attempt < 4 && !sentMeta; attempt += 1) {
+      if (attempt) await new Promise((r) => setTimeout(r, 400 * attempt));
+      sentMeta = await findLatestSentInConversation(client, userPath, priorConversationId);
+      if (sentMeta?.id && sentMeta.id === anchorId) sentMeta = null;
+    }
+    // If Sent Items cannot be read, keep replying to the same anchor — still one conversation.
+    if (!sentMeta) {
+      sentMeta = {
+        id: anchorId,
+        conversationId: priorConversationId,
       };
-    } catch (err) {
-      const status = Number(err?.statusCode || err?.status) || 0;
-      logMailError('graph.thread.reply_failed', { status, message: graphErrorMessage(err) });
-      if (status !== 404) throw httpError(graphErrorMessage(err), status || 502);
+    }
+    logMailInfo(`graph.thread.${mode}`, {
+      mailbox,
+      toCount: recipients.length,
+      subject: messageSubject.slice(0, 120),
+      conversationId: sentMeta.conversationId || priorConversationId,
+    });
+    return {
+      ok: true,
+      messageId: sentMeta.id,
+      conversationId: sentMeta.conversationId || priorConversationId,
+      mailbox,
+      threaded: true,
+    };
+  };
+
+  const tryReplyAll = async (anchor) => {
+    const anchorId = String(anchor?.id || '').trim();
+    if (!anchorId) return null;
+    const priorConversationId = String(anchor.conversationId || conversationId || '').trim() || null;
+
+    await withTimeout(
+      client
+        .api(`${graphMessagePath(userPath, anchorId)}/replyAll`)
+        .header('Prefer', 'IdType="ImmutableId"')
+        .post(replyPayload),
+      config.timeoutMs,
+      'Microsoft Graph replyAll'
+    );
+    return finishThreadedSend(anchorId, priorConversationId, 'replyAll');
+  };
+
+  const tryCreateReplyAll = async (anchor) => {
+    const anchorId = String(anchor?.id || '').trim();
+    if (!anchorId) return null;
+    const priorConversationId = String(anchor.conversationId || conversationId || '').trim() || null;
+
+    const draft = await withTimeout(
+      client
+        .api(`${graphMessagePath(userPath, anchorId)}/createReplyAll`)
+        .header('Prefer', 'IdType="ImmutableId"')
+        .post(replyPayload),
+      config.timeoutMs,
+      'Microsoft Graph createReplyAll'
+    );
+    await sendDraftMessage(draft.id);
+    const newId = draft.id || anchorId;
+    const newConversationId = draft.conversationId || priorConversationId;
+    const resolved = await finishThreadedSend(newId, newConversationId, 'createReplyAll');
+    // Prefer the draft/sent id we just created when Sent Items lookup is unavailable.
+    if (resolved.messageId === anchorId && draft.id) {
+      return { ...resolved, messageId: draft.id, conversationId: newConversationId };
+    }
+    return resolved;
+  };
+
+  const wantsThread = Boolean(String(replyToMessageId || '').trim() || String(conversationId || '').trim());
+  if (wantsThread) {
+    const anchor =
+      (await resolveAnchorMessage(client, userPath, {
+        messageId: replyToMessageId,
+        conversationId,
+      })) ||
+      // Mail.Read may be missing — still try replyAll against the stored id.
+      (String(replyToMessageId || '').trim()
+        ? { id: String(replyToMessageId).trim(), conversationId: conversationId || null }
+        : null);
+
+    if (anchor?.id) {
+      try {
+        const replied = await tryReplyAll(anchor);
+        if (replied) return replied;
+      } catch (err) {
+        const detail = await readGraphError(err);
+        logMailError('graph.thread.replyAll_failed', {
+          status: detail.status,
+          code: detail.code || null,
+          message: detail.message,
+        });
+      }
+      try {
+        const replied = await tryCreateReplyAll(anchor);
+        if (replied) return replied;
+      } catch (err) {
+        const detail = await readGraphError(err);
+        logMailError('graph.thread.createReplyAll_failed', {
+          status: detail.status,
+          code: detail.code || null,
+          message: detail.message,
+        });
+      }
+      logMailInfo('graph.thread.reply_fallback_root', { mailbox });
+    } else {
+      logMailError('graph.thread.anchor_missing', {
+        mailbox,
+        hasMessageId: Boolean(String(replyToMessageId || '').trim()),
+        hasConversationId: Boolean(String(conversationId || '').trim()),
+      });
     }
   }
 
-  const draft = await withTimeout(
-    client
-      .api(`${userPath}/messages`)
-      .header('Prefer', 'IdType="ImmutableId"')
-      .post({
-        subject: messageSubject,
-        body: { contentType: 'HTML', content: String(html || '') },
-        toRecipients,
-        from: {
-          emailAddress: {
-            address: mailbox,
-            name: String(fromName || '').trim() || undefined,
+  try {
+    const draft = await withTimeout(
+      client
+        .api(`${userPath}/messages`)
+        .header('Prefer', 'IdType="ImmutableId"')
+        .post({
+          subject: messageSubject,
+          body: { contentType: 'HTML', content: htmlBody },
+          toRecipients,
+          from: {
+            emailAddress: {
+              address: mailbox,
+              name: String(fromName || '').trim() || undefined,
+            },
           },
-        },
-      }),
-    config.timeoutMs,
-    'Microsoft Graph create message'
-  );
-  await sendDraft(draft.id);
-  logMailInfo('graph.thread.root', {
-    mailbox,
-    toCount: recipients.length,
-    subject: messageSubject.slice(0, 120),
-  });
-  return {
-    ok: true,
-    messageId: draft.id,
-    conversationId: draft.conversationId || null,
-    mailbox,
-    threaded: false,
-  };
+        }),
+      config.timeoutMs,
+      'Microsoft Graph create message'
+    );
+    const draftConversationId = draft.conversationId || null;
+    await sendDraftMessage(draft.id);
+
+    let sentMeta = await getMessageMeta(client, userPath, draft.id);
+    if (!sentMeta?.id) {
+      sentMeta = await findLatestSentInConversation(client, userPath, draftConversationId);
+    }
+    const messageId = sentMeta?.id || draft.id;
+    const finalConversationId = sentMeta?.conversationId || draftConversationId;
+
+    logMailInfo('graph.thread.root', {
+      mailbox,
+      toCount: recipients.length,
+      subject: messageSubject.slice(0, 120),
+      conversationId: finalConversationId,
+      threadedFallback: wantsThread,
+    });
+    return {
+      ok: true,
+      messageId,
+      conversationId: finalConversationId,
+      mailbox,
+      threaded: false,
+    };
+  } catch (err) {
+    const detail = await readGraphError(err);
+    logMailError('graph.thread.root_failed', {
+      status: detail.status,
+      code: detail.code || null,
+      message: detail.message,
+    });
+    throw httpError(detail.message, detail.status >= 400 ? detail.status : 502);
+  }
 }
 
 export function isConfigured() {

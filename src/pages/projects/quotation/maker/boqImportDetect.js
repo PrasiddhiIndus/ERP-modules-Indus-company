@@ -40,11 +40,16 @@ function scoreFieldLabel(h) {
   if (/^(sr|s no|sno|sl|sl no|item no|itemno|serial|no)$/.test(n) || n === 'sr no' || n.startsWith('sr no')) {
     return { field: 'sr', score: 10 };
   }
-  if (/description|particular|item description|scope of work|work description|^item$|^desc$/.test(n)) {
+  // "DISCRIPTION" and similar typos appear often on contractor BOQs.
+  if (
+    /description|discription|descryption|particular|item description|scope of work|work description|^item$|^desc$/.test(
+      n
+    )
+  ) {
     return { field: 'description', score: 10 };
   }
   if (/^unit$|^uom$|unit of measure/.test(n)) return { field: 'unit', score: 10 };
-  if (/^qty$|^quantity$|^qty\.$/.test(n)) return { field: 'qty', score: 10 };
+  if (/^qty$|^quantity$|^qty\.$|^qnty$|^quanity$/.test(n)) return { field: 'qty', score: 10 };
   if (/make|manufacturer|brand|vendor/.test(n) && !/remark/.test(n)) return { field: 'make', score: 9 };
   if (/remark|notes?|exclusion|comment/.test(n)) return { field: 'remarks', score: 8 };
 
@@ -199,6 +204,38 @@ export function detectBoqColumns(grid) {
   return detectBoqColumnsAt(g, best.index, best.score);
 }
 
+/** Common BOQ mistake: header says Qty | Unit but rows store Unit | Qty. */
+function maybeSwapQtyUnitColumns(grid, headerIndex, columnMap) {
+  let qtyCol = null;
+  let unitCol = null;
+  for (const [colKey, field] of Object.entries(columnMap || {})) {
+    if (field === 'qty') qtyCol = Number(colKey);
+    if (field === 'unit') unitCol = Number(colKey);
+  }
+  if (qtyCol == null || unitCol == null || qtyCol === unitCol) return columnMap;
+
+  const unitLike = /^(nos?|no\.?|set|sets|rmt|rmtr|rft|mtr|mtrs|kg|kgs|lot|ls|each|ea|unit|units|pkt|box|ltr|litre|sqm|sq\.?\s*m|cmt)$/i;
+  let qtyLooksUnit = 0;
+  let unitLooksQty = 0;
+  let samples = 0;
+  const end = Math.min(grid.length, headerIndex + 30);
+  for (let i = headerIndex + 1; i < end; i += 1) {
+    const row = grid[i] || [];
+    const qText = normalizeCellText(row[qtyCol]);
+    const uText = normalizeCellText(row[unitCol]);
+    if (!qText && !uText) continue;
+    samples += 1;
+    const qNum = parseBoqNumber(qText);
+    const uNum = parseBoqNumber(uText);
+    if (qText && qNum == null && unitLike.test(qText)) qtyLooksUnit += 1;
+    if (uText && uNum != null) unitLooksQty += 1;
+  }
+  if (samples >= 3 && qtyLooksUnit >= 2 && unitLooksQty >= 2) {
+    return { ...columnMap, [qtyCol]: 'unit', [unitCol]: 'qty' };
+  }
+  return columnMap;
+}
+
 function detectBoqColumnsAt(g, headerIndex, score) {
   const best = { index: headerIndex, score };
   const headerRow = g[best.index] || [];
@@ -206,7 +243,7 @@ function detectBoqColumnsAt(g, headerIndex, score) {
   const maxCol = Math.max(headerRow.length, prevRow.length);
   const groups = inferGroupContext(g, best.index);
   /** @type {Record<number, BoqField>} */
-  const columnMap = {};
+  let columnMap = {};
   const used = new Set();
   const headerLabels = [];
 
@@ -230,6 +267,8 @@ function detectBoqColumnsAt(g, headerIndex, score) {
     used.add(field);
     columnMap[c] = field;
   }
+
+  columnMap = maybeSwapQtyUnitColumns(g, best.index, columnMap);
 
   const hasSplit =
     Object.values(columnMap).includes('supply_rate') ||

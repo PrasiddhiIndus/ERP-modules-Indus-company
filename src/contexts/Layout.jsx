@@ -3,7 +3,7 @@ import PageLoader from "../components/PageLoader";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
-import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, isAdminRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath, getOpenableIevCostingTabs, getOpenableProjectsEnquiryTabs, FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY } from "../config/roles";
+import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, isAdminRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath, getOpenableIevCostingTabs, getOpenableProjectsEnquiryTabs, getOpenableProjectsContractTabs, FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY } from "../config/roles";
 import {
   canAccessSalaryAdmin,
   EMPLOYEE_MASTER_SUBMODULE_KEY,
@@ -168,7 +168,8 @@ function resolveWorkspaceContext(pathname) {
     [/\/app\/marketing/, "Go-to-market", "Marketing"],
     [/\/app\/crm-outreach/, "Go-to-market", "Client/In-House Mail Outreach"],
     [/\/app\/maintenance/, "Service", "Maintenance"],
-    [/\/app\/billing|\/app\/projects-billing/, "Finance", "Billing"],
+    [/\/app\/projects-billing/, "Projects", "Billing"],
+    [/\/app\/billing/, "Finance", "Billing"],
     [/\/app\/operations|\/app\/fire-tender-vehicle/, "Operations", "Sites & fleet"],
     [/\/app\/projects|\/app\/fire-tender/, "Projects", "Delivery & costing"],
     [/\/app\/procurement/, "Procurement", "Vendors & POs"],
@@ -207,6 +208,7 @@ const Layout = () => {
   const canOpenPath = (path) => isPathAllowed(path, accessibleModules || new Set(), subModulePaths);
   const ievCostingTabs = getOpenableIevCostingTabs(userProfile, accessibleModules, subModulePaths);
   const enquiryTabs = getOpenableProjectsEnquiryTabs(userProfile, accessibleModules, subModulePaths);
+  const contractTabs = getOpenableProjectsContractTabs(userProfile, accessibleModules, subModulePaths);
   const hasFullAdmin = Boolean(accessibleModules?.has("admin"));
   // Probation Reviews: L1 managers with reportees + HR 10935 only (not implied by Admin access).
   const { canAccess: canSeeProbationReviews } = useProbationReviewsAccess();
@@ -353,6 +355,14 @@ const Layout = () => {
         return;
       }
     }
+    if (!allowed && pathname.replace(/\/$/, "") === "/app/projects/po") {
+      const contractTabs = getOpenableProjectsContractTabs(userProfile, accessibleModules, subModulePaths);
+      if (contractTabs.length) {
+        navigate(`/app/projects/po/${contractTabs[0]}`, { replace: true });
+        setIsAccessDenied(false);
+        return;
+      }
+    }
     setIsAccessDenied(!allowed);
   }, [pathname, accessibleModules, subModulePaths, navigate, userProfile, user?.email]);
 
@@ -380,6 +390,7 @@ const Layout = () => {
   }, [userProfile, accessibleModules, user?.user_metadata, pathname]);
 
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [contractMgmtOpen, setContractMgmtOpen] = useState(false);
   const [hrAdminOpen, setHrAdminOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
@@ -450,6 +461,7 @@ const Layout = () => {
     ) {
       setProjectsOpen(true);
     }
+    if (pathname.startsWith("/app/projects/po")) setContractMgmtOpen(true);
     if (pathname.startsWith("/app/fire-tender") || pathname.startsWith("/app/fire-tender-manufacturing")) setFireTenderOpen(true);
     if (pathname.startsWith("/app/amc")) setAmcOpen(true);
     if (pathname.startsWith("/app/accounts-finance")) setFinanceOpen(true);
@@ -1560,17 +1572,59 @@ const Layout = () => {
                     <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
                     <span className="type-meta type-truncate">PO at Glance</span>
                   </NavLink>
-                  <NavLink to="projects/po" className={subNavClass}>
-                    <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Contract Management</span>
-                  </NavLink>
+                  {contractTabs.length > 0 && (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setContractMgmtOpen(!contractMgmtOpen)}
+                        className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 min-h-[2.1rem] transition-colors hover:bg-sidebar-hover ${
+                          pathname.startsWith("/app/projects/po")
+                            ? "bg-sidebar-active/60 text-sidebar-strong"
+                            : "text-sidebar-strong"
+                        }`}
+                      >
+                        <span className="flex min-w-0 items-center space-x-2.5">
+                          <FileCheck className="h-4 w-4 shrink-0 text-sidebar-accent" />
+                          <span className="type-meta type-truncate">Contract Management</span>
+                        </span>
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 shrink-0 transform transition-transform ${
+                            contractMgmtOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
+                      {contractMgmtOpen && (
+                        <div className="ml-4 mt-0.5 space-y-0.5 border-l border-sidebar-border pl-2">
+                          {contractTabs.includes("po-wo-sub-coordinator") && (
+                            <NavLink to="projects/po/po-wo-sub-coordinator" className={subNavClass}>
+                              <span className="type-meta type-truncate">PO/WO to Sub-Coordinator</span>
+                            </NavLink>
+                          )}
+                          {contractTabs.includes("budget") && (
+                            <NavLink to="projects/po/budget" className={subNavClass}>
+                              <span className="type-meta type-truncate">Budget</span>
+                            </NavLink>
+                          )}
+                          {contractTabs.includes("expense") && (
+                            <NavLink to="projects/po/expense" className={subNavClass}>
+                              <span className="type-meta type-truncate">Expense</span>
+                            </NavLink>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <NavLink to="projects-management" className={subNavClass}>
                     <FolderOpen className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Management / Planning</span>
                   </NavLink>
+                  <NavLink to="/app/projects-billing" end className={subNavClass}>
+                    <Receipt className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate">Billing</span>
+                  </NavLink>
                   <NavLink to="projects/reports" className={subNavClass}>
                     <FileSpreadsheet className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Project Reports</span>
+                    <span className="type-meta type-truncate">Reports</span>
                   </NavLink>
                 </div>
               )}

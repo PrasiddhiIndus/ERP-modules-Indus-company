@@ -16,9 +16,14 @@ describe('Enquiry dashboard boxes count each enquiry once', () => {
     expect(dashboardBucket(late, today)).toBe('completedLate');
   });
 
-  it('completed on time is only in Completed', () => {
+  it('completed on target date is only in Completed', () => {
     const onTime = row({ current_status: 'Completed', target_date: '2026-10-10', completed_on: '2026-10-10' });
     expect(dashboardBucket(onTime, today)).toBe('completed');
+  });
+
+  it('completed before target is only in Early Closer', () => {
+    const early = row({ current_status: 'Completed', target_date: '2026-10-10', completed_on: '2026-10-05' });
+    expect(dashboardBucket(early, today)).toBe('earlyCloser');
   });
 
   it('overdue open enquiries are only in Overdue, not Not Started / In Progress', () => {

@@ -429,19 +429,31 @@ export async function notifyOcSignoffAssignees({
         subject,
         html,
         replyToMessageId: thread?.latest_message_id || null,
+        conversationId: thread?.conversation_id || null,
+        mailboxHint: thread?.mailbox || null,
       });
+      if (!posted?.messageId) {
+        throw httpError(502, 'Mail was accepted but the conversation id was not returned.');
+      }
       await saveProjectsMailThread(db, {
         oc_id: master.id,
-        mailbox: posted.mailbox,
+        mailbox: posted.mailbox || thread?.mailbox || sender?.mail || 'unknown',
         latest_message_id: posted.messageId,
         conversation_id: posted.conversationId || thread?.conversation_id || null,
         subject,
         recipients: threadRecipients,
       });
       for (const row of threadRecipients) sent.push(row.email);
+      console.info('[oc/signoff-notify] projects thread', {
+        ocId: master.id,
+        event: mailEvent,
+        threaded: Boolean(posted.threaded),
+        conversationId: posted.conversationId || null,
+      });
     } catch (err) {
-      failed.push({ email: threadRecipients.map((r) => r.email).join(', '), error: err?.message || 'Send failed' });
-      console.warn('[oc/signoff-notify] thread send failed', err?.message || err);
+      const detail = String(err?.message || err || 'Send failed').trim() || 'Send failed';
+      failed.push({ email: threadRecipients.map((r) => r.email).join(', '), error: detail });
+      console.warn('[oc/signoff-notify] thread send failed', detail);
     }
   } else {
     const { subject, html } = buildEmail({ profile, master, signatures: signsWithEmployee, signerName });
