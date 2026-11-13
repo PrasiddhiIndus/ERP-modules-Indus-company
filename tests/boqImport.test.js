@@ -83,6 +83,47 @@ describe('boqImportDetect', () => {
     expect(Object.values(det.columnMap)).toContain('rate');
   });
 
+  it('accepts DISCRIPTION typo and swaps mislabeled Qty/Unit columns', () => {
+    // Matches contractor sheet "BOQ for upload.xlsx" (FIRE HYDRANT).
+    const grid = [
+      [
+        'NO',
+        'DISCRIPTION ',
+        'QTY',
+        'UNIT',
+        'MAKE',
+        'SUPPLY RATE',
+        'SUPPLY AMOUNT',
+        'INSTALLATION RATE',
+        'INSTALLATION AMOUNT',
+        'REMARKS',
+      ],
+      ['A', 'FIRE PROTECTION SYSTEM', '', '', '', '', '', '', '', ''],
+      [
+        'A.2',
+        'Electric motor driven hydrant pump',
+        'Nos',
+        '1',
+        'Kirloskar/Prima',
+        '291586',
+        '291586',
+        '37800',
+        '37800',
+        '',
+      ],
+      ['2', '32 mm dia', 'RMTR', '0', 'Asian/Apollo', '737', '0', '311.4', '0', 'WITH PAINT'],
+      ['5', '65 mm dia', 'RMTR', '20', 'Asian/Apollo', '1203', '24060', '632', '12640', 'WITH PAINT'],
+      ['6', '80 mm dia', 'RMTR', '20', 'Asian/Apollo', '1400', '28000', '778', '15560', 'WITH PAINT'],
+    ];
+    const det = detectBoqColumns(grid);
+    expect(det.headerRowIndex).toBe(0);
+    expect(det.columnMap[1]).toBe('description');
+    expect(det.columnMap[2]).toBe('unit');
+    expect(det.columnMap[3]).toBe('qty');
+    expect(det.columnMap[5]).toBe('supply_rate');
+    expect(det.columnMap[7]).toBe('install_rate');
+  });
+
   it('ranks BOQ sheets above empty cover sheets', () => {
     const wb = workbookFromGrids([
       { name: 'SUMMARY', grid: [['QUOTATION'], ['Dear Sir'], ['We are thankful']] },

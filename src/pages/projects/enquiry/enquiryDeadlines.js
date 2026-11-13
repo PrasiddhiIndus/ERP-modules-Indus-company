@@ -145,15 +145,27 @@ export function isCompletedAfterTarget(row) {
   return Boolean(target && completed && completed > target);
 }
 
+/** Closed before the target date (strictly earlier). */
+export function isCompletedBeforeTarget(row) {
+  if (!isWorkCompleted(row)) return false;
+  const target = toLocalDate(getEnquiryFieldValue(row, 'target_date'));
+  const completed = getCompletionDate(row);
+  return Boolean(target && completed && completed < target);
+}
+
 /**
  * Dashboard boxes: every enquiry lands in exactly one box, first match wins —
- * Regret, Overdue & Completed, Completed (on time), Overdue, Due soon,
+ * Regret, Overdue & Completed, Early Closer, Completed (on target), Overdue, Due soon,
  * Unassigned, Not Started, In Progress (any other open status).
  */
 export function dashboardBucket(row, today = startOfToday()) {
   const status = String(getRowStatusValue(row) || '').trim().toLowerCase();
   if (status === 'regret') return 'regret';
-  if (isWorkCompleted(row)) return isCompletedAfterTarget(row) ? 'completedLate' : 'completed';
+  if (isWorkCompleted(row)) {
+    if (isCompletedAfterTarget(row)) return 'completedLate';
+    if (isCompletedBeforeTarget(row)) return 'earlyCloser';
+    return 'completed';
+  }
   if (isOverdueOpen(row, today)) return 'overdue';
   if (isDueSoon(row, today)) return 'dueSoon';
   if (!String(getEnquiryFieldValue(row, 'assigned_to_person') ?? '').trim()) return 'unassigned';
@@ -177,7 +189,15 @@ export function daysLeftBadge(row, today = startOfToday()) {
         title: 'Completed after the target date',
       };
     }
-    return { label: 'Completed on time', className: 'bg-emerald-100 text-emerald-800', title: 'Completed on or before the target date' };
+    if (late < 0) {
+      const early = Math.abs(late);
+      return {
+        label: `Completed ${early} day${early === 1 ? '' : 's'} early`,
+        className: 'bg-teal-100 text-teal-800',
+        title: 'Completed before the target date',
+      };
+    }
+    return { label: 'Completed on time', className: 'bg-emerald-100 text-emerald-800', title: 'Completed on the target date' };
   }
   if (isClosedRow(row)) {
     return { label: 'Closed', className: 'bg-slate-100 text-slate-500', title: 'Enquiry is closed' };

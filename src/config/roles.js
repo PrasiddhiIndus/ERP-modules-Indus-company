@@ -153,6 +153,13 @@ function collectSubModulePaths(profile, userMetadata = null) {
       continue;
     }
 
+    // Contract Management page keys (projects.po.<page>) → that page's routes only.
+    if (parts.length === 3 && parts[0] === "projects" && parts[1] === "po") {
+      const page = PROJECTS_CONTRACT_PAGES.find((p) => p.value === subKey);
+      page?.paths.forEach((p) => paths.add(p));
+      continue;
+    }
+
     // Master PO At Glance is opt-in — expand even when the user already has full Finance.
     if (subKey === FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY) {
       paths.add(FINANCE_MASTER_PO_AT_GLANCE_PATH);
@@ -870,6 +877,58 @@ export function getOpenableIevCostingTabs(profile, accessibleModules, subModuleP
   );
 }
 
+/**
+ * Projects — Contract Management pages (User Management level 3 under "Contract Management").
+ */
+export const PROJECTS_CONTRACT_PAGES = [
+  {
+    value: "projects.po.po-wo-sub-coordinator",
+    tab: "po-wo-sub-coordinator",
+    label: "PO/WO to Sub-Coordinator",
+    paths: [
+      "/app/projects/po/po-wo-sub-coordinator",
+      "/app/projects/po/po-entry",
+      "/app/projects/po/contact-log",
+    ],
+  },
+  {
+    value: "projects.po.budget",
+    tab: "budget",
+    label: "Budget",
+    paths: ["/app/projects/po/budget"],
+  },
+  {
+    value: "projects.po.expense",
+    tab: "expense",
+    label: "Expense",
+    paths: ["/app/projects/po/expense"],
+  },
+];
+
+/**
+ * Contract Management tab ids the user may open.
+ * Full Projects module, Contract Management sub-item, or no page keys → every page.
+ * Otherwise only the ticked pages.
+ */
+export function getAllowedProjectsContractTabs(profile, accessibleModules) {
+  const subs = parseAllowedSubModules(profile?.allowed_sub_modules);
+  const role = normalizeAppRole(profile?.role);
+  if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) {
+    return PROJECTS_CONTRACT_PAGES.map((page) => page.tab);
+  }
+  if (accessibleModules?.has?.("projects")) return PROJECTS_CONTRACT_PAGES.map((page) => page.tab);
+  if (subs.includes("projects.po")) return PROJECTS_CONTRACT_PAGES.map((page) => page.tab);
+  const picked = PROJECTS_CONTRACT_PAGES.filter((page) => subs.includes(page.value));
+  return (picked.length ? picked : PROJECTS_CONTRACT_PAGES).map((page) => page.tab);
+}
+
+/** Contract Management tabs the user may open and whose route the route guard also allows. */
+export function getOpenableProjectsContractTabs(profile, accessibleModules, subModulePaths) {
+  return getAllowedProjectsContractTabs(profile, accessibleModules).filter((tab) =>
+    isPathAllowed(`/app/projects/po/${tab}`, accessibleModules || new Set(), subModulePaths)
+  );
+}
+
 export const NAV_MODULE_TREE = [
   {
     value: "hr",
@@ -1025,9 +1084,8 @@ export const NAV_MODULE_TREE = [
   {
     value: "projects",
     label: "Projects",
+    // Sidebar order: Dashboard → Enquiry → Quotation → PO at Glance → Contract → Management → Billing → Reports
     subModules: [
-      { value: "projects.management",      label: "Projects Management",  pathPrefix: "/app/projects-management" },
-      { value: "projects.billing",         label: "Projects Billing",     pathPrefix: "/app/projects-billing" },
       {
         value: "projects.enquiry",
         label: "Enquiry Master",
@@ -1035,9 +1093,17 @@ export const NAV_MODULE_TREE = [
         // Page-wise access: ticking Enquiry Master grants every page; otherwise only the ticked pages.
         tabModules: PROJECTS_ENQUIRY_PAGES.map(({ value, label, optIn }) => ({ value, label, optIn: Boolean(optIn) })),
       },
-      { value: "projects.quotation-master",label: "Quotation Maker",      pathPrefix: "/app/projects/quotation" },
-      { value: "projects.po",              label: "PO / WO Entry",        pathPrefix: "/app/projects/po" },
-      { value: "projects.po-at-glance",    label: "PO At Glance",         pathPrefix: "/app/projects-po-at-glance" },
+      { value: "projects.quotation-master", label: "Quotation Master", pathPrefix: "/app/projects/quotation" },
+      { value: "projects.po-at-glance", label: "PO At Glance", pathPrefix: "/app/projects-po-at-glance" },
+      {
+        value: "projects.po",
+        label: "Contract Management",
+        pathPrefix: "/app/projects/po",
+        // Page-wise access: ticking Contract Management grants every page; otherwise only the ticked pages.
+        tabModules: PROJECTS_CONTRACT_PAGES.map(({ value, label }) => ({ value, label })),
+      },
+      { value: "projects.management", label: "Management / Planning", pathPrefix: "/app/projects-management" },
+      { value: "projects.billing", label: "Billing", pathPrefix: "/app/projects-billing" },
     ],
   },
   {

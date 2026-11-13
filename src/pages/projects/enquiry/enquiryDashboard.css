@@ -6,18 +6,9 @@
 }
 
 .enquiry-kpi-3d {
-  transform-style: preserve-3d;
-  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.45s ease;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.85) inset,
-    0 8px 20px -8px var(--enquiry-depth);
-}
-
-.enquiry-kpi-3d:hover {
-  transform: translateY(-6px) rotateX(6deg) scale(1.02);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.9) inset,
-    0 18px 36px -10px var(--enquiry-glow);
+    0 4px 12px -6px var(--enquiry-depth);
 }
 
 /* Charts stay flat: tilting them misplaces tooltip and click hit areas. */

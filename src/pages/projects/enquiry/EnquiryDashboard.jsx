@@ -24,6 +24,7 @@ import {
   Filter,
   Loader2,
   RefreshCw,
+  Timer,
   UserCheck,
   Users,
   X,
@@ -304,6 +305,7 @@ function KpiCard({ icon: Icon, label, value, sub, tone = 'blue', onClick, highli
     amber: 'bg-amber-50 text-amber-700 border-amber-100',
     sky: 'bg-sky-50 text-sky-700 border-sky-100',
     green: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+    teal: 'bg-teal-50 text-teal-700 border-teal-100',
     red: 'bg-red-50 text-red-700 border-red-100',
     slate: 'bg-slate-50 text-slate-700 border-slate-100',
   };
@@ -313,18 +315,18 @@ function KpiCard({ icon: Icon, label, value, sub, tone = 'blue', onClick, highli
       onClick={onClick}
       disabled={!value || !onClick}
       title={value && onClick ? `Open these ${value} enquiries in the Enquiry Database` : undefined}
-      className={`enquiry-kpi-3d w-full h-full flex flex-col text-left rounded-xl border p-3 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-default ${
-        value && onClick ? 'cursor-pointer hover:shadow-md hover:-translate-y-0.5' : ''
+      className={`enquiry-kpi-3d w-full h-full flex flex-col text-left rounded-lg border px-2.5 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-default ${
+        value && onClick ? 'cursor-pointer' : ''
       } ${tones[tone] || tones.blue}${highlight ? ' enquiry-kpi-overdue-highlight' : ''}`}
     >
-      <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-white/70 shrink-0">
-        <Icon className="w-4 h-4" />
+      <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-white/70 shrink-0">
+        <Icon className="w-3.5 h-3.5" />
       </span>
-      <p className="mt-2 min-h-[2rem] text-[11px] font-semibold uppercase tracking-wide opacity-80 leading-4 line-clamp-2">
+      <p className="mt-1.5 min-h-[1.5rem] text-[11px] font-semibold uppercase tracking-wide opacity-80 leading-4 line-clamp-2">
         {label}
       </p>
       <p className="text-2xl font-bold tabular-nums leading-tight enquiry-kpi-value-pop">{value}</p>
-      <p className="mt-1 min-h-[2rem] text-[11px] leading-4 opacity-75 line-clamp-2">{sub || '\u00a0'}</p>
+      <p className="mt-0.5 min-h-[1.5rem] text-[11px] leading-4 opacity-75 line-clamp-2">{sub || '\u00a0'}</p>
     </button>
   );
 }
@@ -414,6 +416,7 @@ export default function EnquiryDashboard() {
       notStarted: [],
       wip: [],
       completed: [],
+      earlyCloser: [],
       regret: [],
       unassigned: [],
       overdue: [],
@@ -502,11 +505,12 @@ export default function EnquiryDashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-5 gap-2">
         <KpiCard icon={ClipboardList} label="Total" value={stats.total} sub="Sum of all boxes" tone="blue" onClick={openHandler('total', 'Total')} />
         <KpiCard icon={Users} label="Not Started" value={stats.notStarted} sub="Assigned, not yet due" tone="amber" onClick={openHandler('notStarted', 'Not Started')} />
         <KpiCard icon={UserCheck} label="In Progress" value={stats.wip} sub="Assigned, not yet due" tone="sky" onClick={openHandler('wip', 'In Progress')} />
-        <KpiCard icon={CheckCircle2} label="Completed" value={stats.completed} sub="On or before target date" tone="green" onClick={openHandler('completed', 'Completed')} />
+        <KpiCard icon={Timer} label="Early Closer" value={stats.earlyCloser} sub="Closed before target date" tone="teal" onClick={openHandler('earlyCloser', 'Early Closer')} />
+        <KpiCard icon={CheckCircle2} label="Completed" value={stats.completed} sub="Completed on target date" tone="green" onClick={openHandler('completed', 'Completed')} />
         <KpiCard icon={AlertTriangle} label="Regret" value={stats.regret} tone="red" onClick={openHandler('regret', 'Regret')} />
         <KpiCard icon={Users} label="Unassigned" value={stats.unassigned} sub="Open, no assignee, not yet due" tone="slate" onClick={openHandler('unassigned', 'Unassigned')} />
         <KpiCard
