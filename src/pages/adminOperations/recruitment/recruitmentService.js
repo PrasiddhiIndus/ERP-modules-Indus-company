@@ -678,6 +678,7 @@ export async function getDashboardSummary() {
     interviewsToday: mappedInterviews.filter((i) => i.status === "scheduled" && new Date(i.scheduledAt).toLocaleDateString("en-CA") === today),
     interviewsAttended: mappedInterviews.filter((i) => ["attended", "evaluated"].includes(i.status)).length,
     interviewsNoShow: mappedInterviews.filter((i) => i.status === "no_show").length,
+    interviewsToEvaluate: mappedInterviews.filter((i) => i.status === "attended").length,
     offersPending: (offerCounts.generated || 0) + (offerCounts.sent || 0) + (offerCounts.viewed || 0) + (offerCounts.draft || 0),
     offerCounts,
     documentsPending: liveDocs.filter((d) => d.required && d.status !== "verified").length,

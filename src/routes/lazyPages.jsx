@@ -435,6 +435,7 @@ export const ProjectsPoAtGlance = lazy(() => import("../pages/projects/poAtGlanc
 export const ProjectsSignatureConfig = lazy(() => import("../pages/projects/poAtGlance/ProjectsSignatureConfig"));
 export const RmPoAtGlance = lazy(() => import("../pages/commercial-rm-mm-amc-iev/poAtGlance/RmPoAtGlance"));
 export const RmSignatureConfig = lazy(() => import("../pages/commercial-rm-mm-amc-iev/poAtGlance/RmSignatureConfig"));
+export const CommercialFireTenderManagement = lazy(() => import("../pages/commercial/fire-tender-management/FireTenderManagement"));
 export const MaintenanceExpoSeminar = lazy(() => import("../pages/maintenance/ExpoSeminar"));
 export const MaintenanceGSTUpload = lazy(() => import("../pages/maintenance/GSTUpload"));
 export const MaintenanceReports = lazy(() => import("../pages/maintenance/MaintenanceReports"));

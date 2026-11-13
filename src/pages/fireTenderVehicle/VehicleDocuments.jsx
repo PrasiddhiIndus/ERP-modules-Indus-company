@@ -235,6 +235,13 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
       toast.warning("Validation", `Too many attachments for this document type (max ${docCfg.attachmentMax}).`);
       return;
     }
+    const expiryValue = formData.expiry_date && String(formData.expiry_date).trim() !== ''
+      ? String(formData.expiry_date).trim().slice(0, 10)
+      : null;
+    if (docCfg.expiryRequired && !expiryValue) {
+      toast.warning("Validation", `Please enter ${docCfg.expiryDateLabel.toLowerCase()} for this document type.`);
+      return;
+    }
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -248,7 +255,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
         document_type: formData.document_type || null,
         document_number: formData.document_number || null,
         issue_date: formData.issue_date && formData.issue_date.trim() !== '' ? formData.issue_date : null,
-        expiry_date: formData.expiry_date && formData.expiry_date.trim() !== '' ? formData.expiry_date : null,
+        expiry_date: expiryValue,
         provider: formData.provider || null,
         premium_amount: formData.premium_amount !== '' && formData.premium_amount != null ? parseFloat(formData.premium_amount) : null,
         remarks: formData.remarks || null,

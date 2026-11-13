@@ -221,6 +221,7 @@ import {
   ProjectsSignatureConfig,
   RmPoAtGlance,
   RmSignatureConfig,
+  CommercialFireTenderManagement,
   MaintenanceExpoSeminar,
   MaintenanceGSTUpload,
   MaintenanceReports,
@@ -660,6 +661,7 @@ function App() {
             <Route path="commercial/manpower-training/dashboard" element={<Commercial />} />
             <Route path="commercial/manpower-training/po-entry" element={<Commercial />} />
             <Route path="commercial/manpower-training/contact-log" element={<Commercial />} />
+            <Route path="commercial/manpower-training/fire-tender-management" element={<CommercialFireTenderManagement />} />
 
             {/* Commercial — R&M */}
             <Route path="commercial/rm-mm-amc-iev" element={<CommercialRmMmAmcIev />} />
@@ -668,6 +670,7 @@ function App() {
             <Route path="commercial/rm-mm-amc-iev/contact-log" element={<CommercialRmMmAmcIev />} />
             <Route path="commercial/rm-mm-amc-iev/po-at-glance" element={<RmPoAtGlance />} />
             <Route path="commercial/rm-mm-amc-iev/po-at-glance/signature-config" element={<RmSignatureConfig />} />
+            <Route path="commercial/rm-mm-amc-iev/fire-tender-management" element={<Navigate to="/app/commercial/manpower-training/fire-tender-management" replace />} />
             <Route path="commercial/rm-mm-amc-iev/manpower-management" element={<CommercialRmManpowerManagement />} />
             <Route path="commercial/rm-mm-amc-iev/manpower-management/:id" element={<CommercialRmManpowerManagement />} />
             <Route path="commercial/rm-mm-amc-iev/internal-quotation" element={<CommercialRmInternalQuotation />} />

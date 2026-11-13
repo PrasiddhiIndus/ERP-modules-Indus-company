@@ -26,10 +26,13 @@ import {
   SegmentedToggle,
   SelectField,
   StatusPill,
+  Tabs,
   btn,
   fmtDate,
   fmtRelative,
   inputClass,
+  searchClass,
+  toolbarClass,
   useCapabilities,
   useRecruitmentData,
 } from "./RecruitmentUi";
@@ -37,7 +40,6 @@ import ScheduleInterviewModal from "./ScheduleInterviewModal";
 import { AddCandidateModal } from "./RecruitmentForms";
 
 const EMPTY_FILTERS = {
-  status: "active",
   source: "",
   requisition: "",
   stage: "",
@@ -46,14 +48,12 @@ const EMPTY_FILTERS = {
   site: "",
   expMin: "",
   expMax: "",
-  joiningFrom: "",
-  joiningTo: "",
-  addedFrom: "",
-  addedTo: "",
+  dateField: "added",
+  dateFrom: "",
+  dateTo: "",
 };
 
 const FILTER_LABELS = {
-  status: "Status",
   source: "Source",
   requisition: "Requisition",
   stage: "Stage",
@@ -62,18 +62,32 @@ const FILTER_LABELS = {
   site: "Site",
   expMin: "Exp ≥",
   expMax: "Exp ≤",
-  joiningFrom: "Joining from",
-  joiningTo: "Joining to",
-  addedFrom: "Added from",
-  addedTo: "Added to",
+  dateFrom: "from",
+  dateTo: "to",
 };
 
-const STATUS_OPTIONS = [
-  { value: "active", label: "In progress" },
-  { value: "closed", label: "Closed" },
-  { value: "converted", label: "Employee created" },
-  { value: "all", label: "All" },
+const DATE_FIELDS = [
+  { value: "added", label: "Added on" },
+  { value: "joining", label: "Expected joining" },
 ];
+
+/** Status tabs (replace the former status dropdown). */
+const STATUS_TABS = [
+  { key: "active", label: "In progress", test: (c) => c.live },
+  { key: "closed", label: "Closed", test: (c) => Boolean(c.outcome) },
+  { key: "converted", label: "Employees created", test: (c) => c.stage === "employee_created" },
+  { key: "all", label: "All", test: () => true },
+];
+
+/** Stage / outcome choices that make sense on each status tab. */
+function stagesForStatus(status) {
+  if (status === "closed") return CANDIDATE_OUTCOMES;
+  if (status === "active") return PIPELINE_STAGES.filter((s) => s.key !== "employee_created");
+  return [...PIPELINE_STAGES, ...CANDIDATE_OUTCOMES];
+}
+
+/** Filters shown inline on the toolbar; the rest live under "More filters". */
+const QUICK_FILTER_KEYS = ["stage", "requisition"];
 
 async function loadCandidatesPage() {
   const [candidates, requisitions] = await Promise.all([listCandidates(), listRequisitions()]);
@@ -96,8 +110,9 @@ export default function CandidatesPage() {
   const view = params.get("view") === "board" ? "board" : "list";
   const { data, loading, error, reload } = useRecruitmentData(loadCandidatesPage);
   const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("active");
   const [filters, setFilters] = useState(() => ({ ...EMPTY_FILTERS, requisition: params.get("requisition") || "" }));
-  const [showFilters, setShowFilters] = useState(Boolean(params.get("requisition")));
+  const [showFilters, setShowFilters] = useState(false);
   const [scheduleFor, setScheduleFor] = useState(null);
   const [adding, setAdding] = useState(false);
 
@@ -114,14 +129,19 @@ export default function CandidatesPage() {
   );
 
   const setFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
-  const activeFilters = Object.entries(filters).filter(([k, v]) => v !== "" && !(k === "status" && v === "active"));
+  const activeFilters = Object.entries(filters).filter(([k, v]) => k !== "dateField" && v !== "");
+  const moreFilterCount = activeFilters.filter(([k]) => !QUICK_FILTER_KEYS.includes(k)).length;
+  const stageOptions = useMemo(() => stagesForStatus(status).map((s) => ({ value: s.key, label: s.label })), [status]);
 
-  const filtered = useMemo(() => {
+  const changeStatus = (key) => {
+    setStatus(key);
+    // Drop a stage filter that does not exist on the new tab.
+    setFilters((f) => (f.stage && !stagesForStatus(key).some((s) => s.key === f.stage) ? { ...f, stage: "" } : f));
+  };
+
+  const baseFiltered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return candidates.filter((c) => {
-      if (filters.status === "active" && !c.live) return false;
-      if (filters.status === "closed" && !c.outcome) return false;
-      if (filters.status === "converted" && c.stage !== "employee_created") return false;
       if (q && ![c.name, c.phone, c.email, c.designation, c.requisitionNo, c.currentCompany, c.candidateNo].join(" ").toLowerCase().includes(q)) return false;
       if (filters.source && c.source !== filters.source) return false;
       if (filters.requisition && c.requisitionId !== filters.requisition) return false;
@@ -131,14 +151,18 @@ export default function CandidatesPage() {
       if (filters.site && c.site !== filters.site) return false;
       if (filters.expMin !== "" && (c.experienceYears ?? 0) < Number(filters.expMin)) return false;
       if (filters.expMax !== "" && (c.experienceYears ?? 0) > Number(filters.expMax)) return false;
-      if (filters.joiningFrom && (!c.expectedJoining || c.expectedJoining < filters.joiningFrom)) return false;
-      if (filters.joiningTo && (!c.expectedJoining || c.expectedJoining > filters.joiningTo)) return false;
-      const added = String(c.addedOn).slice(0, 10);
-      if (filters.addedFrom && added < filters.addedFrom) return false;
-      if (filters.addedTo && added > filters.addedTo) return false;
+      if (filters.dateFrom || filters.dateTo) {
+        const value = filters.dateField === "joining" ? c.expectedJoining || "" : String(c.addedOn || "").slice(0, 10);
+        if (!value) return false;
+        if (filters.dateFrom && value < filters.dateFrom) return false;
+        if (filters.dateTo && value > filters.dateTo) return false;
+      }
       return true;
     });
   }, [candidates, search, filters]);
+
+  const statusCounts = useMemo(() => Object.fromEntries(STATUS_TABS.map((t) => [t.key, baseFiltered.filter(t.test).length])), [baseFiltered]);
+  const filtered = useMemo(() => baseFiltered.filter(STATUS_TABS.find((t) => t.key === status).test), [baseFiltered, status]);
 
   const move = async (candidate, stageKey) => {
     if (!stageKey || stageKey === candidate.stage) return;
@@ -188,7 +212,7 @@ export default function CandidatesPage() {
     },
     {
       key: "designation",
-      label: "Applied for",
+      label: "Position",
       render: (c) => (
         <span>
           <span className="block">{c.designation || "—"}</span>
@@ -196,9 +220,23 @@ export default function CandidatesPage() {
         </span>
       ),
     },
-    { key: "stage", label: "Status", sortValue: (c) => (c.outcome ? 100 : STAGE_INDEX[c.stage]), render: (c) => <StatusPill meta={candidateStatusMeta(c)} /> },
-    { key: "interviewStatus", label: "Interview", render: (c) => (c.interviewStatus ? <StatusPill meta={interviewStatusMeta(c.interviewStatus)} /> : <span className="text-ink-muted">—</span>) },
-    { key: "offerStatus", label: "Offer", render: (c) => (c.offerStatus ? <StatusPill meta={offerStatusMeta(c.offerStatus)} /> : <span className="text-ink-muted">—</span>) },
+    {
+      key: "stage",
+      label: "Status",
+      sortValue: (c) => (c.outcome ? 100 : STAGE_INDEX[c.stage]),
+      render: (c) => {
+        const detail = [
+          c.interviewStatus ? `Interview: ${interviewStatusMeta(c.interviewStatus).label}` : null,
+          c.offerStatus ? `Offer: ${offerStatusMeta(c.offerStatus).label}` : null,
+        ].filter(Boolean);
+        return (
+          <span className="block">
+            <StatusPill meta={candidateStatusMeta(c)} />
+            {detail.length ? <span className="mt-0.5 block text-[11px] text-ink-muted">{detail.join(" · ")}</span> : null}
+          </span>
+        );
+      },
+    },
     { key: "expectedJoining", label: "Expected joining", render: (c) => fmtDate(c.expectedJoining) },
     { key: "recruiter", label: "Recruiter" },
     { key: "lastActivityAt", label: "Last activity", render: (c) => <span className="text-ink-secondary">{fmtRelative(c.lastActivityAt)}</span> },
@@ -221,12 +259,21 @@ export default function CandidatesPage() {
 
   return (
     <div className="space-y-3">
-      <div className="rounded-card border border-border bg-surface p-4 shadow-card">
-        <div className="flex flex-wrap items-center gap-2">
-          <SearchBox value={search} onChange={setSearch} placeholder="Search name, phone, email, requisition…" className="w-full sm:w-80" />
-          <SelectField label="" value={filters.status} onChange={(v) => setFilter("status", v)} options={STATUS_OPTIONS} allLabel={null} className="w-40" />
+      <div className="rounded-card border border-border bg-surface shadow-card">
+        <div className="px-4 pt-1">
+          <Tabs
+            ariaLabel="Candidate status"
+            value={status}
+            onChange={changeStatus}
+            tabs={STATUS_TABS.map((t) => ({ key: t.key, label: t.label, count: statusCounts[t.key] }))}
+          />
+        </div>
+        <div className={toolbarClass}>
+          <SearchBox value={search} onChange={setSearch} placeholder="Search name, phone, email, requisition…" className={searchClass} />
+          <SelectField label="Stage" value={filters.stage} onChange={(v) => setFilter("stage", v)} options={stageOptions} className="w-40" />
+          <SelectField label="Requisition" value={filters.requisition} onChange={(v) => setFilter("requisition", v)} options={options.requisitions} className="w-52" />
           <button type="button" className={btn.secondary} onClick={() => setShowFilters((v) => !v)} aria-expanded={showFilters}>
-            <Filter className="h-3.5 w-3.5" /> Filters{activeFilters.length ? ` (${activeFilters.length})` : ""}
+            <Filter className="h-3.5 w-3.5" /> More filters{moreFilterCount ? ` (${moreFilterCount})` : ""}
           </button>
           <div className="ml-auto flex items-center gap-2">
             <span className="text-[11px] text-ink-muted">
@@ -250,17 +297,8 @@ export default function CandidatesPage() {
         </div>
 
         {showFilters ? (
-          <div className="mt-3 grid grid-cols-2 gap-3 border-t border-divider pt-3 md:grid-cols-4 xl:grid-cols-6">
+          <div className="mx-4 mb-3 grid grid-cols-2 gap-3 border-t border-divider pt-3 md:grid-cols-4 xl:grid-cols-8">
             <SelectField label="Source" value={filters.source} onChange={(v) => setFilter("source", v)} options={options.sources} />
-            <SelectField label="Requisition" value={filters.requisition} onChange={(v) => setFilter("requisition", v)} options={options.requisitions} />
-            <SelectField
-              label="Stage / outcome"
-              value={filters.stage}
-              onChange={(v) => setFilter("stage", v)}
-              options={[...PIPELINE_STAGES, ...CANDIDATE_OUTCOMES].map((s) => ({ value: s.key, label: s.label }))}
-            />
-            <SelectField label="Interview status" value={filters.interviewStatus} onChange={(v) => setFilter("interviewStatus", v)} options={INTERVIEW_STATUSES.map((s) => ({ value: s.key, label: s.label }))} />
-            <SelectField label="Offer status" value={filters.offerStatus} onChange={(v) => setFilter("offerStatus", v)} options={OFFER_STATUSES.map((s) => ({ value: s.key, label: s.label }))} />
             <SelectField label="Site" value={filters.site} onChange={(v) => setFilter("site", v)} options={options.sites} />
             <Field label="Experience (yrs)">
               <span className="flex gap-1.5">
@@ -268,39 +306,39 @@ export default function CandidatesPage() {
                 <input type="number" min="0" value={filters.expMax} onChange={(e) => setFilter("expMax", e.target.value)} placeholder="Max" className={inputClass} aria-label="Maximum experience" />
               </span>
             </Field>
-            <Field label="Joining from">
-              <input type="date" value={filters.joiningFrom} onChange={(e) => setFilter("joiningFrom", e.target.value)} className={inputClass} />
+            <SelectField label="Interview status" value={filters.interviewStatus} onChange={(v) => setFilter("interviewStatus", v)} options={INTERVIEW_STATUSES.map((s) => ({ value: s.key, label: s.label }))} />
+            <SelectField label="Offer status" value={filters.offerStatus} onChange={(v) => setFilter("offerStatus", v)} options={OFFER_STATUSES.map((s) => ({ value: s.key, label: s.label }))} />
+            <SelectField label="Date field" value={filters.dateField} onChange={(v) => setFilter("dateField", v)} options={DATE_FIELDS} allLabel={null} />
+            <Field label="From">
+              <input type="date" value={filters.dateFrom} onChange={(e) => setFilter("dateFrom", e.target.value)} className={inputClass} />
             </Field>
-            <Field label="Joining to">
-              <input type="date" value={filters.joiningTo} onChange={(e) => setFilter("joiningTo", e.target.value)} className={inputClass} />
-            </Field>
-            <Field label="Added from">
-              <input type="date" value={filters.addedFrom} onChange={(e) => setFilter("addedFrom", e.target.value)} className={inputClass} />
-            </Field>
-            <Field label="Added to">
-              <input type="date" value={filters.addedTo} onChange={(e) => setFilter("addedTo", e.target.value)} className={inputClass} />
+            <Field label="To">
+              <input type="date" value={filters.dateTo} onChange={(e) => setFilter("dateTo", e.target.value)} className={inputClass} />
             </Field>
           </div>
         ) : null}
 
         {activeFilters.length ? (
-          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <div className="mx-4 mb-3 flex flex-wrap items-center gap-1.5">
             {activeFilters.map(([key, value]) => {
               let display = value;
-              if (key === "status") display = STATUS_OPTIONS.find((o) => o.value === value)?.label || value;
               if (key === "requisition") display = options.requisitions.find((o) => o.value === value)?.label || value;
               if (key === "stage") display = (PIPELINE_STAGES.some((s) => s.key === value) ? stageMeta(value) : outcomeMeta(value)).label;
               if (key === "interviewStatus") display = interviewStatusMeta(value).label;
               if (key === "offerStatus") display = offerStatusMeta(value).label;
+              const label =
+                key === "dateFrom" || key === "dateTo"
+                  ? `${DATE_FIELDS.find((d) => d.value === filters.dateField)?.label} ${FILTER_LABELS[key]}`
+                  : FILTER_LABELS[key];
               return (
                 <button
                   key={key}
                   type="button"
-                  onClick={() => setFilter(key, key === "status" ? "active" : "")}
+                  onClick={() => setFilter(key, "")}
                   className="inline-flex items-center gap-1 rounded-full border border-accent-border bg-accent-soft px-2 py-0.5 text-[11px] text-accent-deep hover:bg-surface"
-                  aria-label={`Remove filter ${FILTER_LABELS[key]}`}
+                  aria-label={`Remove filter ${label}`}
                 >
-                  {FILTER_LABELS[key]}: {display}
+                  {label}: {display}
                   <X className="h-3 w-3" />
                 </button>
               );
@@ -310,24 +348,24 @@ export default function CandidatesPage() {
             </button>
           </div>
         ) : null}
-      </div>
 
-      <AsyncBoundary loading={loading} error={error} onRetry={reload} rows={8}>
-        {view === "list" ? (
-          <div className="rounded-card border border-border bg-surface p-4 shadow-card">
-            <DataTable
-              columns={columns}
-              rows={filtered}
-              onRowClick={openCandidate}
-              initialSort={{ key: "lastActivityAt", dir: "desc" }}
-              emptyTitle={candidates.length ? "No candidates match" : "No candidates yet"}
-              emptyMessage={candidates.length ? "Try a different search or clear some filters." : "Add a candidate to start the recruitment pipeline."}
-            />
-          </div>
-        ) : (
-          <PipelineBoard candidates={filtered.filter((c) => c.live)} onOpen={openCandidate} onMove={move} canMove={Boolean(caps.candidates)} />
-        )}
-      </AsyncBoundary>
+        <div className="px-4 pb-4">
+          <AsyncBoundary loading={loading} error={error} onRetry={reload} rows={8}>
+            {view === "list" ? (
+              <DataTable
+                columns={columns}
+                rows={filtered}
+                onRowClick={openCandidate}
+                initialSort={{ key: "lastActivityAt", dir: "desc" }}
+                emptyTitle={candidates.length ? "No candidates match" : "No candidates yet"}
+                emptyMessage={candidates.length ? "Try a different search or clear some filters." : "Add a candidate to start the recruitment pipeline."}
+              />
+            ) : (
+              <PipelineBoard candidates={filtered.filter((c) => c.live)} onOpen={openCandidate} onMove={move} canMove={Boolean(caps.candidates)} />
+            )}
+          </AsyncBoundary>
+        </div>
+      </div>
 
       <ScheduleInterviewModal open={Boolean(scheduleFor)} candidate={scheduleFor} candidates={candidates} onClose={() => setScheduleFor(null)} />
       <AddCandidateModal

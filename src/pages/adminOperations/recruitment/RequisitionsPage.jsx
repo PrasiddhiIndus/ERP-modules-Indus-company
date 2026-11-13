@@ -23,7 +23,9 @@ import {
   fmtDateTime,
   inputClass,
   runAction,
+  searchClass,
   textareaClass,
+  toolbarClass,
   useCapabilities,
   useRecruitmentData,
 } from "./RecruitmentUi";
@@ -302,17 +304,22 @@ export default function RequisitionsPage() {
   return (
     <div className="space-y-3">
       <div className="rounded-card border border-border bg-surface shadow-card">
-        <div className="px-4 pt-2">
+        <div className="px-4 pt-1">
           <Tabs tabs={tabs} value={status} onChange={setStatus} ariaLabel="Requisition status" />
         </div>
-        <div className="flex flex-wrap items-end gap-3 px-4 py-3">
-          <SearchBox value={search} onChange={setSearch} placeholder="Search req no., position, manager…" className="w-full sm:w-72" />
+        <div className={toolbarClass}>
+          <SearchBox value={search} onChange={setSearch} placeholder="Search req no., position, manager…" className={searchClass} />
           <SelectField label="Department" value={department} onChange={setDepartment} options={departments} className="w-44" />
-          {canManage ? (
-            <button type="button" className={`${btn.primary} ml-auto`} onClick={() => setForm({ requisition: null })}>
-              <Plus className="h-3.5 w-3.5" /> New requisition
-            </button>
-          ) : null}
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-[11px] text-ink-muted">
+              {filtered.length} of {rows.length}
+            </span>
+            {canManage ? (
+              <button type="button" className={btn.primary} onClick={() => setForm({ requisition: null })}>
+                <Plus className="h-3.5 w-3.5" /> New requisition
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="px-4 pb-4">
           <AsyncBoundary loading={loading} error={error} onRetry={reload}>

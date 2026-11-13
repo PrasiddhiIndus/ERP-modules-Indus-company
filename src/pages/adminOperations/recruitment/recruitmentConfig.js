@@ -19,6 +19,46 @@ export const RECRUITMENT_SECTIONS = [
   { key: "settings", label: "Settings", to: "settings", cap: "settings" },
 ];
 
+/**
+ * Top-level navigation groups. Each group shows when at least one member section is visible
+ * (same per-section access + capability rules as before); members become sub-tabs.
+ * Routes and access keys are unchanged — this only regroups how sections are presented.
+ * Member `query` adds a URL query (e.g. the Communication route serves both Email log and Templates).
+ */
+export const RECRUITMENT_NAV = [
+  { key: "dashboard", label: "Dashboard", members: [{ section: "dashboard" }] },
+  { key: "requisitions", label: "Requisitions", members: [{ section: "requisitions" }] },
+  { key: "candidates", label: "Candidates", members: [{ section: "candidates" }] },
+  { key: "interviews", label: "Interviews", members: [{ section: "interviews" }] },
+  { key: "offers", label: "Offers & Letters", members: [{ section: "offers" }] },
+  {
+    key: "onboarding",
+    label: "Onboarding",
+    members: [
+      { section: "documents", label: "Documents" },
+      { section: "joining", label: "Joining" },
+      { section: "conversion", label: "Convert to employee" },
+    ],
+  },
+  {
+    key: "reports",
+    label: "Reports",
+    members: [
+      { section: "reports", label: "Overview" },
+      { section: "communication", label: "Email log", query: "" },
+    ],
+  },
+  {
+    key: "settings",
+    label: "Settings",
+    iconOnly: true,
+    members: [
+      { section: "settings", label: "General" },
+      { section: "communication", label: "Email templates", query: "tab=templates" },
+    ],
+  },
+];
+
 /** Severity → token classes (matches the ERP semantic palette). */
 export const TONE_CLASSES = {
   neutral: "bg-surface-sunken text-ink-secondary border-border",

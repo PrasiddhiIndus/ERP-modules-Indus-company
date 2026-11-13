@@ -9,9 +9,9 @@ import {
   EmptyState,
   ProgressBar,
   SearchBox,
+  SelectField,
   StatTile,
   btn,
-  inputClass,
   useCapabilities,
   useRecruitmentData,
 } from "./RecruitmentUi";
@@ -96,13 +96,7 @@ export default function DocumentsPage() {
           <aside className="rounded-card border border-border bg-surface shadow-card">
             <div className="space-y-2 border-b border-divider p-3">
               <SearchBox value={search} onChange={setSearch} placeholder="Search candidate…" />
-              <select value={filter} onChange={(e) => setFilter(e.target.value)} className={inputClass} aria-label="Filter candidates">
-                {FILTERS.map((f) => (
-                  <option key={f.key} value={f.key}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
+              <SelectField label="Show" value={filter} onChange={setFilter} allLabel={null} options={FILTERS.map((f) => ({ value: f.key, label: f.label }))} />
             </div>
             {visibleGroups.length ? (
               <ul className="max-h-[60vh] divide-y divide-divider overflow-y-auto" aria-label="Candidates">

@@ -9,11 +9,12 @@ import {
   SearchBox,
   SegmentedToggle,
   SelectField,
-  StatTile,
   StatusPill,
   Tabs,
   btn,
   fmtDateTime,
+  searchClass,
+  toolbarClass,
   useCapabilities,
   useRecruitmentData,
 } from "./RecruitmentUi";
@@ -41,6 +42,7 @@ function dayKey(d) {
 }
 
 const TAB_FILTERS = {
+  today: (i) => i.status === "scheduled" && dayKey(new Date(i.scheduledAt)) === dayKey(new Date()),
   upcoming: (i) => i.status === "scheduled",
   to_evaluate: (i) => i.status === "attended",
   evaluated: (i) => i.status === "evaluated",
@@ -77,8 +79,6 @@ export default function InterviewsPage() {
 
   const filtered = baseFiltered.filter(TAB_FILTERS[tab]);
   const counts = Object.fromEntries(Object.entries(TAB_FILTERS).map(([k, fn]) => [k, baseFiltered.filter(fn).length]));
-  const today = dayKey(new Date());
-  const todayCount = interviews.filter((i) => i.status === "scheduled" && dayKey(new Date(i.scheduledAt)) === today).length;
 
   const open = interviews.find((i) => i.id === openId) || null;
 
@@ -118,54 +118,51 @@ export default function InterviewsPage() {
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <StatTile label="Today" value={todayCount} tone="accent" />
-        <StatTile label="Upcoming" value={counts.upcoming} tone="info" onClick={() => setTab("upcoming")} />
-        <StatTile label="To evaluate" value={counts.to_evaluate} tone="warning" onClick={() => setTab("to_evaluate")} />
-        <StatTile label="Evaluated" value={counts.evaluated} tone="success" onClick={() => setTab("evaluated")} />
-        <StatTile label="No-shows" value={counts.no_show} tone="critical" onClick={() => setTab("no_show")} />
-      </div>
-
       <div className="rounded-card border border-border bg-surface shadow-card">
-        <div className="flex flex-wrap items-center justify-end gap-2 px-4 pt-3">
-          <SegmentedToggle
-            ariaLabel="Interview view"
-            value={view}
-            onChange={setView}
-            options={[
-              { value: "list", label: "List", icon: List },
-              { value: "calendar", label: "Calendar", icon: CalendarDays },
-            ]}
-          />
-          {caps.interviews ? (
-            <button type="button" className={btn.primary} onClick={() => setScheduleOpen(true)}>
-              <CalendarPlus className="h-3.5 w-3.5" /> Schedule interview
-            </button>
-          ) : null}
-        </div>
-
         {view === "list" ? (
-          <div className="px-4 pt-2">
+          <div className="px-4 pt-1">
             <Tabs
               ariaLabel="Interview status"
               value={tab}
               onChange={setTab}
               tabs={[
+                { key: "today", label: "Today", count: counts.today },
                 { key: "upcoming", label: "Scheduled", count: counts.upcoming },
                 { key: "to_evaluate", label: "To evaluate", count: counts.to_evaluate },
                 { key: "evaluated", label: "Evaluated", count: counts.evaluated },
                 { key: "no_show", label: "No-shows", count: counts.no_show },
-                { key: "cancelled", label: "Cancelled / moved", count: counts.cancelled },
+                { key: "cancelled", label: "Cancelled / rescheduled", count: counts.cancelled },
                 { key: "all", label: "All", count: counts.all },
               ]}
             />
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-end gap-3 px-4 py-3">
-          <SearchBox value={search} onChange={setSearch} placeholder="Search candidate, position, interviewer…" className="w-full sm:w-72" />
+        <div className={toolbarClass}>
+          <SearchBox value={search} onChange={setSearch} placeholder="Search candidate, position, interviewer…" className={searchClass} />
           <SelectField label="Mode" value={mode} onChange={setMode} options={INTERVIEW_MODES.map((m) => ({ value: m.key, label: m.label }))} className="w-32" />
           <SelectField label="Interviewer" value={interviewer} onChange={setInterviewer} options={interviewerNames} className="w-44" />
+          <div className="ml-auto flex items-center gap-2">
+            {view === "list" ? (
+              <span className="text-[11px] text-ink-muted">
+                {filtered.length} of {interviews.length}
+              </span>
+            ) : null}
+            <SegmentedToggle
+              ariaLabel="Interview view"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: "list", label: "List", icon: List },
+                { value: "calendar", label: "Calendar", icon: CalendarDays },
+              ]}
+            />
+            {caps.interviews ? (
+              <button type="button" className={btn.primary} onClick={() => setScheduleOpen(true)}>
+                <CalendarPlus className="h-3.5 w-3.5" /> Schedule interview
+              </button>
+            ) : null}
+          </div>
         </div>
 
         <div className="px-4 pb-4">

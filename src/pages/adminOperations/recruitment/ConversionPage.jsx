@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ExternalLink, UserPlus } from "lucide-react";
 import { conversionStatusMeta } from "./recruitmentConfig";
 import { listCandidates } from "./recruitmentService";
-import { AsyncBoundary, Avatar, DataTable, SearchBox, StatTile, StatusPill, Tabs, btn, fmtDate, useCapabilities, useRecruitmentData } from "./RecruitmentUi";
+import { AsyncBoundary, Avatar, DataTable, SearchBox, StatusPill, Tabs, btn, fmtDate, searchClass, toolbarClass, useCapabilities, useRecruitmentData } from "./RecruitmentUi";
 import { ConvertModal } from "./RecruitmentForms";
 
 function employeeMasterPath(c) {
@@ -39,9 +39,9 @@ export default function ConversionPage() {
       ),
     },
     { key: "employeeCode", label: "Employee code", render: (c) => <span className="font-mono text-[11px]">{c.employeeCode || "—"}</span> },
-    { key: "designation", label: "Designation" },
+    { key: "designation", label: "Position" },
     { key: "site", label: "Site" },
-    { key: "actualJoining", label: "Joining date", render: (c) => fmtDate(c.actualJoining) },
+    { key: "actualJoining", label: "Actual joining", render: (c) => fmtDate(c.actualJoining) },
     { key: "convertedAt", label: "Converted", render: (c) => (c.convertedAt ? `${fmtDate(c.convertedAt)}${c.convertedBy ? ` · ${c.convertedBy}` : ""}` : "—") },
     { key: "conversionStatus", label: "Status", render: (c) => <StatusPill meta={conversionStatusMeta(c.conversionStatus)} /> },
     {
@@ -70,12 +70,6 @@ export default function ConversionPage() {
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatTile label="Ready to convert" value={pending.length} tone="warning" onClick={() => setTab("pending")} />
-        <StatTile label="Converted" value={converted.length} tone="success" onClick={() => setTab("converted")} />
-        <StatTile label="Joined (total)" value={pending.length + converted.length} onClick={() => setTab("all")} />
-      </div>
-
       <div className="rounded-card border border-border bg-surface shadow-card">
         <div className="px-4 pt-1">
           <Tabs
@@ -85,12 +79,12 @@ export default function ConversionPage() {
             tabs={[
               { key: "pending", label: "Ready to convert", count: pending.length },
               { key: "converted", label: "Converted", count: converted.length },
-              { key: "all", label: "All joined", count: pending.length + converted.length },
             ]}
           />
         </div>
-        <div className="px-4 py-3">
-          <SearchBox value={search} onChange={setSearch} placeholder="Search name, employee code, site…" className="w-full sm:w-72" />
+        <div className={toolbarClass}>
+          <SearchBox value={search} onChange={setSearch} placeholder="Search name, employee code, site…" className={searchClass} />
+          <span className="ml-auto text-[11px] text-ink-muted">{rows.length} results</span>
         </div>
         <div className="px-4 pb-4">
           <AsyncBoundary loading={loading} error={error} onRetry={reload}>

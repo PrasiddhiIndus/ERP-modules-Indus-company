@@ -11,7 +11,8 @@ import {
   ProgressBar,
   ReadinessIndicator,
   SearchBox,
-  StatTile,
+  searchClass,
+  toolbarClass,
   StatusPill,
   Tabs,
   btn,
@@ -58,7 +59,7 @@ export default function JoiningPage() {
         </span>
       ),
     },
-    { key: "designation", label: "Designation" },
+    { key: "designation", label: "Position" },
     { key: "site", label: "Site" },
     { key: "expectedJoining", label: "Expected joining", render: (c) => fmtDate(c.expectedJoining) },
     ...(tab === "joined" ? [{ key: "actualJoining", label: "Actual joining", render: (c) => fmtDate(c.actualJoining) }] : []),
@@ -107,13 +108,6 @@ export default function JoiningPage() {
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatTile label="Upcoming" value={groups.upcoming.length} tone="info" onClick={() => setTab("upcoming")} />
-        <StatTile label="Ready to join" value={groups.ready.length} tone="success" onClick={() => setTab("ready")} />
-        <StatTile label="Not ready" value={groups.blocked.length} tone="warning" sub="Pending letter or documents" onClick={() => setTab("blocked")} />
-        <StatTile label="Joined" value={groups.joined.length} tone="accent" onClick={() => setTab("joined")} />
-      </div>
-
       <div className="rounded-card border border-border bg-surface shadow-card">
         <div className="px-4 pt-1">
           <Tabs
@@ -128,8 +122,10 @@ export default function JoiningPage() {
             ]}
           />
         </div>
-        <div className="px-4 py-3">
-          <SearchBox value={search} onChange={setSearch} placeholder="Search candidate, designation, site…" className="w-full sm:w-72" />
+        <div className={toolbarClass}>
+          <SearchBox value={search} onChange={setSearch} placeholder="Search candidate, designation, site…" className={searchClass} />
+          {tab === "blocked" ? <span className="text-[11px] text-ink-muted">Waiting on the appointment letter or joining documents.</span> : null}
+          <span className="ml-auto text-[11px] text-ink-muted">{filtered.length} results</span>
         </div>
         <div className="px-4 pb-4">
           <AsyncBoundary loading={loading} error={error} onRetry={reload}>
