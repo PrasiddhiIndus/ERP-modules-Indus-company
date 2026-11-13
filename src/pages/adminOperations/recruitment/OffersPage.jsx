@@ -12,6 +12,7 @@ import {
   FileButton,
   ReasonModal,
   SearchBox,
+  SelectField,
   StatusPill,
   Tabs,
   btn,
@@ -19,6 +20,8 @@ import {
   fmtMoney,
   runAction,
   runBusyAction,
+  searchClass,
+  toolbarClass,
   useCapabilities,
   useRecruitmentData,
 } from "./RecruitmentUi";
@@ -139,7 +142,7 @@ export default function OffersPage() {
     { key: "position", label: "Position" },
     { key: kind.numberKey, label: kind.numberLabel, render: (r) => <span className="font-mono text-[11px]">{r[kind.numberKey] || (r.pendingAppointment ? "—" : "Draft")}</span> },
     ...(kindKey === "offer" ? [{ key: "monthlyGross", label: "Salary / month", align: "right", render: (r) => (r.monthlyGross != null ? fmtMoney(r.monthlyGross) : "—") }] : []),
-    { key: "joiningDate", label: "Joining", render: (r) => fmtDate(r.joiningDate) },
+    { key: "joiningDate", label: "Joining date", render: (r) => fmtDate(r.joiningDate) },
     ...(kindKey === "offer" ? [{ key: "validUntil", label: "Valid until", render: (r) => fmtDate(r.validUntil) }] : []),
     { key: "sentOn", label: "Sent", render: (r) => (r.pendingAppointment ? <span className="text-ink-muted">—</span> : fmtDate(r.sentOn)) },
     { key: "viewedOn", label: "Viewed", render: (r) => (r.pendingAppointment ? <span className="text-ink-muted">—</span> : r.viewedOn ? <span className="text-success">{fmtDate(r.viewedOn)}</span> : <span className="text-ink-muted">No</span>) },
@@ -164,29 +167,26 @@ export default function OffersPage() {
             ]}
           />
         </div>
-        <div className="space-y-3 px-4 py-3">
+        <div className={kindKey === "appointment" && readyRows.length ? "px-4 pt-3" : ""}>
           {kindKey === "appointment" && readyRows.length ? (
             <p className="rounded-md border border-success-border bg-success-soft px-3 py-2 text-[11px] text-success">
               {readyRows.length} accepted offer{readyRows.length === 1 ? "" : "s"} ready for an appointment letter. Open a row and choose Generate letter.
             </p>
           ) : null}
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
-            <button type="button" onClick={() => setStatus("")} className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${!status ? "border-accent bg-accent text-white" : "border-border text-ink-secondary hover:bg-surface-sunken"}`} aria-pressed={!status}>
-              All · {rows.length}
-            </button>
-            {kind.statuses.map((s) => (
-              <button
-                key={s.key}
-                type="button"
-                onClick={() => setStatus(s.key)}
-                aria-pressed={status === s.key}
-                className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${status === s.key ? "border-accent bg-accent text-white" : "border-border text-ink-secondary hover:bg-surface-sunken"}`}
-              >
-                {s.label} · {counts[s.key] || 0}
-              </button>
-            ))}
-          </div>
-          <SearchBox value={search} onChange={setSearch} placeholder="Search candidate, position, number…" className="w-full sm:w-72" />
+        </div>
+        <div className={toolbarClass}>
+          <SearchBox value={search} onChange={setSearch} placeholder="Search candidate, position, number…" className={searchClass} />
+          <SelectField
+            label="Status"
+            value={status}
+            onChange={setStatus}
+            allLabel={`All · ${rows.length}`}
+            options={kind.statuses.map((s) => ({ value: s.key, label: `${s.label} · ${counts[s.key] || 0}` }))}
+            className="w-48"
+          />
+          <span className="ml-auto text-[11px] text-ink-muted">
+            {filtered.length} of {rows.length}
+          </span>
         </div>
         <div className="px-4 pb-4">
           <AsyncBoundary loading={loading} error={error} onRetry={reload}>

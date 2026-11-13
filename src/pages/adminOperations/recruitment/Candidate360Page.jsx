@@ -69,9 +69,9 @@ import {
   Field,
   FileButton,
   FilePicker,
-  ProgressBar,
   ReadinessIndicator,
   ReasonModal,
+  SegmentedToggle,
   StatusPill,
   Tabs,
   btn,
@@ -111,8 +111,7 @@ const TABS = [
   { key: "interviews", label: "Interviews" },
   { key: "offers", label: "Offer & Appointment" },
   { key: "documents", label: "Documents" },
-  { key: "communication", label: "Communication" },
-  { key: "activity", label: "Activity Timeline" },
+  { key: "activity", label: "Activity" },
 ];
 
 export default function Candidate360Page() {
@@ -547,6 +546,7 @@ function Workspace({ data, onReload }) {
   const caps = useCapabilities();
   const { candidate: c, requisition, screenings, interviews, offers, appointments, documents, communications, activity } = data;
   const [tab, setTab] = useState("overview");
+  const [activityView, setActivityView] = useState("timeline");
   const [modal, setModal] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   // Track the latest known version so a successful save updates it before follow-ups.
@@ -630,7 +630,7 @@ function Workspace({ data, onReload }) {
 
   const tabs = TABS.map((t) => ({
     ...t,
-    count: { interviews: interviews.length, offers: offers.length + appointments.length || undefined, documents: documents.length || undefined, communication: communications.length || undefined }[t.key],
+    count: { interviews: interviews.length, offers: offers.length + appointments.length || undefined, documents: documents.length || undefined, activity: activity.length || undefined }[t.key],
   }));
 
   return (
@@ -671,9 +671,6 @@ function Workspace({ data, onReload }) {
                 <Mail className="h-3.5 w-3.5" /> Email
               </button>
             ) : null}
-            <button type="button" className={btn.secondary} onClick={() => open("ctc")}>
-              <Calculator className="h-3.5 w-3.5" /> CTC calculator
-            </button>
             <button type="button" className={btn.secondary} onClick={() => open("note")}>
               <MessageSquarePlus className="h-3.5 w-3.5" /> Note
             </button>
@@ -713,43 +710,28 @@ function Workspace({ data, onReload }) {
         </div>
         <div className="p-4">
           {tab === "overview" ? (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <Card title="Profile" className="lg:col-span-2">
+            <div className={`grid grid-cols-1 gap-4 ${STAGE_INDEX[c.stage] >= STAGE_INDEX.offer_accepted ? "lg:grid-cols-3" : ""}`}>
+              <Card title="Profile" className={STAGE_INDEX[c.stage] >= STAGE_INDEX.offer_accepted ? "lg:col-span-2" : ""}>
                 <DetailGrid
                   items={[
                     ["Qualification", c.qualification],
                     ["Experience", c.experienceYears != null ? `${c.experienceYears} yrs` : ""],
+                    ["Notice period", c.noticePeriodDays != null ? `${c.noticePeriodDays} days` : ""],
                     ["Current company", c.currentCompany],
                     ["Current designation", c.currentDesignation],
                     ["Current location", c.currentLocation],
-                    ["Notice period", c.noticePeriodDays != null ? `${c.noticePeriodDays} days` : ""],
-                    ["Expected salary", c.expectedSalary != null ? fmtMoney(c.expectedSalary) : ""],
+                    ["Expected salary (monthly)", c.expectedSalary != null ? fmtMoney(c.expectedSalary) : ""],
                     ["Recruiter", c.recruiter],
-                    ["Added on", `${fmtDate(c.addedOn)}${c.addedBy ? ` by ${c.addedBy}` : ""}`],
-                    ["Expected joining", fmtDate(c.expectedJoining)],
-                    ["Requisition", requisition ? `${requisition.requisitionNo} · ${requisition.designation}` : "Not linked"],
                     ["Resume", c.resume ? <FileButton candidateId={c.id} category="resume" file={c.resume} /> : "Not uploaded"],
+                    ...(requisition ? [] : [["Requisition", "Not linked"]]),
                   ]}
                 />
               </Card>
-              <div className="space-y-4">
-                {STAGE_INDEX[c.stage] >= STAGE_INDEX.offer_accepted ? (
-                  <Card title="Joining readiness">
-                    <ReadinessIndicator readiness={c.readiness} />
-                  </Card>
-                ) : null}
-                <Card title="Status at a glance">
-                  <dl className="space-y-2 text-xs">
-                    <div className="flex items-center justify-between"><dt className="text-ink-muted">Interview</dt><dd>{c.interviewStatus ? <StatusPill meta={interviewStatusMeta(c.interviewStatus)} /> : "—"}</dd></div>
-                    <div className="flex items-center justify-between"><dt className="text-ink-muted">Offer</dt><dd>{c.offerStatus ? <StatusPill meta={offerStatusMeta(c.offerStatus)} /> : "—"}</dd></div>
-                    <div className="flex items-center justify-between"><dt className="text-ink-muted">Appointment</dt><dd>{c.appointmentStatus ? <StatusPill meta={appointmentStatusMeta(c.appointmentStatus)} /> : "—"}</dd></div>
-                    <div className="flex items-center justify-between gap-4"><dt className="text-ink-muted">Documents</dt><dd className="w-28">{c.documents.total ? <ProgressBar value={c.documents.verified} total={c.documents.total} tone="success" /> : "—"}</dd></div>
-                  </dl>
+              {STAGE_INDEX[c.stage] >= STAGE_INDEX.offer_accepted ? (
+                <Card title="Joining readiness">
+                  <ReadinessIndicator readiness={c.readiness} />
                 </Card>
-              </div>
-              <Card title="Recent activity" className="lg:col-span-3" right={<button type="button" className={btn.ghost} onClick={() => setTab("activity")}>Full timeline</button>}>
-                <ActivityTimeline items={activity.slice(0, 4)} />
-              </Card>
+              ) : null}
             </div>
           ) : null}
 
@@ -808,6 +790,19 @@ function Workspace({ data, onReload }) {
 
           {tab === "offers" ? (
             <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-border px-4 py-3 text-xs">
+                <span>
+                  <span className="text-ink-muted">Expected salary (monthly) </span>
+                  <span className="font-medium text-ink">{c.expectedSalary != null ? fmtMoney(c.expectedSalary) : "—"}</span>
+                </span>
+                <span>
+                  <span className="text-ink-muted">Expected joining </span>
+                  <span className="font-medium text-ink">{fmtDate(c.expectedJoining)}</span>
+                </span>
+                <button type="button" className={`${btn.secondary} ml-auto`} onClick={() => open("ctc")}>
+                  <Calculator className="h-3.5 w-3.5" /> CTC calculator
+                </button>
+              </div>
               <Card title="Offers">
                 {offers.length ? (
                   <ul className="divide-y divide-divider">
@@ -869,7 +864,21 @@ function Workspace({ data, onReload }) {
             )
           ) : null}
 
-          {tab === "communication" ? (
+          {tab === "activity" ? (
+            <div className="mb-3">
+              <SegmentedToggle
+                ariaLabel="Activity type"
+                value={activityView}
+                onChange={setActivityView}
+                options={[
+                  { value: "timeline", label: `Timeline · ${activity.length}` },
+                  { value: "emails", label: `Emails · ${communications.length}` },
+                ]}
+              />
+            </div>
+          ) : null}
+
+          {tab === "activity" && activityView === "emails" ? (
             communications.length ? (
               <ul className="divide-y divide-divider rounded-lg border border-border">
                 {communications.map((m) => (
@@ -896,7 +905,7 @@ function Workspace({ data, onReload }) {
             )
           ) : null}
 
-          {tab === "activity" ? <ActivityTimeline items={activity} /> : null}
+          {tab === "activity" && activityView === "timeline" ? <ActivityTimeline items={activity} /> : null}
         </div>
       </section>
 
