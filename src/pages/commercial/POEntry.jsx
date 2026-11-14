@@ -5,6 +5,7 @@ import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { isValidDateInputValue, normalizeDateInputValue } from '../../utils/dateInput';;
 import FormDateInput from "../../components/FormDateInput";
 import { PageTaskHeader, PageShell, PrimaryButton } from "../../components/erpUi";
+import { confirmDialog } from "../../lib/dialog";
 
 /** OC middle segment (shown after IFSPL- … -OC-YY/YY). Legacy PO rows may still use MANP etc. */
 const OC_LINE_OPTIONS = ['Manpower', 'Training', 'R&M', 'M&M', 'AMC', 'IEV'];
@@ -423,8 +424,8 @@ const POEntry = () => {
     setFormData(initialForm);
   };
 
-  const deletePO = (id) => {
-    if (window.confirm('Delete this PO? Billing may be affected.')) {
+  const deletePO = async (id) => {
+    if (await confirmDialog({ title: "Delete PO", message: 'Delete this PO? Billing may be affected.', confirmLabel: "Delete", tone: "danger" })) {
       setCommercialPOs((prev) => prev.filter((p) => p.id !== id));
     }
   };

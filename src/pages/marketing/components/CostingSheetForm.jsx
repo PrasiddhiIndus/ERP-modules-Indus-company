@@ -5,6 +5,7 @@ import ExcelCostingSheet from './ExcelCostingSheet';
 import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
 
 import { toast } from "../../../lib/toast";
+import { confirmDialog } from "../../../lib/dialog";
 const CostingSheetForm = ({ 
   isOpen, 
   onClose, 
@@ -174,7 +175,7 @@ const CostingSheetForm = ({
   };
 
   const handleDelete = async (costingSheet) => {
-    if (!confirm('Are you sure you want to delete this costing sheet?')) {
+    if (!(await confirmDialog({ title: "Delete costing sheet", message: 'Are you sure you want to delete this costing sheet?', confirmLabel: "Delete", tone: "danger" }))) {
       return;
     }
 

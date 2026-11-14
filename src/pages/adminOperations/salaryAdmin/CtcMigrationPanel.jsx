@@ -27,6 +27,7 @@ import {
 import { resolveRuleVersion } from "./payrollRulesDb";
 import { dbFetchSalaryStructureMap, dbReviseSalaryStructure } from "./salaryDb";
 import { isAnnexureRecord, resultToStructurePayload, skillLabel, statusLabel } from "./annexureCtcRecord";
+import { confirmDialog } from "../../../lib/dialog";
 
 function todayIso() {
   const d = new Date();
@@ -221,9 +222,7 @@ export default function CtcMigrationPanel({ ruleVersions }) {
       return;
     }
     if (
-      !window.confirm(
-        `Create the new salary structure for ${picked.length} employee(s)? Their current CTC moves to history.`
-      )
+      !(await confirmDialog({ title: "Create salary structures", message: `Create the new salary structure for ${picked.length} employee(s)? Their current CTC moves to history.`, confirmLabel: "Create" }))
     ) {
       return;
     }

@@ -21,7 +21,11 @@ import {
   periodKeyToDateStart,
   currentPeriodKey,
   PENDING_HISTORY_CUTOFF_KEY,
+  normalizeMonthSelection,
+  describeMonthSelection,
 } from "./lib/periods";
+import { MultiMonthFilter } from "./components/MultiMonthFilter";
+import { exportReportExcel, exportReportPdf } from "./lib/reportExport";
 import { formatFinanceDate, formatFinanceLabel } from "./lib/formatters";
 import { subscribeFinanceRefresh } from "../../services/financeApi";
 import { useAuth } from "../../contexts/AuthContext";
@@ -39,11 +43,12 @@ import {
   ArrowUpRight, ArrowDownRight, Copy, Download, X, Pencil,
   Trash2, CircleDot, Sliders, GripVertical, CalendarClock, Plus,
   Target, FileClock, ChevronRight, ChevronDown, RotateCcw, FileBarChart, AlertCircle, Settings, History,
-  Home, Eye, MoreVertical, CheckCircle, XCircle, FileCheck, Clock, Check,
+  Home, Eye, MoreVertical, CheckCircle, XCircle, FileCheck, Clock, Check, FileSpreadsheet, FileText,
 } from "lucide-react";
 
 import { toast } from "../../lib/toast";
 import { PageTaskHeader } from "../../components/erpUi";
+import { confirmDialog } from "../../lib/dialog";
 function contractPeriodFromDateInput(dateStr) {
   return dateToPeriodKey(dateStr) || null;
 }
@@ -1264,17 +1269,17 @@ export default function SiteLedgerApp({ embedded = true }) {
       throw e instanceof Error ? e : new Error(msg);
     }
   }, []);
-  const deactivateSite = useCallback((id) => {
+  const deactivateSite = useCallback(async (id) => {
     const site = stateRef.current.sites.find((s) => s.id === id);
     if (!site || !isSiteActive(site)) return;
     const label = site.name || id;
-    if (!window.confirm(`Mark "${label}" as inactive? It will be hidden from active lists and data entry.`)) return;
+    if (!(await confirmDialog({ title: "Mark site inactive", message: `Mark "${label}" as inactive? It will be hidden from active lists and data entry.`, confirmLabel: "Mark inactive", tone: "danger" }))) return;
     patchSite(id, { status: "inactive" });
     setEditSite(null);
     setShowAdd(false);
     if (activeSite === id) setActiveSite(null);
   }, [patchSite, activeSite]);
-  const activateSite = useCallback((id) => {
+  const activateSite = useCallback(async (id) => {
     const site = stateRef.current.sites.find((s) => s.id === id);
     if (!site || isSiteActive(site)) return;
     const label = site.name || id;
@@ -1286,7 +1291,7 @@ export default function SiteLedgerApp({ embedded = true }) {
     if (hasActiveSibling) {
       msg += " The current active version in this site group will be marked inactive.";
     }
-    if (!window.confirm(msg)) return;
+    if (!(await confirmDialog({ title: "Make site active", message: msg, confirmLabel: "Make active" }))) return;
     const touched = [id];
     for (const s of stateRef.current.sites) {
       if (s.id !== id && isSiteActive(s) && (s.siteGroup || s.id) === group) {
@@ -1643,7 +1648,17 @@ export default function SiteLedgerApp({ embedded = true }) {
               defaultMonth={month}
               showHistorical={showHistorical}
               setShowHistorical={setShowHistorical}
-              onViewSite={(id) => { setActiveSite(id); setView("site"); }}
+              onViewSite={(id, range) => {
+                if (range?.from && range?.to) {
+                  const { from, to } = normalizePeriodRange(range.from, range.to);
+                  setPeriodFrom(from);
+                  setPeriodTo(to);
+                  setMonth(to);
+                }
+                setActiveSite(id);
+                setSiteBackView("reports");
+                setView("site");
+              }}
             />
           )}
         </div>
@@ -2490,7 +2505,7 @@ function SitesTable({
                     className="sm-act sm-act-danger"
                     title="Delete site"
                     onClick={async () => {
-                      if (!window.confirm(`Delete "${r.name}" (${versionLabel(r)}) and all its data?`)) return;
+                      if (!(await confirmDialog({ title: "Delete site", message: `Delete "${r.name}" (${versionLabel(r)}) and all its data?`, confirmLabel: "Delete", tone: "danger" }))) return;
                       await onDelete(r.id);
                     }}
                   >
@@ -2712,7 +2727,7 @@ function SiteDetail({
               type="button"
               className="ghost-d danger-text"
               onClick={async () => {
-                if (!window.confirm(`Delete "${site.name}" (${versionLabel(site)}) and all its data?`)) return;
+                if (!(await confirmDialog({ title: "Delete site", message: `Delete "${site.name}" (${versionLabel(site)}) and all its data?`, confirmLabel: "Delete", tone: "danger" }))) return;
                 await onDelete(site.id);
               }}
             >
@@ -4291,13 +4306,20 @@ const FIN_MEASURES = [
   { key: "estProfit", label: "Est. Profit", kind: "money" },
   { key: "profitVar", label: "Profit Var", kind: "money", varc: true },
   { key: "profitVarPct", label: "Var %", kind: "vpct", varc: true },
+  { key: "revVar", label: "Revenue Var", kind: "money", varc: true },
+  { key: "revVarPct", label: "Revenue Var %", kind: "vpct", varc: true },
+  { key: "expVar", label: "Expense Var", kind: "money", varc: true, lower: true },
+  { key: "expVarPct", label: "Expense Var %", kind: "vpct", varc: true, lower: true },
 ];
+/** Report presets whose period is driven by the multi-month filter. */
+const MULTI_MONTH_PRESETS = new Set(["pnl", "ie", "bva", "under", "exp"]);
 const REPORT_PRESETS = [
-  { id: "pnl", name: "Portfolio P&L Summary", desc: "Every site's revenue, expense, profit & margin for one month.", cfg: { dim: "site", measures: ["revenue", "expense", "profit", "margin"], scope: "all", periodMode: "single", filter: "none" } },
-  { id: "bva", name: "Budget vs Actual (by site)", desc: "Actual profit vs estimate, with variance, for each site.", cfg: { dim: "site", measures: ["estProfit", "profit", "profitVar", "profitVarPct", "margin"], scope: "all", periodMode: "single", filter: "none" } },
+  { id: "pnl", name: "Portfolio P&L Summary", desc: "Every site's revenue, expense, profit & margin for the selected months.", cfg: { dim: "site", measures: ["revenue", "expense", "profit", "margin"], scope: "all", periodMode: "multi", filter: "none" } },
+  { id: "ie", name: "Income – Expenditure (All Sites)", desc: "Consolidated site-wise income, expenditure & P/L — estimate vs actual with variance.", cfg: { dim: "site", measures: ["estRevenue", "revenue", "revVar", "revVarPct", "estExpense", "expense", "expVar", "expVarPct", "estProfit", "profit", "profitVar", "profitVarPct"], scope: "all", periodMode: "multi", filter: "none", includeEmpty: true } },
+  { id: "bva", name: "Budget vs Actual (by site)", desc: "Actual vs estimate — revenue, expense & profit variance per site for the selected months.", cfg: { dim: "site", measures: ["estRevenue", "revenue", "estExpense", "expense", "estProfit", "profit", "profitVar", "profitVarPct", "margin"], scope: "all", periodMode: "multi", filter: "none" } },
   { id: "trend", name: "Monthly Consolidated Trend", desc: "Portfolio revenue, expense & profit month by month.", cfg: { dim: "month", measures: ["revenue", "expense", "profit", "margin"], scope: "all", periodMode: "range", filter: "none" } },
-  { id: "exp", name: "Expense Analysis by Head", desc: "Spend by parent head across the portfolio.", cfg: { dim: "parent", measures: [], scope: "all", periodMode: "single", filter: "none" } },
-  { id: "under", name: "Underperforming Sites", desc: "Sites that are loss-making or below their budget.", cfg: { dim: "site", measures: ["profit", "margin", "estProfit", "profitVar"], scope: "all", periodMode: "single", filter: "belowEst" } },
+  { id: "exp", name: "Expense Analysis by Head", desc: "Spend by parent head across the portfolio.", cfg: { dim: "parent", measures: [], scope: "all", periodMode: "multi", filter: "none" } },
+  { id: "under", name: "Underperforming Sites", desc: "Sites that are loss-making or below their budget.", cfg: { dim: "site", measures: ["profit", "margin", "estProfit", "profitVar"], scope: "all", periodMode: "multi", filter: "belowEst" } },
   { id: "spread", name: "Spread Cost Schedule", desc: "All deferred / spread costs and their monthly recognition.", cfg: { dim: "spread", measures: [], scope: "all", periodMode: "single", filter: "none" } },
   { id: "pending", name: "Data Entry Status", desc: "Which months are still pending for each site.", cfg: { dim: "pending", measures: [], scope: "all", periodMode: "single", filter: "none" } },
 ];
@@ -4310,16 +4332,42 @@ function siteTypeLabel(siteOrType) {
   return "Regular";
 }
 
+/*
+ * Report calc index: memoizes calcSite / estimate totals per (records snapshot, site object, month).
+ * Records and site objects are replaced (not mutated) on edit, so WeakMap identity keys
+ * invalidate automatically — filter changes reuse results instead of recomputing every site-month.
+ */
+const REPORT_CALC_INDEX = new WeakMap();
+function cachedCalc(site, mk, records) {
+  let bySite = REPORT_CALC_INDEX.get(records);
+  if (!bySite) { bySite = new WeakMap(); REPORT_CALC_INDEX.set(records, bySite); }
+  let byMonth = bySite.get(site);
+  if (!byMonth) { byMonth = new Map(); bySite.set(site, byMonth); }
+  let c = byMonth.get(mk);
+  if (!c) { c = calcSite(site, mk, records); byMonth.set(mk, c); }
+  return c;
+}
+const REPORT_EST_INDEX = new WeakMap();
+function cachedEstTotals(site, mk) {
+  // estimateFor() returns the contract's fixed budget (month-independent) → one entry per site object.
+  if (!REPORT_EST_INDEX.has(site)) REPORT_EST_INDEX.set(site, estTotals(estimateFor(site, mk)));
+  return REPORT_EST_INDEX.get(site);
+}
+
 function aggPairs(pairs, records) {
   let rev = 0, exp = 0, profit = 0, eR = 0, eE = 0, eP = 0, he = false;
   pairs.forEach(([s, mk]) => {
-    const c = calcSite(s, mk, records); rev += c.revenue; exp += c.expense; profit += c.profit;
-    const e = estTotals(estimateFor(s, mk)); if (e) { eR += e.revenue; eE += e.expense; eP += e.profit; he = true; }
+    const c = cachedCalc(s, mk, records); rev += c.revenue; exp += c.expense; profit += c.profit;
+    const e = cachedEstTotals(s, mk); if (e) { eR += e.revenue; eE += e.expense; eP += e.profit; he = true; }
   });
   const margin = rev > 0 ? (profit / rev) * 100 : 0;
   const profitVar = he ? profit - eP : null;
   const profitVarPct = he && eP !== 0 ? (profit - eP) / Math.abs(eP) * 100 : null;
-  return { rev, exp, profit, margin, estRev: he ? eR : null, estExp: he ? eE : null, estProfit: he ? eP : null, profitVar, profitVarPct, he };
+  const revVar = he ? rev - eR : null;
+  const revVarPct = he && eR !== 0 ? (rev - eR) / Math.abs(eR) * 100 : null;
+  const expVar = he ? exp - eE : null;
+  const expVarPct = he && eE !== 0 ? (exp - eE) / Math.abs(eE) * 100 : null;
+  return { rev, exp, profit, margin, estRev: he ? eR : null, estExp: he ? eE : null, estProfit: he ? eP : null, profitVar, profitVarPct, revVar, revVarPct, expVar, expVarPct, he, n: pairs.length };
 }
 function measureCell(key, a) {
   const m = FIN_MEASURES.find((x) => x.key === key);
@@ -4327,14 +4375,20 @@ function measureCell(key, a) {
   if (key === "revenue") raw = a.rev; else if (key === "expense") raw = a.exp; else if (key === "profit") raw = a.profit;
   else if (key === "margin") raw = a.margin; else if (key === "estRevenue") raw = a.estRev; else if (key === "estExpense") raw = a.estExp;
   else if (key === "estProfit") raw = a.estProfit; else if (key === "profitVar") raw = a.profitVar; else if (key === "profitVarPct") raw = a.profitVarPct;
-  let text, color = null;
+  else if (key === "revVar") raw = a.revVar; else if (key === "revVarPct") raw = a.revVarPct;
+  else if (key === "expVar") raw = a.expVar; else if (key === "expVarPct") raw = a.expVarPct;
+  let text, color = null, fav = null;
   if (raw == null) text = "—";
-  else if (m.kind === "money") text = inr(raw);
+  else if (m.kind === "money") text = m.varc ? `${raw >= 0 ? "+" : ""}${inr(raw)}` : inr(raw);
   else if (m.kind === "pct") text = pct(raw);
-  else if (m.kind === "vpct") text = `${raw >= 0 ? "+" : ""}${raw.toFixed(0)}%`;
+  else if (m.kind === "vpct") text = `${raw >= 0 ? "+" : ""}${raw.toFixed(1)}%`;
   if (m.profit && raw != null) color = raw >= 0 ? "var(--profit)" : "var(--loss)";
-  if (m.varc) color = raw == null ? "var(--muted)" : raw >= 0 ? "var(--profit)" : "var(--loss)";
-  return { raw: raw == null ? "" : Math.round(raw * 10) / 10, text, color };
+  if (m.varc) {
+    // Expense variance: lower is better. Revenue/profit variance: higher is better.
+    fav = raw == null || Math.round(raw) === 0 ? null : m.lower ? raw < 0 : raw > 0;
+    color = raw == null ? "var(--muted)" : fav == null ? "var(--ink-soft)" : fav ? "var(--profit)" : "var(--loss)";
+  }
+  return { raw: raw == null ? "" : Math.round(raw * 10) / 10, text, color, fav };
 }
 function aggHeads(sites, mks, records, level) {
   const map = {}; let totalActual = 0;
@@ -4349,10 +4403,13 @@ function aggHeads(sites, mks, records, level) {
 }
 
 function buildReport(cfg) {
-  const { sites, records, dim, measures, scope, periodMode, month, from, to, filter, expandPendingHistory } = cfg;
+  const { sites, records, dim, measures, scope, periodMode, month, from, to, filter, expandPendingHistory, selMonths, includeEmpty } = cfg;
   const scopeSites = scope === "all" ? sites : sites.filter((s) => s.id === scope);
-  let mks = periodMode === "single" && dim !== "month" ? [month] : periodKeysBetween(from, to);
-  if (dim === "month" && periodMode === "single") mks = [month];
+  // Multi-month: every selected month is counted exactly once (normalized → de-duplicated + sorted).
+  let mks;
+  if (periodMode === "multi") mks = normalizeMonthSelection(selMonths);
+  else if (periodMode === "single") mks = [month];
+  else mks = periodKeysBetween(from, to);
   const reported = (s, mk) => !!records[`${s.id}__${mk}`];
 
   if (dim === "pending") {
@@ -4399,12 +4456,15 @@ function buildReport(cfg) {
   let entities;
   if (dim === "site") {
     entities = scopeSites.map((s) => ({
+      id: s.id,
       label: s.name,
       siteType: siteTypeLabel(s),
+      inactive: !isSiteActive(s),
       pairs: mks.filter((mk) => reported(s, mk)).map((mk) => [s, mk]),
-    })).filter((e) => e.pairs.length);
+    })).filter((e) => includeEmpty || e.pairs.length);
   } else {
     entities = mks.map((mk) => ({
+      id: mk,
       label: monthLabelOf(mk),
       siteType: "",
       pairs: scopeSites.filter((s) => reported(s, mk)).map((s) => [s, mk]),
@@ -4412,14 +4472,23 @@ function buildReport(cfg) {
   }
   let rows = entities.map((e) => {
     const a = aggPairs(e.pairs, records);
-    return { label: e.label, siteType: e.siteType, a, cells: columns.map((m) => measureCell(m.key, a)) };
+    return {
+      id: e.id,
+      label: e.label,
+      siteType: e.siteType,
+      inactive: !!e.inactive,
+      empty: !e.pairs.length,
+      below: a.he && a.profit < a.estProfit,
+      a,
+      cells: columns.map((m) => measureCell(m.key, a)),
+    };
   });
   if (filter === "loss") rows = rows.filter((r) => r.a.profit < 0);
   else if (filter === "belowEst") rows = rows.filter((r) => r.a.he && r.a.profit < r.a.estProfit);
   const allPairs = entities.flatMap((e) => e.pairs);
   const tA = aggPairs(allPairs, records);
-  const totals = { label: dim === "site" ? "Portfolio total" : "Total", siteType: "", cells: columns.map((m) => measureCell(m.key, tA)) };
-  return { kind: "fin", columns, rows, totals, showSiteType: dim === "site" };
+  const totals = { label: dim === "site" ? "Portfolio total" : "Total", siteType: "", a: tA, cells: columns.map((m) => measureCell(m.key, tA)) };
+  return { kind: "fin", columns, rows, totals, showSiteType: dim === "site", mks };
 }
 
 function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistorical, setShowHistorical, onViewSite }) {
@@ -4428,20 +4497,24 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
     Object.keys(records).forEach((k) => have.add(k.split("__")[1]));
     return MONTHS.filter((m) => have.has(m.key));
   }, [records]);
+  const dataKeys = useMemo(() => new Set(activeMks.map((m) => m.key)), [activeMks]);
   const fM = activeMks[0]?.key || defaultMonth;
   const lM = activeMks[activeMks.length - 1]?.key || defaultMonth;
   const [tab, setTab] = useState("standard");
   const [dim, setDim] = useState("site");
   const [measures, setMeasures] = useState(["revenue", "expense", "profit", "margin"]);
   const [scope, setScope] = useState("all");
-  const [periodMode, setPeriodMode] = useState("single");
+  const [periodMode, setPeriodMode] = useState("multi");
   const [month, setMonth] = useState(defaultMonth);
+  const [selMonths, setSelMonths] = useState(() => [defaultMonth || currentPeriodKey()]);
+  const [breakdown, setBreakdown] = useState("combined");
   const [from, setFrom] = useState(fM);
   const [to, setTo] = useState(lM);
   const [filter, setFilter] = useState("none");
   const [title, setTitle] = useState("Portfolio P&L Summary");
   const [activePreset, setActivePreset] = useState("pnl");
   const [expandPendingHistory, setExpandPendingHistory] = useState(false);
+  const [exporting, setExporting] = useState(null);
 
   useEffect(() => { setMonth(defaultMonth || currentPeriodKey()); }, [defaultMonth]);
 
@@ -4450,9 +4523,10 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
     setDim(p.cfg.dim);
     setMeasures(p.cfg.measures.length ? p.cfg.measures : ["revenue", "expense", "profit", "margin"]);
     setScope(p.cfg.scope);
-    setPeriodMode(p.cfg.dim === "month" ? "range" : p.cfg.periodMode);
+    setPeriodMode(p.cfg.periodMode);
     setFilter(p.cfg.filter);
     setTitle(p.name);
+    setBreakdown("combined");
     if (p.cfg.periodMode === "single" && p.cfg.dim !== "month") setMonth(defaultMonth);
     if (p.cfg.dim === "month") { setFrom(fM); setTo(lM); }
   };
@@ -4461,7 +4535,7 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
     setDim(k);
     setActivePreset(null);
     setTitle("Custom Report");
-    if (k === "month") setPeriodMode("range");
+    if (k === "spread" || k === "pending") setBreakdown("combined");
   };
 
   const toggleMeasure = (k) => {
@@ -4476,40 +4550,65 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
     });
   };
 
-  const report = useMemo(
-    () => buildReport({ sites, records, dim, measures, scope, periodMode, month, from, to, filter, expandPendingHistory }),
-    [sites, records, dim, measures, scope, periodMode, month, from, to, filter, expandPendingHistory, parents],
-  );
+  const isAsOf = dim === "spread" || dim === "pending";
+  const isMulti = periodMode === "multi" && !isAsOf;
+  const sel = useMemo(() => normalizeMonthSelection(selMonths), [selMonths]);
+  const monthwise = isMulti && dim === "site" && breakdown === "monthwise";
+  const noMonths = isMulti && sel.length === 0;
+  const isIe = activePreset === "ie";
 
-  const periodText = (dim === "spread" || dim === "pending")
+  const report = useMemo(
+    () => buildReport({
+      sites,
+      records,
+      dim: monthwise ? "month" : dim,
+      measures,
+      scope,
+      periodMode,
+      month,
+      from,
+      to,
+      filter: monthwise ? "none" : filter,
+      expandPendingHistory,
+      selMonths: sel,
+      includeEmpty: isIe,
+    }),
+    [sites, records, dim, monthwise, measures, scope, periodMode, month, from, to, filter, expandPendingHistory, sel, isIe, parents],
+  );
+  const reportDim = monthwise ? "month" : dim;
+
+  const periodText = isAsOf
     ? `as of ${monthLabelOf(month)}`
-    : (dim === "month" || periodMode === "range")
-      ? `${monthLabelOf(from)} – ${monthLabelOf(to)}`
-      : monthLabelOf(month);
+    : isMulti
+      ? `${describeMonthSelection(sel)}${sel.length > 1 ? ` (${sel.length} months${monthwise ? ", month-wise" : ", combined"})` : ""}`
+      : periodMode === "range"
+        ? `${monthLabelOf(from)} – ${monthLabelOf(to)}`
+        : monthLabelOf(month);
   const scopeText = scope === "all"
     ? (showHistorical ? `All ${sites.length} site versions` : `All ${sites.length} active sites`)
     : sites.find((s) => s.id === scope)?.name;
   const inactiveSites = useMemo(() => (sitesAll || sites).filter((s) => !isSiteActive(s)), [sitesAll, sites]);
-  const showTotals = !(dim === "site" && periodMode === "single" && activePreset === "pnl");
+  const showTotals = !(reportDim === "site" && activePreset === "pnl" && (isMulti ? sel.length <= 1 : periodMode === "single"));
 
   const grid = useMemo(() => {
     if (report.cols) return [report.cols, ...report.rows];
     const withSiteType = !!report.showSiteType;
-    const firstLabel = report.kind === "head" ? "Expense head" : dim === "month" ? "Month" : "Site";
+    const firstLabel = report.kind === "head" ? "Expense head" : reportDim === "month" ? "Month" : "Site";
     const head = withSiteType
       ? [firstLabel, "Site Type", ...report.columns.map((c) => c.label)]
       : [firstLabel, ...report.columns.map((c) => c.label)];
-    const body = report.rows.map((r) => (
-      withSiteType
-        ? [r.label, r.siteType || "", ...r.cells.map((c) => c.raw)]
-        : [r.label, ...r.cells.map((c) => c.raw)]
-    ));
+    const body = report.rows.map((r) => {
+      const label = r.empty ? `${r.label} (no entries)` : r.label;
+      return withSiteType
+        ? [label, r.siteType || "", ...r.cells.map((c) => c.raw)]
+        : [label, ...r.cells.map((c) => c.raw)];
+    });
     if (!showTotals) return [head, ...body];
     const tot = withSiteType
       ? [report.totals.label, "", ...report.totals.cells.map((c) => c.raw)]
       : [report.totals.label, ...report.totals.cells.map((c) => c.raw)];
     return [head, ...body, tot];
-  }, [report, showTotals, dim]);
+  }, [report, showTotals, reportDim]);
 
   const csv = useMemo(
     () => grid.map((row) => row.map((v) => {
@@ -4518,7 +4617,7 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
     }).join(",")).join("\n"),
     [grid],
   );
-  const fileName = `${title.replace(/[^a-z0-9]+/gi, "_")}_${periodText.replace(/[^a-z0-9]+/gi, "_")}.csv`;
+  const fileBase = `${title.replace(/[^a-z0-9]+/gi, "_")}_${periodText.replace(/[^a-z0-9]+/gi, "_")}`.slice(0, 120);
   const copyCsv = () => navigator.clipboard?.writeText(csv);
   const downloadCsv = () => {
     try {
@@ -4526,11 +4625,53 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
       const u = URL.createObjectURL(b);
       const a = document.createElement("a");
       a.href = u;
-      a.download = fileName;
+      a.download = `${fileBase}.csv`;
       a.click();
       URL.revokeObjectURL(u);
     } catch {
       copyCsv();
+    }
+  };
+
+  /** Export payload with every active filter written into the header lines. */
+  const exportPayload = () => {
+    const filterLabel = filter === "belowEst" ? "Below estimate only" : filter === "loss" ? "Loss-making only" : null;
+    const meta = [
+      `Sites: ${scopeText}`,
+      `Period: ${periodText}`,
+      ...(isMulti && sel.length > 1 ? [`Months: ${sel.map((k) => periodMonthLabelOf(k, MONTHS)).join(", ")}`] : []),
+      ...(filterLabel && !monthwise ? [`Filter: ${filterLabel}`] : []),
+      ...(report.kind === "fin" ? ["Estimates are counted only for months that have actual entries (same basis as Site Ledger)."] : []),
+    ];
+    const hasTotals = showTotals && !report.cols;
+    const head = [grid[0]];
+    const body = hasTotals ? grid.slice(1, -1) : grid.slice(1);
+    const foot = hasTotals ? grid[grid.length - 1] : undefined;
+    const offset = report.showSiteType ? 2 : 1;
+    const green = [21, 128, 61];
+    const red = [185, 28, 28];
+    const colorFor = report.kind === "fin"
+      ? (ri, ci) => {
+        const cell = report.rows[ri]?.cells[ci - offset];
+        if (!cell) return null;
+        if (cell.fav === true) return green;
+        if (cell.fav === false) return red;
+        return null;
+      }
+      : null;
+    return { title, meta, head, body, foot, fileBase, colorFor };
+  };
+  const runExport = async (kind) => {
+    if (exporting) return;
+    setExporting(kind);
+    try {
+      const payload = exportPayload();
+      if (kind === "xlsx") await exportReportExcel(payload);
+      else await exportReportPdf(payload);
+    } catch (e) {
+      (toast.error || toast.warning)("Export failed", String(e?.message || e));
+    } finally {
+      setExporting(null);
     }
   };
 
@@ -4542,12 +4683,13 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
       dim: "site",
       measures: ["revenue", "expense", "profit", "margin"],
       scope: "all",
-      periodMode: "single",
+      periodMode: isMulti ? "multi" : "single",
       month,
       from,
       to,
       filter: "none",
       expandPendingHistory: false,
+      selMonths: sel,
     });
     const head = ["Site", "Site Type", ...typedReport.columns.map((c) => c.label)];
     const body = typedReport.rows.map((r) => [r.label, r.siteType || siteTypeLabel(siteType), ...r.cells.map((c) => c.raw)]);
@@ -4557,7 +4699,8 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
       const s = String(v ?? "");
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     }).join(",")).join("\n");
-    const typedFileName = `${reportName.replace(/[^a-z0-9]+/gi, "_")}_${monthLabelOf(month).replace(/[^a-z0-9]+/gi, "_")}.csv`;
+    const periodPart = isMulti ? describeMonthSelection(sel) : monthLabelOf(month);
+    const typedFileName = `${reportName.replace(/[^a-z0-9]+/gi, "_")}_${periodPart.replace(/[^a-z0-9]+/gi, "_")}.csv`;
     try {
       const b = new Blob([typedCsv], { type: "text/csv" });
       const u = URL.createObjectURL(b);
@@ -4571,6 +4714,11 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
     }
   };
 
+  const openSite = (id) => {
+    if (!onViewSite || !id) return;
+    onViewSite(id, isMulti && sel.length ? { from: sel[0], to: sel[sel.length - 1] } : null);
+  };
+
   const dims = [
     { k: "site", l: "By Site" },
     { k: "month", l: "By Month" },
@@ -4580,19 +4728,35 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
     { k: "pending", l: "Data Status" },
   ];
 
-  const stdFilterBar = (activePreset === "pnl" || activePreset === "bva" || activePreset === "under" || activePreset === "exp") && (
+  const sitesSelect = (onChange) => (
+    <label className="ov-filter">
+      <span>Sites</span>
+      <select value={scope} onChange={onChange}>
+        <option value="all">{showHistorical ? "All site versions" : "All active sites"}</option>
+        {sites.map((s) => <option key={s.id} value={s.id}>{s.name} · {versionLabel(s)}{!isSiteActive(s) ? " (inactive)" : ""}</option>)}
+      </select>
+    </label>
+  );
+
+  const breakdownToggle = isMulti && dim === "site" && (
+    <label className="ov-filter">
+      <span>View</span>
+      <div className="seg">
+        <button type="button" className={"seg-b" + (breakdown === "combined" ? " on" : "")} onClick={() => setBreakdown("combined")}>Combined</button>
+        <button type="button" className={"seg-b" + (breakdown === "monthwise" ? " on" : "")} onClick={() => setBreakdown("monthwise")}>Month-wise</button>
+      </div>
+    </label>
+  );
+
+  const multiMonthBlock = (
+    <div className="ov-filter-full">
+      <MultiMonthFilter value={sel} onChange={setSelMonths} dataKeys={dataKeys} showMonths={!isIe} />
+    </div>
+  );
+
+  const stdFilterBar = MULTI_MONTH_PRESETS.has(activePreset) && (
     <div className="ov-filters">
-      <label className="ov-filter">
-        <span>Period</span>
-        <PeriodDateSelect className="ov-period-pick" inputClassName="ov-period-sel" value={month} onChange={setMonth} />
-      </label>
-      <label className="ov-filter">
-        <span>Sites</span>
-        <select value={scope} onChange={(e) => setScope(e.target.value)}>
-          <option value="all">{showHistorical ? "All site versions" : "All active sites"}</option>
-          {sites.map((s) => <option key={s.id} value={s.id}>{s.name} · {versionLabel(s)}{!isSiteActive(s) ? " (inactive)" : ""}</option>)}
-        </select>
-      </label>
+      {sitesSelect((e) => setScope(e.target.value))}
       {activePreset === "under" && (
         <label className="ov-filter">
           <span>Show only</span>
@@ -4603,6 +4767,18 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
           </select>
         </label>
       )}
+      {(activePreset === "ie" || activePreset === "bva") && (
+        <label className="ov-filter">
+          <span>Show only</span>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="none">All sites</option>
+            <option value="belowEst">Below estimate</option>
+            <option value="loss">Loss-making</option>
+          </select>
+        </label>
+      )}
+      {breakdownToggle}
+      {multiMonthBlock}
     </div>
   );
 
@@ -4618,6 +4794,8 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
       </label>
     </div>
   );
+
+  const showSummary = report.kind === "fin" && !noMonths && (isIe || activePreset === "bva" || activePreset === "under");
 
   return (
     <>
@@ -4663,6 +4841,14 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
           </button>
         </div>
       )}
+      {activePreset === "spread" && (
+        <div className="ov-filters">
+          <label className="ov-filter">
+            <span>As of month</span>
+            <PeriodDateSelect className="ov-period-pick" inputClassName="ov-period-sel" value={month} onChange={setMonth} />
+          </label>
+        </div>
+      )}
         </>
       )}
 
@@ -4688,14 +4874,8 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
               </div>
             )}
             <div className="ov-filters rep-builder-filters">
-              <label className="ov-filter">
-                <span>Sites</span>
-                <select value={scope} onChange={(e) => { setScope(e.target.value); setActivePreset(null); setTitle("Custom Report"); }}>
-                  <option value="all">{showHistorical ? "All site versions" : "All active sites"}</option>
-                  {sites.map((s) => <option key={s.id} value={s.id}>{s.name} · {versionLabel(s)}{!isSiteActive(s) ? " (inactive)" : ""}</option>)}
-                </select>
-              </label>
-              {(dim === "spread" || dim === "pending") ? (
+              {sitesSelect((e) => { setScope(e.target.value); setActivePreset(null); setTitle("Custom Report"); })}
+              {isAsOf ? (
                 <label className="ov-filter">
                   <span>As of month</span>
                   <PeriodDateSelect className="ov-period-pick" inputClassName="ov-period-sel" value={month} onChange={setMonth} />
@@ -4704,21 +4884,12 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
                 <>
                   <label className="ov-filter">
                     <span>Period</span>
-                    {dim !== "month" ? (
-                      <select value={periodMode} onChange={(e) => setPeriodMode(e.target.value)}>
-                        <option value="single">Single month</option>
-                        <option value="range">Month range</option>
-                      </select>
-                    ) : (
-                      <select disabled><option>Month range</option></select>
-                    )}
+                    <select value={periodMode === "single" ? "multi" : periodMode} onChange={(e) => setPeriodMode(e.target.value)}>
+                      <option value="multi">Selected months</option>
+                      <option value="range">Month range</option>
+                    </select>
                   </label>
-                  {(periodMode === "single" && dim !== "month") ? (
-                    <label className="ov-filter">
-                      <span>Month</span>
-                      <PeriodDateSelect className="ov-period-pick" inputClassName="ov-period-sel" value={month} onChange={setMonth} />
-                    </label>
-                  ) : (
+                  {periodMode === "range" && (
                     <label className="ov-filter range">
                       <span>Range</span>
                       <div className="ov-range">
@@ -4740,6 +4911,8 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
                   </select>
                 </label>
               )}
+              {breakdownToggle}
+              {isMulti && multiMonthBlock}
             </div>
           </div>
         </Card>
@@ -4747,29 +4920,160 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
 
       <p className="ov-meta">{scopeText} · {periodText}</p>
 
+      {showSummary && <ReportSummary report={report} monthwise={monthwise} />}
+
       <Card
         title={title}
         pad={false}
         right={(
-          <span className="muted-s" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <span className="muted-s rep-actions">
+            <button type="button" className="link" onClick={() => runExport("xlsx")} disabled={!!exporting || noMonths}>
+              <FileSpreadsheet size={12} style={{ verticalAlign: "-2px" }} /> {exporting === "xlsx" ? "Exporting…" : "Excel"}
+            </button>
+            <button type="button" className="link" onClick={() => runExport("pdf")} disabled={!!exporting || noMonths}>
+              <FileText size={12} style={{ verticalAlign: "-2px" }} /> {exporting === "pdf" ? "Exporting…" : "PDF"}
+            </button>
+            <button type="button" className="link" onClick={downloadCsv}><Download size={12} style={{ verticalAlign: "-2px" }} /> CSV</button>
+            <button type="button" className="link" onClick={copyCsv}><Copy size={12} style={{ verticalAlign: "-2px" }} /> Copy</button>
             <button type="button" className="link" onClick={() => downloadSiteTypeCsv("shutdown", "Shutdown_Sites_Report")}>
               <Download size={12} style={{ verticalAlign: "-2px" }} /> Shutdown CSV
             </button>
             <button type="button" className="link" onClick={() => downloadSiteTypeCsv("safety", "Safety_Sites_Report")}>
               <Download size={12} style={{ verticalAlign: "-2px" }} /> Safety CSV
             </button>
-            <button type="button" className="link" onClick={copyCsv}><Copy size={12} style={{ verticalAlign: "-2px" }} /> Copy</button>
-            <button type="button" className="link" onClick={downloadCsv}><Download size={12} style={{ verticalAlign: "-2px" }} /> CSV</button>
           </span>
         )}
       >
-        <ReportTable report={report} showTotals={showTotals} dim={dim} />
+        {noMonths ? (
+          <div className="chart-empty">Select at least one month to build this report.</div>
+        ) : isIe ? (
+          <IeReportTable report={report} dim={reportDim} onOpenSite={reportDim === "site" ? openSite : null} />
+        ) : (
+          <ReportTable
+            report={report}
+            showTotals={showTotals}
+            dim={reportDim}
+            highlightBelow={activePreset === "bva" || activePreset === "under"}
+            onOpenSite={reportDim === "site" ? openSite : null}
+          />
+        )}
       </Card>
+      {report.kind === "fin" && !noMonths && (
+        <p className="rep-foot muted-s">
+          Estimates are summed only for months with actual entries, using the estimate version in force each month. Each selected month is counted once.
+          {isIe && " Sites with no entries in the selected months are listed with zero actuals."}
+        </p>
+      )}
     </>
   );
 }
 
-function ReportTable({ report, showTotals = true, dim }) {
+/** Compact KPI strip: portfolio Estimate vs Actual for income, expenditure and P/L over the selected months. */
+function ReportSummary({ report, monthwise }) {
+  const a = report.totals?.a;
+  if (!a) return null;
+  const siteRows = monthwise ? [] : report.rows;
+  const withEst = siteRows.filter((r) => r.a.he);
+  const below = withEst.filter((r) => r.below).length;
+  const loss = siteRows.filter((r) => !r.empty && r.a.profit < 0).length;
+  const card = (label, actual, est, v, vp, lower) => {
+    const fav = v == null || Math.round(v) === 0 ? null : lower ? v < 0 : v > 0;
+    return (
+      <div className="rs-card">
+        <div className="rs-l">{label}</div>
+        <div className="rs-v">{inr(actual)}</div>
+        <div className="rs-s">
+          Est {est == null ? "—" : inr(est)}
+          {v != null && (
+            <span className={"rs-var " + (fav == null ? "" : fav ? "pos" : "neg")}>
+              {v >= 0 ? "+" : ""}{inr(v)}{vp != null ? ` (${vp >= 0 ? "+" : ""}${vp.toFixed(1)}%)` : ""}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+  return (
+    <div className="rs-strip">
+      {card("Income", a.rev, a.estRev, a.revVar, a.revVarPct, false)}
+      {card("Expenditure", a.exp, a.estExp, a.expVar, a.expVarPct, true)}
+      {card(a.profit >= 0 ? "Profit" : "Loss", a.profit, a.estProfit, a.profitVar, a.profitVarPct, false)}
+      <div className="rs-card">
+        <div className="rs-l">Margin</div>
+        <div className="rs-v" style={{ color: a.profit >= 0 ? "var(--profit)" : "var(--loss)" }}>{pct(a.margin)}</div>
+        <div className="rs-s">Est {a.estRev ? pct(a.estRev > 0 ? (a.estProfit / a.estRev) * 100 : 0) : "—"}</div>
+      </div>
+      {!monthwise && (
+        <div className={"rs-card" + (below ? " warn" : "")}>
+          <div className="rs-l">Below estimate</div>
+          <div className="rs-v">{below}<small> / {withEst.length}</small></div>
+          <div className="rs-s">{loss} loss-making site{loss === 1 ? "" : "s"}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Income – Expenditure grouped table: Income | Expenditure | Profit/Loss, each Est · Actual · Var · Var %. */
+function IeReportTable({ report, dim, onOpenSite }) {
+  if (!report.rows.length) return <div className="chart-empty">No sites match this selection.</div>;
+  const isSite = dim === "site";
+  const groups = [
+    { label: "Income", from: 0 },
+    { label: "Expenditure", from: 4 },
+    { label: "Profit / Loss", from: 8 },
+  ];
+  const sub = ["Estimate", "Actual", "Variance", "Var %"];
+  const cellsOf = (r) => r.cells;
+  return (
+    <div className="ie-wrap">
+      <table className="tbl tbl-ie">
+        <thead>
+          <tr className="ie-g">
+            <th rowSpan={2} className="ie-sticky">{isSite ? "Site" : "Month"}</th>
+            {isSite && <th rowSpan={2}>Type</th>}
+            {groups.map((g) => <th key={g.label} colSpan={4} className="c ie-gh">{g.label}</th>)}
+            {isSite && onOpenSite && <th rowSpan={2} />}
+          </tr>
+          <tr>
+            {groups.flatMap((g) => sub.map((s) => <th key={g.label + s} className={"r" + (s === "Estimate" ? " ie-gs" : "")}>{s}</th>))}
+          </tr>
+        </thead>
+        <tbody>
+          {report.rows.map((r) => (
+            <tr key={r.id || r.label} className={(r.below ? "row-below " : "") + (r.empty ? "row-empty" : "")}>
+              <td className="strong ie-sticky">
+                {isSite && onOpenSite ? (
+                  <button type="button" className="ie-site" onClick={() => onOpenSite(r.id)} title="Open site Income – Expenditure statement">{r.label}</button>
+                ) : r.label}
+                {r.empty && <span className="ie-tag">No entries</span>}
+                {r.below && <span className="ie-tag warn">Below est.</span>}
+                {r.inactive && <span className="ie-tag">Inactive</span>}
+              </td>
+              {isSite && <td className="muted-s">{r.siteType || "—"}</td>}
+              {cellsOf(r).map((c, ci) => (
+                <td key={ci} className={"r mono" + (ci % 4 === 0 ? " ie-gs muted-s" : "")} style={{ color: ci % 4 === 0 ? undefined : c.color || undefined }}>{c.text}</td>
+              ))}
+              {isSite && onOpenSite && (
+                <td className="r"><button type="button" className="link" onClick={() => onOpenSite(r.id)}>Open →</button></td>
+              )}
+            </tr>
+          ))}
+          <tr className="vtot green">
+            <td className="ie-sticky">{report.totals.label}</td>
+            {isSite && <td />}
+            {report.totals.cells.map((c, ci) => (
+              <td key={ci} className={"r mono" + (ci % 4 === 0 ? " ie-gs" : "")} style={{ color: c.color || undefined }}>{c.text}</td>
+            ))}
+            {isSite && onOpenSite && <td />}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ReportTable({ report, showTotals = true, dim, highlightBelow = false, onOpenSite = null }) {
   if (report.kind === "pending") {
     if (report.rows.length === 0) return <div className="chart-empty">No sites to report.</div>;
     return (
@@ -4830,10 +5134,13 @@ function ReportTable({ report, showTotals = true, dim }) {
       </thead>
       <tbody>
         {report.rows.map((r, ri) => (
-          <tr key={ri}>
+          <tr key={ri} className={highlightBelow && r.below ? "row-below" : ""}>
             <td className="strong">
               {r.color && <span className="pdot" style={{ background: r.color }} />}
-              {r.label}
+              {onOpenSite && report.kind === "fin" && r.id ? (
+                <button type="button" className="ie-site" onClick={() => onOpenSite(r.id)} title="Open site Income – Expenditure statement">{r.label}</button>
+              ) : r.label}
+              {highlightBelow && r.below && <span className="ie-tag warn">Below est.</span>}
             </td>
             {showSiteType && <td className="muted-s">{r.siteType || "—"}</td>}
             {r.cells.map((c, ci) => (
@@ -5707,6 +6014,57 @@ function Styles() {
     .est-editor{border-top:1px solid var(--line);padding-top:14px;margin-top:4px;}
     .est-bar{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;}
     .rep-mode-nav{margin-bottom:16px;}
+    /* multi-month filter */
+    .ov-filter-full{flex-basis:100%;min-width:0;}
+    .mmf{display:flex;flex-direction:column;gap:10px;padding-top:10px;border-top:1px dashed var(--line);}
+    .mmf-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 14px;}
+    .mmf-actions{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto;}
+    .mmf-btn{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink-soft);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--body);white-space:nowrap;}
+    .mmf-btn:hover:not(:disabled){border-color:var(--border-strong);color:var(--ink);}
+    .mmf-btn:disabled{opacity:.5;cursor:not-allowed;}
+    .mmf-btn.ghost{background:transparent;}
+    .mmf-months{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:6px;}
+    .mmf-m{position:relative;display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink-soft);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--body);}
+    .mmf-m small{font-size:9.5px;font-weight:500;color:var(--muted);}
+    .mmf-m.has::after{content:"";position:absolute;top:4px;right:5px;width:5px;height:5px;border-radius:50%;background:var(--profit);}
+    .mmf-m:hover{border-color:var(--border-strong);color:var(--ink);}
+    .mmf-m.on{background:var(--accent-soft);border-color:var(--accent-mid);color:var(--accent);}
+    .mmf-m.on small{color:var(--accent);}
+    .mmf-sum{font-size:12px;color:var(--ink-soft);}
+    @media (max-width:900px){.mmf-months{grid-template-columns:repeat(6,minmax(0,1fr));}.mmf-actions{margin-left:0;}}
+    .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface);}
+    .seg-b{height:32px;padding:0 12px;border:none;background:transparent;color:var(--ink-soft);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--body);}
+    .seg-b+.seg-b{border-left:1px solid var(--line);}
+    .seg-b.on{background:var(--accent-soft);color:var(--accent);font-weight:600;}
+    /* report summary + IE table */
+    .rs-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px;}
+    .rs-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px 14px;min-width:0;}
+    .rs-card.warn{border-color:var(--warn);box-shadow:inset 3px 0 0 var(--warn);}
+    .rs-l{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;}
+    .rs-v{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--ink);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .rs-v small{font-size:12px;color:var(--muted);font-weight:500;}
+    .rs-s{font-size:11.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 8px;}
+    .rs-var{font-family:var(--mono);font-weight:600;color:var(--ink-soft);}
+    .rs-var.pos{color:var(--profit);}.rs-var.neg{color:var(--loss);}
+    .rep-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+    .rep-actions .link:disabled{opacity:.5;cursor:not-allowed;}
+    .rep-foot{margin:8px 2px 0;font-size:11px;}
+    .ie-wrap{overflow-x:auto;max-width:100%;}
+    .tbl-ie{font-size:12px;}
+    .tbl-ie th,.tbl-ie td{padding:7px 8px;white-space:nowrap;}
+    .tbl-ie th.c{text-align:center;}
+    .tbl-ie tr.ie-g th{border-bottom:none;padding-bottom:2px;}
+    .tbl-ie th.ie-gh{color:var(--ink-soft);border-bottom:2px solid var(--line);}
+    .tbl-ie .ie-gs{border-left:1px solid var(--line);}
+    .tbl-ie .ie-sticky{position:sticky;left:0;background:var(--surface);z-index:1;max-width:240px;overflow:hidden;text-overflow:ellipsis;}
+    .tbl-ie tr.vtot .ie-sticky{background:inherit;}
+    .ie-site{background:none;border:none;padding:0;font:inherit;font-weight:600;color:var(--ink);cursor:pointer;text-align:left;}
+    .ie-site:hover{color:var(--accent);text-decoration:underline;}
+    .ie-tag{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:600;background:var(--surface-sunken);color:var(--muted);vertical-align:1px;}
+    .ie-tag.warn{background:rgba(194,130,15,.12);color:var(--warn);}
+    .tbl tbody tr.row-below td{background:rgba(220,38,38,.04);}
+    .tbl tbody tr.row-below td:first-child{box-shadow:inset 3px 0 0 var(--loss);}
+    .tbl tbody tr.row-empty td{color:var(--muted);}
     .rep-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-bottom:16px;}
     .rep-card{text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:15px 16px;cursor:pointer;transition:.14s;font-family:var(--body);}
     .rep-card:hover{border-color:var(--accent-mid);transform:translateY(-1px);}

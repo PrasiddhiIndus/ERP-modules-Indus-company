@@ -5,6 +5,7 @@ import { exportToExcel } from './utils/excelExport';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 
 import { toast } from "../../lib/toast";
+import { confirmDialog } from "../../lib/dialog";
 const ClientMaster = () => {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -205,7 +206,7 @@ const ClientMaster = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this client?')) return;
+    if (!(await confirmDialog({ title: "Delete client", message: 'Are you sure you want to delete this client?', confirmLabel: "Delete", tone: "danger" }))) return;
 
     try {
       const { error } = await supabase

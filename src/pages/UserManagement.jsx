@@ -82,6 +82,7 @@ import { SITE_ATTENDANCE_PAGES } from "../lib/siteAttendance/siteAttendancePageA
 import {
   IEV_CONFIG_PAGES, ievConfigMode, setIevConfigMode, toggleIevConfigPage,
 } from "../lib/ievConfigAccess";
+import { confirmDialog } from "../lib/dialog";
 
 const SEARCH_DEBOUNCE_MS = 350;
 
@@ -1376,7 +1377,7 @@ const UserManagement = () => {
     if (!selectedUsers.size) return;
 
     const msg = `Permanently delete ${selectedUsers.size} selected user(s)? This cannot be undone.`;
-    if (!window.confirm(msg)) return;
+    if (!(await confirmDialog({ title: "Delete selected users", message: msg, confirmLabel: "Delete", tone: "danger" }))) return;
 
     setBulkDeleteBusy(true);
     setError("");
@@ -1413,7 +1414,7 @@ const UserManagement = () => {
 
   const deleteUser = async (row) => {
     if (!row?.id) return;
-    if (!window.confirm(`Delete user ${row.email || row.username || row.id}? This cannot be undone.`)) return;
+    if (!(await confirmDialog({ title: "Delete user", message: `Delete user ${row.email || row.username || row.id}? This cannot be undone.`, confirmLabel: "Delete", tone: "danger" }))) return;
     setSaving(true);
     setError("");
     try {

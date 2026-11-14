@@ -5,6 +5,7 @@ import { supabase } from "../../../lib/supabase"; // adjust path
 import FireTenderNavbar from "../FireTenderNavbar";
 
 import { toast } from "../../../lib/toast";
+import { confirmDialog } from "../../../lib/dialog";
 const AccessoriesPage = () => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -204,7 +205,7 @@ const AccessoriesPage = () => {
   const handleDelete = async (id) => {
     const item = items.find((i) => i.id === id);
     if (!item) return;
-    if (!window.confirm("Delete this accessory?")) return;
+    if (!(await confirmDialog({ title: "Delete accessory", message: "Delete this accessory?", confirmLabel: "Delete", tone: "danger" }))) return;
 
     if (item.isNew || String(id).startsWith("temp-")) {
       setItems((prev) => prev.filter((it) => it.id !== id));

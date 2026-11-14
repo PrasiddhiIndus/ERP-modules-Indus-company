@@ -19,6 +19,7 @@ import {
 } from './formulaMasterBridge';
 
 import { listPayrollSites, listComponentsMaster, getActiveFormulaSetForSite, saveFormulaSet } from '../../../../services/payrollApi';
+import { promptDialog } from "../../../../lib/dialog";
 
 
 
@@ -200,9 +201,9 @@ export default function SiteCalculationFormulas({ formulaGroups }) {
 
   const addSite = async () => {
 
-    const code = window.prompt('Site code');
+    const code = await promptDialog({ title: "Add site", label: "Site code" });
 
-    const name = window.prompt('Site name');
+    const name = await promptDialog({ title: "Add site", label: "Site name" });
 
     if (!code || !name) return;
 

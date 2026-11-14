@@ -33,6 +33,7 @@ import {
   exportOverallSummaryPdf,
 } from './summary/export/overallSummaryExport.jsx';
 import { exportMainHeadExcel, exportMainHeadPdf } from './summary/export/mainHeadExport.jsx';
+import { confirmDialog } from "../../../lib/dialog";
 
 export default function QuotationSummary() {
   const navigate = useNavigate();
@@ -106,20 +107,20 @@ export default function QuotationSummary() {
 
   const handleAddMainHead = () => setActiveTree((prev) => addMainHead(prev));
 
-  const confirmDeleteMain = (mainId) => {
+  const confirmDeleteMain = async (mainId) => {
     const main = boqTree.find((m) => m.id === mainId);
     const hasChildren = (main?.childHeads || []).length > 0;
-    if (hasChildren && !window.confirm('Delete this main head and all its child heads and items?')) {
+    if (hasChildren && !(await confirmDialog({ title: "Delete main head", message: 'Delete this main head and all its child heads and items?', confirmLabel: "Delete", tone: "danger" }))) {
       return;
     }
     setActiveTree((prev) => removeNode(prev, { mainId }));
   };
 
-  const confirmDeleteChild = (mainId, childId) => {
+  const confirmDeleteChild = async (mainId, childId) => {
     const main = boqTree.find((m) => m.id === mainId);
     const child = (main?.childHeads || []).find((c) => c.id === childId);
     const hasItems = (child?.items || []).length > 0;
-    if (hasItems && !window.confirm('Delete this child head and all its items?')) {
+    if (hasItems && !(await confirmDialog({ title: "Delete child head", message: 'Delete this child head and all its items?', confirmLabel: "Delete", tone: "danger" }))) {
       return;
     }
     setActiveTree((prev) => removeNode(prev, { mainId, childId }));

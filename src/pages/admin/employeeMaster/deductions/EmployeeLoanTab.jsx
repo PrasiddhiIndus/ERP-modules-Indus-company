@@ -28,6 +28,7 @@ import {
   StatusBadge,
 } from "./deductionsUi";
 import { toast } from "../../../../lib/toast";
+import { confirmDialog } from "../../../../lib/dialog";
 
 function blankLoanForm() {
   return {
@@ -178,9 +179,7 @@ export default function EmployeeLoanTab({ employeeId, records, onReload }) {
     const loan = loans.find((l) => l.id === id);
     if (!loan || loan.status === "closed") return;
     if (status === "closed") {
-      const ok = window.confirm(
-        "Close this loan? It will not feed EMI into salary processing again."
-      );
+      const ok = await confirmDialog({ title: "Close loan", message: "Close this loan? It will not feed EMI into salary processing again.", confirmLabel: "Close loan" });
       if (!ok) return;
     }
     setBusy(true);

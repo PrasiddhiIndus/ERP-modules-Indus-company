@@ -25,6 +25,7 @@ import {
   exportHolidaysToExcel,
   parseHolidayImportFile,
 } from "../../../lib/nationalPublicHolidaysExcel";
+import { confirmDialog } from "../../../lib/dialog";
 
 const YEAR_DEFAULT = new Date().getFullYear();
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -352,7 +353,7 @@ export function NationalPublicHolidaysPage() {
   const handleDelete = useCallback(
     async (row) => {
       if (!row?.id) return;
-      if (!window.confirm(`Delete holiday on ${formatDateDdMmYyyy(row.holiday_date)}?`)) return;
+      if (!(await confirmDialog({ title: "Delete holiday", message: `Delete holiday on ${formatDateDdMmYyyy(row.holiday_date)}?`, confirmLabel: "Delete", tone: "danger" }))) return;
       try {
         await deleteNationalPublicHoliday(supabase, row.id);
         toast.success("Holiday deleted.");

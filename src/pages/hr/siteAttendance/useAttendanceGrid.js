@@ -42,6 +42,7 @@ import {
 } from "../../../lib/siteAttendance/siteAttendanceApi";
 import { parseDateOnlyLocal } from "../../../lib/siteAttendance/dateFormat";
 import { listSelfiePresenceForPeople } from "../../../lib/siteAttendance/selfiePunchesApi";
+import { confirmDialog } from "../../../lib/dialog";
 
 function storeAttendance(map, record, multi) {
   const next = { ...map };
@@ -366,7 +367,7 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
   );
 
   const lockMonth = useCallback(async () => {
-    if (!window.confirm("Lock this month? Further edits will be blocked.")) return;
+    if (!(await confirmDialog({ title: "Lock month", message: "Lock this month? Further edits will be blocked.", confirmLabel: "Lock month" }))) return;
     try {
       await lockAttendanceMonth(Number(siteId), Number(month), Number(year));
       toast.success("Month locked.");

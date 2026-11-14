@@ -54,6 +54,7 @@ import { exportSalaryProcessingWorkbook } from "../../../lib/salaryProcessingExc
 import { SalaryBankImportModal } from "./SalaryBankImportModal";
 import SalaryGeneratePayslips from "./SalaryGeneratePayslips";
 import { toast } from "../../../lib/toast";
+import { confirmDialog } from "../../../lib/dialog";
 
 const numIn =
   "w-[4.25rem] h-7 px-1 text-right text-[11px] tabular-nums border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent";
@@ -452,8 +453,8 @@ function EmployeeSalaryDetailPage({
         <button
           type="button"
           className={`${btnGhost} inline-flex items-center gap-1.5`}
-          onClick={() => {
-            if (dirty && !window.confirm("Discard unsaved changes?")) return;
+          onClick={async () => {
+            if (dirty && !(await confirmDialog({ title: "Discard changes", message: "Discard unsaved changes?", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" }))) return;
             onBack();
           }}
         >
@@ -2381,8 +2382,8 @@ export default function SalaryProcessing() {
           <button
             type="button"
             className={btnGhost}
-            onClick={() => {
-              if (dirty && !window.confirm("Discard unsaved edits?")) return;
+            onClick={async () => {
+              if (dirty && !(await confirmDialog({ title: "Discard changes", message: "Discard unsaved edits?", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" }))) return;
               setEditorOpen(false);
               setRun(null);
               setLines([]);

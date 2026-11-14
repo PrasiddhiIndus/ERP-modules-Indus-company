@@ -3,6 +3,7 @@ import { CheckSquare, Loader2, Plus, Search, Square, Tag, Trash2 } from 'lucide-
 import { projectsErrorMsg, projectsTable } from '../../../services/projectsApi';
 import { peInput, peLabel, slugifyKindKey } from './enquiryConstants';
 import { ASSIGNEE_KIND_KEY, useProjectsEnquiryDropdowns } from './useProjectsEnquiryDropdowns';
+import { confirmDialog } from "../../../lib/dialog";
 
 function nameKey(value) {
   return String(value || '').trim().toLowerCase();
@@ -126,7 +127,7 @@ export default function EnquiryDropdown() {
   };
 
   const handleDeleteValue = async (id) => {
-    if (!window.confirm('Remove this dropdown option?')) return;
+    if (!(await confirmDialog({ title: "Remove dropdown option", message: 'Remove this dropdown option?', confirmLabel: "Remove", tone: "danger" }))) return;
     setDeletingId(id);
     setLocalError('');
     try {
@@ -196,9 +197,7 @@ export default function EnquiryDropdown() {
 
   const handleDeleteKind = async (kind) => {
     if (
-      !window.confirm(
-        `Delete dropdown kind "${kind.label}" and all its options? Fields linked to this kind will lose their dropdown list.`
-      )
+      !(await confirmDialog({ title: "Delete dropdown list", message: `Delete dropdown kind "${kind.label}" and all its options? Fields linked to this kind will lose their dropdown list.`, confirmLabel: "Delete", tone: "danger" }))
     ) {
       return;
     }

@@ -15,6 +15,7 @@ import {
   uploadMySignature,
 } from "./probationSignatureApi";
 import { t } from "./probationStrings";
+import { confirmDialog } from "../../../lib/dialog";
 
 export default function SignatureSection({ enabled }) {
   const inputRef = useRef(null);
@@ -112,7 +113,7 @@ export default function SignatureSection({ enabled }) {
 
   const onRemove = async () => {
     if (busy || !meta?.has_signature || pendingFile) return;
-    if (!window.confirm(t("signature.removeConfirm"))) return;
+    if (!(await confirmDialog({ title: "Remove signature", message: t("signature.removeConfirm"), confirmLabel: "Remove", tone: "danger" }))) return;
     setBusy(true);
     try {
       await deleteMySignature();

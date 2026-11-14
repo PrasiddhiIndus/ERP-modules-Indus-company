@@ -7,6 +7,7 @@ import { exportToExcel } from './utils/excelExport';
 import ExcelCostingSheet from './components/ExcelCostingSheet';;
 import FormDateInput from "../../components/FormDateInput";
 import { toast } from '../../lib/toast';
+import { confirmDialog } from "../../lib/dialog";
 
 
 const FollowUpPlanner = () => {
@@ -614,7 +615,7 @@ const FollowUpPlanner = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this follow-up?')) return;
+    if (!(await confirmDialog({ title: "Delete follow-up", message: 'Are you sure you want to delete this follow-up?', confirmLabel: "Delete", tone: "danger" }))) return;
 
     try {
       const { error } = await supabase

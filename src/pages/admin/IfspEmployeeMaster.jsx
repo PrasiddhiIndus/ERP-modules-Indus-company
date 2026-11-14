@@ -74,6 +74,7 @@ import {
   EMPLOYEE_MASTER_SHEET_FIELDS,
 } from './employeeMaster/employeeMasterSheetImport';
 import { Modal } from '../../components/erpUi';
+import { confirmDialog, promptDialog } from "../../lib/dialog";
 
 function isInHouseEmployeeType(row) {
   const value = String(row?.employee_type ?? "").trim().toLowerCase();
@@ -249,7 +250,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const tableScrollRef = useRef(null);
 
   const deleteAllEmployees = async () => {
-    if (!window.confirm('Delete ALL employee rows? This cannot be undone.')) return;
+    if (!(await confirmDialog({ title: "Delete all employees", message: 'Delete ALL employee rows? This cannot be undone.', confirmLabel: "Delete all", tone: "danger" }))) return;
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -1351,7 +1352,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this employee?')) return;
+    if (!(await confirmDialog({ title: "Delete employee", message: 'Are you sure you want to delete this employee?', confirmLabel: "Delete", tone: "danger" }))) return;
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -1378,9 +1379,13 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       let dateOfLeaving = employee.date_of_leaving || '';
       if (newStatus === 'Inactive') {
         if (!String(dateOfLeaving).trim()) {
-          const input = window.prompt(
-            'Date of Leaving is required when deactivating an employee.\nEnter date (YYYY-MM-DD):'
-          );
+          const input = await promptDialog({
+              title: "Date of Leaving required",
+              message: "Date of Leaving is required when deactivating an employee.",
+              label: "Enter date (YYYY-MM-DD):",
+              placeholder: "YYYY-MM-DD",
+              confirmLabel: "Set Inactive",
+            });
           if (!input?.trim()) {
             toast.warning('Date of Leaving is required for Inactive status.');
             return;

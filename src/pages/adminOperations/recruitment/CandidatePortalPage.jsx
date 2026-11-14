@@ -5,6 +5,7 @@ import { apiUrl, humanizeApiErrorMessage } from "../../../lib/apiBase";
 import { appointmentStatusMeta, documentStatusMeta, offerStatusMeta } from "./recruitmentConfig";
 import { Card, DetailGrid, StatusPill, btn, fmtDate, textareaClass } from "./RecruitmentUi";
 import { EmployeeDocumentPortalView } from "../../admin/employeeMaster/EmployeeDocumentPortalPage";
+import { confirmDialog } from "../../../lib/dialog";
 
 const ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx";
 
@@ -194,7 +195,7 @@ function OfferSection({ token, offer, closed, letterHref, onChange }) {
   const canRespond = !closed && ["sent", "viewed"].includes(offer.status);
 
   const respond = async (response) => {
-    if (response === "declined" && !window.confirm("Are you sure you want to decline this offer?")) return;
+    if (response === "declined" && !(await confirmDialog({ title: "Decline offer", message: "Are you sure you want to decline this offer?", confirmLabel: "Decline offer", cancelLabel: "Go back", tone: "danger" }))) return;
     setBusy(response);
     setError("");
     try {

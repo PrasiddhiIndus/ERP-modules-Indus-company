@@ -378,23 +378,67 @@ async function getHeadMaps() {
 
 const FETCH_PAGE_SIZE = 1000;
 
+const FETCH_PARALLEL_PAGES = 6;
+
+/**
+ * Fetch every row of a table. First page returns the exact row count; remaining pages
+ * are then fetched in parallel. Paging is always ordered with an `id` tie-breaker
+ * (primary-key index) so rows are never skipped or duplicated between pages.
+ */
 async function fetchAll(tableName, order) {
-  const rows = [];
-  let from = 0;
-  while (true) {
-    let q = t(tableName).select("*");
-    if (order) {
-      q = q.order(order[0], order[1]);
+  const page = (from, withCount = false) => {
+    let q = t(tableName).select("*", withCount ? { count: "exact" } : undefined);
+    if (order) q = q.order(order[0], order[1]);
+    if (!order || order[0] !== "id") q = q.order("id", { ascending: true });
+    return q.range(from, from + FETCH_PAGE_SIZE - 1);
+  };
+
+  const first = await page(0, true);
+  if (first.error) throw first.error;
+  const rows = [...(first.data || [])];
+  const total = Number.isFinite(first.count) ? first.count : null;
+  if (rows.length < FETCH_PAGE_SIZE) return rows;
+
+  if (total == null) {
+    // Count unavailable — fall back to sequential paging.
+    let from = FETCH_PAGE_SIZE;
+    while (true) {
+      const { data, error } = await page(from);
+      if (error) throw error;
+      rows.push(...(data || []));
+      if (!data || data.length < FETCH_PAGE_SIZE) break;
+      from += FETCH_PAGE_SIZE;
     }
-    const { data, error } = await q.range(from, from + FETCH_PAGE_SIZE - 1);
-    if (error) throw error;
-    const page = data || [];
-    rows.push(...page);
-    if (page.length < FETCH_PAGE_SIZE) break;
-    from += FETCH_PAGE_SIZE;
+    return rows;
+  }
+
+  const offsets = [];
+  for (let from = FETCH_PAGE_SIZE; from < total; from += FETCH_PAGE_SIZE) offsets.push(from);
+  for (let i = 0; i < offsets.length; i += FETCH_PARALLEL_PAGES) {
+    const batch = await Promise.all(offsets.slice(i, i + FETCH_PARALLEL_PAGES).map((from) => page(from)));
+    batch.forEach(({ data, error }) => {
+      if (error) throw error;
+      rows.push(...(data || []));
+    });
   }
   return rows;
 }
+
+/** Group rows by a key column in one pass (replaces per-parent `.filter()` scans). */
+function groupBy(rows, key) {
+  const map = new Map();
+  (rows || []).forEach((r) => {
+    const k = r[key];
+    let arr = map.get(k);
+    if (!arr) {
+      arr = [];
+      map.set(k, arr);
+    }
+    arr.push(r);
+  });
+  return map;
+}
+const EMPTY_ROWS = [];
 
 async function fetchBundle() {
   try {
@@ -496,18 +540,18 @@ function buildSites(raw, parentById, childById) {
 
   const revById = Object.fromEntries(raw.revenueHeads.map((r) => [r.id, r.code]));
   const budgetsBySite = {};
+  const budgetRevByVersion = groupBy(raw.budgetRev, "budget_version_id");
+  const budgetExpByVersion = groupBy(raw.budgetExp, "budget_version_id");
   raw.budgets.forEach((bv) => {
     if (!budgetsBySite[bv.site_id]) budgetsBySite[bv.site_id] = [];
     const revenue = {};
-    raw.budgetRev
-      .filter((l) => l.budget_version_id === bv.id)
+    (budgetRevByVersion.get(bv.id) || EMPTY_ROWS)
       .forEach((l) => {
         const code = revById[l.revenue_head_id];
         if (code) revenue[code] = Number(l.amount);
       });
     const expenses = {};
-    raw.budgetExp
-      .filter((l) => l.budget_version_id === bv.id)
+    (budgetExpByVersion.get(bv.id) || EMPTY_ROWS)
       .forEach((l) => {
         const code = childById[l.child_head_id]?.code;
         if (code) expenses[code] = Number(l.amount);
@@ -574,19 +618,19 @@ function buildSites(raw, parentById, childById) {
 function buildRecords(raw, childById, revById) {
   const records = {};
   const siteIdToCode = Object.fromEntries(raw.sites.map((s) => [s.id, s.code]));
+  const revLinesByEntry = groupBy(raw.revLines, "period_entry_id");
+  const expLinesByEntry = groupBy(raw.expLines, "period_entry_id");
   raw.periods.forEach((pe) => {
     const siteCode = siteIdToCode[pe.site_id];
     if (!siteCode) return;
     const key = `${siteCode}__${pe.period_key}`;
     records[key] = {};
-    raw.revLines
-      .filter((l) => l.period_entry_id === pe.id)
+    (revLinesByEntry.get(pe.id) || EMPTY_ROWS)
       .forEach((l) => {
         const code = revById[l.revenue_head_id];
         if (code) records[key][code] = Number(l.amount);
       });
-    raw.expLines
-      .filter((l) => l.period_entry_id === pe.id)
+    (expLinesByEntry.get(pe.id) || EMPTY_ROWS)
       .forEach((l) => {
         const code = childById[l.child_head_id]?.code;
         if (code) records[key][code] = Number(l.amount);

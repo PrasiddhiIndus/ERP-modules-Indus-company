@@ -52,6 +52,7 @@ import {
 
 import { toast } from "../../lib/toast";
 import { PageTaskHeader, PageShell, PrimaryButton } from "../../components/erpUi";
+import { confirmDialog, promptDialog } from "../../lib/dialog";
 
 /** Add/Edit PO/WO modal — 12-column grid; size fields by span, not leftover stretch. */
 const PO_FORM_SECTION = 'bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm';
@@ -183,7 +184,7 @@ function PoViewDocumentList({ title, files }) {
         setCopiedKey(key);
         window.setTimeout(() => setCopiedKey((prev) => (prev === key ? '' : prev)), 2000);
       } else {
-        window.prompt('Copy this link:', url);
+        await promptDialog({ title: 'Copy link', label: 'Copy this link:', defaultValue: url, readOnly: true, confirmLabel: 'Done' });
       }
     } catch (err) {
       if (err?.name === 'AbortError') return;
@@ -1561,13 +1562,13 @@ const POEntry = () => {
     }
   };
 
-  const requestSupplementaryBill = (po) => {
+  const requestSupplementaryBill = async (po) => {
     if (!po) return;
     if (!isAfterContractEnd(po.endDate || po.end_date)) {
       toast.success('Post-contract billing can be requested only after the contract end date.');
       return;
     }
-    const reason = window.prompt('Reason for post-contract billing (optional):', po.supplementaryReason || '') ?? '';
+    const reason = await promptDialog({ title: "Request post-contract billing", label: "Reason for post-contract billing (optional):", defaultValue: po.supplementaryReason || '', confirmLabel: "Submit request" }) ?? '';
     const nowIso = new Date().toISOString();
     setCommercialPOs((prev) =>
       prev.map((p) =>
@@ -2461,7 +2462,7 @@ const POEntry = () => {
     }
   };
 
-  const deletePO = (id) => { if (window.confirm('Delete this PO? Billing may be affected.')) setCommercialPOs((prev) => prev.filter((p) => p.id !== id)); };
+  const deletePO = async (id) => { if (await confirmDialog({ title: "Delete PO", message: 'Delete this PO? Billing may be affected.', confirmLabel: "Delete", tone: "danger" })) setCommercialPOs((prev) => prev.filter((p) => p.id !== id)); };
   const poForHistory = viewHistoryPoId ? commercialPOs.find((p) => p.id === viewHistoryPoId) : null;
   const poForView = viewPoId ? commercialPOs.find((p) => p.id === viewPoId) : null;
   const poRatesHistorySnapshots = useMemo(() => {

@@ -35,6 +35,7 @@ import StatusBadge from './StatusBadge';
 import { useQuotationDropdowns } from './useQuotationDropdowns';
 import ConvertToProjectModal from './ConvertToProjectModal';
 import FollowupModal from './FollowupModal';
+import { confirmDialog } from "../../../lib/dialog";
 
 const DETAIL_TABS = [
   { id: 'details', label: 'Details' },
@@ -155,7 +156,7 @@ export default function QuotationDetailDrawer({
 
   const createRevision = async () => {
     if (!row) return;
-    if (!window.confirm('Create a revised offer? Clones line items; previous revision marked Superseded.')) return;
+    if (!(await confirmDialog({ title: "Create revised offer", message: 'Create a revised offer? Clones line items; previous revision marked Superseded.', confirmLabel: "Create revision" }))) return;
     setSaving(true);
     setError('');
     try {

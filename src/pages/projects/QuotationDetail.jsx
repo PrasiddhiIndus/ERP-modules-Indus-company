@@ -16,6 +16,7 @@ import QuotationDocument from "./QuotationDocument";
 import { exportNodeToPdfBlob, downloadBlob } from "../../lib/exportNodeToPdf";
 
 import { toast } from "../../lib/toast";
+import { confirmDialog } from "../../lib/dialog";
 const generateQuotationNumber = (index) => {
   const padded = String(index + 1).padStart(4, "0");
   return `QN/IFSPL/FT/${padded}`;
@@ -370,15 +371,13 @@ const QuotationDetail = () => {
     if (!quotation || saving) return;
     const nextVer = (quotation.version || 0) + 1;
     if (
-      !window.confirm(
-        `Create revision R${nextVer} of this quotation? The quotation number will become ` +
+      !(await confirmDialog({ title: "Create revision", message: `Create revision R${nextVer} of this quotation? The quotation number will become ` +
           `${formatQuotationWithRevision(
             (quotation.base_quotation_no || quotation.quotation_number || "")
               .toString()
               .replace(/\/R\d+$/, ""),
             nextVer
-          )}.`
-      )
+          )}.`, confirmLabel: "Create revision" }))
     ) {
       return;
     }
