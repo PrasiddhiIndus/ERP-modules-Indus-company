@@ -271,20 +271,62 @@
 // export default AccessoriesTable;
 
 import React, { useEffect, useState, useRef } from "react";
+import { Loader2, Trash2 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { NumericInput, parseNumericInput } from "../../components/NumericInput";
-import { ALUMINIUM_EXTENSION_LADDER } from "./fireTenderCostingConfig";
+import { ALUMINIUM_EXTENSION_LADDER, parsePercentValue } from "./fireTenderCostingConfig";
 
 import { toast } from "../../lib/toast";
+
+const ACCESSORIES_MARGIN_COMPONENT = "Accessories Margin %";
+
+function formatInr(n) {
+  return Number(n || 0).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+/** Grows with content so title/description stay fully visible. */
+function AutoGrowTextarea({ value, onChange, placeholder, className = "" }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.max(36, el.scrollHeight)}px`;
+  }, [value]);
+
+  const text = value ?? "";
+  const minCh = Math.min(80, Math.max(16, text.length + 2));
+
+  return (
+    <textarea
+      ref={ref}
+      value={text}
+      onChange={onChange}
+      rows={1}
+      placeholder={placeholder}
+      style={{ minWidth: `${minCh}ch`, width: "100%" }}
+      className={`min-h-[2.25rem] resize-none overflow-hidden whitespace-pre-wrap break-words p-1 border rounded ${className}`}
+    />
+  );
+}
+
 const AccessoriesTable = ({ tenderId, onTotalChange }) => {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [accessoriesAutoHint, setAccessoriesAutoHint] = useState("");
+  const [deleteConfirmIndex, setDeleteConfirmIndex] = useState(null);
+  const [marginPct, setMarginPct] = useState(0);
   const skipAccessoriesAutosaveRef = useRef(true);
+  const skipMarginAutosaveRef = useRef(true);
 
   useEffect(() => {
     skipAccessoriesAutosaveRef.current = true;
+    skipMarginAutosaveRef.current = true;
   }, [tenderId]);
 
   useEffect(() => {
@@ -292,19 +334,22 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
     fetchAccessoriesCosting();
   }, [tenderId]);
 
-  // Calculate total and notify parent when it changes
-  const total = rows.reduce((sum, row) => {
+  // Line total (before margin)
+  const totalAccessoriesCost = rows.reduce((sum, row) => {
     const qty = Number(row.qty) || 0;
     const price = Number(row.price) || 0;
-    return sum + (qty * price);
+    return sum + qty * price;
   }, 0);
 
+  const marginAmount = (totalAccessoriesCost * parsePercentValue(marginPct)) / 100;
+  const finalAccessoriesCost = totalAccessoriesCost + marginAmount;
+
+  // Parent costing sheet uses final accessories cost (includes margin)
   useEffect(() => {
     if (onTotalChange) {
-      console.log("AccessoriesTable: Total changed to", total, "notifying parent");
-      onTotalChange(total);
+      onTotalChange(finalAccessoriesCost);
     }
-  }, [total, onTotalChange]);
+  }, [finalAccessoriesCost, onTotalChange]);
 
   const fetchAccessoriesCosting = async () => {
     setLoading(true);
@@ -466,6 +511,16 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
       skipAccessoriesAutosaveRef.current = true;
       setRows(mergedRows);
       console.log("✅ Rows state updated. Total rows:", mergedRows.length);
+
+      // Load Accessories Margin % from costing summary (owned by this sheet)
+      skipMarginAutosaveRef.current = true;
+      const { data: marginRows } = await supabase
+        .from("costing_summary")
+        .select("unit_cost")
+        .eq("tender_id", Number(tenderId))
+        .eq("component", ACCESSORIES_MARGIN_COMPONENT)
+        .limit(1);
+      setMarginPct(parsePercentValue(marginRows?.[0]?.unit_cost));
       
       // Verify data structure
       if (mergedRows.length > 0) {
@@ -485,6 +540,7 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
       setRows([]);
     } finally {
       skipAccessoriesAutosaveRef.current = true;
+      skipMarginAutosaveRef.current = true;
       setLoading(false);
     }
   };
@@ -521,7 +577,25 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
       byAccessory.set(String(row.accessory_id), row);
     }
 
-    const payload = [...byAccessory.values()].map((row) => ({
+    const uniqueRows = [...byAccessory.values()];
+
+    // Persist title / description back to the accessories catalog (blank title allowed for new lines)
+    for (const row of uniqueRows) {
+      const { error: catalogError } = await supabase
+        .from("accessories")
+        .update({
+          name: String(row.title || "").trim(),
+          description: String(row.description || "").trim() || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", String(row.accessory_id));
+      if (catalogError) {
+        console.error("Accessory catalog update error:", catalogError);
+        throw catalogError;
+      }
+    }
+
+    const payload = uniqueRows.map((row) => ({
       tender_id: Number(tenderId),
       accessory_id: String(row.accessory_id),
       qty: Number(row.qty) || 0,
@@ -562,6 +636,44 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
     }
   };
 
+  const persistAccessoriesMargin = async (pctValue, baseTotal, { silent = false } = {}) => {
+    if (!tenderId) return;
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+    if (userError || !user) {
+      throw new Error("User not authenticated");
+    }
+
+    const pct = parsePercentValue(pctValue);
+    const amount = (Number(baseTotal) || 0) * pct / 100;
+
+    const { error: deleteError } = await supabase
+      .from("costing_summary")
+      .delete()
+      .eq("tender_id", Number(tenderId))
+      .eq("component", ACCESSORIES_MARGIN_COMPONENT);
+    if (deleteError) throw deleteError;
+
+    const { error: insertError } = await supabase.from("costing_summary").insert({
+      tender_id: Number(tenderId),
+      component: ACCESSORIES_MARGIN_COMPONENT,
+      unit_cost: pct,
+      unit_rate: 0,
+      qty: 1,
+      total: amount,
+      include: true,
+      user_id: user.id,
+    });
+    if (insertError) throw insertError;
+
+    if (!silent) {
+      toast.success("Accessories margin saved");
+    }
+  };
+
   const addAccessoryRow = async () => {
     try {
       const {
@@ -572,23 +684,85 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
         throw new Error("User not authenticated");
       }
 
-      const { error } = await supabase.from("accessories").insert({
-        name: "New accessory",
-        description: "",
-        user_id: user.id,
-      });
+      const { data, error } = await supabase
+        .from("accessories")
+        .insert({
+          name: "",
+          description: "",
+          user_id: user.id,
+        })
+        .select("id, name, description")
+        .single();
       if (error) throw error;
-      await fetchAccessoriesCosting();
+
+      // Append locally — do not reload the whole sheet
+      setRows((prev) => [
+        ...prev,
+        {
+          id: null,
+          accessory_id: String(data.id),
+          title: "",
+          description: "",
+          qty: 0,
+          price: 0,
+        },
+      ]);
     } catch (err) {
       console.error(err);
       toast.warning("Could not add accessory line: " + (err.message || err));
     }
   };
 
+  const requestDeleteAccessory = (index) => {
+    if (!rows[index]) return;
+    setDeleteConfirmIndex(index);
+  };
+
+  const cancelDeleteAccessory = () => {
+    if (saving) return;
+    setDeleteConfirmIndex(null);
+  };
+
+  const confirmDeleteAccessory = async () => {
+    if (deleteConfirmIndex == null) return;
+    const index = deleteConfirmIndex;
+    const row = rows[index];
+    if (!row) {
+      setDeleteConfirmIndex(null);
+      return;
+    }
+
+    // Local-only / unsaved line without catalog id
+    if (!row.accessory_id) {
+      setRows((prev) => prev.filter((_, i) => i !== index));
+      setDeleteConfirmIndex(null);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Cascade removes costing_accessories rows that reference this accessory
+      const { error } = await supabase.from("accessories").delete().eq("id", String(row.accessory_id));
+      if (error) throw error;
+      skipAccessoriesAutosaveRef.current = true;
+      setRows((prev) => prev.filter((_, i) => i !== index));
+      setDeleteConfirmIndex(null);
+      toast.success("Accessory deleted");
+    } catch (err) {
+      console.error("Delete error:", err);
+      toast.warning("Delete failed: " + (err.message || err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const saveAll = async () => {
     setSaving(true);
     try {
-      await persistAccessories(rows, { silent: false });
+      // silent: avoid full sheet reload after save
+      await persistAccessories(rows, { silent: true });
+      await persistAccessoriesMargin(marginPct, totalAccessoriesCost, { silent: true });
+      toast.success("✅ Accessories costing saved successfully!");
     } catch (err) {
       console.error("Save error:", err);
       const errorMessage = err.message || err.toString() || "Unknown error";
@@ -608,6 +782,10 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
       void (async () => {
         try {
           await persistAccessories(rows, { silent: true });
+          await persistAccessoriesMargin(marginPct, totalAccessoriesCost, { silent: true });
+          const t = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+          setAccessoriesAutoHint(`Accessories saved · ${t}`);
+          window.setTimeout(() => setAccessoriesAutoHint(""), 5000);
         } catch (e) {
           console.error("Accessories auto-save:", e);
           setAccessoriesAutoHint("Accessories: auto-save failed");
@@ -619,49 +797,71 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- debounced upsert uses latest `rows`
   }, [rows, tenderId, loading]);
 
+  useEffect(() => {
+    if (!tenderId || loading) return;
+    if (skipMarginAutosaveRef.current) {
+      skipMarginAutosaveRef.current = false;
+      return;
+    }
+    const id = window.setTimeout(() => {
+      void (async () => {
+        try {
+          await persistAccessoriesMargin(marginPct, totalAccessoriesCost, { silent: true });
+          const t = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+          setAccessoriesAutoHint(`Margin saved · ${t}`);
+          window.setTimeout(() => setAccessoriesAutoHint(""), 5000);
+        } catch (e) {
+          console.error("Accessories margin auto-save:", e);
+          setAccessoriesAutoHint("Margin: auto-save failed");
+          window.setTimeout(() => setAccessoriesAutoHint(""), 6000);
+        }
+      })();
+    }, 1600);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marginPct, tenderId, loading]);
+
   if (loading) return <p className="p-4">Loading...</p>;
+
+  const marginFormula = `Formula: total accessories cost × Accessories margin % ÷ 100\n₹${formatInr(totalAccessoriesCost)} × ${formatInr(parsePercentValue(marginPct))}% ÷ 100 = ₹${formatInr(marginAmount)}`;
+  const finalFormula = `Formula: total accessories cost + Accessories margin\n₹${formatInr(totalAccessoriesCost)} + ₹${formatInr(marginAmount)} = ₹${formatInr(finalAccessoriesCost)}`;
 
   return (
     <div className="bg-white p-6 shadow rounded-lg overflow-x-auto">
       <h2 className="text-lg font-semibold mb-4">Accessories Costing</h2>
-      
-      {/* Total Display at Top */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-        <div className="flex justify-between items-center">
-          <span className="text-lg font-semibold text-blue-800">Total Accessories Cost:</span>
-          <span className="text-2xl font-bold text-blue-900">₹ {total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-        </div>
-      </div>
-      <table className="border-collapse border text-sm w-full mb-4">
+
+      <table className="border-collapse border text-sm w-full mb-4 table-auto">
         <thead className="bg-gray-100">
           <tr>
             <th className="border px-2 py-1 text-center w-11">S.No</th>
-            <th className="border px-2 py-1">Title</th>
-            <th className="border px-2 py-1">Description</th>
+            <th className="border px-2 py-1 min-w-[12rem]">Title</th>
+            <th className="border px-2 py-1 min-w-[18rem]">Description</th>
             <th className="border px-2 py-1">Qty</th>
             <th className="border px-2 py-1">Price</th>
             <th className="border px-2 py-1">Total</th>
+            <th className="border px-2 py-1 w-24">Action</th>
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={6} className="border px-2 py-4 text-center text-gray-500">
+              <td colSpan={7} className="border px-2 py-4 text-center text-gray-500">
                 {loading ? (
                   "Loading accessories..."
                 ) : (
                   <div>
                     <p className="mb-2 font-semibold">No accessories found.</p>
                     <p className="text-sm">
-                      Please add accessories in the{" "}
+                      Add a line below, or manage the catalog in{" "}
                       <a 
                         href="/app/fire-tender/configuration/accessories" 
                         className="text-blue-600 hover:underline font-semibold"
                         target="_blank"
+                        rel="noreferrer"
                       >
                         Configuration → Accessories
-                      </a>{" "}
-                      page first.
+                      </a>
+                      .
                     </p>
                   </div>
                 )}
@@ -669,10 +869,23 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
             </tr>
           ) : (
             rows.map((row, index) => (
-              <tr key={row.id || row.accessory_id || index} className="hover:bg-gray-50">
+              <tr key={row.id || row.accessory_id || index} className="hover:bg-gray-50 align-top">
                 <td className="border px-2 py-1 text-center tabular-nums text-gray-600">{index + 1}</td>
-                <td className="border px-2 py-1 font-medium">{row.title || "N/A"}</td>
-                <td className="border px-2 py-1">{row.description || ""}</td>
+                <td className="border px-2 py-1">
+                  <AutoGrowTextarea
+                    value={row.title || ""}
+                    onChange={(e) => updateRow(index, "title", e.target.value)}
+                    className="font-medium"
+                    placeholder="Enter title"
+                  />
+                </td>
+                <td className="border px-2 py-1">
+                  <AutoGrowTextarea
+                    value={row.description || ""}
+                    onChange={(e) => updateRow(index, "description", e.target.value)}
+                    placeholder="Enter description"
+                  />
+                </td>
                 <td className="border px-2 py-1">
                   <NumericInput
                     value={row.qty}
@@ -687,21 +900,66 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
                     className="w-full p-1 border rounded"
                   />
                 </td>
-                <td className="border px-2 py-1 text-right">
-                  ₹ {(Number(row.qty) * Number(row.price)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <td className="border px-2 py-1 text-right whitespace-nowrap">
+                  ₹ {formatInr(Number(row.qty) * Number(row.price))}
+                </td>
+                <td className="border px-2 py-1 text-center">
+                  <button
+                    type="button"
+                    onClick={() => requestDeleteAccessory(index)}
+                    disabled={saving}
+                    title="Delete accessory"
+                    aria-label="Delete accessory"
+                    className="inline-flex items-center justify-center rounded p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 </td>
               </tr>
             ))
           )}
-          {/* Total Row at Bottom */}
-          {rows.length > 0 && (
-            <tr className="bg-gray-100 font-semibold">
-              <td colSpan={4} className="border px-2 py-2 text-right">Total:</td>
-              <td className="border px-2 py-2 text-right">
-                ₹ {total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </td>
-            </tr>
-          )}
+          <tr className="bg-gray-100 font-semibold">
+            <td colSpan={5} className="border px-2 py-2 text-right">Total Accessories cost</td>
+            <td className="border px-2 py-2 text-right whitespace-nowrap">₹ {formatInr(totalAccessoriesCost)}</td>
+            <td className="border px-2 py-2" />
+          </tr>
+          <tr className="bg-slate-50">
+            <td colSpan={5} className="border px-2 py-2 text-right align-top">
+              <div className="flex flex-col items-end gap-1">
+                <label className="inline-flex items-center gap-2 font-semibold text-slate-800">
+                  <span>Accessories Margin %:</span>
+                  <NumericInput
+                    value={marginPct}
+                    onChange={(val) => setMarginPct(val)}
+                    className="!w-16 !min-w-0 !max-w-[4rem] shrink-0 p-1 border rounded text-sm text-right font-normal"
+                    aria-label="Accessories margin percent"
+                  />
+                  <span className="text-sm font-medium text-slate-600">%</span>
+                </label>
+                <span className="max-w-md whitespace-pre-wrap text-left text-[11px] font-normal text-slate-500" title={marginFormula}>
+                  {marginFormula}
+                </span>
+              </div>
+            </td>
+            <td className="border px-2 py-2 text-right align-top text-sm font-semibold whitespace-nowrap">
+              ₹ {formatInr(marginAmount)}
+            </td>
+            <td className="border px-2 py-2" />
+          </tr>
+          <tr className="bg-blue-50 font-semibold">
+            <td colSpan={5} className="border px-2 py-2 text-right align-top">
+              <div className="flex flex-col items-end gap-1">
+                <span className="text-blue-900">Final Accessories cost</span>
+                <span className="max-w-md whitespace-pre-wrap text-left text-[11px] font-normal text-slate-500" title={finalFormula}>
+                  {finalFormula}
+                </span>
+              </div>
+            </td>
+            <td className="border px-2 py-2 text-right text-blue-900 whitespace-nowrap align-top">
+              ₹ {formatInr(finalAccessoriesCost)}
+            </td>
+            <td className="border px-2 py-2" />
+          </tr>
         </tbody>
       </table>
 
@@ -725,9 +983,48 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
           disabled={saving}
           className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 disabled:opacity-50"
         >
-          {saving ? "Saving..." : "💾 Save Accessories Costing"}
+          {saving ? "Saving..." : "Save Accessories Costing"}
         </button>
       </div>
+
+      {deleteConfirmIndex != null ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="accessory-delete-title"
+            className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl"
+          >
+            <h3 id="accessory-delete-title" className="text-base font-semibold text-slate-900">
+              Delete this accessory?
+            </h3>
+            <p className="mt-2 text-sm text-slate-600">
+              {rows[deleteConfirmIndex]?.title
+                ? `"${rows[deleteConfirmIndex].title}" will be removed from the catalog and this sheet.`
+                : "It will be removed from the catalog and this sheet."}
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={cancelDeleteAccessory}
+                disabled={saving}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteAccessory}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };

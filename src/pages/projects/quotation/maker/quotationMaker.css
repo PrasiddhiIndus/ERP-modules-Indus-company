@@ -1188,3 +1188,19 @@
   }
 
 }
+
+/* Quotation Master table: keeps the ERP table look; sticky header + Actions column need opaque backgrounds */
+main.erp-app-shell table.qm-master-table thead th.qm-sticky-col {
+  background-color: var(--surface-sunken) !important;
+  box-shadow: inset 1px 0 0 var(--border);
+}
+main.erp-app-shell table.qm-master-table tbody td.qm-sticky-col {
+  background-color: var(--surface);
+  box-shadow: inset 1px 0 0 var(--divider);
+}
+main.erp-app-shell table.qm-master-table tbody tr:hover td.qm-sticky-col {
+  background-color: var(--row-hover);
+}
+main.erp-app-shell table.qm-master-table td {
+  vertical-align: top;
+}

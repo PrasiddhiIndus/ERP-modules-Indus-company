@@ -1,4 +1,4 @@
-import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
+import { formatDateDdMmYyyy, normalizeToIsoDate } from '../../../utils/dateDisplay';
 
 export const qInput =
   'w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 bg-white shadow-sm focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all';
@@ -97,3 +97,51 @@ export const BOARD_COLUMNS = [
     statuses: ['Order Lost'],
   },
 ];
+
+/**
+ * Offer-database buckets used by the Quotation Master dashboard
+ * (mirrors the "Offer Database" summary sheet).
+ * Colors validated (dataviz validate_palette.js) for light + dark surfaces, incl. CVD.
+ */
+export const OFFER_BUCKETS = [
+  { id: 'converted', label: 'Order Converted', color: '#15803D' },
+  { id: 'lost', label: 'Order Lost', color: '#DC2626' },
+  { id: 'awaiting', label: 'Awaiting for Client Response', color: '#2563EB' },
+  { id: 'hold', label: 'Client Has Hold Enquiry', color: '#D97706' },
+  { id: 'budgetary', label: 'Budgetary Offer', color: '#64748B' },
+];
+
+/** Status values offered in the Quotation Master "edit details" form. */
+export const OFFER_STATUS_OPTIONS = [
+  'Draft',
+  'Awaiting Client Response',
+  'Revised Offer Sent',
+  'Client Has Hold Enquiry',
+  'Order Converted',
+  'Order Converted on Revised Value',
+  'Order Lost',
+  'Budgetary Offer',
+];
+
+export function offerBucketOf(status) {
+  const s = String(status || '').trim().toLowerCase();
+  if (!s) return null;
+  if (s.includes('budgetary')) return 'budgetary';
+  if (s.includes('converted')) return 'converted';
+  if (s.includes('lost')) return 'lost';
+  if (s.includes('hold')) return 'hold';
+  if (s.includes('awaiting') || s.includes('revised offer')) return 'awaiting';
+  return null; // Draft / Superseded — not counted
+}
+
+/**
+ * Financial-year quarter (1–4) of a date, as in the Offer Database sheet:
+ * Q1 Apr–Jun · Q2 Jul–Sep · Q3 Oct–Dec · Q4 Jan–Mar.
+ */
+export function quarterOf(value) {
+  if (!value) return null;
+  const iso = normalizeToIsoDate(value) || '';
+  const m = Number(iso.slice(5, 7));
+  if (!Number.isFinite(m) || m < 1 || m > 12) return null;
+  return Math.floor(((m + 8) % 12) / 3) + 1;
+}

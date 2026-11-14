@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import CostingSummary from "./CostingSummary";
-import { FaTrash } from "react-icons/fa";
+import { FaBars, FaChevronDown, FaChevronUp, FaTrash } from "react-icons/fa";
 import { supabase } from "../../lib/supabase";
 import auditLogger from "../../lib/auditLogger";
 import { isRetiredFireTenderMainComponentLabel } from "../../lib/retiredFireTenderMainComponents";
@@ -100,6 +100,39 @@ function trimCostingSheetToMaxLines(fixed, extra, maxLines) {
   return { fixedRows: t.slice(0, nFixed), extraRows: t.slice(nFixed) };
 }
 
+/** Compact summary of selected subcategory levels for the collapsed row. */
+function getSubCategorySummary(row) {
+  const parts = [row.sub1, row.sub2, row.sub3, row.sub4, row.sub5]
+    .map((s) => String(s || "").trim())
+    .filter(Boolean);
+  return parts.length ? parts.join(" › ") : "";
+}
+
+/** Remark field stays inside the cell; height grows as text wraps. */
+function AutoGrowRemark({ value, onChange, className = "" }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.max(28, el.scrollHeight)}px`;
+  }, [value]);
+
+  return (
+    <textarea
+      ref={ref}
+      value={value ?? ""}
+      onChange={onChange}
+      rows={1}
+      placeholder="Remark"
+      className={`box-border block w-full max-w-full min-h-[1.75rem] resize-none overflow-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] ${className}`}
+    />
+  );
+}
+
+const COSTING_COL_COUNT = 11;
+
 const CostingTable = ({
   tenderId,
   tenderNumber,
@@ -117,8 +150,56 @@ const CostingTable = ({
   const [mocPrices, setMocPrices] = useState({}); // key: moc, value: price
   const [priceMasterData, setPriceMasterData] = useState({});
   const [priceDriftData, setPriceDriftData] = useState({});
+  /** Row indices with Sub Category expand panel open (independent per row). */
+  const [expandedSubRows, setExpandedSubRows] = useState(() => new Set());
+  const [dragFromIndex, setDragFromIndex] = useState(null);
 
   const [showDriftMonitor, setShowDriftMonitor] = useState(false);
+
+  const toggleSubExpand = (index) => {
+    setExpandedSubRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
+  /** Reorder main (fixed) cost components only — calculation formulas unchanged. */
+  const reorderFixedRows = (fromIndex, toIndex) => {
+    if (
+      fromIndex == null ||
+      toIndex == null ||
+      fromIndex === toIndex ||
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      fromIndex >= fixedRows.length ||
+      toIndex >= fixedRows.length
+    ) {
+      return;
+    }
+    setFixedRows((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next.map((r, i) => ({ ...r, sortOrder: i }));
+    });
+    setExpandedSubRows((prev) => {
+      if (!prev.size) return prev;
+      const next = new Set();
+      prev.forEach((i) => {
+        if (i >= fixedRows.length) {
+          next.add(i);
+          return;
+        }
+        if (i === fromIndex) next.add(toIndex);
+        else if (fromIndex < toIndex && i > fromIndex && i <= toIndex) next.add(i - 1);
+        else if (fromIndex > toIndex && i >= toIndex && i < fromIndex) next.add(i + 1);
+        else next.add(i);
+      });
+      return next;
+    });
+  };
 
   // Function to manually check and update price drift
   const checkAndUpdatePriceDrift = () => {
@@ -332,10 +413,23 @@ const CostingTable = ({
             unitCost,
             qty: rowFromDB?.qty || 1,
             remark: rowFromDB?.remark || "",
+            includeInSummary: rowFromDB?.include_in_summary !== false,
+            sortOrder:
+              rowFromDB?.sort_order != null && rowFromDB?.sort_order !== ""
+                ? Number(rowFromDB.sort_order)
+                : null,
             original_unit_cost: rowFromDB?.original_unit_cost,
             original_weight: rowFromDB?.original_weight
           });
         });
+
+        if (fixed.some((r) => r.sortOrder != null && Number.isFinite(r.sortOrder))) {
+          fixed.sort((a, b) => {
+            const ao = a.sortOrder != null && Number.isFinite(a.sortOrder) ? a.sortOrder : 9999;
+            const bo = b.sortOrder != null && Number.isFinite(b.sortOrder) ? b.sortOrder : 9999;
+            return ao - bo;
+          });
+        }
 
         // Extra rows (rows not in main_components)
         existingRows.forEach((r) => {
@@ -376,6 +470,9 @@ const CostingTable = ({
               unitCost,
               qty: r.qty || 1,
               remark: r.remark || "",
+              includeInSummary: r.include_in_summary !== false,
+              sortOrder:
+                r.sort_order != null && r.sort_order !== "" ? Number(r.sort_order) : null,
               original_unit_cost: r.original_unit_cost,
               original_weight: r.original_weight
             });
@@ -427,6 +524,8 @@ const CostingTable = ({
         unitCost: 0,
         qty: 1,
         remark: "",
+        includeInSummary: true,
+        sortOrder: null,
       },
     ]);
   };
@@ -434,6 +533,17 @@ const CostingTable = ({
   const removeCostingRowAt = (index) => {
     const total = fixedRows.length + extraRows.length;
     if (index < 0 || index >= total) return;
+
+    const reindexExpanded = () => {
+      setExpandedSubRows((prev) => {
+        const next = new Set();
+        prev.forEach((i) => {
+          if (i < index) next.add(i);
+          else if (i > index) next.add(i - 1);
+        });
+        return next;
+      });
+    };
 
     if (index < fixedRows.length) {
       const comp = fixedRows[index]?.component;
@@ -451,12 +561,14 @@ const CostingTable = ({
         saveOmittedMainComponents(Number(tenderId), list);
       }
       setFixedRows((prev) => prev.filter((_, i) => i !== index));
+      reindexExpanded();
       return;
     }
 
     const extraIndex = index - fixedRows.length;
     if (!window.confirm(`Remove extra line ${index + 1}?`)) return;
     setExtraRows((prev) => prev.filter((_, i) => i !== extraIndex));
+    reindexExpanded();
   };
 
   const handleChange = (rows, setRows, index, field, value) => {
@@ -551,12 +663,12 @@ const CostingTable = ({
 
   // Exclude chassis rows for total calculation
   const grandTotal = allRows
-    .filter(row => row.component && !row.component.toLowerCase().includes("chassis"))
+    .filter((row) => row.component && !row.component.toLowerCase().includes("chassis"))
     .reduce((sum, row) => sum + calculateTotal(row), 0);
 
   // Calculate chassis total
   const chassisTotal = allRows
-    .filter(row => row.component && row.component.toLowerCase().includes('chassis'))
+    .filter((row) => row.component && row.component.toLowerCase().includes("chassis"))
     .reduce((sum, row) => sum + calculateTotal(row), 0);
 
   // Calculate accessories total - use prop if provided, otherwise fetch from DB
@@ -662,7 +774,7 @@ const CostingTable = ({
 
     const rowsToInsert = allToSave
       .filter((row) => !isRetiredFireTenderMainComponentLabel(row.component))
-      .map((row) => {
+      .map((row, orderIndex) => {
       const labour = parseNumber(row.labour);
       const unitCost = parseNumber(row.unitCost);
       const weight = parseNumber(row.weight);
@@ -700,6 +812,8 @@ const CostingTable = ({
         qty,
         remark: row.remark || null,
         total,
+        include_in_summary: row.includeInSummary !== false,
+        sort_order: orderIndex,
         user_id: userId,
         original_unit_cost: unitCost,
         original_weight: weight,
@@ -707,7 +821,13 @@ const CostingTable = ({
       };
     });
 
-    const { error } = await supabase.from("costing_rows").insert(rowsToInsert).select();
+    let { error } = await supabase.from("costing_rows").insert(rowsToInsert).select();
+
+    // Graceful fallback if migration for include_in_summary / sort_order is not applied yet
+    if (error && /include_in_summary|sort_order/i.test(error.message || "")) {
+      const legacyRows = rowsToInsert.map(({ include_in_summary, sort_order, ...rest }) => rest);
+      ({ error } = await supabase.from("costing_rows").insert(legacyRows).select());
+    }
 
     if (error) {
       console.error("Insert error:", error);
@@ -766,8 +886,21 @@ const CostingTable = ({
           unitCost: rowFromDB?.unit_cost || 0,
           qty: rowFromDB?.qty || 1,
           remark: rowFromDB?.remark || "",
+          includeInSummary: rowFromDB?.include_in_summary !== false,
+          sortOrder:
+            rowFromDB?.sort_order != null && rowFromDB?.sort_order !== ""
+              ? Number(rowFromDB.sort_order)
+              : null,
         });
       });
+
+      if (fixed.some((r) => r.sortOrder != null && Number.isFinite(r.sortOrder))) {
+        fixed.sort((a, b) => {
+          const ao = a.sortOrder != null && Number.isFinite(a.sortOrder) ? a.sortOrder : 9999;
+          const bo = b.sortOrder != null && Number.isFinite(b.sortOrder) ? b.sortOrder : 9999;
+          return ao - bo;
+        });
+      }
 
       refreshedRows.forEach((r) => {
         if (omittedMain.has(r.main_component)) return;
@@ -785,6 +918,9 @@ const CostingTable = ({
             unitCost: r.unit_cost || 0,
             qty: r.qty || 1,
             remark: r.remark || "",
+            includeInSummary: r.include_in_summary !== false,
+            sortOrder:
+              r.sort_order != null && r.sort_order !== "" ? Number(r.sort_order) : null,
           });
         }
       });
@@ -828,31 +964,51 @@ const CostingTable = ({
   }, [fixedRows, extraRows, tenderId]);
 
   const lockedSubClass =
-    "flex min-h-[1.75rem] w-full items-center justify-center rounded border border-gray-200 bg-gray-100 px-1 text-xs text-gray-400 select-none";
+    "flex min-h-[1.75rem] w-full items-center justify-center rounded border border-slate-200 bg-slate-100 px-1 text-[11px] text-slate-400 select-none";
 
-  const renderSubColumn = (level, row, index, isFixed) => {
+  const renderSubColumn = (level, row, index, isFixed, { labeled = false } = {}) => {
+    const field = `sub${level}`;
+    const label = `Sub Category ${level}`;
+    let control;
+
     if (!isFixed) {
-      return <span className={lockedSubClass} title="Use Manual Sub Category">—</span>;
+      control = <span className={lockedSubClass} title="Use Manual Sub / Make / Brand">—</span>;
+    } else {
+      const options = getSubOptions(componentTree, row.component, level, row);
+      if (options.length > 0) {
+        control = (
+          <select
+            value={row[field]}
+            onChange={(e) => handleChange(fixedRows, setFixedRows, index, field, e.target.value)}
+            className="w-full max-w-full rounded border border-slate-300 bg-white px-1.5 py-1 text-[11px] text-slate-800"
+            aria-label={label}
+          >
+            <option value="">-- Select --</option>
+            {options.map((sub) => (
+              <option key={sub} value={sub}>
+                {sub}
+              </option>
+            ))}
+          </select>
+        );
+      } else {
+        control = <span className={lockedSubClass} title="Use Manual Sub / Make / Brand">—</span>;
+      }
     }
-    const options = getSubOptions(componentTree, row.component, level, row);
-    if (options.length > 0) {
-      const field = `sub${level}`;
-      return (
-        <select
-          value={row[field]}
-          onChange={(e) => handleChange(fixedRows, setFixedRows, index, field, e.target.value)}
-          className="w-full rounded border p-1"
-        >
-          <option value="">-- Select --</option>
-          {options.map((sub) => (
-            <option key={sub} value={sub}>
-              {sub}
-            </option>
-          ))}
-        </select>
-      );
-    }
-    return <span className={lockedSubClass} title="Use Manual Sub Category">—</span>;
+
+    if (!labeled) return control;
+
+    return (
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+        {control}
+        {row[field] ? (
+          <span className="truncate text-[11px] text-slate-700" title={row[field]}>
+            Selected: {row[field]}
+          </span>
+        ) : null}
+      </div>
+    );
   };
 
   const handleExportExcel = async (netTotalRows, accessoriesRows, mocRows) => {
@@ -878,36 +1034,46 @@ const CostingTable = ({
     }
   };
 
-  const costingHeaderSticky =
-    "sticky top-0 z-20 border border-red-100 bg-gradient-to-r from-red-50 to-amber-50 px-2 py-1 border-b border-border";
-  const costingFreezeSrHeader = `${costingHeaderSticky} left-0 z-30 min-w-[3rem] w-12`;
-  const costingFreezeMainHeader = `${costingHeaderSticky} left-12 z-30 min-w-[11rem] w-44 erp-freeze-pane-edge`;
-  const costingFreezeSrBody = "sticky left-0 z-10 border bg-white px-2 py-1 text-center erp-freeze-pane-frozen";
-  const costingFreezeMainBody =
-    "sticky left-12 z-10 border bg-white px-2 py-1 erp-freeze-pane-frozen erp-freeze-pane-edge";
+  const th =
+    "sticky top-0 z-20 border border-red-100 bg-gradient-to-r from-red-50 to-amber-50 px-1.5 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-700";
+  const td = "border border-slate-200 px-1.5 py-1 align-middle text-[11px] text-slate-800";
+  const inputCompact =
+    "w-full min-w-0 rounded border border-slate-300 bg-white px-1 py-0.5 text-[11px] text-slate-800";
 
   return (
     <div className="space-y-4">
-      <div className="bg-white p-4 sm:p-6 shadow rounded-lg w-full">
-        <div className="erp-freeze-pane-scroll max-h-[calc(100dvh-16rem)] overflow-auto">
-        <table className="erp-table-exempt border-separate border-spacing-0 border text-xs sm:text-sm min-w-full">
+      <div className="w-full rounded-lg bg-white p-3 shadow sm:p-4">
+        <p className="mb-2 text-[11px] text-slate-500">
+          Drag main components by the handle to reorder (formulas unchanged). Use Cost Components checkboxes below to control what appears in summary and export.
+        </p>
+        <div className="max-h-[calc(100dvh-16rem)] overflow-x-hidden overflow-y-auto">
+        <table className="erp-table-exempt w-full table-fixed border-collapse text-[11px]">
+          <colgroup>
+            <col style={{ width: "3.5%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "16%" }} />
+            <col style={{ width: "11%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "6%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "11.5%" }} />
+            <col style={{ width: "6%" }} />
+          </colgroup>
           <thead>
             <tr>
-              <th className={costingFreezeSrHeader}>Sr. No.</th>
-              <th className={costingFreezeMainHeader}>Main Cost Component</th>
-              <th className={costingHeaderSticky}>Sub Category 1</th>
-              <th className={costingHeaderSticky}>Sub Category 2</th>
-              <th className={costingHeaderSticky}>Sub Category 3</th>
-              <th className={costingHeaderSticky}>Sub Category 4</th>
-              <th className={costingHeaderSticky}>Sub Category 5</th>
-              <th className={costingHeaderSticky}>Manual Sub / Make / Brand</th>
-              <th className={costingHeaderSticky}>Weight / KG</th>
-              <th className={costingHeaderSticky}>Labour Cost</th>
-              <th className={costingHeaderSticky}>Unit Cost/Price of metal</th>
-              <th className={costingHeaderSticky}>Quantity</th>
-              <th className={costingHeaderSticky}>Total Price</th>
-              <th className={costingHeaderSticky}>Remark</th>
-              <th className={costingHeaderSticky}>Action</th>
+              <th className={`${th} text-center`}>Sr.</th>
+              <th className={th}>Main Cost Component</th>
+              <th className={th}>Sub Category</th>
+              <th className={th}>Manual Sub / Make / Brand</th>
+              <th className={th}>Weight (KG)</th>
+              <th className={th}>Labour Cost</th>
+              <th className={th}>Unit Cost / Price of Metal</th>
+              <th className={th}>Qty</th>
+              <th className={th}>Total Price</th>
+              <th className={`${th} w-[12rem] min-w-[10rem] max-w-[14rem]`}>Remark</th>
+              <th className={`${th} text-center`}>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -921,42 +1087,116 @@ const CostingTable = ({
                   : fillStatus === "incomplete"
                     ? "bg-red-100"
                     : "bg-white";
+              const subSummary = getSubCategorySummary(row);
+              const isSubExpanded = expandedSubRows.has(index);
+              const hasAnySubOptions =
+                isFixedRow &&
+                [1, 2, 3, 4, 5].some(
+                  (level) => getSubOptions(componentTree, row.component, level, row).length > 0
+                );
 
               return (
-                <tr key={index} className="bg-white">
-                  <td className={costingFreezeSrBody}>{index + 1}</td>
+                <React.Fragment key={index}>
+                <tr
+                  className={`bg-white hover:bg-slate-50/80 ${dragFromIndex === index ? "opacity-60" : ""}`}
+                  draggable={isFixedRow}
+                  onDragStart={(e) => {
+                    if (!isFixedRow) return;
+                    setDragFromIndex(index);
+                    e.dataTransfer.effectAllowed = "move";
+                    try {
+                      e.dataTransfer.setData("text/plain", String(index));
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                  onDragOver={(e) => {
+                    if (!isFixedRow || dragFromIndex == null) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (!isFixedRow) return;
+                    const from = dragFromIndex;
+                    setDragFromIndex(null);
+                    reorderFixedRows(from, index);
+                  }}
+                  onDragEnd={() => setDragFromIndex(null)}
+                >
+                  <td className={`${td} text-center tabular-nums text-slate-500`}>{index + 1}</td>
 
-                  {/* Main Component */}
-                  <td className={costingFreezeMainBody}>
-                    {isFixedRow ? (
-                      <span className="font-semibold">{displayAliases[row.component] || row.component}</span>
-                    ) : (
-                      <input
-                        type="text"
-                        value={row.component}
-                        onChange={(e) =>
-                          handleChange(
-                            extraRows,
-                            setExtraRows,
-                            index - fixedRows.length,
-                            "component",
-                            e.target.value
-                          )
-                        }
-                        className="w-full p-1 border rounded"
-                      />
-                    )}
+                  {/* Main Component (+ drag handle for fixed/main components) */}
+                  <td className={`${td} font-medium`}>
+                    <div className="flex min-w-0 items-start gap-1">
+                      {isFixedRow ? (
+                        <span
+                          className="mt-0.5 shrink-0 cursor-grab text-slate-400 active:cursor-grabbing"
+                          title="Drag to reorder"
+                          aria-hidden
+                        >
+                          <FaBars className="h-3 w-3" />
+                        </span>
+                      ) : null}
+                      <div className="min-w-0 flex-1">
+                        {isFixedRow ? (
+                          <span className="block break-words font-semibold leading-snug text-slate-900" title={displayAliases[row.component] || row.component}>
+                            {displayAliases[row.component] || row.component}
+                          </span>
+                        ) : (
+                          <input
+                            type="text"
+                            value={row.component}
+                            onChange={(e) =>
+                              handleChange(
+                                extraRows,
+                                setExtraRows,
+                                index - fixedRows.length,
+                                "component",
+                                e.target.value
+                              )
+                            }
+                            className={inputCompact}
+                          />
+                        )}
+                      </div>
+                    </div>
                   </td>
 
-                  <td className="border bg-white px-2 py-1">{renderSubColumn(1, row, index, isFixedRow)}</td>
-                  <td className="border bg-white px-2 py-1">{renderSubColumn(2, row, index, isFixedRow)}</td>
-                  <td className="border bg-white px-2 py-1">{renderSubColumn(3, row, index, isFixedRow)}</td>
-                  <td className="border bg-white px-2 py-1">{renderSubColumn(4, row, index, isFixedRow)}</td>
-                  <td className="border bg-white px-2 py-1">{renderSubColumn(5, row, index, isFixedRow)}</td>
-
+                  {/* Single Sub Category column — summary + expand */}
+                  <td className={`${td} bg-white`}>
+                    <div className="flex min-w-0 items-start gap-1">
+                      <div className="min-w-0 flex-1">
+                        {subSummary ? (
+                          <p className="line-clamp-2 break-words leading-snug text-slate-800" title={subSummary}>
+                            {subSummary}
+                          </p>
+                        ) : (
+                          <p className="text-slate-400">
+                            {hasAnySubOptions ? "Select subcategory" : "Use manual sub"}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleSubExpand(index)}
+                        className={`inline-flex shrink-0 items-center gap-0.5 rounded border px-1.5 py-0.5 text-[10px] font-semibold transition-colors ${
+                          isSubExpanded
+                            ? "border-red-200 bg-red-50 text-red-700"
+                            : "border-slate-200 bg-white text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                        }`}
+                        title={isSubExpanded ? "Collapse subcategories" : "Edit subcategories"}
+                        aria-expanded={isSubExpanded}
+                        aria-label={isSubExpanded ? "Collapse subcategories" : "Edit subcategories"}
+                      >
+                        {isSubExpanded ? <FaChevronUp className="h-2.5 w-2.5" /> : <FaChevronDown className="h-2.5 w-2.5" />}
+                        <span>Edit</span>
+                      </button>
+                    </div>
+                  </td>
 
                   {/* Manual Sub Category — label driven by catalog component name */}
-                  <td className="border bg-white px-2 py-1">
+                  <td className={`${td} bg-white`}>
                     <input
                       type="text"
                       value={row.manualSub}
@@ -975,7 +1215,7 @@ const CostingTable = ({
                           setExtraRows(updated);
                         }
                       }}
-                      className="w-full p-1 border rounded"
+                      className={inputCompact}
                     />
                   </td>
 
@@ -983,11 +1223,11 @@ const CostingTable = ({
                     // If Metacone row and this is quantity field — show computed read-only qty
                     if (field === "qty" && metaconeQty !== null) {
                       return (
-                        <td key={field} className={`border px-2 py-1 ${fillHighlightClass}`}>
+                        <td key={field} className={`${td} ${fillHighlightClass}`}>
                           <NumericInput
                             value={isMetaconeMounting(row.component) ? computeMetaconeQty(allRows) : row.qty}
                             readOnly={isMetaconeMounting(row.component)}
-                            className="w-full p-1 border rounded bg-gray-100"
+                            className={`${inputCompact} bg-gray-100`}
                           />
                         </td>
                       );
@@ -1031,7 +1271,7 @@ const CostingTable = ({
                     return (
                         <td
                           key={field}
-                          className={`border px-2 py-1 relative ${highlightField ? fillHighlightClass : "bg-white"}`}
+                          className={`${td} relative ${highlightField ? fillHighlightClass : "bg-white"}`}
                         >
                         <div className="relative">
                           <NumericInput
@@ -1059,7 +1299,7 @@ const CostingTable = ({
                                 setExtraRows(updated);
                               }
                             }}
-                            className={`w-full p-1 border rounded ${
+                            className={`${inputCompact} ${
                               !fieldEditable
                                 ? "bg-gray-100 text-gray-500"
                                 : hasPriceDrift
@@ -1093,18 +1333,17 @@ const CostingTable = ({
                   })}
 
                   {/* Total */}
-                  <td className={`border px-2 py-1 text-right relative ${fillHighlightClass}`}>
-                    ₹ {formatCurrency(calculateTotal(row))}
+                  <td className={`${td} relative text-right font-semibold tabular-nums ${fillHighlightClass}`}>
+                    <span className="whitespace-nowrap">₹ {formatCurrency(calculateTotal(row))}</span>
                     {checkTotalDrift(row) && (
                       <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" title="Total needs recalculation due to price/weight changes in Price Master"></div>
                     )}
                   </td>
 
                   {/* Remark */}
-                  <td className="border bg-white px-2 py-1">
-                    <input
-                      type="text"
-                      value={row.remark}
+                  <td className={`${td} bg-white w-[12rem] min-w-[10rem] max-w-[14rem] overflow-hidden align-top`}>
+                    <AutoGrowRemark
+                      value={row.remark || ""}
                       onChange={(e) => {
                         const val = e.target.value;
                         if (index < fixedRows.length) {
@@ -1118,12 +1357,12 @@ const CostingTable = ({
                           setExtraRows(updated);
                         }
                       }}
-                      className="w-full p-1 border rounded"
+                      className={inputCompact}
                     />
                   </td>
 
                   {/* Action: delete any line (fixed lines stay omitted for this tender in this browser) */}
-                  <td className="border bg-white px-2 text-center">
+                  <td className={`${td} bg-white text-center`}>
                     <button
                       type="button"
                       onClick={() => removeCostingRowAt(index)}
@@ -1135,6 +1374,46 @@ const CostingTable = ({
                     </button>
                   </td>
                 </tr>
+
+                {isSubExpanded ? (
+                  <tr className="bg-slate-50">
+                    <td colSpan={COSTING_COL_COUNT} className="border border-slate-200 px-3 py-2.5">
+                      <div className="mx-auto max-w-3xl rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="text-[11px] font-semibold text-slate-800">
+                            Subcategories — {displayAliases[row.component] || row.component || "Line"}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => toggleSubExpand(index)}
+                            className="text-[10px] font-medium text-slate-500 hover:text-slate-800"
+                          >
+                            Collapse
+                          </button>
+                        </div>
+                        <div className="flex max-w-xl flex-col gap-2.5">
+                          {[1, 2, 3, 4, 5].map((level) => (
+                            <div key={level} className="min-w-0">
+                              {renderSubColumn(level, row, index, isFixedRow, { labeled: true })}
+                            </div>
+                          ))}
+                        </div>
+                        {!isFixedRow ? (
+                          <p className="mt-2 text-[11px] text-slate-500">
+                            Extra lines use Manual Sub / Make / Brand. Catalog subcategory dropdowns apply to fixed components.
+                          </p>
+                        ) : null}
+                        {subSummary ? (
+                          <p className="mt-2 border-t border-slate-100 pt-2 text-[11px] text-slate-600">
+                            <span className="font-semibold text-slate-700">Selected path: </span>
+                            {subSummary}
+                          </p>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+                </React.Fragment>
               );
             })}
           </tbody>
@@ -1177,14 +1456,14 @@ const CostingTable = ({
           to="/app/fire-tender/costing-hub/costing"
           className="px-5 py-2.5 bg-gray-600 text-white rounded-lg shadow hover:bg-gray-700 transition text-sm sm:text-base"
         >
-          ⬅ Back to Costing List
+          Back to Costing List
         </Link>
 
         <button
           onClick={saveTender}
           className="px-5 py-2.5 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 transition text-sm sm:text-base"
         >
-          💾 Save Costing Tender
+          Save Costing Tender
         </button>
 
       </div>
