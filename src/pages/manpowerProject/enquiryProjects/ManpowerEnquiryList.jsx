@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../contexts/AuthContext";
 import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from "../../../config/roles";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
+import { confirmDialog } from "../../../lib/dialog";
 
 const ITEMS_PER_PAGE = 5;
 
@@ -71,7 +72,7 @@ const ManpowerEnquiryList = () => {
   };
 
   const handleDelete = async (rowId) => {
-    if (!confirm("Delete this enquiry?")) return;
+    if (!(await confirmDialog({ title: "Delete enquiry", message: "Delete this enquiry?", confirmLabel: "Delete", tone: "danger" }))) return;
     await supabase.from("manpower_enquiries").delete().eq("id", rowId);
     fetchEnquiries();
   };

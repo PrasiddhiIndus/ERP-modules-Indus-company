@@ -36,6 +36,7 @@ import {
 } from '../../../constants/poBasis';
 
 import { toast } from "../../../lib/toast";
+import { confirmDialog, promptDialog } from "../../../lib/dialog";
 
 /** Client Identity sits on a 2-column grid. Spans must not exceed 2 or the row collapses and fields overlap. */
 const PO_FIELD_LABEL = 'block text-sm font-medium text-gray-700 mb-1';
@@ -422,13 +423,13 @@ const POEntry = ({
     setGstTypeError(msg);
   };
 
-  const requestSupplementaryBill = (po) => {
+  const requestSupplementaryBill = async (po) => {
     if (!po) return;
     if (!isAfterContractEnd(po.endDate || po.end_date)) {
       toast.success('Post-contract billing can be requested only after the contract end date.');
       return;
     }
-    const reason = window.prompt('Reason for post-contract billing (optional):', po.supplementaryReason || '') ?? '';
+    const reason = await promptDialog({ title: "Request post-contract billing", label: "Reason for post-contract billing (optional):", defaultValue: po.supplementaryReason || '', confirmLabel: "Submit request" }) ?? '';
     const nowIso = new Date().toISOString();
     setCommercialPOs((prev) =>
       prev.map((p) =>
@@ -1144,7 +1145,7 @@ const POEntry = ({
     }
   };
 
-  const deletePO = (id) => { if (window.confirm('Delete this PO? Billing may be affected.')) setCommercialPOs((prev) => prev.filter((p) => p.id !== id)); };
+  const deletePO = async (id) => { if (await confirmDialog({ title: "Delete PO", message: 'Delete this PO? Billing may be affected.', confirmLabel: "Delete", tone: "danger" })) setCommercialPOs((prev) => prev.filter((p) => p.id !== id)); };
   const poForHistory = viewHistoryPoId ? commercialPOs.find((p) => p.id === viewHistoryPoId) : null;
 
   return (

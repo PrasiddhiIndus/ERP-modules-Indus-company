@@ -21,6 +21,7 @@ import {
   workingCostSheetLabel,
 } from './utils/workingCostSheets';
 import WorkingCostSheetFilter from './components/WorkingCostSheetFilter';
+import { confirmDialog } from "../../lib/dialog";
 
 const DOCUMENTS_BUCKET = 'marketing-documents';
 const ENQUIRY_DOCUMENTS_TABLE = 'marketing_enquiry_documents';
@@ -677,7 +678,7 @@ const EnquiryMaster = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this enquiry?')) return;
+    if (!(await confirmDialog({ title: "Delete enquiry", message: 'Are you sure you want to delete this enquiry?', confirmLabel: "Delete", tone: "danger" }))) return;
 
     try {
       const { error } = await supabase

@@ -6,6 +6,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import PageLoader from "./components/PageLoader";
 import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import AppToaster from "./components/AppToaster";
+import AppDialogHost from "./components/AppDialogHost";
 import { AuditConsoleProvider } from "./contexts/AuditConsoleContext";
 import { AppAccessConfigProvider } from "./contexts/AppAccessConfigContext";
 import SalaryAdminGuard from "./pages/adminOperations/salaryAdmin/SalaryAdminGuard";
@@ -371,6 +372,7 @@ function App() {
           >
             <RouteErrorBoundary>
               <AppToaster />
+              <AppDialogHost />
               <Suspense fallback={<PageLoader fullScreen />}>
                 <Routes>
           {/* Public */}

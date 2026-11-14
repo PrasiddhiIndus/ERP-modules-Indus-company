@@ -15,6 +15,7 @@ import {
   parseEnquirySecondaryEmails,
 } from './utils/maintenanceQuotationUtils';
 import { toast } from '../../lib/toast';
+import { confirmDialog } from "../../lib/dialog";
 
 const DOCUMENTS_BUCKET = 'maintenance-documents';
 const ENQUIRY_DOCUMENTS_TABLE = 'maintenance_enquiry_documents';
@@ -591,7 +592,7 @@ const EnquiryMaster = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this enquiry?')) return;
+    if (!(await confirmDialog({ title: "Delete enquiry", message: 'Are you sure you want to delete this enquiry?', confirmLabel: "Delete", tone: "danger" }))) return;
 
     try {
       const { error } = await supabase

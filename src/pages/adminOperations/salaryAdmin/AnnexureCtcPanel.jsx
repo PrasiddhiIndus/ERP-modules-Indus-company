@@ -78,6 +78,7 @@ import {
   resolveEffectiveMonthRemarks,
   upsertEmployeeMonthRemarks,
 } from "./salaryMonthRemarksDb";
+import { confirmDialog } from "../../../lib/dialog";
 
 const COMPONENT_LABELS = {
   basic: "Basic",
@@ -927,9 +928,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     if (overlap) return toast.error("Dates overlap", overlap.message);
 
     if (backdatedMonth) {
-      const ok = window.confirm(
-        `Salary for ${backdatedMonth} is already processed. This revision is back-dated; the difference is not paid automatically and must be adjusted in Salary Processing. Continue?`
-      );
+      const ok = await confirmDialog({ title: "Back-dated revision", message: `Salary for ${backdatedMonth} is already processed. This revision is back-dated; the difference is not paid automatically and must be adjusted in Salary Processing. Continue?`, confirmLabel: "Continue" });
       if (!ok) return;
     }
 
@@ -1043,9 +1042,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
       .map((d) => d.slice(0, 7))
       .find((k) => processedMonths.has(k));
     if (processed) {
-      const ok = window.confirm(
-        `Salary for ${processed} is already processed. Changing the W.E.F. date does not change processed salary; any difference must be adjusted in Salary Processing. Continue?`
-      );
+      const ok = await confirmDialog({ title: "Salary already processed", message: `Salary for ${processed} is already processed. Changing the W.E.F. date does not change processed salary; any difference must be adjusted in Salary Processing. Continue?`, confirmLabel: "Continue" });
       if (!ok) return;
     }
     setWefSaving(true);
@@ -2127,7 +2124,7 @@ function ScenarioMatrix({ open, onClose, ruleVersions, wef, skill, gross, ctc, r
     };
     const single = (scheme, status) => () =>
       calculateCtc(rulesFor(scheme), { skill, status, monthlyGross: gross, monthlyCtc: ctc });
-    const confirm = (scheme) => () =>
+    const confirmScenario = (scheme) => () =>
       calculateConfirmation({
         rulesBefore: rulesFor(scheme),
         rulesAfter: rulesFor(scheme),
@@ -2141,8 +2138,8 @@ function ScenarioMatrix({ open, onClose, ruleVersions, wef, skill, gross, ctc, r
       run("Confirmed – New", single(SCHEME_NEW, STATUS_CONFIRMED)),
       run("Probation – Old", single(SCHEME_OLD, STATUS_PROBATION)),
       run("Probation – New (incl. New Joiner)", single(SCHEME_NEW, STATUS_PROBATION)),
-      run("Probation → Confirmed – Old", confirm(SCHEME_OLD)),
-      run("Probation → Confirmed – New", confirm(SCHEME_NEW)),
+      run("Probation → Confirmed – Old", confirmScenario(SCHEME_OLD)),
+      run("Probation → Confirmed – New", confirmScenario(SCHEME_NEW)),
     ];
   }, [open, ruleVersions, wef, skill, gross, ctc, retain]);
 

@@ -27,6 +27,7 @@ import {
   ShellBanner,
   inputClass,
 } from "./deductions/deductionsUi";
+import { confirmDialog } from "../../../lib/dialog";
 
 function coffStatusSeverity(label) {
   if (label === "Available") return "info";
@@ -261,11 +262,9 @@ export default function EmployeeLeavesTab({ employee }) {
 
   const runRollover = async () => {
     if (!empCode) return;
-    const ok = window.confirm(
-      `Run year-end PL/SL rollover for ${empCode} for ${year}?\n\n` +
+    const ok = await confirmDialog({ title: "Run year-end rollover", message: `Run year-end PL/SL rollover for ${empCode} for ${year}?\n\n` +
         `This updates carried / expired / encashed for ${year} and seeds openings for ${year + 1} from the carry amounts.\n` +
-        `Same rules as Leave Management (PL max ${rules.pl_carry_forward_max}, SL max ${rules.sl_carry_forward_max}).`
-    );
+        `Same rules as Leave Management (PL max ${rules.pl_carry_forward_max}, SL max ${rules.sl_carry_forward_max}).`, confirmLabel: "Run rollover" });
     if (!ok) return;
     try {
       setRolling(true);

@@ -9,6 +9,7 @@ import FormDateInput from "../../components/FormDateInput";
 
 
 import { toast } from "../../lib/toast";
+import { confirmDialog } from "../../lib/dialog";
 const PurchaseOrders = () => {
   const [contracts, setContracts] = useState([]);
   const [quotations, setQuotations] = useState([]);
@@ -243,7 +244,7 @@ const PurchaseOrders = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this contract?')) return;
+    if (!(await confirmDialog({ title: "Delete contract", message: 'Are you sure you want to delete this contract?', confirmLabel: "Delete", tone: "danger" }))) return;
 
     try {
       const { error } = await supabase

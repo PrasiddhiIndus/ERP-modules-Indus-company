@@ -7,6 +7,7 @@ import ManpowerNavbarRm from "./ManpowerNavbarRm";
 import ManpowerEnquiryFormPanelRm from "./components/ManpowerEnquiryFormPanelRm";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import { deleteRmEnquiry, listRmEnquiries, rmEnquiriesTable } from "../rmEnquiryApi";
+import { confirmDialog } from "../../../lib/dialog";
 
 const RM_MANPOWER_BASE = "/app/commercial/rm-mm-amc-iev/manpower-management";
 
@@ -206,7 +207,7 @@ const ManpowerManagementRm = () => {
   };
 
   const handleDelete = async (rowId) => {
-    if (!confirm("Delete this enquiry?")) return;
+    if (!(await confirmDialog({ title: "Delete enquiry", message: "Delete this enquiry?", confirmLabel: "Delete", tone: "danger" }))) return;
     try {
       await deleteRmEnquiry(rowId);
     } catch (error) {

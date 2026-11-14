@@ -55,6 +55,7 @@ import {
   isSourceItemHandEdited,
   resyncSourceItemLines,
 } from './summary/fetchFromSummary';
+import { confirmDialog } from "../../../lib/dialog";
 
 const cellInput =
   'w-full min-w-[4rem] px-1.5 py-1 border border-slate-200 rounded text-xs bg-white focus:ring-1 focus:ring-blue-400';
@@ -151,11 +152,9 @@ export default function QuotationEntry() {
     setFetchOpen(false);
   };
 
-  const handleResync = (item, childHeadId) => {
+  const handleResync = async (item, childHeadId) => {
     if (isSourceItemHandEdited(lines, item.id)) {
-      const ok = window.confirm(
-        'This line was edited after fetching — overwrite with Summary\'s current values?'
-      );
+      const ok = await confirmDialog({ title: "Overwrite edited line", message: 'This line was edited after fetching — overwrite with Summary\'s current values?', confirmLabel: "Overwrite" });
       if (!ok) return;
     }
     setLines((prev) =>

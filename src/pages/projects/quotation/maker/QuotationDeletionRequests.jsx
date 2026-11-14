@@ -3,6 +3,7 @@ import { Check, Loader2, Trash2, X } from 'lucide-react';
 import { Modal } from '../../../../components/erpUi';
 import { formatDateDdMmYyyy } from '../../../../utils/dateDisplay';
 import { decideQuotationDeletion, deletionErrorMessage } from '../quotationDeletionApi';
+import { confirmDialog } from "../../../../lib/dialog";
 
 /** L1 / admin view: pending quotation deletion requests. */
 export default function QuotationDeletionRequests({ requests, onDecided }) {
@@ -17,7 +18,12 @@ export default function QuotationDeletionRequests({ requests, onDecided }) {
     const question = approve
       ? `Delete ${label} permanently? Related quotation details are removed too.`
       : 'Reject this request? The quotation will stay.';
-    if (!window.confirm(question)) return;
+    if (!(await confirmDialog({
+        title: approve ? 'Delete quotation' : 'Reject deletion request',
+        message: question,
+        confirmLabel: approve ? 'Delete' : 'Reject',
+        tone: 'danger',
+      }))) return;
     setBusyId(req.id);
     setError('');
     try {
