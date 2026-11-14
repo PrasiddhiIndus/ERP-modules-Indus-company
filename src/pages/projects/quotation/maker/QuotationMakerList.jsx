@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { normalizeAppRole, ROLES } from '../../../../config/roles';
-import { fetchQuotations, fiscalYearFromDate } from '../../../../services/quotationApi';
+import { fetchQuotations, fiscalYearFromDate, updateQuotationMasterDetails } from '../../../../services/quotationApi';
 import { normalizeToIsoDate } from '../../../../utils/dateDisplay';
 import {
   OFFER_BUCKETS,
@@ -84,9 +84,8 @@ export default function QuotationMakerList() {
   const [sort, setSort] = useState({ key: null, dir: 'asc' });
   const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(1);
-  // Front-end only for now: edits from "Edit details" are kept on screen, not saved.
-  const [localEdits, setLocalEdits] = useState({});
   const [editing, setEditing] = useState(null);
+  const [savingDetails, setSavingDetails] = useState(false);
   const [viewingId, setViewingId] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [deletionRequests, setDeletionRequests] = useState([]);
@@ -175,10 +174,7 @@ export default function QuotationMakerList() {
     await Promise.all([load(), loadDeletionRequests()]);
   };
 
-  const merged = useMemo(
-    () => rows.map((r) => (localEdits[r.id] ? { ...r, ...localEdits[r.id] } : r)),
-    [rows, localEdits]
-  );
+  const merged = rows;
 
   const options = useMemo(() => {
     const types = new Set();
@@ -267,12 +263,23 @@ export default function QuotationMakerList() {
 
   const openMaker = (id) => navigate(`${QUOTATION_BASE}/quotation-entry?id=${id}`);
 
-  const onSaveDetails = (id, patch) => {
-    setLocalEdits((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), ...patch } }));
-    setEditing(null);
+  const onSaveDetails = async (id, patch, previousStatus) => {
+    setSavingDetails(true);
+    setError('');
+    try {
+      const saved = await updateQuotationMasterDetails(id, patch, { previousStatus });
+      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...saved } : r)));
+      setEditing(null);
+      setNotice(`Saved details for ${saved.offer_no || 'quotation'}.`);
+    } catch (err) {
+      const message = err?.message || 'Could not save quotation details.';
+      setError(message);
+      throw err instanceof Error ? err : new Error(message);
+    } finally {
+      setSavingDetails(false);
+    }
   };
 
-  const editedCount = Object.keys(localEdits).length;
   const viewingRow = viewingId ? merged.find((r) => r.id === viewingId) : null;
   const ctl =
     'h-9 w-full px-2.5 border border-slate-200 rounded-lg text-[13px] text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-400';
@@ -424,13 +431,6 @@ export default function QuotationMakerList() {
           </div>
         </div>
       </div>
-
-      {editedCount > 0 ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
-          {editedCount} row{editedCount === 1 ? '' : 's'} edited on this screen only — saving to the database is not
-          connected yet, so these changes are lost on refresh.
-        </div>
-      ) : null}
 
       {/* Table */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -588,8 +588,11 @@ export default function QuotationMakerList() {
       {editing ? (
         <EditDetailsModal
           row={editing}
-          onClose={() => setEditing(null)}
-          onSave={(patch) => onSaveDetails(editing.id, patch)}
+          saving={savingDetails}
+          onClose={() => {
+            if (!savingDetails) setEditing(null);
+          }}
+          onSave={(patch) => onSaveDetails(editing.id, patch, editing.offer_status)}
         />
       ) : null}
 
@@ -700,29 +703,36 @@ function toInputValue(field, row) {
   return String(v);
 }
 
-function EditDetailsModal({ row, onClose, onSave }) {
+function EditDetailsModal({ row, onClose, onSave, saving = false }) {
   const [form, setForm] = useState(() =>
     Object.fromEntries(DETAIL_FIELDS.map((f) => [f.key, toInputValue(f, row)]))
   );
+  const [localError, setLocalError] = useState('');
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !saving) onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, saving]);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const statusOptions = OFFER_STATUS_OPTIONS.includes(form.offer_status)
     ? OFFER_STATUS_OPTIONS
     : [form.offer_status, ...OFFER_STATUS_OPTIONS].filter(Boolean);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
+    if (saving) return;
+    setLocalError('');
     const patch = { ...form };
     patch.quoted_rate = form.quoted_rate === '' ? null : Number(form.quoted_rate);
-    onSave(patch);
+    try {
+      await onSave(patch);
+    } catch (err) {
+      setLocalError(err?.message || 'Could not save.');
+    }
   };
 
   const input =
@@ -751,7 +761,7 @@ function EditDetailsModal({ row, onClose, onSave }) {
               <label key={f.key} className={full ? 'sm:col-span-2' : ''}>
                 <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">{f.label}</span>
                 {f.type === 'status' ? (
-                  <select className={input} value={form[f.key]} onChange={set(f.key)}>
+                  <select className={input} value={form[f.key]} onChange={set(f.key)} disabled={saving}>
                     <option value="">—</option>
                     {statusOptions.map((s) => (
                       <option key={s} value={s}>
@@ -765,6 +775,7 @@ function EditDetailsModal({ row, onClose, onSave }) {
                     rows={3}
                     value={form[f.key]}
                     onChange={set(f.key)}
+                    disabled={saving}
                   />
                 ) : (
                   <input
@@ -773,24 +784,36 @@ function EditDetailsModal({ row, onClose, onSave }) {
                     step={f.type === 'money' ? '0.01' : undefined}
                     value={form[f.key]}
                     onChange={set(f.key)}
+                    disabled={saving}
                   />
                 )}
               </label>
             );
           })}
         </div>
+        {localError ? (
+          <div className="mx-4 mb-0 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[13px] text-rose-800">
+            {localError}
+          </div>
+        ) : null}
         <div className="px-4 py-2.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[11px] text-slate-500">Changes show in the table only — not saved to the database yet.</p>
+          <p className="text-[11px] text-slate-500">Changes are saved to Quotation Master in the database.</p>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="h-9 px-3 rounded-lg border border-slate-200 bg-white text-[13px] font-medium text-slate-700 hover:bg-slate-50"
+              disabled={saving}
+              className="h-9 px-3 rounded-lg border border-slate-200 bg-white text-[13px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
               Cancel
             </button>
-            <button type="submit" className="h-9 px-4 rounded-lg bg-blue-600 text-[13px] font-semibold text-white hover:bg-blue-700">
-              Apply
+            <button
+              type="submit"
+              disabled={saving}
+              className="h-9 inline-flex items-center gap-1.5 px-4 rounded-lg bg-blue-600 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>

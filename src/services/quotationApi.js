@@ -292,6 +292,7 @@ export function normalizeQuotationPayload(form) {
     last_followup_date: normalizeToIsoDate(form.last_followup_date) || null,
     enquiry_received_from: String(form.enquiry_received_from || '').trim() || null,
     remark: String(form.remark || '').trim() || null,
+    order_converted_date: normalizeToIsoDate(form.order_converted_date) || null,
     revision_no: Number(form.revision_no) || 0,
     parent_offer_id: form.parent_offer_id || null,
     linked_project_id: form.linked_project_id || null,
@@ -318,6 +319,79 @@ export async function fetchQuotations(select = '*') {
     .order('offer_date', { ascending: false });
   if (error) throw error;
   return data || [];
+}
+
+/** Master “Edit details” fields only — does not wipe maker/line totals. */
+export function normalizeQuotationMasterPatch(form = {}) {
+  const num = (v) => {
+    if (v === '' || v == null) return null;
+    const n = Number(String(v).replace(/[₹,\s]/g, ''));
+    return Number.isFinite(n) ? n : null;
+  };
+  const scope = String(form.scope || '').trim() || null;
+  const status = String(form.offer_status || '').trim() || null;
+  const convertedDate = normalizeToIsoDate(form.order_converted_date) || null;
+  return {
+    offer_no: String(form.offer_no || '').trim() || null,
+    offer_date: normalizeToIsoDate(form.offer_date) || null,
+    client_name: String(form.client_name || '').trim() || null,
+    location: String(form.location || '').trim() || null,
+    contact_person: String(form.contact_person || '').trim() || null,
+    contact_no: String(form.contact_no || '').trim() || null,
+    email_id: String(form.email_id || '').trim() || null,
+    quoted_rate: num(form.quoted_rate),
+    offer_status: status || 'Draft',
+    offer_type: String(form.offer_type || '').trim() || null,
+    offer_link: String(form.offer_link || '').trim() || null,
+    scope,
+    subject: scope,
+    last_followup_date: normalizeToIsoDate(form.last_followup_date) || null,
+    enquiry_received_from: String(form.enquiry_received_from || '').trim() || null,
+    remark: String(form.remark || '').trim() || null,
+    // Keep converted date only for converted offers (same rule as Excel import).
+    order_converted_date: status && /converted/i.test(status) ? convertedDate : null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Persist Quotation Master detail edits to projects.quotations.
+ * @param {string} id
+ * @param {object} form — Edit details form values
+ * @param {{ previousStatus?: string }} [opts]
+ */
+export async function updateQuotationMasterDetails(id, form, opts = {}) {
+  if (!id) throw new Error('Quotation id is required.');
+  const previousStatus = opts.previousStatus || form.offer_status;
+  const nextStatus = String(form.offer_status || previousStatus || 'Draft').trim() || 'Draft';
+  if (previousStatus && previousStatus !== nextStatus && !canTransitionStatus(previousStatus, nextStatus)) {
+    throw new Error(`Cannot move from "${previousStatus}" to "${nextStatus}". Follow the offer workflow.`);
+  }
+  if (
+    (nextStatus === 'Order Lost' || nextStatus === 'Client Has Hold Enquiry') &&
+    previousStatus !== nextStatus &&
+    !String(form.remark || '').trim()
+  ) {
+    throw new Error('A remark is required when marking Lost or Hold.');
+  }
+
+  const payload = normalizeQuotationMasterPatch({ ...form, offer_status: nextStatus });
+  if (previousStatus !== nextStatus) {
+    payload.status_changed_at = new Date().toISOString();
+  }
+
+  const { data, error } = await projectsTable('quotations').update(payload).eq('id', id).select('*').single();
+  if (error) {
+    // Older DBs may not have order_converted_date yet — retry without it.
+    if (/order_converted_date/i.test(error.message || '')) {
+      const { order_converted_date, ...rest } = payload;
+      const retry = await projectsTable('quotations').update(rest).eq('id', id).select('*').single();
+      if (retry.error) throw retry.error;
+      return retry.data;
+    }
+    throw error;
+  }
+  return data;
 }
 
 export async function fetchQuotationById(id) {
