@@ -784,7 +784,7 @@ export default function CompliancePayrollProcess() {
 
 function EpfFormulaKey() {
   return (
-    <div className="rounded-lg border border-amber-200 bg-[#FFF9E6] px-3 py-2.5 text-[11px] text-ink space-y-1.5">
+    <div className="rounded-lg border border-amber-200 bg-[#FFF9E6] dark:bg-warning-soft px-3 py-2.5 text-[11px] text-ink space-y-1.5">
       <p className="font-medium">Challan formulas</p>
       <p className="text-ink-secondary">
         White cells are typed: UAN, name, gross wages, EPF wages, age, NCP days, refund of advance.
@@ -807,7 +807,7 @@ function EpfFormulaKey() {
 }
 
 function formulaCellClass() {
-  return "px-2 py-1.5 text-right align-middle bg-[#FFF9E6] text-ink tabular-nums whitespace-nowrap";
+  return "px-2 py-1.5 text-right align-middle bg-[#FFF9E6] dark:bg-warning-soft text-ink tabular-nums whitespace-nowrap";
 }
 
 function formatDays(value) {
@@ -841,7 +841,7 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
   return (
     <div className="w-full overflow-x-auto rounded-lg border border-border">
       <table className="erp-table-exempt w-max min-w-full text-[12px] border-collapse">
-        <thead className="bg-[#FFF2CC] text-ink border-b border-border">
+        <thead className="bg-[#FFF2CC] dark:bg-warning-soft text-ink border-b border-border">
           <tr>
             <th className={thLeft}>UAN</th>
             <th className={thLeft}>Name</th>
@@ -979,7 +979,7 @@ function EpfReviewTable({ rows, errorIndexes, allRows, onChange }) {
           )}
         </tbody>
         {rows.length > 0 ? (
-          <tfoot className="bg-[#FFF2CC] font-semibold text-ink">
+          <tfoot className="bg-[#FFF2CC] dark:bg-warning-soft font-semibold text-ink">
             <tr>
               <td className="px-2 py-2" />
               <td className="px-2 py-2 text-left">Total</td>
@@ -1010,7 +1010,7 @@ function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
   return (
     <div className="w-full overflow-x-auto rounded-lg border border-border">
       <table className="erp-table-exempt w-max min-w-full text-[12px] border-collapse">
-        <thead className="bg-[#DDEBF7] text-ink border-b border-border">
+        <thead className="bg-[#DDEBF7] dark:bg-info-soft text-ink border-b border-border">
           <tr>
             <th className={thLeft}>IP number</th>
             <th className={thLeft}>IP name</th>
@@ -1126,7 +1126,7 @@ function EsicReviewTable({ rows, errorIndexes, allRows, onChange }) {
           )}
         </tbody>
         {rows.length > 0 ? (
-          <tfoot className="bg-[#DDEBF7] font-semibold text-ink">
+          <tfoot className="bg-[#DDEBF7] dark:bg-info-soft font-semibold text-ink">
             <tr>
               <td className="px-2 py-2 text-left" colSpan={3}>
                 Total

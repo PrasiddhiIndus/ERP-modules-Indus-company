@@ -3,10 +3,9 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { getLinkedEmployees, getLinkedSites } from "../data/linkedData";
 import { buildMockOperationsData } from "../data/mockOperationsData";
 import { getOperationsPageFromPath, operationsPath } from "../navConfig";
+import { useTheme } from "../../../contexts/ThemeContext";
 
 const OperationsContext = createContext(null);
-
-const THEME_KEY = "operations-ui-theme";
 
 export function OperationsProvider({ children }) {
   const navigate = useNavigate();
@@ -15,7 +14,8 @@ export function OperationsProvider({ children }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [theme, setThemeState] = useState(() => localStorage.getItem(THEME_KEY) || "light");
+  /* Operations follows the ERP-wide theme (single source of truth: ThemeContext). */
+  const { theme, setTheme, toggleTheme } = useTheme();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState("");
 
@@ -36,19 +36,7 @@ export function OperationsProvider({ children }) {
     load();
   }, [load]);
 
-  useEffect(() => {
-    localStorage.setItem(THEME_KEY, theme);
-  }, [theme]);
-
   const refresh = useCallback(() => load(), [load]);
-
-  const setTheme = useCallback((next) => {
-    setThemeState(next === "dark" ? "dark" : "light");
-  }, []);
-
-  const toggleTheme = useCallback(() => {
-    setThemeState((t) => (t === "dark" ? "light" : "dark"));
-  }, []);
 
   const activePageId = useMemo(
     () => getOperationsPageFromPath(location.pathname),

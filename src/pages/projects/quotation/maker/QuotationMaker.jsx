@@ -505,7 +505,7 @@ export default function QuotationMaker() {
   }
 
   return (
-    <div className="qm-page">
+    <div className="qm-page erp-light-scope">
       <div className="qm-toolbar qm-noprint">
         <div>
           <h2 className="text-xl font-bold text-slate-900 m-0">Make a Quotation</h2>

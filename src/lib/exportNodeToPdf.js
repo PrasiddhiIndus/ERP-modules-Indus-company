@@ -1,5 +1,6 @@
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import { forceLightThemeOnClone } from "./captureLightTheme";
 
 // Render a DOM node to a multi-page A4 PDF that looks EXACTLY like the node on
 // screen (what-you-see-is-what-you-get). The node is captured with html2canvas
@@ -18,6 +19,7 @@ async function nodeToCanvas(node) {
     useCORS: true,
     backgroundColor: "#ffffff",
     logging: false,
+    onclone: forceLightThemeOnClone,
     width,
     height,
     windowWidth: Math.max(width, document.documentElement.clientWidth),

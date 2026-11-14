@@ -27,7 +27,7 @@ import {
 } from './quotationConstants';
 import StatusBadge from './StatusBadge';
 import QuotationDetailDrawer from './QuotationDetailDrawer';
-import { TOKENS } from '../../../theme/tokens';
+import { UI_TOKENS } from '../../../theme/tokens';
 
 /** ₹ 1,32,21,47,106.17 style (two decimals, Indian grouping). */
 function inr(value) {
@@ -285,7 +285,7 @@ export default function QuotationDashboard() {
           <div className="mt-2 h-1.5 rounded-full bg-slate-100 overflow-hidden" aria-hidden>
             <div
               className="h-full rounded-full"
-              style={{ width: `${Math.min(summary.conversionRatio, 100)}%`, background: TOKENS.accent }}
+              style={{ width: `${Math.min(summary.conversionRatio, 100)}%`, background: UI_TOKENS.accent }}
             />
           </div>
         </StatTile>
@@ -438,35 +438,35 @@ export default function QuotationDashboard() {
               <AreaChart data={quarterly} margin={{ top: 28, right: 24, left: 4, bottom: 0 }}>
                 <defs>
                   <linearGradient id="qdOrderFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={TOKENS.accent} stopOpacity={0.28} />
-                    <stop offset="100%" stopColor={TOKENS.accent} stopOpacity={0.02} />
+                    <stop offset="0%" stopColor={UI_TOKENS.accent} stopOpacity={0.28} />
+                    <stop offset="100%" stopColor={UI_TOKENS.accent} stopOpacity={0.02} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid vertical={false} stroke={TOKENS.chartGrid} />
+                <CartesianGrid vertical={false} stroke={UI_TOKENS.chartGrid} />
                 <XAxis
                   dataKey="short"
                   tickLine={false}
-                  axisLine={{ stroke: TOKENS.chartGrid }}
-                  tick={{ fontSize: 11, fill: TOKENS.chartAxis }}
+                  axisLine={{ stroke: UI_TOKENS.chartGrid }}
+                  tick={{ fontSize: 11, fill: UI_TOKENS.chartAxis }}
                   interval={0}
                 />
                 <YAxis
                   tickLine={false}
                   axisLine={false}
-                  tick={{ fontSize: 11, fill: TOKENS.chartAxis }}
+                  tick={{ fontSize: 11, fill: UI_TOKENS.chartAxis }}
                   tickFormatter={(v) => inrCompact(v, false)}
                   width={64}
                 />
-                <Tooltip content={<QuarterTooltip />} cursor={{ stroke: TOKENS.chartAxis, strokeWidth: 1 }} />
+                <Tooltip content={<QuarterTooltip />} cursor={{ stroke: UI_TOKENS.chartAxis, strokeWidth: 1 }} />
                 <Area
                   type="linear"
                   dataKey="value"
                   name="Order Value"
-                  stroke={TOKENS.accent}
+                  stroke={UI_TOKENS.accent}
                   strokeWidth={2}
                   fill="url(#qdOrderFill)"
-                  dot={{ r: 4.5, fill: TOKENS.accent, strokeWidth: 2, style: { stroke: 'var(--surface)' } }}
-                  activeDot={{ r: 6, fill: TOKENS.accent, strokeWidth: 2, style: { stroke: 'var(--surface)' } }}
+                  dot={{ r: 4.5, fill: UI_TOKENS.accent, strokeWidth: 2, style: { stroke: 'var(--surface)' } }}
+                  activeDot={{ r: 6, fill: UI_TOKENS.accent, strokeWidth: 2, style: { stroke: 'var(--surface)' } }}
                   isAnimationActive={false}
                 >
                   <LabelList
@@ -591,7 +591,7 @@ function StatTile({ icon: Icon, iconColor, label, value, sub, accent = false, ch
       <div className="flex items-center gap-2 text-slate-500">
         <span
           className="inline-flex h-7 w-7 items-center justify-center rounded-lg qd-subtle"
-          style={iconColor ? { color: iconColor } : accent ? { color: TOKENS.accent } : undefined}
+          style={iconColor ? { color: iconColor } : accent ? { color: UI_TOKENS.accent } : undefined}
         >
           <Icon className="h-4 w-4" />
         </span>

@@ -182,7 +182,7 @@ export function OshLeaveRegister({ form, rows = [], onRows, readOnly = false }) 
               <div key={keys[0]} className="overflow-x-auto rounded-lg border border-slate-200">
                 <table className="w-max min-w-full border-collapse text-sm">
                   <thead>
-                    <tr className="bg-[#eef2f6]">
+                    <tr className="bg-[#eef2f6] dark:bg-surface-sunken">
                       <th className="border border-slate-200 px-2 py-1.5 text-left text-[12px] font-medium text-slate-500">S.No.</th>
                       {keys.map((key) => (
                         <th key={key} className="border border-slate-200 px-2 py-1.5 text-left text-[12px] font-medium text-slate-500">

@@ -22,32 +22,101 @@ import {
    signal red/green for held/processed states. Condensed grotesque for
    numerals & headings (site-signage feel), workhorse sans for body copy.
 =========================================================================== */
+/* Palette is exposed as CSS variables (see HRSM_PALETTE_CSS) so the module follows light / dark theme. */
 const C = {
-  bg: "#EEF1F0",
-  panel: "#FFFFFF",
-  panelAlt: "#F6F8F7",
-  ink: "#131C24",
-  inkSoft: "#5B6B74",
-  inkFaint: "#8B99A1",
-  border: "#DEE4E3",
-  borderStrong: "#C4CDCB",
-  navy: "#0E1B2B",
-  navySoft: "#1B3049",
-  navyLine: "#28405C",
-  amber: "#E2A020",
-  amberDeep: "#B87A11",
-  amberInk: "#221703",
-  red: "#C63B33",
-  redSoft: "#FBEAE8",
-  green: "#1D7A5F",
-  greenSoft: "#E7F4EF",
-  blue: "#2C6E8F",
-  blueSoft: "#EAF3F7",
-  violet: "#6E5A96",
-  violetSoft: "#EFEBF5",
+  bg: "var(--hrsm-bg)",
+  panel: "var(--hrsm-panel)",
+  panelAlt: "var(--hrsm-panel-alt)",
+  ink: "var(--hrsm-ink)",
+  inkSoft: "var(--hrsm-ink-soft)",
+  inkFaint: "var(--hrsm-ink-faint)",
+  border: "var(--hrsm-border)",
+  borderStrong: "var(--hrsm-border-strong)",
+  navy: "var(--hrsm-navy)",
+  navySoft: "var(--hrsm-navy-soft)",
+  navyLine: "var(--hrsm-navy-line)",
+  navyHover: "var(--hrsm-navy-hover)",
+  amber: "var(--hrsm-amber)",
+  amberDeep: "var(--hrsm-amber-deep)",
+  amberInk: "var(--hrsm-amber-ink)",
+  amberSoft: "var(--hrsm-amber-soft)",
+  amberWash: "var(--hrsm-amber-wash)",
+  red: "var(--hrsm-red)",
+  redSoft: "var(--hrsm-red-soft)",
+  redLine: "var(--hrsm-red-line)",
+  green: "var(--hrsm-green)",
+  greenSoft: "var(--hrsm-green-soft)",
+  blue: "var(--hrsm-blue)",
+  blueSoft: "var(--hrsm-blue-soft)",
+  blueLine: "var(--hrsm-blue-line)",
+  violet: "var(--hrsm-violet)",
+  violetSoft: "var(--hrsm-violet-soft)",
 };
 
+const HRSM_PALETTE_CSS = `
+.hrsm-root, .hrsm-layer {
+  --hrsm-bg: #EEF1F0;
+  --hrsm-panel: #FFFFFF;
+  --hrsm-panel-alt: #F6F8F7;
+  --hrsm-ink: #131C24;
+  --hrsm-ink-soft: #5B6B74;
+  --hrsm-ink-faint: #8B99A1;
+  --hrsm-border: #DEE4E3;
+  --hrsm-border-strong: #C4CDCB;
+  --hrsm-navy: #0E1B2B;
+  --hrsm-navy-soft: #1B3049;
+  --hrsm-navy-line: #28405C;
+  --hrsm-navy-hover: #152841;
+  --hrsm-amber: #E2A020;
+  --hrsm-amber-deep: #B87A11;
+  --hrsm-amber-ink: #221703;
+  --hrsm-amber-soft: #FBF1DE;
+  --hrsm-amber-wash: #F3EFE6;
+  --hrsm-red: #C63B33;
+  --hrsm-red-soft: #FBEAE8;
+  --hrsm-red-line: #EFC7C3;
+  --hrsm-green: #1D7A5F;
+  --hrsm-green-soft: #E7F4EF;
+  --hrsm-blue: #2C6E8F;
+  --hrsm-blue-soft: #EAF3F7;
+  --hrsm-blue-line: #BFD9E5;
+  --hrsm-violet: #6E5A96;
+  --hrsm-violet-soft: #EFEBF5;
+}
+[data-theme="dark"] .hrsm-root, [data-theme="dark"] .hrsm-layer,
+.theme-dark .hrsm-root, .theme-dark .hrsm-layer {
+  --hrsm-bg: var(--canvas);
+  --hrsm-panel: var(--surface);
+  --hrsm-panel-alt: var(--surface-raised);
+  --hrsm-ink: var(--text);
+  --hrsm-ink-soft: var(--text-secondary);
+  --hrsm-ink-faint: var(--text-muted);
+  --hrsm-border: var(--border);
+  --hrsm-border-strong: var(--border-strong);
+  --hrsm-navy: #26334a;
+  --hrsm-navy-soft: #31415c;
+  --hrsm-navy-line: #3f5273;
+  --hrsm-navy-hover: #2e3d57;
+  --hrsm-amber: #E2A020;
+  --hrsm-amber-deep: #e6b450;
+  --hrsm-amber-ink: #221703;
+  --hrsm-amber-soft: #3a3224;
+  --hrsm-amber-wash: #2f2b22;
+  --hrsm-red: #d9534a;
+  --hrsm-red-soft: #3a2a27;
+  --hrsm-red-line: #6b3f39;
+  --hrsm-green: #2f9675;
+  --hrsm-green-soft: #243028;
+  --hrsm-blue: #4590b5;
+  --hrsm-blue-soft: #22304a;
+  --hrsm-blue-line: #3a5670;
+  --hrsm-violet: #9a86c4;
+  --hrsm-violet-soft: #2c2838;
+}
+`;
+
 const FONT_STACK = `
+${HRSM_PALETTE_CSS}
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 :root{ --font-body: 'Inter', system-ui, sans-serif; --font-head: 'Barlow Condensed', system-ui, sans-serif; }
 * { box-sizing: border-box; }
@@ -332,7 +401,7 @@ function StatusBadge({ status }) {
     processed: { bg: C.greenSoft, fg: C.green, label: "Processed", Icon: CheckCircle2 },
     Processed: { bg: C.greenSoft, fg: C.green, label: "Processed", Icon: CheckCircle2 },
     "in-progress": { bg: C.blueSoft, fg: C.blue, label: "In Progress", Icon: Clock },
-    pending: { bg: "#F3EFE6", fg: C.amberDeep, label: "Not Started", Icon: Clock },
+    pending: { bg: C.amberWash, fg: C.amberDeep, label: "Not Started", Icon: Clock },
     held: { bg: C.redSoft, fg: C.red, label: "Held", Icon: PauseCircle },
     Held: { bg: C.redSoft, fg: C.red, label: "Held", Icon: PauseCircle },
     Filed: { bg: C.greenSoft, fg: C.green, label: "Filed", Icon: CheckCircle2 },
@@ -372,7 +441,7 @@ function Btn({ children, onClick, variant = "default", size = "md", icon: Icon, 
     default: { background: C.panel, color: C.ink, border: `1px solid ${C.borderStrong}` },
     primary: { background: C.amber, color: C.amberInk, border: `1px solid ${C.amberDeep}` },
     dark: { background: C.navy, color: "#fff", border: `1px solid ${C.navy}` },
-    danger: { background: C.redSoft, color: C.red, border: `1px solid #EFC7C3` },
+    danger: { background: C.redSoft, color: C.red, border: `1px solid ${C.redLine}` },
     ghost: { background: "transparent", color: C.inkSoft, border: "1px solid transparent" },
   };
   return (
@@ -489,7 +558,7 @@ function Sidebar({ nav, setNav, collapsed, setCollapsed }) {
                 fontSize: 14, fontWeight: 600, textAlign: "left",
                 borderLeft: active ? `2px solid ${C.amber}` : "2px solid transparent",
               }}
-              onMouseEnter={(e) => !active && (e.currentTarget.style.background = "#152841")}
+              onMouseEnter={(e) => !active && (e.currentTarget.style.background = C.navyHover)}
               onMouseLeave={(e) => !active && (e.currentTarget.style.background = "transparent")}
             >
               <Icon size={17} strokeWidth={2.1} />
@@ -514,7 +583,7 @@ function Sidebar({ nav, setNav, collapsed, setCollapsed }) {
 
 const SEV_STYLE = {
   danger: { bg: C.redSoft, fg: C.red, Icon: AlertTriangle },
-  warning: { bg: "#FBF1DE", fg: C.amberDeep, Icon: AlertTriangle },
+  warning: { bg: C.amberSoft, fg: C.amberDeep, Icon: AlertTriangle },
   info: { bg: C.blueSoft, fg: C.blue, Icon: Info },
 };
 
@@ -524,7 +593,7 @@ function NotificationBell({ notifications, onJump }) {
   return (
     <div style={{ position: "relative" }}>
       <button onClick={() => setOpen((o) => !o)} className="hrsm-focus"
-        style={{ position: "relative", width: 36, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+        style={{ position: "relative", width: 36, height: 36, borderRadius: 6, border: `1px solid ${C.border}`, background: C.panel, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
         <Bell size={16} color={C.ink} className={dangerCount ? "hrsm-pulse" : ""} />
         {notifications.length > 0 && (
           <span className="hrsm-num" style={{ position: "absolute", top: -5, right: -5, background: dangerCount ? C.red : C.amber, color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: 9, minWidth: 17, height: 17, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>
@@ -535,7 +604,7 @@ function NotificationBell({ notifications, onJump }) {
       {open && (
         <>
           <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setOpen(false)} />
-          <div className="hrsm-scroll" style={{ position: "absolute", right: 0, top: 44, width: 380, maxHeight: 440, overflow: "auto", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: "0 10px 30px rgba(14,27,43,0.18)", zIndex: 50 }}>
+          <div className="hrsm-scroll" style={{ position: "absolute", right: 0, top: 44, width: 380, maxHeight: 440, overflow: "auto", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: "0 10px 30px rgba(14,27,43,0.18)", zIndex: 50 }}>
             <div style={{ padding: "12px 14px", borderBottom: `1px solid ${C.border}`, fontWeight: 700, fontSize: 13.5, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Notifications
               <span style={{ fontSize: 11.5, color: C.inkFaint, fontWeight: 600 }}>{notifications.length} active</span>
@@ -575,7 +644,7 @@ const NAV_TITLES = {
 function TopBar({ nav, notifications, onJump }) {
   const [title, sub] = NAV_TITLES[nav] || ["", ""];
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 28px", background: "#fff", borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, zIndex: 30 }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 28px", background: C.panel, borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, zIndex: 30 }}>
       <div>
         <div className="hrsm-head" style={{ fontSize: 15, fontWeight: 600, color: C.ink }}>{title}</div>
         <div style={{ fontSize: 11.5, color: C.inkFaint }}>{sub}</div>
@@ -779,7 +848,7 @@ function Dashboard({ sites, month, year, setMonth, setYear, openEmployee, setNav
             return (
               <div key={s.id} onClick={() => { setProcessingSite(s.id); setNav("process"); }}
                 className="hrsm-card-hover"
-                style={{ border: `1px solid ${overdue ? "#EFC7C3" : C.border}`, borderRadius: 5, padding: 12, cursor: "pointer" }}
+                style={{ border: `1px solid ${overdue ? C.redLine : C.border}`, borderRadius: 5, padding: 12, cursor: "pointer" }}
               >
                 <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{s.name.split(",")[0]}</div>
                 <div style={{ fontSize: 11.5, color: C.inkFaint, marginBottom: 8 }}>{s.location}</div>
@@ -915,7 +984,7 @@ function AddColumnPopover({ onAdd }) {
       {open && (
         <>
           <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setOpen(false)} />
-          <div style={{ position: "absolute", top: 30, right: 0, width: 230, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, boxShadow: "0 8px 24px rgba(14,27,43,0.18)", padding: 12, zIndex: 50 }}>
+          <div style={{ position: "absolute", top: 30, right: 0, width: 230, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, boxShadow: "0 8px 24px rgba(14,27,43,0.18)", padding: 12, zIndex: 50 }}>
             <div style={{ fontSize: 11.5, fontWeight: 700, color: C.inkSoft, marginBottom: 6 }}>New column header</div>
             <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Site Allowance" autoFocus
               className="hrsm-focus" style={{ width: "100%", padding: "7px 9px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 12.5, marginBottom: 8 }} />
@@ -1292,12 +1361,12 @@ function ProcessSalary({ siteId, setSiteId, batch, sites, month, year, setMonth,
       </div>
 
       {batch && batch.length > 1 && (
-        <Panel style={{ padding: "10px 14px", marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", background: C.blueSoft, borderColor: "#BFD9E5" }}>
+        <Panel style={{ padding: "10px 14px", marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", background: C.blueSoft, borderColor: C.blueLine }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: C.blue }}>Queued for this batch run:</span>
           {batch.map((id) => {
             const s = sites.find((x) => x.id === id);
             return (
-              <button key={id} onClick={() => setSiteId(id)} style={{ fontSize: 12, padding: "3px 9px", borderRadius: 12, border: `1px solid ${id === siteId ? C.blue : "#BFD9E5"}`, background: id === siteId ? C.blue : "#fff", color: id === siteId ? "#fff" : C.blue, cursor: "pointer", fontWeight: 600 }}>
+              <button key={id} onClick={() => setSiteId(id)} style={{ fontSize: 12, padding: "3px 9px", borderRadius: 12, border: `1px solid ${id === siteId ? C.blue : C.blueLine}`, background: id === siteId ? C.blue : C.panel, color: id === siteId ? "#fff" : C.blue, cursor: "pointer", fontWeight: 600 }}>
                 {s.name.split(",")[0]}
               </button>
             );
@@ -1390,7 +1459,7 @@ function ExportColumnModal({ fields, customColumns, selected, setSelected, inclu
   const toggleAll = () => setSelected(allChecked ? [] : allKeys);
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(14,27,43,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }} onClick={onClose}>
-      <div style={{ background: "#fff", borderRadius: 8, width: 440, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 50px rgba(14,27,43,0.3)" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ background: C.panel, borderRadius: 8, width: 440, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 50px rgba(14,27,43,0.3)" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: "16px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <div className="hrsm-head" style={{ fontSize: 16, fontWeight: 600 }}>Choose columns to export</div>
@@ -1578,7 +1647,7 @@ function SalaryHistory({ sites, holds, setHolds }) {
           <span style={{ fontSize: 12.5, fontWeight: 700, color: C.inkSoft }}>Site:</span>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {sites.map((s) => (
-              <button key={s.id} onClick={() => setSiteId(s.id)} style={{ padding: "6px 12px", borderRadius: 14, border: `1px solid ${siteId === s.id ? C.navy : C.border}`, background: siteId === s.id ? C.navy : "#fff", color: siteId === s.id ? "#fff" : C.ink, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+              <button key={s.id} onClick={() => setSiteId(s.id)} style={{ padding: "6px 12px", borderRadius: 14, border: `1px solid ${siteId === s.id ? C.navy : C.border}`, background: siteId === s.id ? C.navy : C.panel, color: siteId === s.id ? "#fff" : C.ink, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
                 {s.name.split(",")[0]}
               </button>
             ))}
@@ -1788,7 +1857,7 @@ function Compliance({ sites }) {
     <div>
       <SectionLabel right={
         <select value={siteId} onChange={(e) => setSiteId(e.target.value)} className="hrsm-focus"
-          style={{ padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13, fontWeight: 600, background: "#fff" }}>
+          style={{ padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13, fontWeight: 600, background: C.panel }}>
           <option value="__all__">All sites</option>
           {sites.map((s) => <option key={s.id} value={s.id}>{s.name.split(",")[0]}</option>)}
         </select>
@@ -1908,7 +1977,7 @@ function DraggableComponentList({ components, setComponents }) {
           className="hrsm-row-drag"
           style={{
             padding: "10px 12px", marginBottom: 6,
-            background: c.enabled === false ? C.panelAlt : "#fff", border: `1px solid ${C.border}`, borderRadius: 5,
+            background: c.enabled === false ? C.panelAlt : C.panel, border: `1px solid ${C.border}`, borderRadius: 5,
             cursor: "grab",
           }}
         >
@@ -2035,11 +2104,11 @@ function SiteSetup({ sites, setSites }) {
       <p style={{ marginTop: -6, marginBottom: 16, color: C.inkSoft, fontSize: 13.5 }}>Configure component structure once, at site onboarding — reorder and enable/disable the salary line-items this site uses.</p>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-        <button onClick={() => loadSite("__new__")} style={{ padding: "8px 14px", borderRadius: 4, border: `1px solid ${siteId === "__new__" ? C.amberDeep : C.border}`, background: siteId === "__new__" ? C.amber : "#fff", color: siteId === "__new__" ? C.amberInk : C.ink, fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+        <button onClick={() => loadSite("__new__")} style={{ padding: "8px 14px", borderRadius: 4, border: `1px solid ${siteId === "__new__" ? C.amberDeep : C.border}`, background: siteId === "__new__" ? C.amber : C.panel, color: siteId === "__new__" ? C.amberInk : C.ink, fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
           <Plus size={14} /> New site
         </button>
         {sites.map((s) => (
-          <button key={s.id} onClick={() => loadSite(s.id)} style={{ padding: "8px 14px", borderRadius: 4, border: `1px solid ${siteId === s.id ? C.navy : C.border}`, background: siteId === s.id ? C.navy : "#fff", color: siteId === s.id ? "#fff" : C.ink, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+          <button key={s.id} onClick={() => loadSite(s.id)} style={{ padding: "8px 14px", borderRadius: 4, border: `1px solid ${siteId === s.id ? C.navy : C.border}`, background: siteId === s.id ? C.navy : C.panel, color: siteId === s.id ? "#fff" : C.ink, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
             {s.name.split(",")[0]}
           </button>
         ))}
