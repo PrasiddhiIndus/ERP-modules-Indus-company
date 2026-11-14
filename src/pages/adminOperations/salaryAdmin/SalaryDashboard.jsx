@@ -338,8 +338,8 @@ export default function SalaryDashboard() {
               data={analytics.byMonth}
               xKey="label"
               series={[
-                { key: "gross", name: "Gross", color: "#3b82f6" },
-                { key: "net", name: "Net", color: "#059669" },
+                { key: "gross", name: "Gross", color: "var(--chart-2)" },
+                { key: "net", name: "Net", color: "var(--chart-6)" },
               ]}
               height={200}
             />
@@ -353,7 +353,7 @@ export default function SalaryDashboard() {
             <BarCompareChart
               data={analytics.byMonth}
               xKey="label"
-              series={[{ key: "deductions", name: "Deductions", color: "#d97706" }]}
+              series={[{ key: "deductions", name: "Deductions", color: "var(--chart-3)" }]}
               height={200}
               yTickFormatter={compactInrTick}
             />

@@ -29,7 +29,7 @@ import { useCallingMasterDropdowns } from "./useCallingMasterDropdowns";
 import { loadCallingMasterRecords } from "./callingMasterStorage";
 import { useRecruitmentUi } from "./recruitmentUiContext";
 
-const CHART_COLORS = ["#0f766e", "#0369a1", "#b45309", "#be123c", "#4338ca", "#15803d", "#0e7490", "#a16207"];
+const CHART_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "var(--chart-6)", "var(--info-text)", "var(--warning-text)"];
 
 function monthKeyFromDate(value) {
   const iso = String(value || "").slice(0, 10);
@@ -454,22 +454,22 @@ export default function CallingMasterDatabasePage() {
                         <AreaChart data={monthlyTrend}>
                           <defs>
                             <linearGradient id="callsGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#0f766e" stopOpacity={0.35} />
-                              <stop offset="95%" stopColor="#0f766e" stopOpacity={0.02} />
+                              <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={0.35} />
+                              <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0.02} />
                             </linearGradient>
                             <linearGradient id="cvGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#0369a1" stopOpacity={0.3} />
-                              <stop offset="95%" stopColor="#0369a1" stopOpacity={0.02} />
+                              <stop offset="5%" stopColor="var(--chart-2)" stopOpacity={0.3} />
+                              <stop offset="95%" stopColor="var(--chart-2)" stopOpacity={0.02} />
                             </linearGradient>
                           </defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                          <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} />
-                          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} />
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                          <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--chart-axis)" }} />
+                          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "var(--chart-axis)" }} />
                           <Tooltip content={<ChartTooltip />} />
                           <Legend />
-                          <Area type="monotone" dataKey="calls" name="Calls" stroke="#0f766e" fill="url(#callsGradient)" strokeWidth={2.5} />
-                          <Area type="monotone" dataKey="cv" name="CV submitted" stroke="#0369a1" fill="url(#cvGradient)" strokeWidth={2} />
-                          <Area type="monotone" dataKey="immediate" name={ui.scope === "admin" ? "Team assigned" : "Immediate fit"} stroke="#b45309" fill="transparent" strokeWidth={2} />
+                          <Area type="monotone" dataKey="calls" name="Calls" stroke="var(--chart-1)" fill="url(#callsGradient)" strokeWidth={2.5} />
+                          <Area type="monotone" dataKey="cv" name="CV submitted" stroke="var(--chart-2)" fill="url(#cvGradient)" strokeWidth={2} />
+                          <Area type="monotone" dataKey="immediate" name={ui.scope === "admin" ? "Team assigned" : "Immediate fit"} stroke="var(--chart-3)" fill="transparent" strokeWidth={2} />
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>
@@ -483,9 +483,9 @@ export default function CallingMasterDatabasePage() {
                     <div className="h-72">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={callerBreakdown} layout="vertical" margin={{ left: 16, right: 12 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} />
-                          <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11, fill: "#64748b" }} />
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "var(--chart-axis)" }} />
+                          <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11, fill: "var(--chart-axis)" }} />
                           <Tooltip content={<ChartTooltip />} />
                           <Bar dataKey="count" name="Calls" radius={[0, 8, 8, 0]}>
                             {callerBreakdown.map((entry, index) => (
@@ -569,11 +569,11 @@ export default function CallingMasterDatabasePage() {
                     <div className="h-72">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={industryBreakdown}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                          <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#64748b" }} interval={0} angle={-20} textAnchor="end" height={60} />
-                          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} />
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                          <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--chart-axis)" }} interval={0} angle={-20} textAnchor="end" height={60} />
+                          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "var(--chart-axis)" }} />
                           <Tooltip content={<ChartTooltip />} />
-                          <Bar dataKey="count" name="Candidates" fill="#0e7490" radius={[8, 8, 0, 0]} />
+                          <Bar dataKey="count" name="Candidates" fill="var(--chart-2)" radius={[8, 8, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -587,11 +587,11 @@ export default function CallingMasterDatabasePage() {
                     <div className="h-72">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={homeStateBreakdown}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                          <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#64748b" }} interval={0} angle={-20} textAnchor="end" height={60} />
-                          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} />
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                          <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--chart-axis)" }} interval={0} angle={-20} textAnchor="end" height={60} />
+                          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "var(--chart-axis)" }} />
                           <Tooltip content={<ChartTooltip />} />
-                          <Bar dataKey="count" name="Candidates" fill="#15803d" radius={[8, 8, 0, 0]} />
+                          <Bar dataKey="count" name="Candidates" fill="var(--chart-6)" radius={[8, 8, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -606,11 +606,11 @@ export default function CallingMasterDatabasePage() {
                     <div className="h-72">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={salaryByCaller}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                          <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
-                          <YAxis tick={{ fontSize: 11, fill: "#64748b" }} />
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                          <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--chart-axis)" }} />
+                          <YAxis tick={{ fontSize: 11, fill: "var(--chart-axis)" }} />
                           <Tooltip content={<ChartTooltip />} />
-                          <Bar dataKey="avgSalary" name="Avg salary (₹)" fill="#b45309" radius={[8, 8, 0, 0]} />
+                          <Bar dataKey="avgSalary" name="Avg salary (₹)" fill="var(--chart-3)" radius={[8, 8, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>

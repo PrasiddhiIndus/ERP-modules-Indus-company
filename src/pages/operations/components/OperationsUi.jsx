@@ -68,22 +68,24 @@ export function OpsStatusBadge({ status }) {
   return <StatusChip label={formatStatus(status)} severity={sev} />;
 }
 
-export function useThemeClasses(theme) {
-  const dark = theme === "dark";
+/**
+ * Class map for Operations screens. Classes are design-token utilities, which
+ * follow the ERP light/dark theme on their own — so there is a single set and
+ * `dark` stays false (legacy `t.dark ? rawPalette : token` branches pick tokens).
+ */
+export function useThemeClasses() {
   return {
-    dark,
-    shell: dark ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-gray-900",
-    sidebar: dark ? "bg-slate-900 border-slate-700" : "bg-white border-gray-200",
-    header: dark ? "bg-slate-900 border-slate-700" : "bg-white border-gray-200",
-    card: dark ? "bg-slate-900 border-slate-700" : "bg-white border-gray-100",
-    muted: dark ? "text-slate-400" : "text-gray-500",
-    input: dark
-      ? "bg-slate-800 border-slate-600 text-slate-100 placeholder:text-slate-500"
-      : "bg-white border-gray-300 text-gray-900",
-    navActive: dark ? "bg-blue-950 text-blue-300 border-blue-600" : "bg-blue-50 text-accent border-accent",
-    navIdle: dark ? "text-slate-400 hover:bg-slate-800 hover:text-slate-200" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900",
-    tableHead: dark ? "bg-slate-800 text-slate-300" : "bg-gray-50 text-gray-600",
-    tableRow: dark ? "hover:bg-slate-800/60" : "hover:bg-blue-50/40",
+    dark: false,
+    shell: "bg-slate-50 text-gray-900",
+    sidebar: "bg-white border-gray-200",
+    header: "bg-white border-gray-200",
+    card: "bg-white border-gray-100",
+    muted: "text-gray-500",
+    input: "bg-white border-gray-300 text-gray-900",
+    navActive: "bg-blue-50 text-accent border-accent",
+    navIdle: "text-gray-600 hover:bg-gray-50 hover:text-gray-900",
+    tableHead: "bg-gray-50 text-gray-600",
+    tableRow: "hover:bg-blue-50/40",
   };
 }
 

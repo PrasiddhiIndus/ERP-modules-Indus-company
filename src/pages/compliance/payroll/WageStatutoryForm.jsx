@@ -86,7 +86,7 @@ export function WageFormStep({ form, header, rows, onHeader, onRows, readOnly = 
             <thead>
               {form.columns.some((column) => column.group) ? (
                 <tr>
-                  <th className="border border-slate-200 bg-[#eef2f6]" />
+                  <th className="border border-slate-200 bg-[#eef2f6] dark:bg-surface-sunken" />
                   {(() => {
                     const cells = [];
                     form.columns.forEach((column, index) => {
@@ -99,17 +99,17 @@ export function WageFormStep({ form, header, rows, onHeader, onRows, readOnly = 
                       <th
                         key={`${cell.index}-${cell.name || "plain"}`}
                         colSpan={cell.span}
-                        className="border border-slate-200 bg-[#eef2f6] px-2 py-1 text-center text-[11px] font-medium text-slate-500"
+                        className="border border-slate-200 bg-[#eef2f6] dark:bg-surface-sunken px-2 py-1 text-center text-[11px] font-medium text-slate-500"
                       >
                         {cell.name}
                       </th>
                     ));
                   })()}
-                  {readOnly ? null : <th className="border border-slate-200 bg-[#eef2f6]" />}
+                  {readOnly ? null : <th className="border border-slate-200 bg-[#eef2f6] dark:bg-surface-sunken" />}
                 </tr>
               ) : null}
               <tr>
-                <th className="sticky left-0 top-0 z-30 w-14 min-w-[56px] border border-slate-200 bg-[#eef2f6] px-2 py-1.5 text-left text-[12px] font-medium text-slate-500">
+                <th className="sticky left-0 top-0 z-30 w-14 min-w-[56px] border border-slate-200 bg-[#eef2f6] dark:bg-surface-sunken px-2 py-1.5 text-left text-[12px] font-medium text-slate-500">
                   S.No.
                 </th>
                 {form.columns.map((column, index) => {
@@ -118,7 +118,7 @@ export function WageFormStep({ form, header, rows, onHeader, onRows, readOnly = 
                     <th
                       key={column.key}
                       style={{ width, minWidth: width }}
-                      className="sticky top-0 z-20 overflow-hidden border border-slate-200 bg-[#eef2f6] px-2 py-1.5 text-left align-top"
+                      className="sticky top-0 z-20 overflow-hidden border border-slate-200 bg-[#eef2f6] dark:bg-surface-sunken px-2 py-1.5 text-left align-top"
                     >
                       <div className="whitespace-normal break-words text-left text-[12px] font-medium leading-4 text-slate-500">
                         {form.official ? column.label : sheetHeading(column.label).replace(/^\d+\.\s*/, "")}
@@ -127,7 +127,7 @@ export function WageFormStep({ form, header, rows, onHeader, onRows, readOnly = 
                   );
                 })}
                 {readOnly ? null : (
-                  <th className="sticky top-0 z-20 w-12 min-w-[48px] border border-slate-200 bg-[#eef2f6]" />
+                  <th className="sticky top-0 z-20 w-12 min-w-[48px] border border-slate-200 bg-[#eef2f6] dark:bg-surface-sunken" />
                 )}
               </tr>
             </thead>

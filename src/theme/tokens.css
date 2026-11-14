@@ -3,9 +3,23 @@
  * Light theme (:root) — premium indigo SaaS identity (2026 redesign).
  * Dark theme ([data-theme="dark"]) — FULLY PINNED to pre-redesign values.
  * Changing light tokens must never rely on dark inheriting from :root.
+ *
+ * Foreground vs fill: `--accent`, `--critical`, … are FILL colours (solid
+ * buttons, bars, dots). Text / icons / active borders must use the matching
+ * `--*-text` token, which is identical in light but lifted in dark so it stays
+ * readable on dark surfaces. Tailwind `text-*` / `border-*` / `ring-*`
+ * utilities are mapped onto the `-text` tokens in tailwind.config.js.
+ *
+ * `.erp-paper` re-pins the light palette for document surfaces (invoices,
+ * payslips, statutory forms, print previews) that must stay white in dark mode.
+ * `.erp-light-scope` does the same without forcing a white background, for
+ * self-styled document editors that bring their own light palette.
  */
 
-:root {
+:root,
+.erp-paper,
+.erp-light-scope {
+  color-scheme: light;
   /* ── Light canvas / surfaces ───────────────────────────────────────── */
   --canvas: #f1f3f9;
   --surface: #ffffff;
@@ -49,6 +63,44 @@
   --info-border: #a8d7e8;
   --teal: #0d9f8c;
   --teal-soft: #e0f5f1;
+
+  /* Foreground variants of fill colours (same as fill in light) */
+  --accent-text: var(--accent);
+  --accent-deep-text: var(--accent-deep);
+  --critical-text: var(--critical);
+  --warning-text: var(--warning);
+  --success-text: var(--success);
+  --info-text: var(--info);
+  --teal-text: var(--teal);
+  --neutral-state-text: var(--neutral-state);
+  /* Soft tints used as text on solid fills (text-red-100 …) */
+  --accent-soft-text: var(--accent-soft);
+  --critical-soft-text: var(--critical-soft);
+  --warning-soft-text: var(--warning-soft);
+  --success-soft-text: var(--success-soft);
+  --info-soft-text: var(--info-soft);
+
+  /* Text placed on a solid accent / semantic / neutral fill */
+  --on-solid: #ffffff;
+  /* Solid neutral fills (bg-gray-500 … bg-gray-950: dark buttons, tooltips) */
+  --solid-neutral-500: var(--text-muted);
+  --solid-neutral-600: var(--text-secondary);
+  --solid-neutral-700: var(--text-strong);
+  --solid-neutral-800: var(--text);
+  /* Light end of the grey text scale (text-gray-50 … text-gray-300) */
+  --text-inverse-strong: var(--canvas);
+  --text-inverse: var(--surface-sunken);
+  --text-inverse-muted: var(--border);
+  --text-faint: var(--border-strong);
+  /* Channels for alpha-capable surface utilities (bg-white/90) */
+  --surface-rgb: 255 255 255;
+  /* Stronger soft fills (bg-red-200 / hover:bg-red-200 …) */
+  --accent-soft-strong: var(--accent-border);
+  --critical-soft-strong: var(--critical-border);
+  --warning-soft-strong: var(--warning-border);
+  --success-soft-strong: var(--success-border);
+  --info-soft-strong: var(--info-border);
+  --solid-neutral-400: var(--text-disabled);
 
   /* Charts (light) */
   --chart-1: #4355db;
@@ -117,6 +169,7 @@
   --sidebar-active: rgba(82, 120, 245, 0.22);
   --sidebar-active-border: #5278f5;
   --sidebar-accent: #5278f5;
+  --sidebar-accent-text: var(--sidebar-accent);
   --topbar-bg: rgba(241, 243, 249, 0.86);
   --workspace-glow: radial-gradient(1200px 480px at 12% -10%, rgba(67, 85, 219, 0.09), transparent 55%),
     radial-gradient(900px 420px at 88% 0%, rgba(13, 159, 140, 0.06), transparent 50%);
@@ -135,6 +188,7 @@
  */
 [data-theme="dark"],
 .theme-dark {
+  color-scheme: dark;
   --canvas: #12151a;
   --surface: #1a1e26;
   --surface-raised: #161a21;
@@ -148,7 +202,7 @@
   --text-secondary: #c2c9d4;
   --text-muted: #9aa3b2;
   --text-caption: #a3acba;
-  --text-disabled: #6b7382;
+  --text-disabled: #808a9a;
 
   --accent: #3d5c56;
   --accent-deep: #2f4843;
@@ -170,23 +224,55 @@
   --success-soft: #243028;
   --success-border: #b7c7b4;
   --info: #3f5470;
-  --info-soft: #1e2633;
+  --info-soft: #22304a;
   --info-border: #b8c5d6;
   --teal: #4a6144;
   --teal-soft: #243028;
 
-  --chart-1: #3d5c56;
-  --chart-2: #3f5470;
-  --chart-3: #8f7038;
-  --chart-4: #8a4a3f;
-  --chart-5: #5c636e;
-  --chart-6: #4a6144;
+  /* Foreground variants — lifted for ≥ 4.5:1 on dark surfaces and soft fills */
+  --accent-text: #8fc0b3;
+  --accent-deep-text: #aed4ca;
+  --critical-text: #e59c8e;
+  --warning-text: #d9b36a;
+  --success-text: #9cc492;
+  --info-text: #8fb0dc;
+  --teal-text: #9cc492;
+  --neutral-state-text: #a9b1be;
+  --accent-soft-text: #d5e8e2;
+  --critical-soft-text: #f5dcd6;
+  --warning-soft-text: #f1e3c4;
+  --success-soft-text: #d9e9d5;
+  --info-soft-text: #d6e2f3;
+
+  --on-solid: #ffffff;
+  --solid-neutral-500: #5f6978;
+  --solid-neutral-600: #4d5666;
+  --solid-neutral-700: #3f4857;
+  --solid-neutral-800: #353d4b;
+  --text-inverse-strong: #f0f3f7;
+  --text-inverse: #e3e8ee;
+  --text-inverse-muted: #d5dbe4;
+  --text-faint: #8a93a3;
+  --surface-rgb: 26 30 38;
+  --accent-soft-strong: #2e423e;
+  --critical-soft-strong: #4d342f;
+  --warning-soft-strong: #4a3f2b;
+  --success-soft-strong: #2f3f34;
+  --info-soft-strong: #2b3d5c;
+  --solid-neutral-400: #6b7382;
+
+  --chart-1: #5fa394;
+  --chart-2: #6f94cc;
+  --chart-3: #c9a04e;
+  --chart-4: #d07f6f;
+  --chart-5: #98a1b0;
+  --chart-6: #86b07a;
   --chart-grid: #252b36;
   --chart-axis: #9aa3b2;
   --chart-inactive: #3d4656;
 
   --row-hover: #1e2430;
-  --focus-ring: rgba(61, 92, 86, 0.35);
+  --focus-ring: rgba(143, 192, 179, 0.45);
   --scrim: rgba(0, 0, 0, 0.55);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25);
   --shadow-card-hover: 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -211,6 +297,7 @@
   --sidebar-active: #243330;
   --sidebar-active-border: #3d5c56;
   --sidebar-accent: #3d5c56;
+  --sidebar-accent-text: #8fc0b3;
   --topbar-bg: rgba(18, 21, 26, 0.92);
   --workspace-glow: none;
 
@@ -233,6 +320,124 @@
     --shadow-popover: none;
     --shadow-modal: none;
     --workspace-glow: none;
+    --sidebar-bg: #ffffff;
+  }
+}
+
+/* Printing from dark mode: paper is white, so print with the light palette. */
+@media print {
+  [data-theme="dark"],
+  .theme-dark {
+    color-scheme: light;
+    --canvas: #f1f3f9;
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --surface-sunken: #e9edf6;
+    --border: #d5dbe8;
+    --border-strong: #b8c0d4;
+    --divider: #e4e8f2;
+    --text: #202943;
+    --text-strong: #171d35;
+    --text-secondary: #68738d;
+    --text-muted: #929bb0;
+    --text-caption: #7a849c;
+    --text-disabled: #aeb6c8;
+    --accent: #4355db;
+    --accent-deep: #303fad;
+    --accent-soft: #e9ecff;
+    --accent-border: #c5ccf5;
+    --accent-electric: #5278f5;
+    --accent-violet: #8064db;
+    --critical: #d64b59;
+    --critical-soft: #fdecee;
+    --critical-border: #f0b4ba;
+    --warning: #c68a25;
+    --warning-soft: #fbf3e3;
+    --warning-border: #e8d0a0;
+    --neutral-state: #68738d;
+    --neutral-state-soft: #e9edf6;
+    --neutral-state-border: #d5dbe8;
+    --success: #168653;
+    --success-soft: #e3f5ec;
+    --success-border: #a8d9bf;
+    --info: #159bc5;
+    --info-soft: #e3f5fb;
+    --info-border: #a8d7e8;
+    --teal: #0d9f8c;
+    --teal-soft: #e0f5f1;
+    --accent-text: var(--accent);
+    --accent-deep-text: var(--accent-deep);
+    --critical-text: var(--critical);
+    --warning-text: var(--warning);
+    --success-text: var(--success);
+    --info-text: var(--info);
+    --teal-text: var(--teal);
+    --neutral-state-text: var(--neutral-state);
+    --accent-soft-text: var(--accent-soft);
+    --critical-soft-text: var(--critical-soft);
+    --warning-soft-text: var(--warning-soft);
+    --success-soft-text: var(--success-soft);
+    --info-soft-text: var(--info-soft);
+    --on-solid: #ffffff;
+    --solid-neutral-500: var(--text-muted);
+    --solid-neutral-600: var(--text-secondary);
+    --solid-neutral-700: var(--text-strong);
+    --solid-neutral-800: var(--text);
+    --text-inverse-strong: var(--canvas);
+    --text-inverse: var(--surface-sunken);
+    --text-inverse-muted: var(--border);
+    --text-faint: var(--border-strong);
+    --surface-rgb: 255 255 255;
+    --accent-soft-strong: var(--accent-border);
+    --critical-soft-strong: var(--critical-border);
+    --warning-soft-strong: var(--warning-border);
+    --success-soft-strong: var(--success-border);
+    --info-soft-strong: var(--info-border);
+    --solid-neutral-400: var(--text-disabled);
+    --chart-1: #4355db;
+    --chart-2: #5278f5;
+    --chart-3: #0d9f8c;
+    --chart-4: #d64b59;
+    --chart-5: #8064db;
+    --chart-6: #168653;
+    --chart-grid: #e4e8f2;
+    --chart-axis: #68738d;
+    --chart-inactive: #cfd5e4;
+    --row-hover: #eef1fb;
+    --focus-ring: rgba(67, 85, 219, 0.28);
+    --scrim: rgba(23, 29, 53, 0.45);
+    --shadow-card: 0 1px 2px rgba(32, 41, 67, 0.04), 0 4px 16px rgba(32, 41, 67, 0.06);
+    --shadow-card-hover: 0 2px 4px rgba(32, 41, 67, 0.06), 0 12px 28px rgba(67, 85, 219, 0.1);
+    --shadow-popover: 0 8px 28px rgba(32, 41, 67, 0.12);
+    --shadow-modal: 0 16px 48px rgba(23, 29, 53, 0.18);
+    --shadow-nav-active: 0 0 0 1px rgba(82, 120, 245, 0.35), 0 4px 12px rgba(67, 85, 219, 0.2);
+    --skeleton-from: #e4e8f2;
+    --skeleton-to: #f7f8fc;
+    --sidebar-bg: #171d35;
+    --sidebar-bg-elevated: #222b49;
+    --sidebar-border: rgba(255, 255, 255, 0.08);
+    --sidebar-text: #c8d0e4;
+    --sidebar-text-strong: #f4f6fb;
+    --sidebar-text-muted: #8b95b0;
+    --sidebar-hover: rgba(255, 255, 255, 0.06);
+    --sidebar-active: rgba(82, 120, 245, 0.22);
+    --sidebar-active-border: #5278f5;
+    --sidebar-accent: #5278f5;
+    --sidebar-accent-text: var(--sidebar-accent);
+    --topbar-bg: rgba(241, 243, 249, 0.86);
+    --indus-red: var(--accent);
+    --indus-red-hover: var(--accent-deep);
+    --erp-accent: var(--accent);
+    --erp-accent-hover: var(--accent-deep);
+    --erp-accent-soft: var(--accent-soft);
+    --workspace-glow: none;
+    --canvas: #ffffff;
+    --surface-sunken: #eef2f6;
+    --scrim: transparent;
+    --shadow-card: none;
+    --shadow-card-hover: none;
+    --shadow-popover: none;
+    --shadow-modal: none;
     --sidebar-bg: #ffffff;
   }
 }

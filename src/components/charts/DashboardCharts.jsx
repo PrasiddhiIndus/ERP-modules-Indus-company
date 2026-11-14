@@ -19,10 +19,10 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { CHART_SERIES, CHART_SERIES_AREA, CHART_SERIES_DARK, TOKENS, chartSeriesForDocument } from "../../theme/tokens";
+import { CHART_SERIES, CHART_SERIES_AREA, CHART_SERIES_DARK, TOKENS, UI_TOKENS, chartSeriesForDocument } from "../../theme/tokens";
 
-const AXIS = { fontSize: 11, fill: TOKENS.textMuted, fontFamily: "IBM Plex Mono, ui-monospace, monospace" };
-const GRID = TOKENS.chartGrid;
+const AXIS = { fontSize: 11, fill: UI_TOKENS.textMuted, fontFamily: "IBM Plex Mono, ui-monospace, monospace" };
+const GRID = UI_TOKENS.chartGrid;
 
 /** Prefer theme-aware series; fall back to light CHART_SERIES. */
 export function resolveChartSeries() {
@@ -33,11 +33,11 @@ export function resolveChartSeries() {
   }
 }
 const TIP_STYLE = {
-  background: TOKENS.surface,
-  border: `1px solid ${TOKENS.border}`,
+  background: UI_TOKENS.surface,
+  border: `1px solid ${UI_TOKENS.border}`,
   borderRadius: 8,
   fontSize: 12,
-  color: TOKENS.text,
+  color: UI_TOKENS.text,
   boxShadow: "0 8px 24px rgba(18,21,26,0.08)",
   maxWidth: 280,
 };
@@ -322,7 +322,7 @@ export function BarCompareChart({
           </>
         )}
         <Tooltip
-          cursor={{ fill: TOKENS.rowHover, opacity: 0.55 }}
+          cursor={{ fill: UI_TOKENS.rowHover, opacity: 0.55 }}
           content={<ChartTooltip formatter={formatter} />}
         />
         {series.length > 1 ? <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} /> : null}
@@ -395,7 +395,7 @@ export function DonutChart({
             innerRadius={innerRadius}
             outerRadius={outerRadius}
             paddingAngle={2}
-            stroke={TOKENS.surface}
+            stroke={UI_TOKENS.surface}
             strokeWidth={2}
             isAnimationActive
             animationDuration={800}
@@ -444,7 +444,7 @@ export function RadialScoreChart({
       <ResponsiveContainer width="100%" height={height} minWidth={0}>
         <RadialBarChart cx="50%" cy="50%" innerRadius="68%" outerRadius="100%" data={data} startAngle={90} endAngle={-270}>
           <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-          <RadialBar background={{ fill: TOKENS.surfaceSunken }} dataKey="value" cornerRadius={8} isAnimationActive animationDuration={900} />
+          <RadialBar background={{ fill: UI_TOKENS.surfaceSunken }} dataKey="value" cornerRadius={8} isAnimationActive animationDuration={900} />
           <Tooltip content={<ChartTooltip formatter={(v) => `${v}%`} />} />
         </RadialBarChart>
       </ResponsiveContainer>

@@ -74,7 +74,7 @@ export function LatencyTrendChart({ data, t, reducedMotion, compact = false }) {
           type="monotone"
           dataKey="latencyMs"
           name="Response time"
-          stroke="var(--accent)"
+          stroke="var(--accent-text)"
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 4, strokeWidth: 0 }}
@@ -88,7 +88,7 @@ export function LatencyTrendChart({ data, t, reducedMotion, compact = false }) {
 export function AvailabilityTrendChart({ data, t, reducedMotion, compact = false }) {
   const height = compact ? 160 : 200;
   const anim = reducedMotion ? 0 : 350;
-  const stroke = "var(--success)";
+  const stroke = "var(--success-text)";
   const fill = "var(--success-soft)";
 
   if (!data?.length) {

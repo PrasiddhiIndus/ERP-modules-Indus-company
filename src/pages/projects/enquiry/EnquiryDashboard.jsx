@@ -37,16 +37,16 @@ import { DUE_SOON_DAYS, dashboardBucket, startOfToday, toLocalDate } from './enq
 import { useAuth } from '../../../contexts/AuthContext';
 import { getOpenableProjectsEnquiryTabs } from '../../../config/roles';
 import { useProjectsEnquiryDropdowns } from './useProjectsEnquiryDropdowns';
-import { TOKENS } from '../../../theme/tokens';
+import { UI_TOKENS } from '../../../theme/tokens';
 import './enquiryDashboard.css';
 
 const STATUS_CHART_COLORS = {
-  'Not Started': TOKENS.warning,
-  'Work in Progress': TOKENS.info,
-  Completed: TOKENS.success,
-  Regret: TOKENS.critical,
+  'Not Started': UI_TOKENS.warning,
+  'Work in Progress': UI_TOKENS.info,
+  Completed: UI_TOKENS.success,
+  Regret: UI_TOKENS.critical,
 };
-const OTHER_STATUS_COLOR = TOKENS.borderStrong;
+const OTHER_STATUS_COLOR = UI_TOKENS.borderStrong;
 
 const EMPTY_FILTERS = {
   search: '',
@@ -645,20 +645,20 @@ export default function EnquiryDashboard() {
                 <BarChart data={trend.data} margin={{ top: 20, right: 8, left: -12, bottom: 0 }}>
                   <defs>
                     <linearGradient id="enqTrendGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--info)" stopOpacity={0.95} />
-                      <stop offset="100%" stopColor="var(--info)" stopOpacity={0.55} />
+                      <stop offset="0%" stopColor="var(--info-text)" stopOpacity={0.95} />
+                      <stop offset="100%" stopColor="var(--info-text)" stopOpacity={0.55} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={TOKENS.chartGrid} />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={UI_TOKENS.chartGrid} />
                   <XAxis
                     dataKey="name"
-                    tick={{ fontSize: 11, fill: TOKENS.chartAxis }}
+                    tick={{ fontSize: 11, fill: UI_TOKENS.chartAxis }}
                     tickLine={false}
-                    axisLine={{ stroke: TOKENS.chartGrid }}
+                    axisLine={{ stroke: UI_TOKENS.chartGrid }}
                     interval={trend.data.length > 18 ? 'preserveStartEnd' : 0}
                     minTickGap={4}
                   />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: TOKENS.chartAxis }} tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: UI_TOKENS.chartAxis }} tickLine={false} axisLine={false} />
                   <Tooltip cursor={{ fill: 'rgba(59, 130, 246, 0.08)' }} content={<TrendTooltip clickable={canOpenDatabase} />} />
                   <Bar
                     dataKey="count"

@@ -67,8 +67,8 @@ function SortIndicator({ fieldKey, sortConfig }) {
   const active = sortConfig.key === fieldKey;
   return (
     <span className="inline-flex items-center gap-0.5 ml-1 text-[10px] align-middle">
-      <span style={{ color: active && sortConfig.dir === 'asc' ? 'var(--success)' : 'var(--border-strong)' }}>▲</span>
-      <span style={{ color: active && sortConfig.dir === 'desc' ? 'var(--critical)' : 'var(--border-strong)' }}>▼</span>
+      <span style={{ color: active && sortConfig.dir === 'asc' ? 'var(--success-text)' : 'var(--border-strong)' }}>▲</span>
+      <span style={{ color: active && sortConfig.dir === 'desc' ? 'var(--critical-text)' : 'var(--border-strong)' }}>▼</span>
     </span>
   );
 }

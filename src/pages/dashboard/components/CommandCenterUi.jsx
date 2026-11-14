@@ -98,7 +98,7 @@ export function TrendWidget({ title, values }) {
   );
 }
 
-export function MiniLineChart({ title, values, color = "var(--info)" }) {
+export function MiniLineChart({ title, values, color = "var(--info-text)" }) {
   const pts = Array.isArray(values) ? values : [];
   const max = Math.max(...pts, 1);
   const w = 240;

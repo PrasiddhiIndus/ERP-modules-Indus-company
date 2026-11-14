@@ -40,7 +40,7 @@ import {
   countByStatus,
   countByVertical,
 } from "./utils/manpowerInquiryDashboard";
-import { CHART_SERIES, TOKENS } from "../../theme/tokens";
+import { CHART_SERIES, UI_TOKENS } from "../../theme/tokens";
 import {
   DEFAULT_BID_DEADLINE_REMINDER_DAYS,
   formatReminderDaysLabel,
@@ -407,9 +407,9 @@ const CommercialMtDashboard = () => {
                       <stop offset="95%" stopColor={CHART_SERIES[1]} stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={TOKENS.chartGrid} />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: TOKENS.chartAxis }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: TOKENS.chartAxis }} width={28} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={UI_TOKENS.chartGrid} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: UI_TOKENS.chartAxis }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: UI_TOKENS.chartAxis }} width={28} />
                   <Tooltip />
                   <Area type="monotone" dataKey="count" name="Enquiries" stroke={CHART_SERIES[1]} fill="url(#mtEnquiryTrend)" strokeWidth={2} />
                 </AreaChart>

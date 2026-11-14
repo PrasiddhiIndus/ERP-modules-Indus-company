@@ -10,6 +10,8 @@
   /* Login card primary — sapphire blue, matches navy/sky theme */
   --login-primary: #0759b8;
   --login-primary-hover: #054a99;
+  /* Primary as text / icon colour (lifted on the dark card) */
+  --login-primary-text: var(--login-primary);
   --login-primary-soft: rgba(7, 89, 184, 0.12);
   --login-primary-ring: rgba(7, 89, 184, 0.2);
   --login-primary-shadow: rgba(7, 89, 184, 0.32);
@@ -42,6 +44,7 @@
   --login-ink: #f0f3f7;
   --login-muted: #9aa3b2;
   --login-border: #2e3542;
+  --login-primary-text: #7fb4f5;
 }
 
 /* ——— Background photograph + overlays ——— */
@@ -243,7 +246,7 @@
 .login-lang-menu button:hover,
 .login-lang-menu button[aria-selected='true'] {
   background: var(--login-primary-soft);
-  color: var(--login-primary);
+  color: var(--login-primary-text);
 }
 
 /* ——— Main split layout ——— */
@@ -399,7 +402,7 @@
 }
 
 .login-card-head h2 span {
-  color: var(--login-primary);
+  color: var(--login-primary-text);
 }
 
 .login-card-head p {
@@ -543,7 +546,7 @@
 }
 
 .login-reveal:hover {
-  color: var(--login-primary);
+  color: var(--login-primary-text);
   background: var(--login-primary-soft);
 }
 
@@ -591,7 +594,7 @@
 .login-forgot {
   font-size: 0.82rem;
   font-weight: 700;
-  color: var(--login-primary);
+  color: var(--login-primary-text);
   text-decoration: none;
 }
 
@@ -654,7 +657,7 @@
   border-radius: 0.65rem;
   background: var(--login-primary-soft);
   border: 1px solid rgba(7, 89, 184, 0.22);
-  color: var(--login-primary);
+  color: var(--login-primary-text);
   font-size: 0.8rem;
   line-height: 1.4;
 }
@@ -669,7 +672,7 @@
   border: 0;
   background: transparent;
   padding: 0;
-  color: var(--login-primary);
+  color: var(--login-primary-text);
   font-size: 0.82rem;
   font-weight: 700;
   cursor: pointer;

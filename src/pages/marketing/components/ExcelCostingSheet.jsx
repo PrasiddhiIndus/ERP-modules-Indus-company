@@ -1031,7 +1031,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
             background-color: var(--critical-soft);
           }
           .costing-manual-entry:focus-within {
-            outline: 2px solid var(--accent);
+            outline: 2px solid var(--accent-text);
             outline-offset: -1px;
           }
         `}</style>
@@ -1373,7 +1373,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                 className="overflow-y-auto bg-white"
                 style={{ 
                   scrollbarWidth: 'thin', 
-                  scrollbarColor: 'var(--accent) var(--surface-sunken)',
+                  scrollbarColor: 'var(--accent-text) var(--surface-sunken)',
                   maxHeight: '350px'
                 }}
               >
