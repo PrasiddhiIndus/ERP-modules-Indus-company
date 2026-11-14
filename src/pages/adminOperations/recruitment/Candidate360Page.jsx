@@ -671,6 +671,9 @@ function Workspace({ data, onReload }) {
                 <Mail className="h-3.5 w-3.5" /> Email
               </button>
             ) : null}
+            <button type="button" className={btn.secondary} onClick={() => open("ctc")}>
+              <Calculator className="h-3.5 w-3.5" /> CTC calculator
+            </button>
             <button type="button" className={btn.secondary} onClick={() => open("note")}>
               <MessageSquarePlus className="h-3.5 w-3.5" /> Note
             </button>
