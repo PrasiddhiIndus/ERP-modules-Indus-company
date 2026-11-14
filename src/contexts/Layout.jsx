@@ -100,20 +100,25 @@ const RupeeIcon = ({ className = '' }) => {
   );
 };
 
-const topLinkBase =
-  "group flex flex-none items-center gap-2.5 px-2.5 py-2 rounded-control transition-[background-color,border-color,box-shadow,color,transform] duration-theme ease-theme min-h-[2.35rem] border border-transparent text-sidebar-text hover:bg-sidebar-hover hover:text-sidebar-strong";
+const moduleRow =
+  "group grid w-full grid-cols-[1rem_minmax(0,1fr)_0.875rem] items-center gap-x-2.5 px-2.5 py-2 rounded-control transition-colors duration-theme ease-theme min-h-[2.35rem] border-y border-y-transparent border-r border-r-transparent border-l-[3px]";
+const topLinkBase = `${moduleRow} flex-none text-sidebar-text hover:bg-sidebar-hover hover:text-sidebar-strong`;
 const subLinkBase =
-  "group flex flex-none items-center gap-2.5 px-2.5 py-1.5 rounded-control transition-[background-color,border-color,box-shadow,color] duration-theme ease-theme border border-transparent text-sidebar-text hover:bg-sidebar-hover hover:text-sidebar-strong";
+  "group flex w-full flex-none items-center gap-2.5 px-2.5 py-1.5 rounded-control transition-colors duration-theme ease-theme border-y border-y-transparent border-r border-r-transparent border-l-[3px] text-sidebar-text hover:bg-sidebar-hover hover:text-sidebar-strong";
 const activeClass =
-  "bg-sidebar-active text-sidebar-strong border border-transparent border-l-[3px] border-l-sidebar-accent shadow-nav-active";
-const sectionOpenClass =
-  "bg-sidebar-active text-sidebar-strong shadow-nav-active border border-transparent border-l-[3px] border-l-sidebar-accent";
-const topNavClass = ({ isActive }) => `${topLinkBase} ${isActive ? activeClass : ""}`;
-const subNavClass = ({ isActive }) => `${subLinkBase} ${isActive ? activeClass : ""}`;
-const sectionBtnClass = (open) =>
-  `flex items-center justify-between w-full px-2.5 py-2 rounded-control transition-[background-color,color,border-color] duration-theme ease-theme min-h-[2.35rem] border border-transparent text-sidebar-strong hover:bg-sidebar-hover ${
-    open ? sectionOpenClass : ""
+  "bg-sidebar-active text-sidebar-strong border-l-sidebar-accent shadow-nav-active";
+const idleBorder = "border-l-transparent";
+const topNavClass = ({ isActive }) => `${topLinkBase} ${isActive ? activeClass : idleBorder}`;
+const subNavClass = ({ isActive }) => `${subLinkBase} ${isActive ? activeClass : idleBorder}`;
+const sectionBtnClass = (active) =>
+  `${moduleRow} text-sidebar-strong hover:bg-sidebar-hover [&>span]:contents ${
+    active ? "bg-sidebar-active border-l-sidebar-accent shadow-nav-active" : idleBorder
   }`;
+const subToggleClass = (active) =>
+  `grid w-full grid-cols-[1rem_minmax(0,1fr)_0.875rem] items-center gap-x-2.5 px-2.5 py-1.5 rounded-control text-sidebar-strong hover:bg-sidebar-hover transition-colors duration-theme border-y border-y-transparent border-r border-r-transparent border-l-[3px] [&>span]:contents ${
+    active ? activeClass : idleBorder
+  }`;
+const navChevron = "h-3.5 w-3.5 shrink-0 justify-self-end transition-transform duration-theme";
 
 /** Parse activity route label (`Module · Page`) into app-bar eyebrow + title. */
 function workspaceFromModuleLabel(label) {
@@ -129,13 +134,16 @@ function workspaceFromModuleLabel(label) {
   const eyebrowByTitle = {
     Billing: "Finance",
     Marketing: "Go-to-market",
-    Operations: "Operations",
+    Operations: "Site Operations",
+    "Site Operations": "Site Operations",
     Compliance: "Compliance",
     Settings: "System",
     Dashboard: "Overview",
     Procurement: "Procurement",
     Projects: "Projects",
-    HR: "People",
+    HR: "HR Site",
+    "HR Site": "HR Site",
+    IEV: "IEV",
   };
   return {
     eyebrow: eyebrowByTitle[text] || text,
@@ -157,20 +165,21 @@ function resolveWorkspaceContext(pathname) {
   }
 
   const rules = [
-    [/\/app\/hr|\/app\/attendance|\/app\/salary|\/app\/people-management/, "People", "HR & workforce"],
+    [/\/app\/hr|\/app\/attendance|\/app\/salary|\/app\/people-management/, "HR Site", "HR & workforce"],
     [/\/app\/ifsp-employee-compliance|\/app\/general-compliance|\/app\/compliance(\/|$)/, "Compliance", "Statutory & registers"],
-    [/\/app\/admin\/employee|\/app\/ifsp-employee|\/app\/all-employees/, "Admin", "Employees & HR"],
+    [/\/app\/admin\/employee|\/app\/ifsp-employee|\/app\/all-employees/, "IN-House HR/Admin", "Employees & HR"],
     [/\/app\/admin\/salary-admin/, "Admin", "Salary administration"],
     [/\/app\/admin/, "Admin", "Operations"],
     [/\/app\/store-inventory|\/app\/gate-pass/, "Admin", "Store & gate pass"],
     [/\/app\/commercial\/rm-mm-amc-iev/, "R&M", "R&M"],
     [/\/app\/commercial|\/app\/manpower/, "Commercial", "Manpower & training"],
     [/\/app\/marketing/, "Go-to-market", "Marketing"],
-    [/\/app\/crm-outreach/, "Go-to-market", "Client/In-House Mail Outreach"],
+    [/\/app\/crm-outreach/, "Go-to-market", "Mail Outreach"],
     [/\/app\/maintenance/, "Service", "Maintenance"],
     [/\/app\/projects-billing/, "Projects", "Billing"],
     [/\/app\/billing/, "Finance", "Billing"],
-    [/\/app\/operations|\/app\/fire-tender-vehicle/, "Operations", "Sites & fleet"],
+    [/\/app\/fire-tender-vehicle/, "IEV", "Fleet Management"],
+    [/\/app\/operations/, "Site Operations", "Sites & manpower"],
     [/\/app\/projects|\/app\/fire-tender/, "Projects", "Delivery & costing"],
     [/\/app\/procurement/, "Procurement", "Vendors & POs"],
     [/\/app\/finance|\/app\/accounts/, "Finance", "Accounts"],
@@ -415,7 +424,9 @@ const Layout = () => {
   const [operationsOpen, setOperationsOpen] = useState(false);
   const [procurementOpen, setProcurementOpen] = useState(false);
   const [fireTenderOpen, setFireTenderOpen] = useState(false);
+  const [ftCostingOpen, setFtCostingOpen] = useState(false);
   const [amcOpen, setAmcOpen] = useState(false);
+  const [utilitiesOpen, setUtilitiesOpen] = useState(false);
   const [financeOpen, setFinanceOpen] = useState(false);
   const [marketingOpen, setMarketingOpen] = useState(false);
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
@@ -447,8 +458,11 @@ const Layout = () => {
     if (pathname.startsWith("/app/commercial/rm-mm-amc-iev")) setCommercialRmOpen(true);
     if (pathname.startsWith("/app/manpower/configuration")) setManpowerConfigOpen(true);
     if (pathname.startsWith("/app/billing")) setBillingOpen(true);
-    if (pathname.startsWith("/app/fire-tender-vehicle") || pathname.startsWith("/app/operations")) setOperationsOpen(true);
-    if (pathname.startsWith("/app/operations")) setManpowerOperationsOpen(true);
+    if (pathname.startsWith("/app/operations")) {
+      setOperationsOpen(true);
+      setManpowerOperationsOpen(true);
+    }
+    if (pathname.startsWith("/app/user-management") || pathname.startsWith("/app/crm-outreach")) setUtilitiesOpen(true);
     if (
       pathname.startsWith("/app/projects/dashboard") ||
       pathname.startsWith("/app/projects/reports") ||
@@ -462,7 +476,16 @@ const Layout = () => {
       setProjectsOpen(true);
     }
     if (pathname.startsWith("/app/projects/po")) setContractMgmtOpen(true);
-    if (pathname.startsWith("/app/fire-tender") || pathname.startsWith("/app/fire-tender-manufacturing")) setFireTenderOpen(true);
+    if (
+      pathname.startsWith("/app/fire-tender") ||
+      pathname.startsWith("/app/fire-tender-manufacturing") ||
+      pathname.startsWith("/app/fire-tender-vehicle")
+    ) {
+      setFireTenderOpen(true);
+    }
+    if (pathname.startsWith("/app/fire-tender") || pathname.startsWith("/app/fire-tender-manufacturing")) {
+      setFtCostingOpen(true);
+    }
     if (pathname.startsWith("/app/amc")) setAmcOpen(true);
     if (pathname.startsWith("/app/accounts-finance")) setFinanceOpen(true);
   }, [pathname]);
@@ -513,7 +536,7 @@ const Layout = () => {
     );
   }
 
-  const sidebarWidthClass = sidebarCollapsed ? "lg:w-sidebar-collapsed w-64" : "w-64 lg:w-sidebar";
+  const sidebarWidthClass = sidebarCollapsed ? "lg:w-sidebar-collapsed w-sidebar" : "w-sidebar";
   const mainOffsetClass = sidebarCollapsed ? "lg:ml-sidebar-collapsed" : "lg:ml-sidebar";
 
   return (
@@ -614,239 +637,25 @@ const Layout = () => {
                         className={subNavClass}
                         onClick={() => setSidebarOpen(false)}
                       >
-                        <span className="type-meta type-truncate">{d.label}</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">{d.label}</span>
                       </NavLink>
                     ))
                 )}
               </div>
             ) : null}
             {!navFilterNorm && can("overview") && (
-              <NavLink to="/app/dashboard" className={topNavClass} title="Dashboard">
+              <NavLink to="/app/dashboard" className={topNavClass} title="Main Dashboard">
                 <BarChart3 className="w-4 h-4 shrink-0" />
                 {!sidebarCollapsed ? (
-                  <span className="type-body-medium type-truncate">Dashboard</span>
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Main Dashboard</span>
                 ) : (
-                  <span className="type-body-medium type-truncate lg:hidden">Dashboard</span>
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left lg:hidden">Main Dashboard</span>
                 )}
               </NavLink>
             )}
             {!navFilterNorm && (
             <div className={sidebarCollapsed ? "lg:hidden space-y-1.5" : "space-y-1.5"}>
-            {/* HR */}
-            {can("hr") && (
-            <div>
-              <button
-                onClick={() => setHrAdminOpen(!hrAdminOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/salary") || pathname.startsWith("/app/people-management") || pathname.startsWith("/app/hr/payroll/salary") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
-              >
-                <span className="flex items-center space-x-2.5">
-                  <UserCheck className="w-4 h-4 shrink-0" />
-                  <span className="type-body-medium type-truncate">HR</span>
-                </span>
-                <ChevronDown
-                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
-                    hrAdminOpen ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-
-              {hrAdminOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                  {canSub("hr.dashboard") && (
-                  <NavLink to="hr/dashboard" className={subNavClass}>
-                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Dashboard</span>
-                  </NavLink>
-                  )}
-                  {canSub("hr.employee-master") && (
-                  <NavLink
-                    to="hr/employee-master"
-                    className={() => {
-                      const path = pathname;
-                      const active =
-                        path.startsWith("/app/hr/employee-master") ||
-                        path === "/app/hr";
-                      return subNavClass({ isActive: active });
-                    }}
-                  >
-                    <User className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">HR Management</span>
-                  </NavLink>
-                  )}
-                  {(canSub("hr.calling-master") ||
-                    hasAnyRecruitmentTabAccess(userProfile, accessibleModules, user?.user_metadata)) && (
-                  <NavLink
-                    to={getRecruitmentLandingPath(userProfile, accessibleModules, user?.user_metadata).replace(
-                      /^\/app\//,
-                      ""
-                    )}
-                    className={() =>
-                      subNavClass({
-                        isActive: pathname.startsWith("/app/hr/calling-master"),
-                      })
-                    }
-                  >
-                    <PhoneCall className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Recruitment</span>
-                  </NavLink>
-                  )}
-                  {canSub("hr.attendance") && (
-                  <NavLink to="attendance" className={subNavClass}>
-                    <Clock className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Attendance</span>
-                  </NavLink>
-                  )}
-                  {canSub("hr.salary-management") && (
-                  <>
-                  <button
-                    type="button"
-                    onClick={() => setHrSalaryOpen(!hrSalaryOpen)}
-                    className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${
-                      pathname.startsWith(`/app/${HR_SALARY_BASE}`)
-                        ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent"
-                        : "text-sidebar-strong"
-                    }`}
-                    aria-expanded={hrSalaryOpen}
-                    aria-label="Toggle salary management menu"
-                  >
-                    <span className="flex items-center space-x-2.5 min-w-0">
-                      <Wallet className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                      <span className="text-xs font-medium text-left leading-tight">Salary Management</span>
-                    </span>
-                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${hrSalaryOpen ? "rotate-180" : ""}`} />
-                  </button>
-                  {hrSalaryOpen && (
-                    <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                      {SALARY_SUB_NAV.map((item) => (
-                        <NavLink
-                          key={item.to}
-                          to={salaryNavPath(item.to).replace(/^\/app\//, "")}
-                          className={() => subNavClass({ isActive: salaryNavIsActive(item, location) })}
-                        >
-                          <span className="type-meta type-truncate">{item.label}</span>
-                        </NavLink>
-                      ))}
-                    </div>
-                  )}
-                  </>
-                  )}
-                  {canSub("hr.site-attendance") && (
-                  <NavLink
-                    to="hr/site-attendance"
-                    className={() =>
-                      subNavClass({
-                        isActive: pathname.startsWith("/app/hr/site-attendance"),
-                      })
-                    }
-                  >
-                    <Building2 className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Site Attendance</span>
-                  </NavLink>
-                  )}
-                  {canSub("hr.people-management") && (
-                  <NavLink to="people-management" className={subNavClass}>
-                    <UserPlus className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">People Management</span>
-                  </NavLink>
-                  )}
-                </div>
-              )}
-            </div>
-            )}
-
-            {/* Compliance */}
-            {canAccessCompliance(userProfile, user) && (
-            <div>
-              <button
-                onClick={() => setComplianceOpen(!complianceOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance") || pathname === "/app/compliance" || pathname.startsWith("/app/compliance/") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
-              >
-                <span className="flex items-center space-x-2.5">
-                  <Shield className="w-4 h-4 shrink-0" />
-                  <span className="type-body-medium type-truncate">Compliance</span>
-                </span>
-                <ChevronDown
-                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
-                    complianceOpen ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-
-              {complianceOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                  {canSub("compliance.payroll") && (
-                  <>
-                  <NavLink
-                    to="compliance/dashboard"
-                    className={() =>
-                      `${subLinkBase} ${
-                        pathname === "/app/compliance" ||
-                        pathname === "/app/compliance/" ||
-                        pathname === "/app/compliance/dashboard"
-                          ? activeClass
-                          : "text-sidebar-strong"
-                      }`
-                    }
-                  >
-                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Dashboard</span>
-                  </NavLink>
-                  <NavLink
-                    to="compliance/forms"
-                    className={() =>
-                      `${subLinkBase} ${
-                        pathname.startsWith("/app/compliance/forms")
-                          ? activeClass
-                          : "text-sidebar-strong"
-                      }`
-                    }
-                  >
-                    <FileText className="w-4 h-4 shrink-0 text-ink-muted" />
-                    <span className="type-meta type-truncate">Compliance Forms</span>
-                  </NavLink>
-                  <NavLink
-                    to="compliance/payroll-process"
-                    className={() =>
-                      `${subLinkBase} ${
-                        pathname.startsWith("/app/compliance/payroll-process")
-                          ? activeClass
-                          : "text-sidebar-strong"
-                      }`
-                    }
-                  >
-                    <FileSpreadsheet className="w-4 h-4 shrink-0 text-ink-muted" />
-                    <span className="type-meta type-truncate">Payroll Compliance</span>
-                  </NavLink>
-                  </>
-                  )}
-                  {canSub("compliance.ifspl") && (
-                  <NavLink to="ifsp-employee-compliance" className={subNavClass}>
-                    <CheckCircle className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">IFSPL Employee Compliance</span>
-                  </NavLink>
-                  )}
-                  {canSub("compliance.general") && (
-                  <NavLink to="general-compliance" className={subNavClass}>
-                    <ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">General Compliance</span>
-                  </NavLink>
-                  )}
-                </div>
-              )}
-            </div>
-            )}
-
-            {misScopedOnly && (
-              <NavLink
-                to="admin/payroll-mis"
-                className={`flex items-center space-x-2.5 w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/admin/payroll-mis") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
-              >
-                <BarChart3 className="w-4 h-4 shrink-0" />
-                <span className="type-body-medium type-truncate">Payroll reports</span>
-              </NavLink>
-            )}
-
-            {/* Admin */}
+            {/* IN-House HR/Admin */}
             {(can("admin") || canAccessSalaryAdmin(userProfile, user) || canSeeProbationReviews) && (
             <div>
               <button
@@ -854,11 +663,16 @@ const Layout = () => {
                   if (!adminOpen) collapseAdminSubmodules();
                   setAdminOpen(!adminOpen);
                 }}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
+                className={sectionBtnClass(
+                  pathname.startsWith("/app/ifsp-employee") ||
+                    pathname.startsWith("/app/store-inventory") ||
+                    pathname.startsWith("/app/gate-pass") ||
+                    pathname.startsWith("/app/admin")
+                )}
               >
-                <span className="flex items-center space-x-2.5">
+                <span className="flex items-center gap-2.5 min-w-0 flex-1">
                   <Cog className="w-4 h-4 shrink-0" />
-                  <span className="type-body-medium type-truncate">Corporate HR/Admin</span>
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">IN-House HR/Admin</span>
                 </span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
@@ -868,11 +682,11 @@ const Layout = () => {
               </button>
 
               {adminOpen && (
-                <div className="ml-6 mt-0.5 space-y-1">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   {canSub("admin.dashboard") && (
                   <NavLink to="admin/dashboard" className={subNavClass}>
                     <LayoutDashboard className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Dashboard</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
                   </NavLink>
                   )}
 
@@ -891,7 +705,7 @@ const Layout = () => {
                     }
                   >
                     <PhoneCall className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Recruitment</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Recruitment</span>
                     {pendingRequisitionCount > 0 ? (
                       <span className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
                         {pendingRequisitionCount > 99 ? "99+" : pendingRequisitionCount}
@@ -903,7 +717,7 @@ const Layout = () => {
                   {canSub(EMPLOYEE_MASTER_SUBMODULE_KEY) && (
                       <NavLink to="admin/employee/master" className={subNavClass}>
                         <Users className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate">Employee Master</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Employee Master</span>
                       </NavLink>
                   )}
 
@@ -911,56 +725,56 @@ const Layout = () => {
                   <>
                       <NavLink to="admin/employee/onboarding" className={subNavClass}>
                         <UserPlus className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate">Onboarding</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Onboarding</span>
                       </NavLink>
                       <NavLink to="admin/employee/policies" className={subNavClass}>
                         <BookOpen className="h-4 w-4 shrink-0 text-sky-700" />
-                        <span className="type-meta type-truncate">Policies &amp; Terms</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Policies &amp; Terms</span>
                       </NavLink>
                       <NavLink to="admin/employee/official-letters" className={subNavClass}>
                         <FileText className="h-4 w-4 shrink-0 text-indigo-700" />
-                        <span className="type-meta type-truncate">Official Letters</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Official Letters</span>
                       </NavLink>
                       <NavLink to="admin/employee/surveys" className={subNavClass}>
                         <ClipboardList className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate">Surveys</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Surveys</span>
                       </NavLink>
                       <NavLink to="admin/employee/attendance-inputs" className={subNavClass}>
                         <Clock className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate">Raw Attendance Data</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Raw Attendance Data</span>
                       </NavLink>
                       <NavLink to="admin/employee/attendance-daily" className={subNavClass}>
                         <Calendar className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate">Daily Attendance Register</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Daily Attendance Register</span>
                       </NavLink>
                       <NavLink to="admin/employee/national-holidays" className={subNavClass}>
                         <CalendarDays className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate">National / Public Holidays</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">National / Public Holidays</span>
                       </NavLink>
                       {/* NAV_HIDDEN: Attendance Sheets */}
                       {/* <NavLink to="admin/employee/attendance-sheets" className={subNavClass}>
                         <FileText className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate">Attendance Sheets</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Attendance Sheets</span>
                       </NavLink> */}
                       <NavLink to="admin/employee/leaves-permissions" className={subNavClass}>
                         <Calendar className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate">Leave Approvals</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Leave Approvals</span>
                       </NavLink>
                       <NavLink to="admin/employee/tour-approvals" className={subNavClass}>
                         <MapPin className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate">Tour Approvals</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Tour Approvals</span>
                       </NavLink>
                       <NavLink to="admin/employee/leave-management" className={subNavClass}>
                         <CalendarDays className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate">Leave Management</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Leave Management</span>
                       </NavLink>
                       <NavLink to="admin/employee/inactive" className={subNavClass}>
                         <UserX className="h-4 w-4 shrink-0 text-ink-muted" />
-                        <span className="type-meta type-truncate">Inactive Employees</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Inactive Employees</span>
                       </NavLink>
                       <NavLink to="admin/employee/exit-ff" className={subNavClass}>
                         <FileSpreadsheet className="h-4 w-4 shrink-0 text-rose-700" />
-                        <span className="type-meta type-truncate">F &amp; F</span>
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">F &amp; F</span>
                       </NavLink>
                       {/* NAV_HIDDEN: Compliance & Documents, Salary Inputs */}
                   </>
@@ -969,7 +783,7 @@ const Layout = () => {
                   {canSeeProbationReviews && (
                   <NavLink to="admin/probation-reviews" className={subNavClass}>
                     <UserCheck className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Probation Reviews</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Probation Reviews</span>
                   </NavLink>
                   )}
 
@@ -980,19 +794,19 @@ const Layout = () => {
                       `${subLinkBase} ${
                         pathname.startsWith("/app/admin/salary-admin")
                           ? activeClass
-                          : "text-sidebar-strong"
+                          : "border-l-transparent text-sidebar-strong"
                       }`
                     }
                   >
                     <Wallet className="h-4 w-4 shrink-0 text-ink-muted" />
-                    <span className="type-meta type-truncate">Salary Admin</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Salary Admin</span>
                   </NavLink>
                   )}
 
                   {canAccessRulesConsole(userProfile, accessibleModules) && (
                   <NavLink to="admin/rules-console" className={subNavClass}>
                     <SlidersHorizontal className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Rules Console</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Rules Console</span>
                   </NavLink>
                   )}
 
@@ -1012,14 +826,14 @@ const Layout = () => {
                   </button>
                   {adminStoreOpen && (
                     <div className="space-y-0.5">
-                      <NavLink to="admin/store/item-master" className={subNavClass}><Package className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Item Master</span></NavLink>
-                      <NavLink to="admin/store/store-master" className={subNavClass}><Home className="w-4 h-4 shrink-0 text-ink-muted" /><span className="type-meta type-truncate">Store Master</span></NavLink>
-                      <NavLink to="admin/store/site-stock" className={subNavClass}><MapPin className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Site Stock</span></NavLink>
-                      <NavLink to="admin/store/issue-entry" className={subNavClass}><FileText className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Issue Entry</span></NavLink>
-                      <NavLink to="admin/store/return-entry" className={subNavClass}><Receipt className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Return Entry</span></NavLink>
-                      <NavLink to="admin/store/transfer-transit" className={subNavClass}><Truck className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Transfer / Transit</span></NavLink>
-                      <NavLink to="admin/store/requirement-planner" className={subNavClass}><Calculator className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Requirement Planner</span></NavLink>
-                      <NavLink to="admin/store/reconciliation" className={subNavClass}><CheckCircle className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Reconciliation</span></NavLink>
+                      <NavLink to="admin/store/item-master" className={subNavClass}><Package className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Item Master</span></NavLink>
+                      <NavLink to="admin/store/store-master" className={subNavClass}><Home className="w-4 h-4 shrink-0 text-ink-muted" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Store Master</span></NavLink>
+                      <NavLink to="admin/store/site-stock" className={subNavClass}><MapPin className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Site Stock</span></NavLink>
+                      <NavLink to="admin/store/issue-entry" className={subNavClass}><FileText className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Issue Entry</span></NavLink>
+                      <NavLink to="admin/store/return-entry" className={subNavClass}><Receipt className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Return Entry</span></NavLink>
+                      <NavLink to="admin/store/transfer-transit" className={subNavClass}><Truck className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Transfer / Transit</span></NavLink>
+                      <NavLink to="admin/store/requirement-planner" className={subNavClass}><Calculator className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Requirement Planner</span></NavLink>
+                      <NavLink to="admin/store/reconciliation" className={subNavClass}><CheckCircle className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Reconciliation</span></NavLink>
                     </div>
                   )}
                   </>
@@ -1040,12 +854,12 @@ const Layout = () => {
                   </button>
                   {adminGateOpen && (
                     <div className="space-y-0.5">
-                      <NavLink to="admin/gate/employee-movement" className={subNavClass}><Users className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Employee Movement</span></NavLink>
-                      <NavLink to="admin/gate/goods-in-out" className={subNavClass}><Package className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Goods In / Out</span></NavLink>
-                      <NavLink to="admin/gate/visitor-guest-passes" className={subNavClass}><User className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Visitor / Guest Passes</span></NavLink>
-                      <NavLink to="admin/gate/vehicle-passes" className={subNavClass}><Car className="w-4 h-4 shrink-0 text-sidebar-strong" /><span className="type-meta type-truncate">Vehicle Passes</span></NavLink>
-                      <NavLink to="admin/gate/delivery-courier-post" className={subNavClass}><Truck className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Delivery / Courier / Post</span></NavLink>
-                      <NavLink to="admin/gate/security-console" className={subNavClass}><Shield className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Security Console</span></NavLink>
+                      <NavLink to="admin/gate/employee-movement" className={subNavClass}><Users className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Employee Movement</span></NavLink>
+                      <NavLink to="admin/gate/goods-in-out" className={subNavClass}><Package className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Goods In / Out</span></NavLink>
+                      <NavLink to="admin/gate/visitor-guest-passes" className={subNavClass}><User className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Visitor / Guest Passes</span></NavLink>
+                      <NavLink to="admin/gate/vehicle-passes" className={subNavClass}><Car className="w-4 h-4 shrink-0 text-sidebar-strong" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Vehicle Passes</span></NavLink>
+                      <NavLink to="admin/gate/delivery-courier-post" className={subNavClass}><Truck className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Delivery / Courier / Post</span></NavLink>
+                      <NavLink to="admin/gate/security-console" className={subNavClass}><Shield className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Security Console</span></NavLink>
                     </div>
                   )}
                   </>
@@ -1066,9 +880,9 @@ const Layout = () => {
                   </button>
                   {adminMiscOpen && (
                     <div className="space-y-0.5">
-                      <NavLink to="admin/misc/events-coordination" className={subNavClass}><Calendar className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Events Coordination</span></NavLink>
-                      <NavLink to="admin/misc/tour-travel-details" className={subNavClass}><MapPin className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Tour / Travel Details</span></NavLink>
-                      <NavLink to="admin/misc/admin-tasks-other-requests" className={subNavClass}><ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate">Admin Tasks / Other Requests</span></NavLink>
+                      <NavLink to="admin/misc/events-coordination" className={subNavClass}><Calendar className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Events Coordination</span></NavLink>
+                      <NavLink to="admin/misc/tour-travel-details" className={subNavClass}><MapPin className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Tour / Travel Details</span></NavLink>
+                      <NavLink to="admin/misc/admin-tasks-other-requests" className={subNavClass}><ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" /><span className="type-meta type-truncate min-w-0 flex-1 text-left">Admin Tasks / Other Requests</span></NavLink>
                     </div>
                   )}
                   </>
@@ -1077,20 +891,20 @@ const Layout = () => {
                   {canSub("admin.alerts") && (
                   <NavLink to="admin/alerts-notifications" className={subNavClass}>
                     <Bell className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Alerts & Notifications</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Alerts & Notifications</span>
                   </NavLink>
                   )}
                   {canSub("admin.reports") && (
                   <NavLink to="admin/reports-analytics" className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Reports & Analytics</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Reports & Analytics</span>
                   </NavLink>
                   )}
                   {/* NAV_HIDDEN: Settings / Masters */}
                   {false && canSub("admin.settings") && (
                   <NavLink to="admin/settings-masters" className={subNavClass}>
                     <Settings className="w-4 h-4 shrink-0 text-sidebar-strong" />
-                    <span className="type-meta type-truncate">Settings / Masters</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Settings / Masters</span>
                   </NavLink>
                   )}
                 </div>
@@ -1098,346 +912,16 @@ const Layout = () => {
             </div>
             )}
 
-            {/* Commercial — Manpower / Training */}
-            {(can("commercialMt") || can("sales")) && (
-            <div>
-              <button
-                type="button"
-                onClick={() => setCommercialMtOpen(!commercialMtOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${
-                  pathname.startsWith("/app/commercial/manpower-training")
-                    ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent"
-                    : "text-sidebar-strong"
-                }`}
-              >
-                <span className="flex items-center space-x-2.5 min-w-0">
-                  <Briefcase className="w-4 h-4 shrink-0" />
-                  <span className="min-w-0 text-left leading-tight">
-                    <span className="block text-sm font-medium">Commercial</span>
-                    <span className="block text-xs">Manpower / Training</span>
-                  </span>
-                </span>
-                <ChevronDown
-                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${commercialMtOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-
-              {commercialMtOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                  <NavLink to="/app/commercial/manpower-training/dashboard" className={subNavClass}>
-                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Dashboard</span>
-                  </NavLink>
-                  <NavLink to="/app/manpower" end className={subNavClass}>
-                    <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Enquiry</span>
-                  </NavLink>
-                  <NavLink to="/app/manpower/internal-quotation" className={subNavClass}>
-                    <Calculator className="w-4 h-4 shrink-0 text-green-700" />
-                    <span className="type-meta type-truncate">Internal Quotation</span>
-                  </NavLink>
-                  <NavLink to="/app/manpower/quotation" className={subNavClass}>
-                    <ReceiptIcon className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Quotation</span>
-                  </NavLink>
-
-                  <button
-                    type="button"
-                    onClick={() => setManpowerConfigOpen((v) => !v)}
-                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-sidebar-hover text-sidebar-strong transition-colors"
-                  >
-                    <span className="flex items-start space-x-2">
-                      <Cog className="w-4 h-4 shrink-0 text-blue-700" />
-                      <span className="text-xs font-medium text-left leading-tight">Manpower Configuration</span>
-                    </span>
-                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${manpowerConfigOpen ? "rotate-180" : ""}`} />
-                  </button>
-                  {manpowerConfigOpen && (
-                    <div className="space-y-0.5">
-                      <NavLink to="/app/manpower/configuration/roles" className={subNavClass}>
-                        <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate">Roles</span>
-                      </NavLink>
-                      <NavLink to="/app/manpower/configuration/price-master" className={subNavClass}>
-                        <RupeeIcon className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate">Price Master</span>
-                      </NavLink>
-                      <NavLink to="/app/manpower/configuration/mail-template" className={subNavClass}>
-                        <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate">Mail Template</span>
-                      </NavLink>
-                      <NavLink to="/app/manpower/configuration/employee-type" className={subNavClass}>
-                        <UserCheck className="w-4 h-4 shrink-0 text-amber-700" />
-                        <span className="type-meta type-truncate">Employee Type</span>
-                      </NavLink>
-                      <NavLink to="/app/manpower/configuration/departments" className={subNavClass}>
-                        <FolderOpen className="w-4 h-4 shrink-0 text-sidebar-strong" />
-                        <span className="type-meta type-truncate">Departments</span>
-                      </NavLink>
-                    </div>
-                  )}
-                  <NavLink to="/app/commercial/manpower-training/po-entry" className={subNavClass}>
-                    <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Contract Management</span>
-                  </NavLink>
-                  <NavLink to="/app/commercial/manpower-training/contact-log" className={subNavClass}>
-                    <ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Contact Log</span>
-                  </NavLink>
-                  <NavLink to="/app/commercial/manpower-training/fire-tender-management" className={subNavClass}>
-                    <Truck className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Fire Tender Management</span>
-                  </NavLink>
-                </div>
-              )}
-            </div>
-            )}
-
-            {/* R&M */}
-            {(can("commercialRm") || can("sales")) && (
-            <div>
-              <button
-                type="button"
-                onClick={() => setCommercialRmOpen(!commercialRmOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${
-                  pathname.startsWith("/app/commercial/rm-mm-amc-iev") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"
-                }`}
-              >
-                <span className="flex items-center space-x-2.5 min-w-0">
-                  <Briefcase className="w-4 h-4 shrink-0" />
-                  <span className="type-body-medium type-truncate">R&amp;M</span>
-                </span>
-                <ChevronDown
-                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${commercialRmOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-
-              {commercialRmOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                  <NavLink to="/app/commercial/rm-mm-amc-iev/dashboard" className={subNavClass}>
-                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Dashboard</span>
-                  </NavLink>
-                  <NavLink to="/app/commercial/rm-mm-amc-iev/manpower-management" className={subNavClass}>
-                    <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Enquiry</span>
-                  </NavLink>
-                  <NavLink to="/app/commercial/rm-mm-amc-iev/internal-quotation" className={subNavClass}>
-                    <Calculator className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Internal Quotation</span>
-                  </NavLink>
-                  <NavLink to="/app/commercial/rm-mm-amc-iev/po-entry" className={subNavClass}>
-                    <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">PO Entry</span>
-                  </NavLink>
-                  <NavLink to="/app/commercial/rm-mm-amc-iev/contact-log" className={subNavClass}>
-                    <ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Contact Log</span>
-                  </NavLink>
-                  <NavLink to="/app/commercial/rm-mm-amc-iev/po-at-glance" end className={subNavClass}>
-                    <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
-                    <span className="type-meta type-truncate">PO At Glance</span>
-                  </NavLink>
-                </div>
-              )}
-            </div>
-            )}
-
-            {/* Marketing */}
-            {can("marketing") && (
-            <div>
-              <button
-                onClick={() => setMarketingOpen(!marketingOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/marketing") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
-              >
-                <span className="flex items-center space-x-2.5">
-                  <TrendingUp className="w-4 h-4 shrink-0" />
-                  <span className="type-body-medium type-truncate">Marketing</span>
-                </span>
-                <ChevronDown
-                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
-                    marketingOpen ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-
-              {marketingOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                  {MARKETING_NAV_ITEMS.map((item) => {
-                    if (!canSub(item.subModule)) return null;
-                    const Icon = item.icon;
-                    return (
-                      <NavLink
-                        key={item.path}
-                        to={item.path}
-                        end={Boolean(item.end)}
-                        className={subNavClass}
-                      >
-                        {item.useRupee ? (
-                          <RupeeIcon className={`w-4 h-4 ${item.iconClass}`} />
-                        ) : Icon ? (
-                          <Icon className={`w-4 h-4 shrink-0 ${item.iconClass}`} />
-                        ) : null}
-                        <span className="type-meta type-truncate">{item.label}</span>
-                      </NavLink>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            )}
-
-            {/* Maintenance */}
-            {can("maintenance") && (
-            <div>
-              <button
-                onClick={() => setMaintenanceOpen(!maintenanceOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/maintenance") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
-              >
-                <span className="flex items-center space-x-2.5">
-                  <Wrench className="w-4 h-4 shrink-0" />
-                  <span className="type-body-medium type-truncate">Maintenance</span>
-                </span>
-                <ChevronDown
-                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
-                    maintenanceOpen ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-
-              {maintenanceOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                  <NavLink to="/app/maintenance" className={subNavClass}>
-                    <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Maintenance Dashboard</span>
-                  </NavLink>
-                  <NavLink to="/app/maintenance/enquiry-master" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Enquiry Master</span>
-                  </NavLink>
-                  <NavLink to="/app/maintenance/quotation-tracker" className={subNavClass}>
-                    <RupeeIcon className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Quotation Tracker</span>
-                  </NavLink>
-                  <NavLink to="/app/maintenance/follow-up-planner" className={subNavClass}>
-                    <Calendar className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Follow-up Planner</span>
-                  </NavLink>
-                  <NavLink to="/app/maintenance/client-master" className={subNavClass}>
-                    <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Client Master</span>
-                  </NavLink>
-                  <NavLink to="/app/maintenance/product-catalog" className={subNavClass}>
-                    <Package className="w-4 h-4 shrink-0 text-yellow-600" />
-                    <span className="type-meta type-truncate">Product Catalog</span>
-                  </NavLink>
-                  <NavLink to="/app/maintenance/purchase-orders" className={subNavClass}>
-                    <ShoppingCart className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Purchase Orders</span>
-                  </NavLink>
-                  <NavLink to="/app/maintenance/mm-po-entry" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">PO Entry</span>
-                  </NavLink>
-                  <NavLink to="/app/maintenance/po-at-glance" end className={subNavClass}>
-                    <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
-                    <span className="type-meta type-truncate">PO At Glance</span>
-                  </NavLink>
-                  <NavLink to="/app/maintenance/expo-seminar" className={subNavClass}>
-                    <MapPin className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Expo & Seminar</span>
-                  </NavLink>
-                  <NavLink to="/app/maintenance/gst-upload" className={subNavClass}>
-                    <Receipt className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">GST Documents</span>
-                  </NavLink>
-                  <NavLink to="/app/maintenance/mail-templates" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Maintenance Mail Template</span>
-                  </NavLink>
-                  <NavLink to="/app/maintenance/reports-analytics" className={subNavClass}>
-                    <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Reports & Analytics</span>
-                  </NavLink>
-                </div>
-              )}
-            </div>
-            )}
-
-            {/* Billing */}
-            {can("billing") && (
-            <div>
-              <button
-                onClick={() => setBillingOpen(!billingOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/billing") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
-              >
-                <span className="flex items-center space-x-2.5">
-                  <ReceiptIcon className="w-4 h-4 shrink-0" />
-                  <span className="type-body-medium type-truncate">Billing</span>
-                </span>
-                <ChevronDown
-                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
-                    billingOpen ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-              {billingOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                  <NavLink to="/app/billing" end className={subNavClass}>
-                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Billing Dashboard</span>
-                  </NavLink>
-                  <NavLink to="/app/billing/create-invoice" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Create Invoice</span>
-                  </NavLink>
-                  <NavLink to="/app/billing/add-on-invoices" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Add-On Invoices</span>
-                  </NavLink>
-                  <NavLink to="/app/billing/manage-invoices" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Manage Invoices</span>
-                  </NavLink>
-                  <NavLink to="/app/billing/generated-e-invoice" className={subNavClass}>
-                    <FileDigit className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Generated E-Invoice</span>
-                  </NavLink>
-                  <NavLink to="/app/billing/credit-notes" className={subNavClass}>
-                    <Receipt className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Credit/Debit Notes</span>
-                  </NavLink>
-                  <NavLink to="/app/billing/reports" className={subNavClass}>
-                    <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Reports</span>
-                  </NavLink>
-                  <NavLink to="/app/billing/tracking" className={subNavClass}>
-                    <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Tracking</span>
-                  </NavLink>
-                  <NavLink to="/app/billing/notifications" className={subNavClass}>
-                    <Bell className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Notifications</span>
-                  </NavLink>
-                  <NavLink to="/app/billing/tracker" className={subNavClass}>
-                    <CalendarDays className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Billing Tracker</span>
-                  </NavLink>
-                </div>
-              )}
-            </div>
-            )}
-
-            {/* Operations */}
+            {/* Site Operations */}
             {can("operations") && (
             <div>
               <button
                 onClick={() => setOperationsOpen(!operationsOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/fire-tender-vehicle") || pathname.startsWith("/app/operations") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
+                className={sectionBtnClass(pathname.startsWith("/app/operations"))}
               >
-                <span className="flex items-center space-x-2.5">
+                <span className="flex items-center gap-2.5 min-w-0 flex-1">
                   <Wrench className="w-4 h-4 shrink-0" />
-                  <span className="type-body-medium type-truncate">Operations</span>
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Site Operations</span>
                 </span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
@@ -1448,22 +932,17 @@ const Layout = () => {
 
               {operationsOpen && (
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                  <NavLink to="fire-tender-vehicle-management" className={subNavClass}>
-                    <Car className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Fleet Management</span>
-                  </NavLink>
-
-                  <div className="flex items-stretch w-full rounded-md hover:bg-surface transition-colors">
+                  <div className="flex w-full items-center">
                     <NavLink
                       to="operations"
                       end
                       className={({ isActive }) =>
-                        `${subLinkBase} flex-1 min-w-0 rounded-md ${isActive && pathname === "/app/operations" ? activeClass : pathname.startsWith("/app/operations") ? activeClass : "text-sidebar-strong"}`
+                        `${subLinkBase} min-w-0 flex-1 ${isActive && pathname === "/app/operations" ? activeClass : pathname.startsWith("/app/operations") ? activeClass : "border-l-transparent text-sidebar-strong"}`
                       }
                       onClick={() => setManpowerOperationsOpen(true)}
                     >
                       <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                      <span className="text-xs font-medium text-left leading-tight">Manpower Operations</span>
+                      <span className="type-meta type-truncate min-w-0 flex-1 text-left">Manpower Operations</span>
                     </NavLink>
                     <button
                       type="button"
@@ -1498,7 +977,7 @@ const Layout = () => {
                                   className={() => subNavClass({ isActive: operationsNavIsActive(item, pathname) })}
                                 >
                                   {Icon && <Icon className="w-4 h-4 shrink-0 text-sidebar-accent" />}
-                                  <span className="type-meta type-truncate">{item.label}</span>
+                                  <span className="type-meta type-truncate min-w-0 flex-1 text-left">{item.label}</span>
                                 </NavLink>
                               );
                             })}
@@ -1511,7 +990,7 @@ const Layout = () => {
                             className={() => subNavClass({ isActive: operationsNavIsActive(entry, pathname) })}
                           >
                             {entry.icon && <entry.icon className="w-4 h-4 shrink-0 text-sidebar-accent" />}
-                            <span className="type-meta type-truncate">{entry.label}</span>
+                            <span className="type-meta type-truncate min-w-0 flex-1 text-left">{entry.label}</span>
                           </NavLink>
                         )
                       )}
@@ -1522,27 +1001,340 @@ const Layout = () => {
             </div>
             )}
 
+            {/* Commercial */}
+            {(can("commercialMt") || can("sales")) && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setCommercialMtOpen(!commercialMtOpen)}
+                className={sectionBtnClass(pathname.startsWith("/app/commercial/manpower-training"))}
+              >
+                <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <Briefcase className="w-4 h-4 shrink-0" />
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Commercial</span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${commercialMtOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              {commercialMtOpen && (
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  <NavLink to="/app/commercial/manpower-training/dashboard" className={subNavClass}>
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
+                  </NavLink>
+                  <NavLink to="/app/manpower" end className={subNavClass}>
+                    <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Enquiry</span>
+                  </NavLink>
+                  <NavLink to="/app/manpower/internal-quotation" className={subNavClass}>
+                    <Calculator className="w-4 h-4 shrink-0 text-green-700" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Internal Quotation</span>
+                  </NavLink>
+                  <NavLink to="/app/manpower/quotation" className={subNavClass}>
+                    <ReceiptIcon className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Quotation</span>
+                  </NavLink>
+
+                  <button
+                    type="button"
+                    onClick={() => setManpowerConfigOpen((v) => !v)}
+                    className={subToggleClass(pathname.startsWith("/app/manpower/configuration"))}
+                    aria-expanded={manpowerConfigOpen}
+                  >
+                    <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <Cog className="w-4 h-4 shrink-0 text-blue-700" />
+                      <span className="type-meta type-truncate min-w-0 text-left">Manpower Configuration</span>
+                    </span>
+                    <ChevronDown className={`${navChevron} ${manpowerConfigOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {manpowerConfigOpen && (
+                    <div className="space-y-0.5">
+                      <NavLink to="/app/manpower/configuration/roles" className={subNavClass}>
+                        <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Roles</span>
+                      </NavLink>
+                      <NavLink to="/app/manpower/configuration/price-master" className={subNavClass}>
+                        <RupeeIcon className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Price Master</span>
+                      </NavLink>
+                      <NavLink to="/app/manpower/configuration/mail-template" className={subNavClass}>
+                        <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Mail Template</span>
+                      </NavLink>
+                      <NavLink to="/app/manpower/configuration/employee-type" className={subNavClass}>
+                        <UserCheck className="w-4 h-4 shrink-0 text-amber-700" />
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Employee Type</span>
+                      </NavLink>
+                      <NavLink to="/app/manpower/configuration/departments" className={subNavClass}>
+                        <FolderOpen className="w-4 h-4 shrink-0 text-sidebar-strong" />
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Departments</span>
+                      </NavLink>
+                    </div>
+                  )}
+                  <NavLink to="/app/commercial/manpower-training/po-entry" className={subNavClass}>
+                    <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Contract Management</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial/manpower-training/contact-log" className={subNavClass}>
+                    <ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Contact Log</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial/manpower-training/fire-tender-management" className={subNavClass}>
+                    <Truck className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Fire Tender Management</span>
+                  </NavLink>
+                </div>
+              )}
+            </div>
+            )}
+
+            {/* HR */}
+            {can("hr") && (
+            <div>
+              <button
+                onClick={() => setHrAdminOpen(!hrAdminOpen)}
+                className={sectionBtnClass(
+                  pathname.startsWith("/app/hr") ||
+                    pathname.startsWith("/app/attendance") ||
+                    pathname.startsWith("/app/salary") ||
+                    pathname.startsWith("/app/people-management") ||
+                    pathname.startsWith("/app/hr/payroll/salary")
+                )}
+              >
+                <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <UserCheck className="w-4 h-4 shrink-0" />
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">HR Site</span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
+                    hrAdminOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              {hrAdminOpen && (
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  {canSub("hr.dashboard") && (
+                  <NavLink to="hr/dashboard" className={subNavClass}>
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
+                  </NavLink>
+                  )}
+                  {canSub("hr.employee-master") && (
+                  <NavLink
+                    to="hr/employee-master"
+                    className={() => {
+                      const path = pathname;
+                      const active =
+                        path.startsWith("/app/hr/employee-master") ||
+                        path === "/app/hr";
+                      return subNavClass({ isActive: active });
+                    }}
+                  >
+                    <User className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">HR Management</span>
+                  </NavLink>
+                  )}
+                  {(canSub("hr.calling-master") ||
+                    hasAnyRecruitmentTabAccess(userProfile, accessibleModules, user?.user_metadata)) && (
+                  <NavLink
+                    to={getRecruitmentLandingPath(userProfile, accessibleModules, user?.user_metadata).replace(
+                      /^\/app\//,
+                      ""
+                    )}
+                    className={() =>
+                      subNavClass({
+                        isActive: pathname.startsWith("/app/hr/calling-master"),
+                      })
+                    }
+                  >
+                    <PhoneCall className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Recruitment</span>
+                  </NavLink>
+                  )}
+                  {canSub("hr.attendance") && (
+                  <NavLink to="attendance" className={subNavClass}>
+                    <Clock className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Attendance</span>
+                  </NavLink>
+                  )}
+                  {canSub("hr.salary-management") && (
+                  <>
+                  <button
+                    type="button"
+                    onClick={() => setHrSalaryOpen(!hrSalaryOpen)}
+                    className={subToggleClass(pathname.startsWith(`/app/${HR_SALARY_BASE}`))}
+                    aria-expanded={hrSalaryOpen}
+                    aria-label="Toggle salary management menu"
+                  >
+                    <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <Wallet className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                      <span className="type-meta type-truncate min-w-0 text-left">Salary Management</span>
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${hrSalaryOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {hrSalaryOpen && (
+                    <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                      {SALARY_SUB_NAV.map((item) => (
+                        <NavLink
+                          key={item.to}
+                          to={salaryNavPath(item.to).replace(/^\/app\//, "")}
+                          className={() => subNavClass({ isActive: salaryNavIsActive(item, location) })}
+                        >
+                          <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                          <span className="type-meta type-truncate min-w-0 flex-1 text-left">{item.label}</span>
+                        </NavLink>
+                      ))}
+                    </div>
+                  )}
+                  </>
+                  )}
+                  {canSub("hr.site-attendance") && (
+                  <NavLink
+                    to="hr/site-attendance"
+                    className={() =>
+                      subNavClass({
+                        isActive: pathname.startsWith("/app/hr/site-attendance"),
+                      })
+                    }
+                  >
+                    <Building2 className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Site Attendance</span>
+                  </NavLink>
+                  )}
+                  {canSub("hr.people-management") && (
+                  <NavLink to="people-management" className={subNavClass}>
+                    <UserPlus className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">People Management</span>
+                  </NavLink>
+                  )}
+                </div>
+              )}
+            </div>
+            )}
+
+            {/* Compliance */}
+            {canAccessCompliance(userProfile, user) && (
+            <div>
+              <button
+                onClick={() => setComplianceOpen(!complianceOpen)}
+                className={sectionBtnClass(
+                  pathname.startsWith("/app/ifsp-employee-compliance") ||
+                    pathname.startsWith("/app/general-compliance") ||
+                    pathname === "/app/compliance" ||
+                    pathname.startsWith("/app/compliance/")
+                )}
+              >
+                <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <Shield className="w-4 h-4 shrink-0" />
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Compliance</span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
+                    complianceOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              {complianceOpen && (
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  {canSub("compliance.payroll") && (
+                  <>
+                  <NavLink
+                    to="compliance/dashboard"
+                    className={() =>
+                      `${subLinkBase} ${
+                        pathname === "/app/compliance" ||
+                        pathname === "/app/compliance/" ||
+                        pathname === "/app/compliance/dashboard"
+                          ? activeClass
+                          : "border-l-transparent text-sidebar-strong"
+                      }`
+                    }
+                  >
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
+                  </NavLink>
+                  <NavLink
+                    to="compliance/forms"
+                    className={() =>
+                      `${subLinkBase} ${
+                        pathname.startsWith("/app/compliance/forms")
+                          ? activeClass
+                          : "border-l-transparent text-sidebar-strong"
+                      }`
+                    }
+                  >
+                    <FileText className="w-4 h-4 shrink-0 text-ink-muted" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Compliance Forms</span>
+                  </NavLink>
+                  <NavLink
+                    to="compliance/payroll-process"
+                    className={() =>
+                      `${subLinkBase} ${
+                        pathname.startsWith("/app/compliance/payroll-process")
+                          ? activeClass
+                          : "border-l-transparent text-sidebar-strong"
+                      }`
+                    }
+                  >
+                    <FileSpreadsheet className="w-4 h-4 shrink-0 text-ink-muted" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Payroll Compliance</span>
+                  </NavLink>
+                  </>
+                  )}
+                  {canSub("compliance.ifspl") && (
+                  <NavLink to="ifsp-employee-compliance" className={subNavClass}>
+                    <CheckCircle className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">IFSPL Employee Compliance</span>
+                  </NavLink>
+                  )}
+                  {canSub("compliance.general") && (
+                  <NavLink to="general-compliance" className={subNavClass}>
+                    <ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">General Compliance</span>
+                  </NavLink>
+                  )}
+                </div>
+              )}
+            </div>
+            )}
+
+            {misScopedOnly && (
+              <NavLink
+                to="admin/payroll-mis"
+                className={`${moduleRow} hover:bg-sidebar-hover ${
+                  pathname.startsWith("/app/admin/payroll-mis")
+                    ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-sidebar-accent"
+                    : "border-l-transparent text-sidebar-strong"
+                }`}
+              >
+                <BarChart3 className="w-4 h-4 shrink-0" />
+                <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Payroll reports</span>
+              </NavLink>
+            )}
+
             {/* Projects */}
             {can("projects") && (
             <div>
               <button
                 onClick={() => setProjectsOpen(!projectsOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${
+                className={sectionBtnClass(
                   pathname.startsWith("/app/projects/dashboard") ||
-                  pathname.startsWith("/app/projects/reports") ||
-                  pathname.startsWith("/app/projects/po") ||
-                  pathname.startsWith("/app/projects/enquiry") ||
-                  pathname.startsWith("/app/projects/quotation") ||
-                  pathname.startsWith("/app/projects-management") ||
-                  pathname.startsWith("/app/projects-billing") ||
-                  pathname.startsWith("/app/projects-po-at-glance")
-                    ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent"
-                    : "text-sidebar-strong"
-                }`}
+                    pathname.startsWith("/app/projects/reports") ||
+                    pathname.startsWith("/app/projects/po") ||
+                    pathname.startsWith("/app/projects/enquiry") ||
+                    pathname.startsWith("/app/projects/quotation") ||
+                    pathname.startsWith("/app/projects-management") ||
+                    pathname.startsWith("/app/projects-billing") ||
+                    pathname.startsWith("/app/projects-po-at-glance")
+                )}
               >
-                <span className="flex items-center space-x-2.5">
+                <span className="flex items-center gap-2.5 min-w-0 flex-1">
                   <Activity className="w-4 h-4 shrink-0" />
-                  <span className="type-body-medium type-truncate">Projects</span>
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Projects</span>
                 </span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
@@ -1555,59 +1347,55 @@ const Layout = () => {
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="projects/dashboard" className={subNavClass}>
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Project Dashboard</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Project Dashboard</span>
                   </NavLink>
                   <NavLink
                     to={enquiryTabs.length ? `projects/enquiry/${enquiryTabs[0]}` : "projects/enquiry"}
                     className={() => subNavClass({ isActive: pathname.startsWith("/app/projects/enquiry") })}
                   >
                     <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Enquiry Master</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Enquiry Master</span>
                   </NavLink>
                   <NavLink to="projects/quotation" className={subNavClass}>
                     <ClipboardList className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Quotation Master</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Quotation Master</span>
                   </NavLink>
                   <NavLink to="/app/projects-po-at-glance" end className={subNavClass}>
                     <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
-                    <span className="type-meta type-truncate">PO at Glance</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">PO at Glance</span>
                   </NavLink>
                   {contractTabs.length > 0 && (
                     <div>
                       <button
                         type="button"
                         onClick={() => setContractMgmtOpen(!contractMgmtOpen)}
-                        className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 min-h-[2.1rem] transition-colors hover:bg-sidebar-hover ${
-                          pathname.startsWith("/app/projects/po")
-                            ? "bg-sidebar-active/60 text-sidebar-strong"
-                            : "text-sidebar-strong"
-                        }`}
+                        className={subToggleClass(pathname.startsWith("/app/projects/po"))}
+                        aria-expanded={contractMgmtOpen}
                       >
-                        <span className="flex min-w-0 items-center space-x-2.5">
+                        <span className="flex min-w-0 items-center gap-2.5">
                           <FileCheck className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                          <span className="type-meta type-truncate">Contract Management</span>
+                          <span className="type-meta type-truncate min-w-0 text-left">Contract Management</span>
                         </span>
-                        <ChevronDown
-                          className={`h-3.5 w-3.5 shrink-0 transform transition-transform ${
-                            contractMgmtOpen ? "rotate-180" : ""
-                          }`}
-                        />
+                        <ChevronDown className={`${navChevron} ${contractMgmtOpen ? "rotate-180" : ""}`} />
                       </button>
                       {contractMgmtOpen && (
                         <div className="ml-4 mt-0.5 space-y-0.5 border-l border-sidebar-border pl-2">
                           {contractTabs.includes("po-wo-sub-coordinator") && (
                             <NavLink to="projects/po/po-wo-sub-coordinator" className={subNavClass}>
-                              <span className="type-meta type-truncate">PO/WO to Sub-Coordinator</span>
+                              <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                              <span className="type-meta type-truncate min-w-0 flex-1 text-left">PO/WO to Sub-Coordinator</span>
                             </NavLink>
                           )}
                           {contractTabs.includes("budget") && (
                             <NavLink to="projects/po/budget" className={subNavClass}>
-                              <span className="type-meta type-truncate">Budget</span>
+                              <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                              <span className="type-meta type-truncate min-w-0 flex-1 text-left">Budget</span>
                             </NavLink>
                           )}
                           {contractTabs.includes("expense") && (
                             <NavLink to="projects/po/expense" className={subNavClass}>
-                              <span className="type-meta type-truncate">Expense</span>
+                              <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                              <span className="type-meta type-truncate min-w-0 flex-1 text-left">Expense</span>
                             </NavLink>
                           )}
                         </div>
@@ -1616,7 +1404,7 @@ const Layout = () => {
                   )}
                   <NavLink to="projects-management" className={subNavClass}>
                     <FolderOpen className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Management / Planning</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Management / Planning</span>
                   </NavLink>
                   <NavLink to="/app/projects-billing" end className={subNavClass}>
                     <Receipt className="w-4 h-4 shrink-0 text-sidebar-accent" />
@@ -1624,8 +1412,129 @@ const Layout = () => {
                   </NavLink>
                   <NavLink to="projects/reports" className={subNavClass}>
                     <FileSpreadsheet className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">Reports</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Project Reports</span>
                   </NavLink>
+                </div>
+              )}
+            </div>
+            )}
+
+            {/* Maintenance */}
+            {can("maintenance") && (
+            <div>
+              <button
+                onClick={() => setMaintenanceOpen(!maintenanceOpen)}
+                className={sectionBtnClass(pathname.startsWith("/app/maintenance"))}
+              >
+                <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <Wrench className="w-4 h-4 shrink-0" />
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Maintenance (M&M)</span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
+                    maintenanceOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              {maintenanceOpen && (
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  <NavLink to="/app/maintenance" className={subNavClass}>
+                    <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Maintenance Dashboard</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/enquiry-master" className={subNavClass}>
+                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Enquiry Master</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/quotation-tracker" className={subNavClass}>
+                    <RupeeIcon className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Quotation Tracker</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/follow-up-planner" className={subNavClass}>
+                    <Calendar className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Follow-up Planner</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/client-master" className={subNavClass}>
+                    <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Client Master</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/product-catalog" className={subNavClass}>
+                    <Package className="w-4 h-4 shrink-0 text-yellow-600" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Product Catalog</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/purchase-orders" className={subNavClass}>
+                    <ShoppingCart className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Purchase Orders</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/mm-po-entry" className={subNavClass}>
+                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">PO Entry</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/po-at-glance" end className={subNavClass}>
+                    <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">PO At Glance</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/expo-seminar" className={subNavClass}>
+                    <MapPin className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Expo & Seminar</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/gst-upload" className={subNavClass}>
+                    <Receipt className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">GST Documents</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/mail-templates" className={subNavClass}>
+                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Maintenance Mail Template</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/reports-analytics" className={subNavClass}>
+                    <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Reports & Analytics</span>
+                  </NavLink>
+                </div>
+              )}
+            </div>
+            )}
+
+            {/* Marketing */}
+            {can("marketing") && (
+            <div>
+              <button
+                onClick={() => setMarketingOpen(!marketingOpen)}
+                className={sectionBtnClass(pathname.startsWith("/app/marketing"))}
+              >
+                <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <TrendingUp className="w-4 h-4 shrink-0" />
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Marketing</span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
+                    marketingOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              {marketingOpen && (
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  {MARKETING_NAV_ITEMS.map((item) => {
+                    if (!canSub(item.subModule)) return null;
+                    const Icon = item.icon;
+                    return (
+                      <NavLink
+                        key={item.path}
+                        to={item.path}
+                        end={Boolean(item.end)}
+                        className={subNavClass}
+                      >
+                        {item.useRupee ? (
+                          <RupeeIcon className={`w-4 h-4 ${item.iconClass}`} />
+                        ) : Icon ? (
+                          <Icon className={`w-4 h-4 shrink-0 ${item.iconClass}`} />
+                        ) : null}
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">{item.label}</span>
+                      </NavLink>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1635,66 +1544,68 @@ const Layout = () => {
             {can("procurement") && (
             <NavLink to="procurement" className={topNavClass}>
               <ShoppingCart className="w-4 h-4 shrink-0" />
-              <span className="type-body-medium type-truncate">Procurement</span>
+              <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Procurement</span>
             </NavLink>
             )}
 
-            {/* AMC Management */}
-            {can("amc") && (
+            {/* Billing */}
+            {can("billing") && (
             <div>
               <button
-                type="button"
-                onClick={() => setAmcOpen(!amcOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${
-                  pathname.startsWith("/app/amc") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"
-                }`}
+                onClick={() => setBillingOpen(!billingOpen)}
+                className={sectionBtnClass(pathname.startsWith("/app/billing"))}
               >
-                <span className="flex items-center space-x-2.5 min-w-0">
-                  <FileText className="w-4 h-4 shrink-0" />
-                  <span className="type-body-medium type-truncate">AMC Management</span>
+                <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <ReceiptIcon className="w-4 h-4 shrink-0" />
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Billing</span>
                 </span>
-                <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${amcOpen ? "rotate-180" : ""}`} />
+                <ChevronDown
+                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
+                    billingOpen ? "rotate-180" : ""
+                  }`}
+                />
               </button>
-              {amcOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2 max-h-64 overflow-y-auto">
-                  <NavLink to="/app/amc" end className={subNavClass}>
-                    <span className="type-meta type-truncate">Dashboard</span>
+              {billingOpen && (
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  <NavLink to="/app/billing" end className={subNavClass}>
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Billing Dashboard</span>
                   </NavLink>
-                  <NavLink to="/app/amc/customers" className={subNavClass}>
-                    <span className="type-meta type-truncate">Customers</span>
+                  <NavLink to="/app/billing/create-invoice" className={subNavClass}>
+                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Create Invoice</span>
                   </NavLink>
-                  <NavLink to="/app/amc/contracts" className={subNavClass}>
-                    <span className="type-meta type-truncate">Contracts</span>
+                  <NavLink to="/app/billing/add-on-invoices" className={subNavClass}>
+                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Add-On Invoices</span>
                   </NavLink>
-                  <NavLink to="/app/amc/sites" className={subNavClass}>
-                    <span className="type-meta type-truncate">Covered Sites</span>
+                  <NavLink to="/app/billing/manage-invoices" className={subNavClass}>
+                    <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Manage Invoices</span>
                   </NavLink>
-                  <NavLink to="/app/amc/assets" className={subNavClass}>
-                    <span className="type-meta type-truncate">Covered Assets</span>
+                  <NavLink to="/app/billing/generated-e-invoice" className={subNavClass}>
+                    <FileDigit className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Generated E-Invoice</span>
                   </NavLink>
-                  <NavLink to="/app/amc/pm-schedule" className={subNavClass}>
-                    <span className="type-meta type-truncate">PM Schedule</span>
+                  <NavLink to="/app/billing/credit-notes" className={subNavClass}>
+                    <Receipt className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Credit/Debit Notes</span>
                   </NavLink>
-                  <NavLink to="/app/amc/complaints" className={subNavClass}>
-                    <span className="type-meta type-truncate">Complaint Calls</span>
+                  <NavLink to="/app/billing/reports" className={subNavClass}>
+                    <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Reports</span>
                   </NavLink>
-                  <NavLink to="/app/amc/visits" className={subNavClass}>
-                    <span className="type-meta type-truncate">Service Visits</span>
+                  <NavLink to="/app/billing/tracking" className={subNavClass}>
+                    <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Tracking</span>
                   </NavLink>
-                  <NavLink to="/app/amc/technicians" className={subNavClass}>
-                    <span className="type-meta type-truncate">Technician Allocation</span>
+                  <NavLink to="/app/billing/notifications" className={subNavClass}>
+                    <Bell className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Notifications</span>
                   </NavLink>
-                  <NavLink to="/app/amc/service-reports" className={subNavClass}>
-                    <span className="type-meta type-truncate">Service Reports</span>
-                  </NavLink>
-                  <NavLink to="/app/amc/alerts" className={subNavClass}>
-                    <span className="type-meta type-truncate">Alerts & SLA</span>
-                  </NavLink>
-                  <NavLink to="/app/amc/reports" className={subNavClass}>
-                    <span className="type-meta type-truncate">Reports</span>
-                  </NavLink>
-                  <NavLink to="/app/amc/settings" className={subNavClass}>
-                    <span className="type-meta type-truncate">Settings</span>
+                  <NavLink to="/app/billing/tracker" className={subNavClass}>
+                    <CalendarDays className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Billing Tracker</span>
                   </NavLink>
                 </div>
               )}
@@ -1706,27 +1617,28 @@ const Layout = () => {
               <button
                 type="button"
                 onClick={() => setFinanceOpen(!financeOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${
-                  pathname.startsWith("/app/accounts-finance") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"
-                }`}
+                className={sectionBtnClass(pathname.startsWith("/app/accounts-finance"))}
               >
-                <span className="flex items-center space-x-2.5 min-w-0">
+                <span className="flex items-center gap-2.5 min-w-0 flex-1">
                   <RupeeIcon className="w-4 h-4 shrink-0" />
-                  <span className="type-body-medium type-truncate">Finance/Accounts</span>
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Finance</span>
                 </span>
                 <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${financeOpen ? "rotate-180" : ""}`} />
               </button>
               {financeOpen && (
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="/app/accounts-finance/reports/site-ledger" className={subNavClass}>
-                    <span className="type-meta type-truncate">P&amp;L</span>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">P&amp;L</span>
                   </NavLink>
                   <NavLink to="/app/accounts-finance/bank-formats" className={subNavClass}>
-                    <span className="type-meta type-truncate">Bank formats</span>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Bank formats</span>
                   </NavLink>
                   {canSub(FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY) && (
                   <NavLink to="/app/accounts-finance/po-at-glance" className={subNavClass}>
-                    <span className="type-meta type-truncate">Master PO At Glance</span>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Master PO At Glance</span>
                   </NavLink>
                   )}
                 </div>
@@ -1734,23 +1646,20 @@ const Layout = () => {
             </div>
             )}
 
-            {can("indusLms") && (
-            <NavLink to="indus-lms-trainings" className={topNavClass}>
-              <BookOpen className="w-4 h-4 shrink-0" />
-              <span className="type-body-medium type-truncate">Indus LMS / trainings</span>
-            </NavLink>
-            )}
-
             {/* IEV */}
-            {can("fireTender") && (
+            {(can("fireTender") || can("operations")) && (
             <div>
               <button
                 onClick={() => setFireTenderOpen(!fireTenderOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-theme min-h-[2.35rem] ${pathname.startsWith("/app/fire-tender") || pathname.startsWith("/app/fire-tender-manufacturing") ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-[3px] border-l-sidebar-accent" : "text-sidebar-strong"}`}
+                className={sectionBtnClass(
+                  pathname.startsWith("/app/fire-tender") ||
+                    pathname.startsWith("/app/fire-tender-manufacturing") ||
+                    pathname.startsWith("/app/fire-tender-vehicle")
+                )}
               >
-                <span className="flex items-center space-x-2.5">
+                <span className="flex items-center gap-2.5 min-w-0 flex-1">
                   <Truck className="w-4 h-4 shrink-0" />
-                  <span className="type-body-medium type-truncate">IEV</span>
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">IEV</span>
                 </span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
@@ -1761,10 +1670,28 @@ const Layout = () => {
 
               {fireTenderOpen && (
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  {can("fireTender") && (canOpenPath("/app/fire-tender") || ievCostingTabs.length > 0 || canOpenPath("/app/fire-tender-manufacturing")) && (
+                  <>
+                  <button
+                    type="button"
+                    onClick={() => setFtCostingOpen((open) => !open)}
+                    className={subToggleClass(
+                      pathname.startsWith("/app/fire-tender") || pathname.startsWith("/app/fire-tender-manufacturing")
+                    )}
+                    aria-expanded={ftCostingOpen}
+                  >
+                    <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <Calculator className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                      <span className="type-meta type-truncate min-w-0 text-left">FT Costing</span>
+                    </span>
+                    <ChevronDown className={`${navChevron} ${ftCostingOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {ftCostingOpen && (
+                  <div className="ml-4 space-y-0.5 border-l border-sidebar-border pl-2">
                   {canOpenPath("/app/fire-tender") && (
                   <NavLink to="fire-tender" end className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">IEV Dashboard</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">IEV Dashboard</span>
                   </NavLink>
                   )}
                   {ievCostingTabs.length > 0 && (
@@ -1781,13 +1708,23 @@ const Layout = () => {
                     }}
                   >
                     <Calculator className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">IEV Costing</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">IEV Costing</span>
                   </NavLink>
                   )}
                   {canOpenPath("/app/fire-tender-manufacturing") && (
                   <NavLink to="fire-tender-manufacturing" className={subNavClass}>
                     <Factory className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate">IEV Manufacturing</span>
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">IEV Manufacturing</span>
+                  </NavLink>
+                  )}
+                  </div>
+                  )}
+                  </>
+                  )}
+                  {can("operations") && (
+                  <NavLink to="fire-tender-vehicle-management" className={subNavClass} title="Fleet Management">
+                    <Car className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Fleet Management</span>
                   </NavLink>
                   )}
                 </div>
@@ -1795,24 +1732,173 @@ const Layout = () => {
             </div>
             )}
 
+            {/* R&M */}
+            {(can("commercialRm") || can("sales")) && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setCommercialRmOpen(!commercialRmOpen)}
+                className={sectionBtnClass(pathname.startsWith("/app/commercial/rm-mm-amc-iev"))}
+              >
+                <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <Briefcase className="w-4 h-4 shrink-0" />
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">R&amp;M</span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${commercialRmOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              {commercialRmOpen && (
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  <NavLink to="/app/commercial/rm-mm-amc-iev/dashboard" className={subNavClass}>
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial/rm-mm-amc-iev/manpower-management" className={subNavClass}>
+                    <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Enquiry</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial/rm-mm-amc-iev/internal-quotation" className={subNavClass}>
+                    <Calculator className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Internal Quotation</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial/rm-mm-amc-iev/po-entry" className={subNavClass}>
+                    <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">PO Entry</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial/rm-mm-amc-iev/contact-log" className={subNavClass}>
+                    <ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Contact Log</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial/rm-mm-amc-iev/po-at-glance" end className={subNavClass}>
+                    <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">PO At Glance</span>
+                  </NavLink>
+                </div>
+              )}
+            </div>
+            )}
+
+            {/* AMC Management */}
+            {can("amc") && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setAmcOpen(!amcOpen)}
+                className={sectionBtnClass(pathname.startsWith("/app/amc"))}
+              >
+                <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <FileText className="w-4 h-4 shrink-0" />
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">AMC Management</span>
+                </span>
+                <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${amcOpen ? "rotate-180" : ""}`} />
+              </button>
+              {amcOpen && (
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2 max-h-64 overflow-y-auto">
+                  <NavLink to="/app/amc" end className={subNavClass}>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/customers" className={subNavClass}>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Customers</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/contracts" className={subNavClass}>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Contracts</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/sites" className={subNavClass}>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Covered Sites</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/assets" className={subNavClass}>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Covered Assets</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/pm-schedule" className={subNavClass}>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">PM Schedule</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/complaints" className={subNavClass}>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Complaint Calls</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/visits" className={subNavClass}>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Service Visits</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/technicians" className={subNavClass}>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Technician Allocation</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/service-reports" className={subNavClass}>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Service Reports</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/alerts" className={subNavClass}>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Alerts & SLA</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/reports" className={subNavClass}>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Reports</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/settings" className={subNavClass}>
+                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Settings</span>
+                  </NavLink>
+                </div>
+              )}
+            </div>
+            )}
+
+            {/* Internal Utilities */}
+            {(can("userManagement") || can("crmOutreach") || can("marketing")) && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setUtilitiesOpen(!utilitiesOpen)}
+                className={sectionBtnClass(utilitiesOpen || pathname.startsWith("/app/user-management") || pathname.startsWith("/app/crm-outreach"))}
+              >
+                <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <Layers className="w-4 h-4 shrink-0" />
+                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Internal Utilities</span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${utilitiesOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+              {utilitiesOpen && (
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  {(can("crmOutreach") || can("marketing")) && (
+                  <NavLink to="crm-outreach" className={subNavClass}>
+                    <Mail className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Mail Outreach</span>
+                  </NavLink>
+                  )}
+                  {can("userManagement") && (
+                  <NavLink to="user-management" className={subNavClass}>
+                    <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">User Management</span>
+                  </NavLink>
+                  )}
+                </div>
+              )}
+            </div>
+            )}
+
+            {can("indusLms") && (
+            <NavLink to="indus-lms-trainings" className={topNavClass}>
+              <BookOpen className="w-4 h-4 shrink-0" />
+              <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Indus LMS / Training</span>
+            </NavLink>
+            )}
+
             {userProfile?.role === ROLES.SUPER_ADMIN && (
             <NavLink to="all-employees" className={topNavClass}>
               <Users className="w-4 h-4 shrink-0" />
-              <span className="type-body-medium type-truncate">All Employees</span>
-            </NavLink>
-            )}
-
-            {(can("crmOutreach") || can("marketing")) && (
-            <NavLink to="crm-outreach" className={topNavClass}>
-              <Mail className="w-4 h-4 shrink-0" />
-              <span className="type-body-medium type-truncate">Client/In-House Mail Outreach</span>
-            </NavLink>
-            )}
-
-            {can("userManagement") && (
-            <NavLink to="user-management" className={topNavClass}>
-              <Users className="w-4 h-4 shrink-0" />
-              <span className="type-body-medium type-truncate">User Management</span>
+              <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">All Employees</span>
             </NavLink>
             )}
 
@@ -1821,7 +1907,7 @@ const Layout = () => {
               can("itIs")) && (
             <NavLink to="software-subscriptions-reminders" className={topNavClass}>
               <Bell className="w-4 h-4 shrink-0" />
-              <span className="type-body-medium type-truncate">Software subscriptions/reminders</span>
+              <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Software Subscriptions</span>
             </NavLink>
             )}
 
@@ -1830,14 +1916,14 @@ const Layout = () => {
               can("itIs")) && (
             <NavLink to="api-health" className={topNavClass}>
               <Activity className="w-4 h-4 shrink-0" />
-              <span className="type-body-medium type-truncate">API Health</span>
+              <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">API Health</span>
             </NavLink>
             )}
 
             {can("settings") && (
             <NavLink to="settings" className={topNavClass}>
               <Settings className="w-4 h-4 shrink-0" />
-              <span className="type-body-medium type-truncate">Settings</span>
+              <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Settings</span>
             </NavLink>
             )}
             </div>

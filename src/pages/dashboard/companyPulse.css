@@ -341,15 +341,17 @@
 .cp-cell {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-height: 96px;
-  padding: 8px;
+  gap: 8px;
+  min-height: 112px;
+  padding: 10px 10px 9px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--surface-sunken);
   text-align: left;
   color: var(--text);
   cursor: pointer;
+  overflow: hidden;
+  box-sizing: border-box;
   animation: cpCellIn 360ms var(--ease-out, ease) both;
   transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
 }
@@ -443,27 +445,15 @@
   text-overflow: ellipsis;
 }
 
-.cp-cell-bar {
-  display: block;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--border);
-  overflow: hidden;
-}
-
-.cp-cell-bar i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--c, var(--accent));
-}
-
 .cp-cell-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
-  font-size: 10px;
+  gap: 8px;
+  margin-top: auto;
+  min-height: 16px;
+  line-height: 1.2;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -471,6 +461,10 @@
 .cp-cell-foot em {
   font-style: normal;
   color: var(--c, var(--text-muted));
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cp-cell-foot > span {

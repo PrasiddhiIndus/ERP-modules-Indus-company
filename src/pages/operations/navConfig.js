@@ -113,7 +113,7 @@ export function operationsPath(pageId, params = {}) {
 
 export function getBreadcrumbs(pageId, params = {}) {
   const crumbs = [
-    { label: "Operations", path: OPERATIONS_BASE },
+    { label: "Site Operations", path: OPERATIONS_BASE },
     { label: "Manpower Operations", path: OPERATIONS_BASE },
   ];
   if (pageId === "dashboard") return [...crumbs, { label: "Dashboard" }];
