@@ -83,7 +83,7 @@ export default function PropertyDetails() {
                   cy="18"
                   r="15.9"
                   fill="none"
-                  stroke="var(--accent)"
+                  stroke="var(--accent-text)"
                   strokeWidth="3"
                   strokeDasharray={`${occupancyPct} ${100 - occupancyPct}`}
                 />

@@ -73,7 +73,7 @@
   :focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px var(--focus-ring);
-    border-color: var(--accent);
+    border-color: var(--accent-text);
   }
 
   /* Tabular nums for numeric data surfaces */
@@ -195,7 +195,7 @@
   }
   .erp-btn-primary:focus-visible {
     box-shadow: 0 0 0 3px var(--focus-ring);
-    border-color: var(--accent);
+    border-color: var(--accent-text);
   }
 
   .erp-btn-secondary {
@@ -227,7 +227,7 @@
 
   .erp-btn-destructive {
     background-color: var(--critical-soft);
-    color: var(--critical);
+    color: var(--critical-text);
     border: 1px solid var(--critical-border);
     border-radius: var(--radius-control);
   }
@@ -257,33 +257,33 @@
   }
   .erp-input:focus,
   .erp-input:focus-visible {
-    border-color: var(--accent);
+    border-color: var(--accent-text);
     box-shadow: 0 0 0 3px var(--focus-ring);
     outline: none;
   }
   .erp-input-error {
-    border-color: var(--critical);
+    border-color: var(--critical-text);
   }
 
   .erp-alert-critical {
     background: var(--critical-soft);
-    border: 1px solid color-mix(in srgb, var(--critical) 25%, transparent);
-    color: var(--critical);
+    border: 1px solid color-mix(in srgb, var(--critical-text) 25%, transparent);
+    color: var(--critical-text);
   }
   .erp-alert-warning {
     background: var(--warning-soft);
-    border: 1px solid color-mix(in srgb, var(--warning) 25%, transparent);
-    color: var(--warning);
+    border: 1px solid color-mix(in srgb, var(--warning-text) 25%, transparent);
+    color: var(--warning-text);
   }
   .erp-alert-success {
     background: var(--success-soft);
-    border: 1px solid color-mix(in srgb, var(--success) 25%, transparent);
-    color: var(--success);
+    border: 1px solid color-mix(in srgb, var(--success-text) 25%, transparent);
+    color: var(--success-text);
   }
   .erp-alert-info {
     background: var(--info-soft);
-    border: 1px solid color-mix(in srgb, var(--info) 25%, transparent);
-    color: var(--info);
+    border: 1px solid color-mix(in srgb, var(--info-text) 25%, transparent);
+    color: var(--info-text);
   }
 }
 
@@ -592,13 +592,13 @@ main.erp-app-shell .erp-freeze-pane-sticky-header > div > div:first-child .erp-f
 
 .login-page .login-input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .login-page .login-btn-primary {
   background-color: var(--accent);
-  color: var(--surface-raised);
+  color: var(--on-solid);
   border-radius: var(--radius-control);
   font-family: var(--font-sans);
   font-size: var(--type-body-size);
@@ -618,8 +618,8 @@ main.erp-app-shell .erp-freeze-pane-sticky-header > div > div:first-child .erp-f
 }
 
 .login-page .login-spinner {
-  border-color: color-mix(in srgb, var(--surface-raised) 40%, transparent);
-  border-top-color: var(--surface-raised);
+  border-color: color-mix(in srgb, var(--on-solid) 40%, transparent);
+  border-top-color: var(--on-solid);
   animation: spin 0.8s linear infinite;
 }
 
@@ -639,7 +639,7 @@ main.erp-app-shell .erp-freeze-pane-sticky-header > div > div:first-child .erp-f
 }
 
 .login-page .login-otp-box:focus {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   box-shadow: 0 0 0 3px var(--focus-ring);
   outline: none;
 }
@@ -956,4 +956,146 @@ main.erp-app-shell header.sticky {
 .theme-dark .erp-btn-primary:hover:not(:disabled) {
   box-shadow: none;
   transform: none;
+}
+
+/* ─── Paper scope ──────────────────────────────────────────────────────────
+   Document surfaces (invoice / payslip / statutory form / print previews)
+   stay white with dark ink in both themes. Tokens are re-pinned to the light
+   palette by `.erp-paper` in theme/tokens.css. */
+:where(.erp-paper) {
+  background-color: #ffffff;
+  color: var(--text);
+}
+:where(.erp-light-scope) {
+  color: var(--text);
+}
+
+/* ─── Dark theme: global readability layer ─────────────────────────────────
+   Centralised fixes for colours that cannot be expressed through tokens
+   (literal black/white utilities, native controls, third-party widgets).
+   Everything here is scoped to dark, so light mode is untouched. */
+[data-theme="dark"] .text-black:not(:is(.erp-paper, .erp-light-scope), :is(.erp-paper, .erp-light-scope) *),
+.theme-dark .text-black:not(:is(.erp-paper, .erp-light-scope), :is(.erp-paper, .erp-light-scope) *) {
+  color: var(--text-strong);
+}
+[data-theme="dark"] .border-black:not(:is(.erp-paper, .erp-light-scope), :is(.erp-paper, .erp-light-scope) *),
+.theme-dark .border-black:not(:is(.erp-paper, .erp-light-scope), :is(.erp-paper, .erp-light-scope) *) {
+  border-color: var(--border-strong);
+}
+[data-theme="dark"] .placeholder-black:not(:is(.erp-paper, .erp-light-scope), :is(.erp-paper, .erp-light-scope) *)::placeholder,
+.theme-dark .placeholder-black:not(:is(.erp-paper, .erp-light-scope), :is(.erp-paper, .erp-light-scope) *)::placeholder {
+  color: var(--text-muted);
+}
+
+/* Native form controls: option lists, pickers, autofill */
+[data-theme="dark"] select:not(:is(.erp-paper, .erp-light-scope) *) option,
+[data-theme="dark"] select:not(:is(.erp-paper, .erp-light-scope) *) optgroup,
+.theme-dark select:not(:is(.erp-paper, .erp-light-scope) *) option,
+.theme-dark select:not(:is(.erp-paper, .erp-light-scope) *) optgroup {
+  background-color: var(--surface);
+  color: var(--text);
+}
+[data-theme="dark"] select:not(:is(.erp-paper, .erp-light-scope) *) option:disabled,
+.theme-dark select:not(:is(.erp-paper, .erp-light-scope) *) option:disabled {
+  color: var(--text-disabled);
+}
+[data-theme="dark"] input:not(:is(.erp-paper, .erp-light-scope) *)::placeholder,
+[data-theme="dark"] textarea:not(:is(.erp-paper, .erp-light-scope) *)::placeholder,
+.theme-dark input:not(:is(.erp-paper, .erp-light-scope) *)::placeholder,
+.theme-dark textarea:not(:is(.erp-paper, .erp-light-scope) *)::placeholder {
+  opacity: 1;
+}
+[data-theme="dark"] input:not(:is(.erp-paper, .erp-light-scope) *):-webkit-autofill,
+[data-theme="dark"] textarea:not(:is(.erp-paper, .erp-light-scope) *):-webkit-autofill,
+[data-theme="dark"] select:not(:is(.erp-paper, .erp-light-scope) *):-webkit-autofill,
+.theme-dark input:not(:is(.erp-paper, .erp-light-scope) *):-webkit-autofill,
+.theme-dark textarea:not(:is(.erp-paper, .erp-light-scope) *):-webkit-autofill,
+.theme-dark select:not(:is(.erp-paper, .erp-light-scope) *):-webkit-autofill {
+  -webkit-text-fill-color: var(--text);
+  box-shadow: 0 0 0 1000px var(--surface-sunken) inset;
+  caret-color: var(--text);
+}
+[data-theme="dark"] ::selection,
+.theme-dark ::selection {
+  background-color: color-mix(in srgb, var(--accent-text) 38%, transparent);
+  color: var(--text-strong);
+}
+
+/* Recharts (inline light defaults → tokens) */
+[data-theme="dark"] .recharts-default-tooltip,
+.theme-dark .recharts-default-tooltip {
+  background-color: var(--surface-raised) !important;
+  border-color: var(--border-strong) !important;
+  color: var(--text) !important;
+  box-shadow: var(--shadow-popover);
+}
+[data-theme="dark"] .recharts-tooltip-label,
+[data-theme="dark"] .recharts-tooltip-item,
+[data-theme="dark"] .recharts-tooltip-item-name,
+[data-theme="dark"] .recharts-tooltip-item-value,
+[data-theme="dark"] .recharts-tooltip-item-separator,
+.theme-dark .recharts-tooltip-label,
+.theme-dark .recharts-tooltip-item,
+.theme-dark .recharts-tooltip-item-name,
+.theme-dark .recharts-tooltip-item-value,
+.theme-dark .recharts-tooltip-item-separator {
+  color: var(--text) !important;
+}
+[data-theme="dark"] .recharts-legend-item-text,
+.theme-dark .recharts-legend-item-text {
+  color: var(--text-secondary) !important;
+}
+[data-theme="dark"] .recharts-cartesian-axis-tick text,
+[data-theme="dark"] .recharts-polar-angle-axis-tick text,
+[data-theme="dark"] .recharts-polar-radius-axis-tick text,
+.theme-dark .recharts-cartesian-axis-tick text,
+.theme-dark .recharts-polar-angle-axis-tick text,
+.theme-dark .recharts-polar-radius-axis-tick text {
+  fill: var(--chart-axis);
+}
+[data-theme="dark"] .recharts-label,
+[data-theme="dark"] .recharts-label-list text,
+[data-theme="dark"] .recharts-pie-label-text,
+[data-theme="dark"] .recharts-reference-line text,
+.theme-dark .recharts-label,
+.theme-dark .recharts-label-list text,
+.theme-dark .recharts-pie-label-text,
+.theme-dark .recharts-reference-line text {
+  fill: var(--text);
+}
+[data-theme="dark"] .recharts-cartesian-grid line,
+[data-theme="dark"] .recharts-polar-grid line,
+[data-theme="dark"] .recharts-polar-grid path,
+[data-theme="dark"] .recharts-polar-grid circle,
+.theme-dark .recharts-cartesian-grid line,
+.theme-dark .recharts-polar-grid line,
+.theme-dark .recharts-polar-grid path,
+.theme-dark .recharts-polar-grid circle {
+  stroke: var(--chart-grid);
+}
+[data-theme="dark"] .recharts-cartesian-axis-line,
+[data-theme="dark"] .recharts-cartesian-axis-tick-line,
+[data-theme="dark"] .recharts-pie-label-line,
+.theme-dark .recharts-cartesian-axis-line,
+.theme-dark .recharts-cartesian-axis-tick-line,
+.theme-dark .recharts-pie-label-line {
+  stroke: var(--border-strong);
+}
+[data-theme="dark"] .recharts-tooltip-cursor,
+.theme-dark .recharts-tooltip-cursor {
+  fill: rgba(255, 255, 255, 0.06);
+  stroke: var(--border-strong);
+}
+[data-theme="dark"] .recharts-pie-sector path,
+[data-theme="dark"] .recharts-pie .recharts-sector,
+.theme-dark .recharts-pie-sector path,
+.theme-dark .recharts-pie .recharts-sector {
+  stroke: var(--surface);
+}
+
+/* docx-preview renders real pages: keep them paper-white with dark ink */
+[data-theme="dark"] .docx-wrapper section.docx,
+.theme-dark .docx-wrapper section.docx {
+  color: #000000;
+  color-scheme: light;
 }

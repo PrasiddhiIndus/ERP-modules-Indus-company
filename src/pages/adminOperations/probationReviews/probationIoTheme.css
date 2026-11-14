@@ -94,3 +94,27 @@
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
   font-weight: 500;
 }
+
+/* Dark theme — map the Indus One palette onto ERP tokens */
+[data-theme="dark"] .probation-io,
+.theme-dark .probation-io {
+  --ink-primary: var(--text);
+  --ink-secondary: var(--text-secondary);
+  --ink-muted: var(--text-muted);
+  --border-default: var(--border);
+  --border-subtle: var(--divider);
+  --surface-card: var(--surface);
+  --surface-canvas: var(--canvas);
+  --card-muted: var(--surface-raised);
+  --accent-primary: var(--accent-text);
+  --accent-primary-hover: var(--accent-deep-text);
+  --accent-primary-wash: var(--accent-soft);
+  --status-success: var(--success-text);
+  --status-success-wash: var(--success-soft);
+  --status-warning-ink: var(--warning-text);
+  --status-warning-wash: var(--warning-soft);
+  --status-danger: var(--critical-text);
+  --status-danger-wash: var(--critical-soft);
+  --status-neutral-wash: var(--neutral-state-soft);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25);
+}

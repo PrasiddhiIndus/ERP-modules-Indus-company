@@ -26,7 +26,7 @@ import {
   makeMoneyAxisFormatter,
   RadialScoreChart,
 } from "../../components/charts/DashboardCharts";
-import { TOKENS } from "../../theme/tokens";
+import { UI_TOKENS } from "../../theme/tokens";
 import { inrShort, pct } from "../finance/lib/formatters";
 import { buildPulseModules } from "./companyPulseModel";
 import { buildPulseDetail } from "./companyPulseDetailModel";
@@ -53,20 +53,20 @@ const ICONS = {
 };
 
 const CHART = {
-  rev: TOKENS.accent,
-  exp: TOKENS.critical,
-  net: TOKENS.success,
-  bill: TOKENS.accentElectric,
-  collect: TOKENS.teal,
-  watch: TOKENS.warning,
+  rev: UI_TOKENS.accent,
+  exp: UI_TOKENS.critical,
+  net: UI_TOKENS.success,
+  bill: UI_TOKENS.accentElectric,
+  collect: UI_TOKENS.teal,
+  watch: UI_TOKENS.warning,
 };
 
 function statusOf(view) {
-  if (view.planned) return { label: "Planned", color: TOKENS.textMuted };
+  if (view.planned) return { label: "Planned", color: UI_TOKENS.textMuted };
   if (view.score == null) {
     return view.attention
-      ? { label: "Needs look", color: TOKENS.warning }
-      : { label: "Live", color: TOKENS.accent };
+      ? { label: "Needs look", color: UI_TOKENS.warning }
+      : { label: "Live", color: UI_TOKENS.accent };
   }
   const color = resolveTone(view.score);
   if (view.score < 75) return { label: "At risk", color };
@@ -75,10 +75,10 @@ function statusOf(view) {
 }
 
 function resolveTone(score) {
-  if (score == null) return TOKENS.accent;
-  if (score >= 85) return TOKENS.success;
-  if (score >= 75) return TOKENS.warning;
-  return TOKENS.critical;
+  if (score == null) return UI_TOKENS.accent;
+  if (score >= 85) return UI_TOKENS.success;
+  if (score >= 75) return UI_TOKENS.warning;
+  return UI_TOKENS.critical;
 }
 
 function primaryMetric(view) {
@@ -91,10 +91,10 @@ function primaryMetric(view) {
 function AttDonut({ stats }) {
   const expected = stats?.expected || 0;
   const segments = [
-    ["on", TOKENS.success],
-    ["late", TOKENS.warning],
-    ["leave", TOKENS.info],
-    ["absent", TOKENS.critical],
+    ["on", UI_TOKENS.success],
+    ["late", UI_TOKENS.warning],
+    ["leave", UI_TOKENS.info],
+    ["absent", UI_TOKENS.critical],
   ];
   const radius = 34;
   const circ = 2 * Math.PI * radius;
@@ -109,7 +109,7 @@ function AttDonut({ stats }) {
   const idle = !expected;
   return (
     <svg className="cp-att-donut" viewBox="0 0 100 100" role="img" aria-label="Attendance today">
-      <circle cx="50" cy="50" r={radius} fill="none" stroke={TOKENS.border} strokeWidth="10" />
+      <circle cx="50" cy="50" r={radius} fill="none" stroke={UI_TOKENS.border} strokeWidth="10" />
       {rings.map((ring) =>
         ring.length > 0 ? (
           <circle
@@ -252,7 +252,7 @@ export default function CompanyPulse({
       label: "People",
       value: loading ? "—" : (Number(modules.people) || 0).toLocaleString("en-IN"),
       hint: modules.leavePending ? `${modules.leavePending} leave waiting` : "Active roster",
-      color: TOKENS.accent,
+      color: UI_TOKENS.accent,
       enabled: pulse.management || Boolean(peoplePath) || Boolean(attendancePath),
     },
     {
@@ -339,7 +339,7 @@ export default function CompanyPulse({
         </div>
 
         <div className="cp-chrome-tools">
-          <div className="cp-live" style={{ "--dot": financeError ? TOKENS.warning : TOKENS.success }}>
+          <div className="cp-live" style={{ "--dot": financeError ? UI_TOKENS.warning : UI_TOKENS.success }}>
             <i />
             <span>
               {financeError ? "Finance delayed" : "Live"} · {clock}

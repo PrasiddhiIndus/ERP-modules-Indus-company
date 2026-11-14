@@ -1,16 +1,16 @@
-import { TOKENS } from '../../../theme/tokens';
+import { UI_TOKENS } from '../../../theme/tokens';
 
 export const STATUS_COLORS = {
-  Draft: { bg: TOKENS.divider, text: TOKENS.textSecondary, border: TOKENS.borderStrong },
-  'Awaiting Client Response': { bg: TOKENS.infoSoft, text: TOKENS.info, border: TOKENS.borderStrong },
-  'Revised Offer Sent': { bg: TOKENS.infoSoft, text: TOKENS.info, border: TOKENS.accentBorder },
-  'Client Has Hold Enquiry': { bg: TOKENS.warningSoft, text: TOKENS.warning, border: TOKENS.warningBorder },
-  'Order Lost': { bg: TOKENS.criticalSoft, text: TOKENS.critical, border: TOKENS.criticalBorder },
-  'Order Converted on Revised Value': { bg: TOKENS.successSoft, text: TOKENS.success, border: TOKENS.accentBorder },
-  'Order Converted': { bg: TOKENS.successSoft, text: TOKENS.success, border: TOKENS.accentBorder },
-  Superseded: { bg: TOKENS.surfaceSunken, text: TOKENS.textMuted, border: TOKENS.borderStrong },
+  Draft: { bg: UI_TOKENS.divider, text: UI_TOKENS.textSecondary, border: UI_TOKENS.borderStrong },
+  'Awaiting Client Response': { bg: UI_TOKENS.infoSoft, text: UI_TOKENS.info, border: UI_TOKENS.borderStrong },
+  'Revised Offer Sent': { bg: UI_TOKENS.infoSoft, text: UI_TOKENS.info, border: UI_TOKENS.accentBorder },
+  'Client Has Hold Enquiry': { bg: UI_TOKENS.warningSoft, text: UI_TOKENS.warning, border: UI_TOKENS.warningBorder },
+  'Order Lost': { bg: UI_TOKENS.criticalSoft, text: UI_TOKENS.critical, border: UI_TOKENS.criticalBorder },
+  'Order Converted on Revised Value': { bg: UI_TOKENS.successSoft, text: UI_TOKENS.success, border: UI_TOKENS.accentBorder },
+  'Order Converted': { bg: UI_TOKENS.successSoft, text: UI_TOKENS.success, border: UI_TOKENS.accentBorder },
+  Superseded: { bg: UI_TOKENS.surfaceSunken, text: UI_TOKENS.textMuted, border: UI_TOKENS.borderStrong },
 };
 
 export function getStatusStyle(status) {
-  return STATUS_COLORS[status] || { bg: TOKENS.surfaceRaised, text: TOKENS.textMuted, border: TOKENS.border };
+  return STATUS_COLORS[status] || { bg: UI_TOKENS.surfaceRaised, text: UI_TOKENS.textMuted, border: UI_TOKENS.border };
 }

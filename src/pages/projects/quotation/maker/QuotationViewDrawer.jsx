@@ -222,7 +222,7 @@ export default function QuotationViewDrawer({ row, onClose, onEditQuotation, onE
                 <p className="text-xs text-slate-500">
                   To download the PDF, open Edit quotation and use Download PDF.
                 </p>
-                <div className="qm-page">
+                <div className="qm-page erp-light-scope">
                   <QuotationMakerPreview
                     form={doc.form}
                     rows={doc.rows}

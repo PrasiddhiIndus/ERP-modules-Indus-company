@@ -1,6 +1,7 @@
 /**
  * INDUS OS design tokens for JS consumers (charts, status maps, PDF/canvas).
- * Light values = premium indigo redesign. Dark chart series preserved separately.
+ * `TOKENS` = static light hexes (exports, PDF, persisted values).
+ * `UI_TOKENS` / `CHART_SERIES` = theme-aware CSS variables for on-screen UI.
  */
 
 export const TOKENS = Object.freeze({
@@ -51,18 +52,83 @@ export const TOKENS = Object.freeze({
   sidebarElevated: '#222B49',
 });
 
-/** Pre-redesign dark chart colors — keep dark mode charts visually stable. */
-export const TOKENS_DARK_CHART = Object.freeze({
-  accent: '#3D5C56',
-  info: '#3F5470',
-  warning: '#8F7038',
-  critical: '#8A4A3F',
-  neutral: '#5C636E',
-  success: '#4A6144',
+/**
+ * Theme-aware tokens for anything rendered in the DOM / SVG (inline styles,
+ * Recharts props, CSS custom properties). Values are CSS variables, so they
+ * follow light/dark automatically and update live when the theme is toggled.
+ *
+ * Semantic colours resolve to the foreground (`-text`) variant: identical to
+ * the fill in light mode, lifted in dark mode so text, icons, chart strokes
+ * and bars stay readable on dark surfaces. Use `UI_FILLS` for solid fills
+ * that carry white text.
+ *
+ * Use `TOKENS` (static light hexes) only where CSS variables cannot work:
+ * PDF / canvas / Excel exports and values persisted to the database.
+ */
+export const UI_TOKENS = Object.freeze({
+  canvas: 'var(--canvas)',
+  surface: 'var(--surface)',
+  surfaceRaised: 'var(--surface-raised)',
+  surfaceSunken: 'var(--surface-sunken)',
+  border: 'var(--border)',
+  borderStrong: 'var(--border-strong)',
+  divider: 'var(--divider)',
+
+  text: 'var(--text)',
+  textStrong: 'var(--text-strong)',
+  textSecondary: 'var(--text-secondary)',
+  textMuted: 'var(--text-muted)',
+  textCaption: 'var(--text-caption)',
+  textDisabled: 'var(--text-disabled)',
+
+  accent: 'var(--accent-text)',
+  accentDeep: 'var(--accent-deep-text)',
+  accentSoft: 'var(--accent-soft)',
+  accentBorder: 'var(--accent-border)',
+  accentElectric: 'var(--chart-2)',
+  accentViolet: 'var(--chart-5)',
+
+  critical: 'var(--critical-text)',
+  criticalSoft: 'var(--critical-soft)',
+  criticalBorder: 'var(--critical-border)',
+  warning: 'var(--warning-text)',
+  warningSoft: 'var(--warning-soft)',
+  warningBorder: 'var(--warning-border)',
+  neutralState: 'var(--neutral-state-text)',
+  neutralStateSoft: 'var(--neutral-state-soft)',
+  success: 'var(--success-text)',
+  successSoft: 'var(--success-soft)',
+  info: 'var(--info-text)',
+  infoSoft: 'var(--info-soft)',
+  teal: 'var(--teal-text)',
+
+  chartGrid: 'var(--chart-grid)',
+  chartAxis: 'var(--chart-axis)',
+  chartInactive: 'var(--chart-inactive)',
+  rowHover: 'var(--row-hover)',
+  skeletonFrom: 'var(--skeleton-from)',
+  skeletonTo: 'var(--skeleton-to)',
+
+  sidebarBg: 'var(--sidebar-bg)',
+  sidebarElevated: 'var(--sidebar-bg-elevated)',
+  onSolid: 'var(--on-solid)',
 });
 
-/** Ordered chart series — light theme (indigo SaaS). */
-export const CHART_SERIES = Object.freeze([
+/** Solid fills that carry `onSolid` (white) text in both themes. */
+export const UI_FILLS = Object.freeze({
+  accent: 'var(--accent)',
+  accentDeep: 'var(--accent-deep)',
+  critical: 'var(--critical)',
+  warning: 'var(--warning)',
+  success: 'var(--success)',
+  info: 'var(--info)',
+  teal: 'var(--teal)',
+  neutral: 'var(--solid-neutral-600)',
+  neutralStrong: 'var(--solid-neutral-800)',
+});
+
+/** Static light hexes of the chart series — exports / canvas only. */
+export const CHART_SERIES_HEX = Object.freeze([
   TOKENS.accent,
   TOKENS.accentElectric,
   TOKENS.teal,
@@ -71,18 +137,24 @@ export const CHART_SERIES = Object.freeze([
   TOKENS.success,
 ]);
 
-/** Dark theme chart series — unchanged from pre-redesign greens. */
-export const CHART_SERIES_DARK = Object.freeze([
-  TOKENS_DARK_CHART.accent,
-  TOKENS_DARK_CHART.info,
-  TOKENS_DARK_CHART.warning,
-  TOKENS_DARK_CHART.critical,
-  TOKENS_DARK_CHART.neutral,
-  TOKENS_DARK_CHART.success,
+/**
+ * Ordered chart series — theme-aware (`--chart-1` … `--chart-6`).
+ * Light values equal CHART_SERIES_HEX; dark values are tuned for dark surfaces.
+ */
+export const CHART_SERIES = Object.freeze([
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+  'var(--chart-5)',
+  'var(--chart-6)',
 ]);
 
+/** @deprecated CHART_SERIES is theme-aware; kept for existing imports. */
+export const CHART_SERIES_DARK = CHART_SERIES;
+
 export const CHART_SERIES_AREA = Object.freeze(
-  CHART_SERIES.map((c) => `${c}14`)
+  CHART_SERIES.map((c) => `color-mix(in srgb, ${c} 8%, transparent)`)
 );
 
 /** Semantic chip / badge tone classes (Tailwind token aliases). */
@@ -116,13 +188,7 @@ export const PDF_RGB = Object.freeze({
   critical: hexToRgb(TOKENS.critical),
 });
 
-/** Resolve chart series for current document theme (keeps dark charts stable). */
+/** Chart series for the current theme (CSS variables follow the theme). */
 export function chartSeriesForDocument() {
-  if (typeof document !== 'undefined') {
-    const dark =
-      document.documentElement.getAttribute('data-theme') === 'dark' ||
-      document.documentElement.classList.contains('theme-dark');
-    if (dark) return CHART_SERIES_DARK;
-  }
   return CHART_SERIES;
 }

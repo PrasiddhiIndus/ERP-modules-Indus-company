@@ -1,5 +1,5 @@
 import { formatDateDdMmYyyy, normalizeToIsoDate } from "../../../utils/dateDisplay";
-import { CHART_SERIES, TOKENS } from "../../../theme/tokens";
+import { CHART_SERIES, TOKENS, UI_TOKENS } from "../../../theme/tokens";
 import {
   getEnquiryResultFromRow,
   getExcelInquiryFields,
@@ -30,26 +30,26 @@ export const ANALYTICS_STATUS_OPTIONS = [
 ];
 
 export const ANALYTICS_STATUS_COLORS = {
-  "Awarded to IFSPL": TOKENS.success,
-  "Not Awarded": TOKENS.critical,
-  Budgetary: TOKENS.warning,
-  "In Progress": TOKENS.info,
-  Unknown: TOKENS.textDisabled,
+  "Awarded to IFSPL": UI_TOKENS.success,
+  "Not Awarded": UI_TOKENS.critical,
+  Budgetary: UI_TOKENS.warning,
+  "In Progress": UI_TOKENS.info,
+  Unknown: UI_TOKENS.textDisabled,
 };
 
 export const STATUS_CHART_COLORS = {
-  Pending: TOKENS.warning,
-  Approved: TOKENS.success,
-  Rejected: TOKENS.critical,
-  Quoted: TOKENS.info,
-  Unknown: TOKENS.textDisabled,
+  Pending: UI_TOKENS.warning,
+  Approved: UI_TOKENS.success,
+  Rejected: UI_TOKENS.critical,
+  Quoted: UI_TOKENS.info,
+  Unknown: UI_TOKENS.textDisabled,
 };
 
 export const VERTICAL_COLORS = {
-  "Fire Tender": TOKENS.critical,
-  Manpower: TOKENS.info,
+  "Fire Tender": UI_TOKENS.critical,
+  Manpower: UI_TOKENS.info,
   Training: CHART_SERIES[2],
-  Unspecified: TOKENS.textDisabled,
+  Unspecified: UI_TOKENS.textDisabled,
 };
 
 export const CHART_PALETTE = [...CHART_SERIES];
@@ -330,10 +330,10 @@ export function buildConversionFunnel(rows) {
     }
   }
   return [
-    { name: "Total records", value: total, fill: TOKENS.info },
-    { name: "Open pipeline", value: open, fill: TOKENS.warning },
+    { name: "Total records", value: total, fill: UI_TOKENS.info },
+    { name: "Open pipeline", value: open, fill: UI_TOKENS.warning },
     { name: "Decided", value: decided, fill: CHART_SERIES[2] },
-    { name: "Awarded to IFSPL", value: awarded, fill: TOKENS.success },
+    { name: "Awarded to IFSPL", value: awarded, fill: UI_TOKENS.success },
   ];
 }
 

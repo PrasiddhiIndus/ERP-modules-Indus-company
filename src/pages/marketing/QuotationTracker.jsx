@@ -1835,7 +1835,7 @@ Marketing Team`;
                 <p className="text-xs mt-1">Create your first quotation to get started</p>
               </div>
             ) : (
-              <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--accent) var(--surface-sunken)' }}>
+              <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--accent-text) var(--surface-sunken)' }}>
                 <style>{`
                   .overflow-x-auto::-webkit-scrollbar {
                     height: 8px;
@@ -2213,7 +2213,7 @@ Marketing Team`;
                 No sent quotations with costing sheets found. Create and send quotations first.
               </div>
             ) : (
-              <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--accent) var(--surface-sunken)' }}>
+              <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--accent-text) var(--surface-sunken)' }}>
                 <style>{`
                   .overflow-x-auto::-webkit-scrollbar {
                     height: 8px;

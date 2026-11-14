@@ -4,7 +4,7 @@ import { useDahejExpenses } from "../contexts/DahejExpensesContext";
 import { ChartCard, KpiTile, PageHeader, SectionCard, TinySelect } from "../../components/OperationsUi";
 import { useOperations } from "../../contexts/OperationsContext";
 import { formatCurrency } from "../../data/mockOperationsData";
-import { CHART_SERIES, TOKENS } from "../../../../theme/tokens";
+import { CHART_SERIES, UI_TOKENS } from "../../../../theme/tokens";
 
 const COLORS = CHART_SERIES;
 
@@ -51,9 +51,9 @@ export default function DahejDashboard() {
           {dashboard.topCategories.length ? (
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={dashboard.topCategories} layout="vertical" margin={{ left: 80 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={TOKENS.chartGrid} />
-                <XAxis type="number" tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} tick={{ fill: TOKENS.chartAxis }} />
-                <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 10, fill: TOKENS.chartAxis }} />
+                <CartesianGrid strokeDasharray="3 3" stroke={UI_TOKENS.chartGrid} />
+                <XAxis type="number" tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} tick={{ fill: UI_TOKENS.chartAxis }} />
+                <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 10, fill: UI_TOKENS.chartAxis }} />
                 <Tooltip formatter={(v) => formatCurrency(v)} />
                 <Bar dataKey="total" fill={CHART_SERIES[0]} radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -81,7 +81,7 @@ export default function DahejDashboard() {
         </ChartCard>
       </div>
 
-      <SectionCard title="Expense type summary" className={theme === "dark" ? "bg-slate-900 border-slate-700" : ""}>
+      <SectionCard title="Expense type summary" className="">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>

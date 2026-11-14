@@ -1204,3 +1204,18 @@ main.erp-app-shell table.qm-master-table tbody tr:hover td.qm-sticky-col {
 main.erp-app-shell table.qm-master-table td {
   vertical-align: top;
 }
+
+/* Dark theme — the maker is a light document workspace (A4 preview + PDF
+   capture), so give it its own light page instead of the dark app canvas. */
+[data-theme="dark"] .qm-page,
+.theme-dark .qm-page {
+  background: var(--qm-bg);
+  border-radius: 10px;
+}
+@media print {
+  [data-theme="dark"] .qm-page,
+  .theme-dark .qm-page {
+    background: transparent;
+    border-radius: 0;
+  }
+}
