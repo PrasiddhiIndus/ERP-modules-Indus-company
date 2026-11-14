@@ -1385,7 +1385,7 @@ export default function FireTenderManagement() {
         <EmptyState
           icon={Truck}
           title="No fire tenders found"
-          message="No fire tender vehicles are visible in Fleet Management. Register them under Operations → Fleet Management; viewing them requires Operations or Fire Tender access."
+          message="No fire tender vehicles are visible in Fleet Management. Register them under IEV → Fleet Management; viewing them requires Site Operations or Fire Tender access."
         />
       ) : (
         <>

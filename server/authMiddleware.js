@@ -143,6 +143,15 @@ export function hasFleetR2Access(ctx) {
   );
 }
 
+/** Expo & Seminar PDFs: Marketing or Maintenance module. */
+export function hasMarketingExpoR2Access(ctx) {
+  if (isSuperAdminRole(ctx)) return true;
+  if (hasAssignedModuleOrSub(ctx, 'marketing') || hasAssignedModuleOrSub(ctx, 'maintenance')) return true;
+  return subModulesLower(ctx).some(
+    (s) => s === 'marketing' || s.startsWith('marketing.') || s === 'maintenance' || s.startsWith('maintenance.')
+  );
+}
+
 /** HR Calling CVs: HR module, full Admin module, or recruitment sub-module. */
 export function hasHrCallingR2Access(ctx) {
   if (isSuperAdminRole(ctx)) return true;
@@ -539,5 +548,6 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     requireHrCallingR2: middleware((ctx) => hasHrCallingR2Access(ctx)),
     requireAdminPoliciesR2: middleware((ctx) => hasAdminPoliciesR2Access(ctx)),
     requireCommercialPoR2: middleware((ctx) => hasCommercialPoR2Access(ctx) || hasBillingAccess(ctx)),
+    requireMarketingExpoR2: middleware((ctx) => hasMarketingExpoR2Access(ctx)),
   };
 }
