@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { supabase } from '../../lib/supabase';
-import { X, Plus, Edit2, Trash2, MoreVertical, Download, Calendar, Users, Eye, Upload, Image as ImageIcon, FileSpreadsheet } from 'lucide-react';
+import { X, Plus, Edit2, Trash2, MoreVertical, Download, Calendar, Users, Eye, Upload, FileText, FileSpreadsheet } from 'lucide-react';
+import { marketingExpoFileLabel, openMarketingExpoFile, uploadMarketingExpoPdfToR2 } from '../../lib/marketingExpoR2';
 import { exportToExcel } from './utils/excelExport';
 import * as XLSX from 'xlsx';
 import { fetchActiveEmployeesForDropdown } from '../../utils/employeeDirectory';;
@@ -204,93 +205,66 @@ const ExpoSeminar = () => {
     }));
   };
 
-  const handleImageUpload = async (e) => {
-    const files = Array.from(e.target.files);
+  const handlePdfUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
     if (files.length === 0) return;
 
-    // Validate file types
-    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-    const invalidFiles = files.filter(file => !validTypes.includes(file.type));
+    const invalidFiles = files.filter((file) => !String(file.name || '').toLowerCase().endsWith('.pdf'));
     if (invalidFiles.length > 0) {
-      toast.warning('Please upload only image files (JPEG, PNG, GIF, WebP)');
+      toast.warning('Please upload PDF files only.');
       return;
     }
 
-    // Validate file sizes (max 5MB per file)
-    const maxSize = 5 * 1024 * 1024; // 5MB
-    const largeFiles = files.filter(file => file.size > maxSize);
+    const maxSize = 25 * 1024 * 1024;
+    const largeFiles = files.filter((file) => file.size > maxSize);
     if (largeFiles.length > 0) {
-      toast.warning('Some files are too large. Maximum file size is 5MB per image.');
+      toast.warning('Some files are too large. Maximum size is 25MB per PDF.');
       return;
     }
 
     setUploadingImages(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      const uploadedUrls = [];
+      const uploaded = [];
       const errors = [];
 
       for (const file of files) {
         try {
-          const fileExt = file.name.split('.').pop();
-          const timestamp = Date.now();
-          const randomStr = Math.random().toString(36).substring(7);
-          const fileName = `${user.id}/${timestamp}_${randomStr}.${fileExt}`;
-          const filePath = `expo-seminar-images/${fileName}`;
-
-          // Try to upload the file
-          const { data: uploadData, error: uploadError } = await supabase.storage
-            .from('marketing-documents')
-            .upload(filePath, file, {
-              cacheControl: '3600',
-              upsert: false
-            });
-
-          if (uploadError) {
-            // If bucket doesn't exist, provide helpful error
-            if (uploadError.message.includes('Bucket not found') || uploadError.message.includes('not found')) {
-              throw new Error('Storage bucket "marketing-documents" not found. Please create it in Supabase Dashboard > Storage.');
-            }
-            throw uploadError;
-          }
-
-          // Get public URL
-          const { data: { publicUrl } } = supabase.storage
-            .from('marketing-documents')
-            .getPublicUrl(filePath);
-
-          uploadedUrls.push(publicUrl);
+          uploaded.push(await uploadMarketingExpoPdfToR2(file));
         } catch (fileError) {
           console.error(`Error uploading file ${file.name}:`, fileError);
           errors.push(`${file.name}: ${fileError.message}`);
         }
       }
 
-      if (uploadedUrls.length > 0) {
-        setUploadedImages([...uploadedImages, ...uploadedUrls]);
+      if (uploaded.length > 0) {
+        setUploadedImages([...uploadedImages, ...uploaded]);
         if (errors.length > 0) {
-          toast.warning(`Successfully uploaded ${uploadedUrls.length} image(s). Errors: ${errors.join(', ')}`);
+          toast.warning(`Uploaded ${uploaded.length} PDF(s). Some files failed: ${errors.join(', ')}`);
         } else {
-          toast.success(`Successfully uploaded ${uploadedUrls.length} image(s)!`);
+          toast.success(`Uploaded ${uploaded.length} PDF${uploaded.length === 1 ? '' : 's'}.`);
         }
       } else if (errors.length > 0) {
-        toast.error('Failed to upload images:\n' + errors.join('\n'));
+        toast.error('Could not upload PDFs: ' + errors.join(', '));
       }
-
-      setUploadingImages(false);
     } catch (error) {
-      console.error('Error uploading images:', error);
-      toast.error('Error uploading images: ' + error.message);
+      console.error('Error uploading PDFs:', error);
+      toast.error('Could not upload PDFs: ' + error.message);
+    } finally {
       setUploadingImages(false);
     }
   };
 
   const removeImage = (index) => {
     setUploadedImages(uploadedImages.filter((_, i) => i !== index));
+  };
+
+  const openUploadedPdf = async (file) => {
+    try {
+      await openMarketingExpoFile(file);
+    } catch (error) {
+      toast.error(error.message || 'Could not open PDF.');
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -1442,13 +1416,12 @@ const ExpoSeminar = () => {
                 </div>
               </div>
 
-              {/* Image Upload Section */}
               <div className="mt-8 pt-6 border-t border-gray-200">
                 <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Upload Images</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">Upload PDFs</h3>
                   {uploadedImages.length > 0 && (
                     <span className="text-sm text-gray-600">
-                      {uploadedImages.length} {uploadedImages.length === 1 ? 'image' : 'images'} uploaded
+                      {uploadedImages.length} {uploadedImages.length === 1 ? 'PDF' : 'PDFs'} uploaded
                     </span>
                   )}
                 </div>
@@ -1456,12 +1429,12 @@ const ExpoSeminar = () => {
                   <div className="flex items-center space-x-4">
                     <label className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                       <Upload className="w-4 h-4" />
-                      <span>{uploadingImages ? 'Uploading...' : 'Select Images'}</span>
+                      <span>{uploadingImages ? 'Uploading...' : 'Select PDFs'}</span>
                       <input
                         type="file"
                         multiple
-                        accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-                        onChange={handleImageUpload}
+                        accept="application/pdf,.pdf"
+                        onChange={handlePdfUpload}
                         className="hidden"
                         disabled={uploadingImages}
                       />
@@ -1469,7 +1442,7 @@ const ExpoSeminar = () => {
                     {uploadingImages && (
                       <div className="flex items-center space-x-2">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
-                        <span className="text-sm text-gray-600">Uploading images...</span>
+                        <span className="text-sm text-gray-600">Uploading PDFs...</span>
                       </div>
                     )}
                   </div>
@@ -1477,34 +1450,30 @@ const ExpoSeminar = () => {
                   {uploadedImages.length > 0 && (
                     <div className="bg-gray-50 rounded-lg p-4">
                       <p className="text-sm text-gray-600 mb-3">
-                        Click on an image to view full size. Hover to remove.
+                        You can add more than one PDF. Click a file to open it.
                       </p>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                        {uploadedImages.map((imageUrl, index) => (
-                          <div key={index} className="relative group">
-                            <img
-                              src={imageUrl}
-                              alt={`Upload ${index + 1}`}
-                              className="w-full h-32 object-cover rounded-lg border-2 border-gray-300 cursor-pointer hover:border-purple-500 transition-all"
-                              onClick={() => window.open(imageUrl, '_blank')}
-                              onError={(e) => {
-                                e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" x="50%" y="50%" text-anchor="middle" dy=".3em"%3EImage%3C/text%3E%3C/svg%3E';
-                              }}
-                            />
+                      <ul className="space-y-2">
+                        {uploadedImages.map((file, index) => (
+                          <li key={`${marketingExpoFileLabel(file, index)}-${index}`} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => openUploadedPdf(file)}
+                              className="flex min-w-0 items-center gap-2 text-left text-sm text-gray-800 hover:text-purple-700"
+                            >
+                              <FileText className="h-4 w-4 shrink-0" />
+                              <span className="truncate">{marketingExpoFileLabel(file, index)}</span>
+                            </button>
                             <button
                               type="button"
                               onClick={() => removeImage(index)}
-                              className="absolute top-2 right-2 p-1.5 bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-700 shadow-lg"
-                              title="Remove image"
+                              className="shrink-0 rounded p-1 text-red-600 hover:bg-red-50"
+                              title="Remove PDF"
                             >
-                              <X className="w-3 h-3" />
+                              <X className="h-4 w-4" />
                             </button>
-                            <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
-                              Image {index + 1}
-                            </div>
-                          </div>
+                          </li>
                         ))}
-                      </div>
+                      </ul>
                     </div>
                   )}
                 </div>
@@ -2134,19 +2103,21 @@ const ExpoSeminar = () => {
                   if (costData.images && costData.images.length > 0) {
                     return (
                       <div className="bg-white border border-gray-200 rounded-lg p-4">
-                        <h3 className="text-md font-semibold text-gray-900 mb-4">Uploaded Images</h3>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                          {costData.images.map((imageUrl, index) => (
-                            <div key={index} className="relative group">
-                              <img
-                                src={imageUrl}
-                                alt={`Expo Image ${index + 1}`}
-                                className="w-full h-32 object-cover rounded-lg border border-gray-300 cursor-pointer hover:opacity-90 transition-opacity"
-                                onClick={() => window.open(imageUrl, '_blank')}
-                              />
-                            </div>
+                        <h3 className="text-md font-semibold text-gray-900 mb-4">Uploaded PDFs</h3>
+                        <ul className="space-y-2">
+                          {costData.images.map((file, index) => (
+                            <li key={index}>
+                              <button
+                                type="button"
+                                onClick={() => openUploadedPdf(file)}
+                                className="flex items-center gap-2 text-sm text-gray-800 hover:text-purple-700"
+                              >
+                                <FileText className="h-4 w-4 shrink-0" />
+                                <span className="truncate">{marketingExpoFileLabel(file, index)}</span>
+                              </button>
+                            </li>
                           ))}
-                        </div>
+                        </ul>
                       </div>
                     );
                   }

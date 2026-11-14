@@ -403,6 +403,7 @@ const {
   requireHrCallingR2,
   requireAdminPoliciesR2,
   requireCommercialPoR2,
+  requireMarketingExpoR2,
 } = createAuthMiddleware({
   getSupabaseUrl: getSupabaseUrlForServer,
   getServiceRoleKey: getSupabaseServiceRoleKeyForServer,
@@ -440,6 +441,7 @@ const R2_ADMIN_POLICIES_KEY_PREFIX = 'admin-policies/';
 const R2_ADMIN_JOINING_KEY_PREFIX = 'admin-joining/';
 const R2_ADMIN_PERSONAL_LETTERS_KEY_PREFIX = PERSONAL_LETTERS_R2_PREFIX;
 const R2_COMMERCIAL_PO_KEY_PREFIX = 'commercial-po/';
+const R2_MARKETING_EXPO_KEY_PREFIX = 'marketing-expo/';
 const R2_COMMERCIAL_PO_FOLDERS = new Set(['po-copy', 'scope-of-work', 'penalty-clause']);
 const R2_PRESIGN_GET_EXPIRES_SEC = 600;
 const R2_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -2615,6 +2617,77 @@ app.post('/api/commercial-po/r2/presign-get', requireCommercialPoR2, async (req,
         ? { ResponseContentDisposition: `attachment; filename="${downloadName}"` }
         : {}),
     });
+    const getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
+    res.json({ getUrl });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ message: err?.message || 'Presign GET failed.' });
+  }
+});
+
+app.post(
+  '/api/marketing/expo-r2/upload',
+  (req, res, next) => {
+    r2InvoiceUpload.single('file')(req, res, (err) => {
+      if (!err) {
+        next();
+        return;
+      }
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        res.status(400).json({ message: `File too large (max ${R2_MAX_ATTACHMENT_BYTES} bytes).` });
+        return;
+      }
+      res.status(400).json({ message: err.message || 'Upload failed.' });
+    });
+  },
+  requireMarketingExpoR2,
+  async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user?.id) {
+        return res.status(401).json({ message: 'Invalid or expired session.' });
+      }
+      const bucket = getR2BucketName();
+      const rawName = String(req.body?.fileName || '').trim();
+      if (!rawName) {
+        return res.status(400).json({ message: 'fileName is required.' });
+      }
+      if (fileExtFromName(rawName) !== 'pdf') {
+        return res.status(400).json({ message: 'Only PDF files can be uploaded.' });
+      }
+      if (!req.file?.buffer) {
+        return res.status(400).json({ message: 'file is required (multipart field name: file).' });
+      }
+
+      const safeName = sanitizeR2UploadFileName(rawName);
+      const objectKey = `${R2_MARKETING_EXPO_KEY_PREFIX}${user.id}/${Date.now()}-${safeName}`;
+      const client = getR2S3Client();
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: objectKey,
+          Body: req.file.buffer,
+          ContentType: 'application/pdf',
+        })
+      );
+
+      res.json({ objectKey, bucket, contentType: 'application/pdf', fileName: safeName });
+    } catch (err) {
+      const status = Number(err?.status) || 500;
+      res.status(status).json({ message: err?.message || 'Upload failed.' });
+    }
+  }
+);
+
+app.post('/api/marketing/expo-r2/presign-get', requireMarketingExpoR2, async (req, res) => {
+  try {
+    const bucket = getR2BucketName();
+    const objectKey = String(req.body?.objectKey || '').trim();
+    if (!objectKey.startsWith(R2_MARKETING_EXPO_KEY_PREFIX) || objectKey.includes('..') || objectKey.includes('//')) {
+      return res.status(400).json({ message: 'Invalid object key.' });
+    }
+    const client = getR2S3Client();
+    const getCmd = new GetObjectCommand({ Bucket: bucket, Key: objectKey });
     const getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
     res.json({ getUrl });
   } catch (err) {
