@@ -13,6 +13,7 @@ import {
   StatusBadge,
 } from "./deductionsUi";
 import { toast } from "../../../../lib/toast";
+import { confirmDialog } from "../../../../lib/dialog";
 
 /**
  * TDS on Employee Master:
@@ -98,10 +99,8 @@ export default function EmployeeTdsTab({ tds, onChange, panHint = "" }) {
     toast.success(mode === "none" ? "TDS stopped." : "TDS settings saved.");
   };
 
-  const stopTds = () => {
-    const ok = window.confirm(
-      "Stop TDS for this employee? Salary processing will no longer pick up a TDS amount from this profile."
-    );
+  const stopTds = async () => {
+    const ok = await confirmDialog({ title: "Stop TDS", message: "Stop TDS for this employee? Salary processing will no longer pick up a TDS amount from this profile.", confirmLabel: "Stop TDS", tone: "danger" });
     if (!ok) return;
     const next = {
       ...value,

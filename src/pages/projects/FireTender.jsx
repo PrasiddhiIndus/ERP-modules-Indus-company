@@ -43,6 +43,7 @@ import FormDateInput from "../../components/FormDateInput";
 
 
 import { toast } from "../../lib/toast";
+import { confirmDialog } from "../../lib/dialog";
 /** Form controls — slate borders, red focus ring (Fire Tender) */
 const ftInput =
   "w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 bg-white shadow-sm focus:ring-2 focus:ring-red-500/30 focus:border-red-400 transition-all";
@@ -1024,7 +1025,7 @@ const FireTender = ({ embeddedInHub = false }) => {
       toast.success("You do not have permission to delete tenders.");
       return;
     }
-    if (!window.confirm("Delete this tender? This cannot be undone.")) return;
+    if (!(await confirmDialog({ title: "Delete tender", message: "Delete this tender? This cannot be undone.", confirmLabel: "Delete", tone: "danger" }))) return;
     await supabase.from("tenders").delete().eq("id", tid);
     setTenders((prev) => prev.filter((t) => t.id !== tid));
   };

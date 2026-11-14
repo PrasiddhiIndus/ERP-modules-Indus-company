@@ -41,6 +41,7 @@ import {
 } from '../quotationDeletionApi';
 import { Modal } from '../../../../components/erpUi';
 import './quotationMaker.css';
+import { confirmDialog } from "../../../../lib/dialog";
 
 const PAGE_SIZES = [25, 50, 100];
 
@@ -130,10 +131,10 @@ export default function QuotationMakerList() {
     [deletionRequests, user?.id]
   );
 
-  const askDelete = (row) => {
+  const askDelete = async (row) => {
     if (canDeleteDirectly) {
       const label = row.offer_no || row.client_name || 'this quotation';
-      if (!window.confirm(`Delete ${label} permanently? Related quotation details are removed too.`)) return;
+      if (!(await confirmDialog({ title: "Delete quotation", message: `Delete ${label} permanently? Related quotation details are removed too.`, confirmLabel: "Delete", tone: "danger" }))) return;
       void (async () => {
         setError('');
         try {

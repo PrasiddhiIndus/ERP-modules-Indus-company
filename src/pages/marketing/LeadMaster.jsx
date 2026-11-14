@@ -21,6 +21,7 @@ import {
   parseLeadWorkbook,
   persistLeadRecords,
 } from './lib/leadMaster';
+import { confirmDialog } from "../../lib/dialog";
 
 const ITEMS_PER_PAGE = 20;
 
@@ -234,7 +235,7 @@ export default function LeadMaster() {
 
   const handleDelete = async (lead) => {
     if (!lead?.id) return;
-    if (!confirm(`Remove the lead for ${lead.company || 'this company'}?`)) return;
+    if (!(await confirmDialog({ title: "Remove lead", message: `Remove the lead for ${lead.company || 'this company'}?`, confirmLabel: "Remove", tone: "danger" }))) return;
     try {
       const { error } = await supabase.from('marketing_leads').delete().eq('id', lead.id);
       if (error) throw error;

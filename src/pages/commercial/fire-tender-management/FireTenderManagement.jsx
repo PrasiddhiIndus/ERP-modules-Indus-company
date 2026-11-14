@@ -65,6 +65,7 @@ import {
   startOfToday,
   stripScope,
 } from "./fireTenderModel";
+import { confirmDialog } from "../../../lib/dialog";
 
 const TABS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -1303,7 +1304,7 @@ export default function FireTenderManagement() {
   const demobilize = async (v) => {
     if (!v.activeTrip) return;
     const where = v.activeTrip.deployment_location || "its site";
-    if (!window.confirm(`Demobilize ${v.registrationNumber} from ${where}? The deployment will be marked Completed and the vehicle set to Available.`)) return;
+    if (!(await confirmDialog({ title: "Demobilize vehicle", message: `Demobilize ${v.registrationNumber} from ${where}? The deployment will be marked Completed and the vehicle set to Available.`, confirmLabel: "Demobilize", tone: "danger" }))) return;
     setSaving(true);
     try {
       const { error: e } = await supabase.from(TRIPS_TABLE).update({ trip_status: "Completed" }).eq("id", v.activeTrip.id);

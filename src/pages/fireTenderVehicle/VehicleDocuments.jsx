@@ -19,6 +19,7 @@ import {
   Eye
 } from 'lucide-react';
 import { toast } from '../../lib/toast';
+import { confirmDialog } from "../../lib/dialog";
 
 const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
   const [documents, setDocuments] = useState([]);
@@ -339,7 +340,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this document?')) {
+    if (await confirmDialog({ title: "Delete document", message: 'Are you sure you want to delete this document?', confirmLabel: "Delete", tone: "danger" })) {
       try {
         const { error } = await supabase
           .from('operations_fire_tender_vehicle_documents')

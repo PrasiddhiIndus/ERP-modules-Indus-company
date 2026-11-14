@@ -13,6 +13,7 @@ import {
   StatusBadge,
 } from "./deductionsUi";
 import { toast } from "../../../../lib/toast";
+import { confirmDialog } from "../../../../lib/dialog";
 
 function currentFyLabel() {
   const d = new Date();
@@ -131,12 +132,10 @@ export default function EmployeeForm16Tab({ records, onChange, employeeName = ""
     toast.success(wasEditing ? "Form 16 updated." : "Form 16 draft saved.");
   };
 
-  const issue = (id) => {
+  const issue = async (id) => {
     const row = rows.find((r) => r.id === id);
     if (!row || row.status === "cancelled") return;
-    const ok = window.confirm(
-      `Issue Form 16 for FY ${row.financial_year}? Any other issued certificate for the same FY will be marked superseded.`
-    );
+    const ok = await confirmDialog({ title: "Issue Form 16", message: `Issue Form 16 for FY ${row.financial_year}? Any other issued certificate for the same FY will be marked superseded.`, confirmLabel: "Issue" });
     if (!ok) return;
     const now = new Date().toISOString();
     onChange(
@@ -162,10 +161,8 @@ export default function EmployeeForm16Tab({ records, onChange, employeeName = ""
     toast.success("Form 16 issued.");
   };
 
-  const cancel = (id) => {
-    const ok = window.confirm(
-      "Cancel this Form 16? It will be frozen and will no longer be treated as the current certificate for that year."
-    );
+  const cancel = async (id) => {
+    const ok = await confirmDialog({ title: "Cancel Form 16", message: "Cancel this Form 16? It will be frozen and will no longer be treated as the current certificate for that year.", confirmLabel: "Cancel Form 16", cancelLabel: "Keep", tone: "danger" });
     if (!ok) return;
     onChange(
       rows.map((r) =>

@@ -22,6 +22,7 @@ import {
   Paperclip
 } from 'lucide-react';
 import { toast } from '../../lib/toast';
+import { confirmDialog } from "../../lib/dialog";
 
 const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
   const [drivers, setDrivers] = useState([]);
@@ -199,7 +200,7 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this driver?')) {
+    if (await confirmDialog({ title: "Delete driver", message: 'Are you sure you want to delete this driver?', confirmLabel: "Delete", tone: "danger" })) {
       try {
         const { error } = await supabase
           .from('operations_fire_tender_vehicle_drivers')

@@ -19,6 +19,7 @@ import { getFinancePoDetail, setFinancePoCostCenter, setFinancePoOcNo, signFinan
 import { IEV_OC_DEPARTMENT } from "./ocDepartment";
 import ProjectsApprovalPanel, { openModificationRequest } from "../poAtGlance/ProjectsApprovalPanel";
 import PjDocumentPreviewModal from "../poAtGlance/PjDocumentPreviewModal";
+import { confirmDialog } from "../../../lib/dialog";
 
 const inputCls =
   "w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100 disabled:bg-slate-50 disabled:text-slate-600";
@@ -652,7 +653,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
 
   const removePoFile = async (doc) => {
     if (!form.id || !doc?.path) return;
-    if (!window.confirm(`Remove ${doc.name || "this purchase order file"}?`)) return;
+    if (!(await confirmDialog({ title: "Remove PO file", message: `Remove ${doc.name || "this purchase order file"}?`, confirmLabel: "Remove", tone: "danger" }))) return;
     setUploadingPo(true);
     try {
       const updated = await removeProjectPoDocument(form.id, doc.path);
@@ -672,7 +673,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     }
     const docs = form.po_documents?.length ? form.po_documents : normalizePoDocuments(form);
     if (!form.id || !docs.length) return;
-    if (!window.confirm("Remove all original purchase order files?")) return;
+    if (!(await confirmDialog({ title: "Remove all PO files", message: "Remove all original purchase order files?", confirmLabel: "Remove all", tone: "danger" }))) return;
     setUploadingPo(true);
     try {
       await clearProjectPoDocument(form.id, docs.map((d) => d.path));
@@ -1038,8 +1039,8 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     }
   };
 
-  const handleBack = () => {
-    if ((dirty || pendingPoFiles.length) && (canEdit || projectsRemarksOnly) && !window.confirm("Discard unsaved changes?")) return;
+  const handleBack = async () => {
+    if ((dirty || pendingPoFiles.length) && (canEdit || projectsRemarksOnly) && !(await confirmDialog({ title: "Discard changes", message: "Discard unsaved changes?", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" }))) return;
     dropPendingPoFiles();
     onBack();
   };

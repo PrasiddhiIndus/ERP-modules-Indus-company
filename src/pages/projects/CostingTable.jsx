@@ -30,6 +30,7 @@ import { exportFireTenderCostingWorkbook } from "./fireTenderCostingExcelExport"
 import { rowMatchesTemplate } from "./fireTenderTemplates";
 
 import { toast } from "../../lib/toast";
+import { confirmDialog } from "../../lib/dialog";
 // 🔹 Convert rows into nested tree structure (unchanged)
 const buildTree = (rows) => {
   const tree = {};
@@ -100,6 +101,32 @@ function trimCostingSheetToMaxLines(fixed, extra, maxLines) {
   return { fixedRows: t.slice(0, nFixed), extraRows: t.slice(nFixed) };
 }
 
+/** Display order for costing lines (catalog + added), by sortOrder. */
+function buildDisplayRows(fixed, extra) {
+  const items = [
+    ...fixed.map((row, kindIndex) => ({ row, isCatalog: true, kindIndex })),
+    ...extra.map((row, kindIndex) => ({ row, isCatalog: false, kindIndex })),
+  ];
+  items.sort((a, b) => {
+    const ao =
+      a.row.sortOrder != null && Number.isFinite(Number(a.row.sortOrder))
+        ? Number(a.row.sortOrder)
+        : a.isCatalog
+          ? a.kindIndex
+          : 10000 + a.kindIndex;
+    const bo =
+      b.row.sortOrder != null && Number.isFinite(Number(b.row.sortOrder))
+        ? Number(b.row.sortOrder)
+        : b.isCatalog
+          ? b.kindIndex
+          : 10000 + b.kindIndex;
+    if (ao !== bo) return ao - bo;
+    if (a.isCatalog !== b.isCatalog) return a.isCatalog ? -1 : 1;
+    return a.kindIndex - b.kindIndex;
+  });
+  return items;
+}
+
 /** Compact summary of selected subcategory levels for the collapsed row. */
 function getSubCategorySummary(row) {
   const parts = [row.sub1, row.sub2, row.sub3, row.sub4, row.sub5]
@@ -165,39 +192,52 @@ const CostingTable = ({
     });
   };
 
-  /** Reorder main (fixed) cost components only — calculation formulas unchanged. */
-  const reorderFixedRows = (fromIndex, toIndex) => {
+  /** Reorder any costing line (catalog or newly added) — calculation formulas unchanged. */
+  const reorderCostingRows = (fromIndex, toIndex) => {
+    const items = buildDisplayRows(fixedRows, extraRows);
     if (
       fromIndex == null ||
       toIndex == null ||
       fromIndex === toIndex ||
       fromIndex < 0 ||
       toIndex < 0 ||
-      fromIndex >= fixedRows.length ||
-      toIndex >= fixedRows.length
+      fromIndex >= items.length ||
+      toIndex >= items.length
     ) {
       return;
     }
-    setFixedRows((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, moved);
-      return next.map((r, i) => ({ ...r, sortOrder: i }));
+    const next = [...items];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+
+    const orderMap = new Map();
+    next.forEach((item, i) => {
+      orderMap.set(`${item.isCatalog ? "c" : "e"}:${item.kindIndex}`, i);
     });
+
+    setFixedRows((prev) =>
+      prev.map((r, i) => ({
+        ...r,
+        sortOrder: orderMap.has(`c:${i}`) ? orderMap.get(`c:${i}`) : i,
+      }))
+    );
+    setExtraRows((prev) =>
+      prev.map((r, i) => ({
+        ...r,
+        sortOrder: orderMap.has(`e:${i}`) ? orderMap.get(`e:${i}`) : 10000 + i,
+      }))
+    );
+
     setExpandedSubRows((prev) => {
       if (!prev.size) return prev;
-      const next = new Set();
+      const remapped = new Set();
       prev.forEach((i) => {
-        if (i >= fixedRows.length) {
-          next.add(i);
-          return;
-        }
-        if (i === fromIndex) next.add(toIndex);
-        else if (fromIndex < toIndex && i > fromIndex && i <= toIndex) next.add(i - 1);
-        else if (fromIndex > toIndex && i >= toIndex && i < fromIndex) next.add(i + 1);
-        else next.add(i);
+        if (i === fromIndex) remapped.add(toIndex);
+        else if (fromIndex < toIndex && i > fromIndex && i <= toIndex) remapped.add(i - 1);
+        else if (fromIndex > toIndex && i >= toIndex && i < fromIndex) remapped.add(i + 1);
+        else remapped.add(i);
       });
-      return next;
+      return remapped;
     });
   };
 
@@ -509,6 +549,10 @@ const CostingTable = ({
       toast.success(`The costing sheet is limited to ${MAX_COSTING_SHEET_LINES} lines (Sr. 1–${MAX_COSTING_SHEET_LINES}). Remove a line or shorten the main-component list to add more.`);
       return;
     }
+    const maxOrder = buildDisplayRows(fixedRows, extraRows).reduce((m, item) => {
+      const n = Number(item.row.sortOrder);
+      return Number.isFinite(n) ? Math.max(m, n) : m;
+    }, -1);
     setExtraRows([
       ...extraRows,
       {
@@ -525,33 +569,32 @@ const CostingTable = ({
         qty: 1,
         remark: "",
         includeInSummary: true,
-        sortOrder: null,
+        sortOrder: maxOrder + 1,
       },
     ]);
   };
 
-  const removeCostingRowAt = (index) => {
-    const total = fixedRows.length + extraRows.length;
-    if (index < 0 || index >= total) return;
+  const removeCostingRowAt = async (displayIndex) => {
+    const items = buildDisplayRows(fixedRows, extraRows);
+    if (displayIndex < 0 || displayIndex >= items.length) return;
+    const target = items[displayIndex];
 
     const reindexExpanded = () => {
       setExpandedSubRows((prev) => {
         const next = new Set();
         prev.forEach((i) => {
-          if (i < index) next.add(i);
-          else if (i > index) next.add(i - 1);
+          if (i < displayIndex) next.add(i);
+          else if (i > displayIndex) next.add(i - 1);
         });
         return next;
       });
     };
 
-    if (index < fixedRows.length) {
-      const comp = fixedRows[index]?.component;
+    if (target.isCatalog) {
+      const comp = target.row?.component;
       if (!comp) return;
       if (
-        !window.confirm(
-          `Remove line ${index + 1} (“${comp}”) from this tender’s costing sheet?\n\nIt will stay hidden for this tender on this browser until you clear site data.`
-        )
+        !(await confirmDialog({ title: "Remove costing line", message: `Remove line ${displayIndex + 1} (“${comp}”) from this tender’s costing sheet?\n\nIt will stay hidden for this tender on this browser until you clear site data.`, confirmLabel: "Remove", tone: "danger" }))
       ) {
         return;
       }
@@ -560,14 +603,13 @@ const CostingTable = ({
         list.push(comp);
         saveOmittedMainComponents(Number(tenderId), list);
       }
-      setFixedRows((prev) => prev.filter((_, i) => i !== index));
+      setFixedRows((prev) => prev.filter((_, i) => i !== target.kindIndex));
       reindexExpanded();
       return;
     }
 
-    const extraIndex = index - fixedRows.length;
-    if (!window.confirm(`Remove extra line ${index + 1}?`)) return;
-    setExtraRows((prev) => prev.filter((_, i) => i !== extraIndex));
+    if (!(await confirmDialog({ title: "Remove extra line", message: `Remove extra line ${displayIndex + 1}?`, confirmLabel: "Remove", tone: "danger" }))) return;
+    setExtraRows((prev) => prev.filter((_, i) => i !== target.kindIndex));
     reindexExpanded();
   };
 
@@ -657,7 +699,8 @@ const CostingTable = ({
   const formatCurrency = (value) =>
     Number(value || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const allRows = [...fixedRows, ...extraRows];
+  const displayItems = buildDisplayRows(fixedRows, extraRows);
+  const allRows = displayItems.map((item) => item.row);
 
   const calculateTotal = (row) => calculateCostingRowTotal(row, allRows);
 
@@ -748,7 +791,9 @@ const CostingTable = ({
       setFixedRows(fSave);
       setExtraRows(eSave);
     }
-    const allToSave = [...fSave, ...eSave].filter((row) => String(row.component || "").trim());
+    const allToSave = buildDisplayRows(fSave, eSave)
+      .map((item) => item.row)
+      .filter((row) => String(row.component || "").trim());
 
     const { data: backupRows, error: backupErr } = await supabase
       .from("costing_rows")
@@ -1044,7 +1089,7 @@ const CostingTable = ({
     <div className="space-y-4">
       <div className="w-full rounded-lg bg-white p-3 shadow sm:p-4">
         <p className="mb-2 text-[11px] text-slate-500">
-          Drag main components by the handle to reorder (formulas unchanged). Use Cost Components checkboxes below to control what appears in summary and export.
+          Drag any line by the handle to reorder (formulas unchanged). Use Cost Components checkboxes below to control what appears in summary and export.
         </p>
         <div className="max-h-[calc(100dvh-16rem)] overflow-x-hidden overflow-y-auto">
         <table className="erp-table-exempt w-full table-fixed border-collapse text-[11px]">
@@ -1077,9 +1122,9 @@ const CostingTable = ({
             </tr>
           </thead>
           <tbody>
-            {allRows.map((row, index) => {
+            {displayItems.map((item, index) => {
+              const { row, isCatalog: isFixedRow, kindIndex } = item;
               const metaconeQty = isMetaconeMounting(row.component) ? computeMetaconeQty(allRows) : null;
-              const isFixedRow = index < fixedRows.length;
               const fillStatus = getCostingRowFillStatus(row, allRows, componentTree, isFixedRow);
               const fillHighlightClass =
                 fillStatus === "complete"
@@ -1094,14 +1139,18 @@ const CostingTable = ({
                 [1, 2, 3, 4, 5].some(
                   (level) => getSubOptions(componentTree, row.component, level, row).length > 0
                 );
+              const rowKey = isFixedRow ? `c-${row.component || kindIndex}` : `e-${kindIndex}`;
 
               return (
-                <React.Fragment key={index}>
+                <React.Fragment key={rowKey}>
                 <tr
                   className={`bg-white hover:bg-slate-50/80 ${dragFromIndex === index ? "opacity-60" : ""}`}
-                  draggable={isFixedRow}
+                  draggable
                   onDragStart={(e) => {
-                    if (!isFixedRow) return;
+                    if (e.target.closest("input, textarea, select, button, a")) {
+                      e.preventDefault();
+                      return;
+                    }
                     setDragFromIndex(index);
                     e.dataTransfer.effectAllowed = "move";
                     try {
@@ -1111,33 +1160,30 @@ const CostingTable = ({
                     }
                   }}
                   onDragOver={(e) => {
-                    if (!isFixedRow || dragFromIndex == null) return;
+                    if (dragFromIndex == null) return;
                     e.preventDefault();
                     e.dataTransfer.dropEffect = "move";
                   }}
                   onDrop={(e) => {
                     e.preventDefault();
-                    if (!isFixedRow) return;
                     const from = dragFromIndex;
                     setDragFromIndex(null);
-                    reorderFixedRows(from, index);
+                    reorderCostingRows(from, index);
                   }}
                   onDragEnd={() => setDragFromIndex(null)}
                 >
                   <td className={`${td} text-center tabular-nums text-slate-500`}>{index + 1}</td>
 
-                  {/* Main Component (+ drag handle for fixed/main components) */}
+                  {/* Main Component (+ drag handle for all lines) */}
                   <td className={`${td} font-medium`}>
                     <div className="flex min-w-0 items-start gap-1">
-                      {isFixedRow ? (
-                        <span
-                          className="mt-0.5 shrink-0 cursor-grab text-slate-400 active:cursor-grabbing"
-                          title="Drag to reorder"
-                          aria-hidden
-                        >
-                          <FaBars className="h-3 w-3" />
-                        </span>
-                      ) : null}
+                      <span
+                        className="mt-0.5 shrink-0 cursor-grab text-slate-400 active:cursor-grabbing"
+                        title="Drag to reorder"
+                        aria-hidden
+                      >
+                        <FaBars className="h-3 w-3" />
+                      </span>
                       <div className="min-w-0 flex-1">
                         {isFixedRow ? (
                           <span className="block break-words font-semibold leading-snug text-slate-900" title={displayAliases[row.component] || row.component}>
@@ -1151,7 +1197,7 @@ const CostingTable = ({
                               handleChange(
                                 extraRows,
                                 setExtraRows,
-                                index - fixedRows.length,
+                                kindIndex,
                                 "component",
                                 e.target.value
                               )
@@ -1204,14 +1250,13 @@ const CostingTable = ({
                       placeholder={getManualSubPlaceholder(row.component) || getManualSubLabel(row.component)}
                       onChange={(e) => {
                         const val = e.target.value;
-                        if (index < fixedRows.length) {
+                        if (isFixedRow) {
                           const updated = [...fixedRows];
-                          updated[index] = { ...updated[index], manualSub: val };
+                          updated[kindIndex] = { ...updated[kindIndex], manualSub: val };
                           setFixedRows(updated);
                         } else {
-                          const extraIndex = index - fixedRows.length;
                           const updated = [...extraRows];
-                          updated[extraIndex] = { ...updated[extraIndex], manualSub: val };
+                          updated[kindIndex] = { ...updated[kindIndex], manualSub: val };
                           setExtraRows(updated);
                         }
                       }}
@@ -1288,14 +1333,13 @@ const CostingTable = ({
                               if (!fieldEditable) return;
                               const numeric = val === "" ? "" : parseNumericInput(val, val);
 
-                              if (index < fixedRows.length) {
+                              if (isFixedRow) {
                                 const updated = [...fixedRows];
-                                updated[index] = { ...updated[index], [field]: numeric };
+                                updated[kindIndex] = { ...updated[kindIndex], [field]: numeric };
                                 setFixedRows(updated);
                               } else {
-                                const extraIndex = index - fixedRows.length;
                                 const updated = [...extraRows];
-                                updated[extraIndex] = { ...updated[extraIndex], [field]: numeric };
+                                updated[kindIndex] = { ...updated[kindIndex], [field]: numeric };
                                 setExtraRows(updated);
                               }
                             }}
@@ -1346,14 +1390,13 @@ const CostingTable = ({
                       value={row.remark || ""}
                       onChange={(e) => {
                         const val = e.target.value;
-                        if (index < fixedRows.length) {
+                        if (isFixedRow) {
                           const updated = [...fixedRows];
-                          updated[index] = { ...updated[index], remark: val };
+                          updated[kindIndex] = { ...updated[kindIndex], remark: val };
                           setFixedRows(updated);
                         } else {
-                          const extraIndex = index - fixedRows.length;
                           const updated = [...extraRows];
-                          updated[extraIndex] = { ...updated[extraIndex], remark: val };
+                          updated[kindIndex] = { ...updated[kindIndex], remark: val };
                           setExtraRows(updated);
                         }
                       }}
@@ -1394,7 +1437,7 @@ const CostingTable = ({
                         <div className="flex max-w-xl flex-col gap-2.5">
                           {[1, 2, 3, 4, 5].map((level) => (
                             <div key={level} className="min-w-0">
-                              {renderSubColumn(level, row, index, isFixedRow, { labeled: true })}
+                              {renderSubColumn(level, row, kindIndex, isFixedRow, { labeled: true })}
                             </div>
                           ))}
                         </div>

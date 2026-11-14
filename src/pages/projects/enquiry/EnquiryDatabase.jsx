@@ -56,6 +56,7 @@ import {
   startOfToday,
   todayIso,
 } from './enquiryDeadlines';
+import { confirmDialog } from "../../../lib/dialog";
 
 const DAYS_LEFT_KEY = '__days_left';
 
@@ -341,7 +342,7 @@ export default function EnquiryDatabase() {
       setDeleteAsk(row);
       return;
     }
-    if (!window.confirm('Delete this enquiry record?')) return;
+    if (!(await confirmDialog({ title: "Delete enquiry record", message: 'Delete this enquiry record?', confirmLabel: "Delete", tone: "danger" }))) return;
     try {
       const { error: e } = await projectsTable('enquiries').delete().eq('id', row.id);
       if (e) throw e;
