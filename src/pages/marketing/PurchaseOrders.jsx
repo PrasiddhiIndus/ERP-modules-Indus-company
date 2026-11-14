@@ -9,6 +9,30 @@ import FormDateInput from "../../components/FormDateInput";
 
 
 import { toast } from "../../lib/toast";
+
+function quotationsForContext(quotations, enquiryId, clientId) {
+  if (enquiryId) {
+    const byEnquiry = quotations.filter((q) => q.enquiry_id && q.enquiry_id === enquiryId);
+    if (byEnquiry.length) return byEnquiry;
+  }
+  if (clientId) {
+    return quotations.filter((q) => q.client_id && q.client_id === clientId);
+  }
+  return [];
+}
+
+function bestQuotationId(quotations, enquiryId, clientId) {
+  return quotationsForContext(quotations, enquiryId, clientId)[0]?.id || '';
+}
+
+function quotationNumberForContract(contract, quotations) {
+  const embedded = contract.marketing_quotations?.quotation_number;
+  if (embedded) return embedded;
+  const saved = quotations.find((q) => q.id === contract.quotation_id);
+  if (saved?.quotation_number) return saved.quotation_number;
+  return quotationsForContext(quotations, contract.enquiry_id, contract.client_id)[0]?.quotation_number || '-';
+}
+
 const PurchaseOrders = () => {
   const [contracts, setContracts] = useState([]);
   const [quotations, setQuotations] = useState([]);
@@ -42,6 +66,13 @@ const PurchaseOrders = () => {
     fetchClients();
   }, []);
 
+  useEffect(() => {
+    if (!showForm || formData.quotation_id) return;
+    const nextId = bestQuotationId(quotations, formData.enquiry_id, formData.client_id);
+    if (!nextId) return;
+    setFormData((prev) => (prev.quotation_id ? prev : { ...prev, quotation_id: nextId }));
+  }, [showForm, quotations, formData.enquiry_id, formData.client_id, formData.quotation_id]);
+
   const fetchContracts = async () => {
     try {
       setLoading(true);
@@ -68,7 +99,7 @@ const PurchaseOrders = () => {
     try {
       const { data } = await supabase
         .from('marketing_quotations')
-        .select('id, quotation_number')
+        .select('id, quotation_number, enquiry_id, client_id')
         .order('created_at', { ascending: false });
       setQuotations(data || []);
     } catch (error) {
@@ -80,7 +111,7 @@ const PurchaseOrders = () => {
     try {
       const { data } = await supabase
         .from('marketing_enquiries')
-        .select('id, enquiry_number')
+        .select('id, enquiry_number, client_id')
         .order('created_at', { ascending: false });
       setEnquiries(data || []);
     } catch (error) {
@@ -225,7 +256,7 @@ const PurchaseOrders = () => {
   const handleEdit = (contract) => {
     setEditingContract(contract);
     setFormData({
-      quotation_id: contract.quotation_id || '',
+      quotation_id: contract.quotation_id || bestQuotationId(quotations, contract.enquiry_id, contract.client_id),
       enquiry_id: contract.enquiry_id || '',
       client_id: contract.client_id || '',
       po_number: contract.po_number || '',
@@ -266,7 +297,7 @@ const PurchaseOrders = () => {
       'PO Number': contract.po_number || '-',
       'PO Date': contract.po_date ? formatDateDdMmYyyy(contract.po_date) : '-',
       'PO Value (₹)': contract.po_value || 0,
-      'Quotation Number': contract.marketing_quotations?.quotation_number || '-',
+      'Quotation Number': quotationNumberForContract(contract, quotations),
       'Client': contract.marketing_clients?.client_name || '-',
       'Status': contract.status,
       'Awarded Date': contract.awarded_date ? formatDateDdMmYyyy(contract.awarded_date) : '-',
@@ -274,6 +305,12 @@ const PurchaseOrders = () => {
     }));
     exportToExcel(exportData, 'Contracts_Export', 'Contracts');
   };
+
+  const relevantQuotations = quotationsForContext(quotations, formData.enquiry_id, formData.client_id);
+  const savedQuotation = quotations.find((q) => q.id === formData.quotation_id);
+  const quotationOptions = savedQuotation && !relevantQuotations.some((q) => q.id === savedQuotation.id)
+    ? [savedQuotation, ...relevantQuotations]
+    : relevantQuotations;
 
   return (
     <div className="w-full h-screen overflow-y-auto p-2 sm:p-3 md:p-4 lg:p-6">
@@ -356,7 +393,7 @@ const PurchaseOrders = () => {
                         {contract.po_date ? formatDateDdMmYyyy(contract.po_date) : '-'}
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500 hidden lg:table-cell">
-                        {contract.marketing_quotations?.quotation_number || '-'}
+                        {quotationNumberForContract(contract, quotations)}
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">
                         {contract.marketing_clients?.client_name || '-'}
@@ -463,8 +500,15 @@ const PurchaseOrders = () => {
                   <select
                     value={formData.enquiry_id}
                     onChange={(e) => {
-                      const selectedEnquiry = enquiries.find(enq => enq.id === e.target.value);
-                      setFormData({ ...formData, enquiry_id: e.target.value, client_id: selectedEnquiry?.client_id || formData.client_id });
+                      const enquiryId = e.target.value;
+                      const selectedEnquiry = enquiries.find((enq) => enq.id === enquiryId);
+                      const clientId = selectedEnquiry?.client_id || formData.client_id;
+                      setFormData({
+                        ...formData,
+                        enquiry_id: enquiryId,
+                        client_id: clientId,
+                        quotation_id: bestQuotationId(quotations, enquiryId, clientId),
+                      });
                     }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                   >
@@ -483,7 +527,17 @@ const PurchaseOrders = () => {
                   </label>
                   <select
                     value={formData.client_id}
-                    onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
+                    onChange={(e) => {
+                      const clientId = e.target.value;
+                      const enquiry = enquiries.find((enq) => enq.id === formData.enquiry_id);
+                      const enquiryId = enquiry && (!clientId || enquiry.client_id === clientId) ? formData.enquiry_id : '';
+                      setFormData({
+                        ...formData,
+                        client_id: clientId,
+                        enquiry_id: enquiryId,
+                        quotation_id: bestQuotationId(quotations, enquiryId, clientId),
+                      });
+                    }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                     required
                   >
@@ -494,6 +548,33 @@ const PurchaseOrders = () => {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Quotation No.</label>
+                  <select
+                    value={formData.quotation_id}
+                    onChange={(e) => setFormData({ ...formData, quotation_id: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">
+                      {relevantQuotations.length
+                        ? 'Select quotation'
+                        : 'No quotation found for this enquiry or client'}
+                    </option>
+                    {quotationOptions.map((quotation) => (
+                      <option key={quotation.id} value={quotation.id}>
+                        {quotation.quotation_number}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-sm text-gray-500">
+                    {formData.enquiry_id && quotations.some((q) => q.enquiry_id === formData.enquiry_id)
+                      ? 'Filled from the latest quotation for this enquiry.'
+                      : formData.client_id && quotations.some((q) => q.client_id === formData.client_id)
+                        ? 'Filled from the latest quotation for this client.'
+                        : 'Choose an enquiry or client to fill the quotation number.'}
+                  </p>
                 </div>
 
                 <div>

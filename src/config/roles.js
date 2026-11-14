@@ -932,7 +932,7 @@ export function getOpenableProjectsContractTabs(profile, accessibleModules, subM
 export const NAV_MODULE_TREE = [
   {
     value: "hr",
-    label: "HR",
+    label: "HR Site",
     subModules: [
       { value: "hr.dashboard",          label: "Dashboard",          pathPrefix: "/app/hr/dashboard" },
       { value: "hr.employee-master",     label: "HR Management",      pathPrefix: "/app/hr/employee-master" },
@@ -968,7 +968,7 @@ export const NAV_MODULE_TREE = [
   },
   {
     value: "admin",
-    label: "Admin",
+    label: "IN-House HR/Admin",
     subModules: [
       { value: "admin.dashboard",        label: "Dashboard",                  pathPrefix: "/app/admin/dashboard" },
       {
@@ -1075,7 +1075,7 @@ export const NAV_MODULE_TREE = [
   },
   {
     value: "operations",
-    label: "Operations",
+    label: "Site Operations",
     subModules: [
       { value: "operations.fleet",      label: "Fleet Management",     pathPrefix: "/app/fire-tender-vehicle-management" },
       { value: "operations.manpower",   label: "Manpower Operations",  pathPrefix: "/app/operations" },
@@ -1178,7 +1178,7 @@ export const NAV_MODULE_TREE = [
   },
   {
     value: "crmOutreach",
-    label: "Client/In-House Mail Outreach",
+    label: "Mail Outreach",
     subModules: [
       { value: CRM_OUTREACH_CLIENT_SUBMODULE_KEY, label: "Client Mail Outreach", pathPrefix: "/app/crm-outreach" },
       { value: CRM_OUTREACH_INHOUSE_SUBMODULE_KEY, label: "In-House Mail Outreach", pathPrefix: "/app/crm-outreach" },

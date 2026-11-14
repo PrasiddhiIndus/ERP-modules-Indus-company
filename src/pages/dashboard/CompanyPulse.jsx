@@ -444,9 +444,6 @@ export default function CompanyPulse({
                       <small>{metric.label}</small>
                       <b>{loading ? "—" : metric.value}</b>
                     </span>
-                    <span className="cp-cell-bar" aria-hidden="true">
-                      <i style={{ width: `${score == null ? 8 : Math.max(8, score)}%` }} />
-                    </span>
                     <span className="cp-cell-foot">
                       <em>{status.label}</em>
                       <span>{score == null ? "—" : score}</span>
