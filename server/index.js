@@ -404,6 +404,7 @@ const {
   requireAdminPoliciesR2,
   requireCommercialPoR2,
   requireMarketingExpoR2,
+  requireFireTenderR2,
 } = createAuthMiddleware({
   getSupabaseUrl: getSupabaseUrlForServer,
   getServiceRoleKey: getSupabaseServiceRoleKeyForServer,
@@ -443,9 +444,11 @@ const R2_ADMIN_PERSONAL_LETTERS_KEY_PREFIX = PERSONAL_LETTERS_R2_PREFIX;
 const R2_COMMERCIAL_PO_KEY_PREFIX = 'commercial-po/';
 const R2_MARKETING_EXPO_KEY_PREFIX = 'marketing-expo/';
 const R2_COMMERCIAL_PO_FOLDERS = new Set(['po-copy', 'scope-of-work', 'penalty-clause']);
+const R2_FIRE_TENDER_KEY_PREFIX = 'fire-tender/tenders/';
 const R2_PRESIGN_GET_EXPIRES_SEC = 600;
 const R2_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const R2_COMMERCIAL_PO_MAX_BYTES = 100 * 1024 * 1024;
+const R2_FIRE_TENDER_MAX_BYTES = 50 * 1024 * 1024;
 
 const R2_ALLOWED_EXT = new Set(['pdf', 'jpg', 'jpeg', 'png', 'webp', 'xlsx', 'xls', 'doc', 'docx']);
 const R2_EXT_TO_CONTENT_TYPE = {
@@ -526,6 +529,11 @@ const r2CommercialPoUpload = multer({
   limits: { fileSize: R2_COMMERCIAL_PO_MAX_BYTES },
 });
 
+const r2FireTenderUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: R2_FIRE_TENDER_MAX_BYTES },
+});
+
 const adminRecruitment = registerAdminRecruitmentRoutes(app, {
   requireAuth,
   getSupabaseUrl: getSupabaseUrlForServer,
@@ -575,6 +583,18 @@ function assertCommercialPoObjectKeyAllowed(objectKey) {
   }
   if (!R2_COMMERCIAL_PO_FOLDERS.has(parts[2])) {
     throw new HttpError(400, 'Invalid object key folder.');
+  }
+}
+
+function assertFireTenderObjectKeyAllowed(objectKey) {
+  const key = String(objectKey || '').trim();
+  if (!key.startsWith(R2_FIRE_TENDER_KEY_PREFIX) || key.includes('..') || key.includes('//')) {
+    throw new HttpError(400, 'Invalid object key.');
+  }
+  const parts = key.split('/').filter(Boolean);
+  // fire-tender/tenders/{tenderId}/{file}
+  if (parts.length < 4 || parts[0] !== 'fire-tender' || parts[1] !== 'tenders') {
+    throw new HttpError(400, 'Invalid object key.');
   }
 }
 
@@ -2679,6 +2699,62 @@ app.post(
   }
 );
 
+// IEV New Tender documents: Cloudflare R2 (keys under fire-tender/tenders/{tenderId}/…).
+app.post(
+  '/api/fire-tender/r2/upload',
+  (req, res, next) => {
+    r2FireTenderUpload.single('file')(req, res, (err) => {
+      if (!err) {
+        next();
+        return;
+      }
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        res.status(400).json({ message: `File too large (max ${R2_FIRE_TENDER_MAX_BYTES} bytes).` });
+        return;
+      }
+      res.status(400).json({ message: err.message || 'Upload failed.' });
+    });
+  },
+  requireFireTenderR2,
+  async (req, res) => {
+    try {
+      const bucket = getR2BucketName();
+      const tenderId = sanitizeR2UploadFileName(String(req.body?.tenderId || '').trim());
+      if (!tenderId) {
+        return res.status(400).json({ message: 'tenderId is required.' });
+      }
+
+      const rawName = String(req.body?.fileName || '').trim();
+      if (!rawName) {
+        return res.status(400).json({ message: 'fileName is required.' });
+      }
+      if (!req.file?.buffer) {
+        return res.status(400).json({ message: 'file is required (multipart field name: file).' });
+      }
+
+      const contentTypeHint = String(req.body?.contentType || req.file.mimetype || '').trim();
+      const resolvedType = resolveR2ContentType(rawName, contentTypeHint || null);
+      const safeName = sanitizeR2UploadFileName(rawName);
+      const objectKey = `${R2_FIRE_TENDER_KEY_PREFIX}${tenderId}/${Date.now()}-${safeName}`;
+
+      const client = getR2S3Client();
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: objectKey,
+          Body: req.file.buffer,
+          ContentType: resolvedType,
+        })
+      );
+
+      res.json({ objectKey, bucket, contentType: resolvedType, fileName: safeName });
+    } catch (err) {
+      const status = Number(err?.status) || 500;
+      res.status(status).json({ message: err?.message || 'Upload failed.' });
+    }
+  }
+);
+
 app.post('/api/marketing/expo-r2/presign-get', requireMarketingExpoR2, async (req, res) => {
   try {
     const bucket = getR2BucketName();
@@ -2688,6 +2764,33 @@ app.post('/api/marketing/expo-r2/presign-get', requireMarketingExpoR2, async (re
     }
     const client = getR2S3Client();
     const getCmd = new GetObjectCommand({ Bucket: bucket, Key: objectKey });
+    const getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
+    res.json({ getUrl });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ message: err?.message || 'Presign GET failed.' });
+  }
+});
+
+app.post('/api/fire-tender/r2/presign-get', requireFireTenderR2, async (req, res) => {
+  try {
+    const bucket = getR2BucketName();
+    const objectKey = String(req.body?.objectKey || '').trim();
+    assertFireTenderObjectKeyAllowed(objectKey);
+
+    const downloadName = sanitizeR2UploadFileName(
+      String(req.body?.fileName || objectKey.split('/').pop() || 'download').trim() || 'download'
+    );
+    const asDownload = Boolean(req.body?.download);
+
+    const client = getR2S3Client();
+    const getCmd = new GetObjectCommand({
+      Bucket: bucket,
+      Key: objectKey,
+      ...(asDownload
+        ? { ResponseContentDisposition: `attachment; filename="${downloadName}"` }
+        : {}),
+    });
     const getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
     res.json({ getUrl });
   } catch (err) {

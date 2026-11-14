@@ -265,7 +265,8 @@ export function normalizeQuotationPayload(form) {
     return Number.isFinite(n) ? n : null;
   };
   return {
-    offer_no: String(form.offer_no || '').trim(),
+    // Null (not '') so blank offer numbers don't collide on quotations_offer_no_unique.
+    offer_no: String(form.offer_no || '').trim() || null,
     offer_date: normalizeToIsoDate(form.offer_date) || null,
     client_name: String(form.client_name || '').trim() || null,
     location: String(form.location || '').trim() || null,

@@ -8,6 +8,8 @@ import {
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
+  Download,
+  Eye,
   FileText,
   Loader2,
   Pencil,
@@ -27,10 +29,16 @@ import {
   userCanApproveInModules,
   userCanEditInModules,
 } from "../../config/roles";
+import {
+  downloadFireTenderR2File,
+  normalizeTenderDocuments,
+  uploadFireTenderFileToR2,
+  viewFireTenderR2File,
+} from "../../lib/fireTenderR2";
 import FireTenderNavbar from "./FireTenderNavbar";
 import { FIRE_TENDER_HUB_TENDER } from "./fireTenderRoutes";
 import { SortableHeader, useTableSort } from "../../components/SortableTableHeader";
-import { FIRE_TENDER_TEMPLATES, DEFAULT_FIRE_TENDER_TEMPLATE, normalizeTemplate } from "./fireTenderTemplates";;
+import { FIRE_TENDER_TEMPLATES, DEFAULT_FIRE_TENDER_TEMPLATE, normalizeTemplate } from "./fireTenderTemplates";
 import FormDateInput from "../../components/FormDateInput";
 
 
@@ -86,7 +94,10 @@ const initialFormData = {
   description: "",
   handledBy: "Current User",
   authorizationTo: "",
-  documents: null,
+  /** Newly picked files (not yet on R2). */
+  pendingFiles: [],
+  /** Saved Cloudflare R2 docs: { name, object_key, uploaded_at }. */
+  savedDocuments: [],
   contacts: [],
 };
 
@@ -127,7 +138,8 @@ function mapTenderRecordToForm(data) {
     description: data.description ?? "",
     handledBy: data.handled_by ?? "Current User",
     authorizationTo: data.authorization_to ?? "",
-    documents: null,
+    pendingFiles: [],
+    savedDocuments: normalizeTenderDocuments(data.tender_documents),
     contacts: Array.isArray(data.tender_contacts) ? data.tender_contacts.map(cleanContact) : [],
   };
 }
@@ -138,6 +150,10 @@ function TenderFormFields({
   handleContactChange,
   addContactRow,
   removeContact,
+  onRemoveSavedDocument,
+  onRemovePendingFile,
+  onViewDocument,
+  onDownloadDocument,
 }) {
   return (
     <div className="space-y-5">
@@ -285,11 +301,116 @@ function TenderFormFields({
               <label className={ftLabel}>Documents</label>
               <input
                 type="file"
-                name="documents"
+                name="pendingFiles"
+                multiple
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp"
                 onChange={handleChange}
                 className={`${ftInput} py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-red-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-red-800 hover:file:bg-red-100`}
               />
-              <p className={ftHint}>Attach tender PDF, BOQ, or drawings if applicable.</p>
+              <p className={ftHint}>
+                Upload multiple files (PDF, Word, Excel, images). Stored on Cloudflare. Max 50 MB each.
+              </p>
+
+              {(formData.savedDocuments?.length > 0 || formData.pendingFiles?.length > 0) && (
+                <ul className="mt-3 space-y-2">
+                  {(formData.savedDocuments || []).map((doc) => (
+                    <li
+                      key={doc.object_key}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+                    >
+                      <span className="flex min-w-0 flex-1 items-center gap-2 font-medium text-slate-800" title={doc.name}>
+                        <FileText className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                        <span className="truncate">{doc.name || "Document"}</span>
+                      </span>
+                      <div className="flex shrink-0 items-center gap-1" role="group" aria-label={`${doc.name || "Document"} actions`}>
+                        <button
+                          type="button"
+                          onClick={() => onViewDocument?.(doc)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                          title="View document"
+                          aria-label={`View ${doc.name || "document"}`}
+                        >
+                          <Eye className="h-4 w-4" strokeWidth={2} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDownloadDocument?.(doc)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          title="Download document"
+                          aria-label={`Download ${doc.name || "document"}`}
+                        >
+                          <Download className="h-4 w-4" strokeWidth={2} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRemoveSavedDocument?.(doc.object_key)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-100 bg-red-50 text-red-600 hover:bg-red-100"
+                          title="Remove from tender"
+                          aria-label={`Remove ${doc.name || "document"}`}
+                        >
+                          <Trash2 className="h-4 w-4" strokeWidth={2} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                  {(formData.pendingFiles || []).map((file, i) => (
+                    <li
+                      key={`pending-${file.name}-${i}`}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-sm"
+                    >
+                      <span className="flex min-w-0 flex-1 items-center gap-2 font-medium text-amber-950" title={file.name}>
+                        <FileText className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+                        <span className="truncate">
+                          {file.name}{" "}
+                          <span className="font-normal text-amber-700">(pending upload)</span>
+                        </span>
+                      </span>
+                      <div className="flex shrink-0 items-center gap-1" role="group" aria-label={`${file.name} actions`}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const url = URL.createObjectURL(file);
+                            window.open(url, "_blank", "noopener,noreferrer");
+                            window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                          }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sky-200 bg-white text-sky-700 hover:bg-sky-50"
+                          title="View file"
+                          aria-label={`View ${file.name}`}
+                        >
+                          <Eye className="h-4 w-4" strokeWidth={2} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const url = URL.createObjectURL(file);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = file.name || "download";
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            URL.revokeObjectURL(url);
+                          }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50"
+                          title="Download file"
+                          aria-label={`Download ${file.name}`}
+                        >
+                          <Download className="h-4 w-4" strokeWidth={2} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRemovePendingFile?.(i)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-100 bg-white text-red-600 hover:bg-red-50"
+                          title="Remove"
+                          aria-label={`Remove ${file.name}`}
+                        >
+                          <Trash2 className="h-4 w-4" strokeWidth={2} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <div>
               <label className={ftLabel}>Description & scope</label>
@@ -519,9 +640,47 @@ const FireTender = ({ embeddedInHub = false }) => {
     if (type === "checkbox") {
       setFormData((p) => ({ ...p, [name]: checked }));
     } else if (type === "file") {
-      setFormData((p) => ({ ...p, [name]: files }));
+      const picked = files ? Array.from(files) : [];
+      if (name === "pendingFiles") {
+        setFormData((p) => ({
+          ...p,
+          pendingFiles: [...(p.pendingFiles || []), ...picked],
+        }));
+      } else {
+        setFormData((p) => ({ ...p, [name]: picked }));
+      }
     } else {
       setFormData((p) => ({ ...p, [name]: value }));
+    }
+  };
+
+  const removePendingFile = (index) => {
+    setFormData((prev) => ({
+      ...prev,
+      pendingFiles: (prev.pendingFiles || []).filter((_, i) => i !== index),
+    }));
+  };
+
+  const removeSavedDocument = (objectKey) => {
+    setFormData((prev) => ({
+      ...prev,
+      savedDocuments: (prev.savedDocuments || []).filter((d) => d.object_key !== objectKey),
+    }));
+  };
+
+  const handleViewDocument = async (doc) => {
+    try {
+      await viewFireTenderR2File(doc.object_key);
+    } catch (err) {
+      toast.warning(err.message || "Could not open document.");
+    }
+  };
+
+  const handleDownloadDocument = async (doc) => {
+    try {
+      await downloadFireTenderR2File(doc.object_key, doc.name);
+    } catch (err) {
+      toast.warning(err.message || "Could not download document.");
     }
   };
 
@@ -668,18 +827,91 @@ const FireTender = ({ embeddedInHub = false }) => {
               description: formData.description,
               handled_by: formData.handledBy,
               authorization_to: formData.authorizationTo,
+              tender_documents: [],
               user_id: userId,
             },
           ])
           .select()
           .single();
-        if (error) throw error;
-        tenderRecord = data;
+        if (error) {
+          // Fallback if tender_documents column migration is not applied yet
+          if (/tender_documents/i.test(error.message || "")) {
+            const { data: retryData, error: retryError } = await supabase
+              .from("tenders")
+              .insert([
+                {
+                  enquiry_number: enquiryNum,
+                  client: formData.client,
+                  phone: formData.phone,
+                  email: formData.email,
+                  street: formData.street,
+                  street2: formData.street2,
+                  zip: formData.zip,
+                  city: formData.city,
+                  state: formData.state,
+                  country: formData.country,
+                  source: formData.source,
+                  type_of_tender: formData.typeOfTender,
+                  mode_of_tender: formData.modeOfTender,
+                  vehicle_type: formData.vehicleType,
+                  costing_template: formData.costingTemplate || null,
+                  tender_id_available: formData.tenderIdAvailable,
+                  publish_date: formData.publishDate || null,
+                  due_date: formData.dueDate || null,
+                  estimation: formData.estimation,
+                  description: formData.description,
+                  handled_by: formData.handledBy,
+                  authorization_to: formData.authorizationTo,
+                  user_id: userId,
+                },
+              ])
+              .select()
+              .single();
+            if (retryError) throw retryError;
+            tenderRecord = retryData;
+          } else {
+            throw error;
+          }
+        } else {
+          tenderRecord = data;
+        }
 
         if (formData.contacts.length > 0) {
           await supabase.from("tender_contacts").insert(
             formData.contacts.map((c) => ({ tender_id: tenderRecord.id, user_id: userId, ...c }))
           );
+        }
+      }
+
+      // Upload pending files to Cloudflare R2, then persist document metadata on the tender
+      let docs = normalizeTenderDocuments(formData.savedDocuments);
+      const pending = formData.pendingFiles || [];
+      if (pending.length > 0) {
+        for (const file of pending) {
+          const objectKey = await uploadFireTenderFileToR2({
+            file,
+            tenderId: tenderRecord.id,
+          });
+          docs.push({
+            name: file.name,
+            object_key: objectKey,
+            uploaded_at: new Date().toISOString(),
+          });
+        }
+      }
+
+      const { error: docsError } = await supabase
+        .from("tenders")
+        .update({ tender_documents: docs, updated_at: new Date() })
+        .eq("id", tenderRecord.id);
+
+      if (docsError) {
+        if (/tender_documents/i.test(docsError.message || "")) {
+          toast.warning(
+            "Tender saved, but document storage needs the database migration (tender_documents). Files may not persist until it is applied."
+          );
+        } else {
+          throw docsError;
         }
       }
 
@@ -887,6 +1119,7 @@ const FireTender = ({ embeddedInHub = false }) => {
                       <SortableHeader field="due_date" label="Due date" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider" />
                       <SortableHeader field="status" label="Status" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider" />
                       <SortableHeader field="tender_number" label="Tender No" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider" />
+                      <th className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Documents</th>
                       <th className="px-4 py-3 text-right text-[11px] font-bold text-gray-700 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
@@ -928,6 +1161,43 @@ const FireTender = ({ embeddedInHub = false }) => {
                             <span className={`inline-flex px-2.5 py-0.5 text-[10px] font-semibold rounded-full border ${statusBadge}`}>{status}</span>
                           </td>
                           <td className="px-4 py-3 text-gray-800 text-xs">{tender.tender_number || "Not assigned"}</td>
+                          <td className="px-4 py-3 text-xs">
+                            {(() => {
+                              const docs = normalizeTenderDocuments(tender.tender_documents);
+                              if (!docs.length) {
+                                return <span className="text-slate-400">—</span>;
+                              }
+                              return (
+                                <div className="flex max-w-[220px] flex-col gap-1">
+                                  {docs.map((doc) => (
+                                    <div key={doc.object_key} className="flex items-center gap-1">
+                                      <span className="min-w-0 flex-1 truncate text-slate-700" title={doc.name}>
+                                        {doc.name}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        title="View"
+                                        aria-label={`View ${doc.name}`}
+                                        onClick={() => handleViewDocument(doc)}
+                                        className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                                      >
+                                        <Eye className="h-3.5 w-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        title="Download"
+                                        aria-label={`Download ${doc.name}`}
+                                        onClick={() => handleDownloadDocument(doc)}
+                                        className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                                      >
+                                        <Download className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+                          </td>
                           <td className="px-4 py-3 text-right">
                             <div className="inline-flex flex-wrap items-center justify-end gap-1.5" role="group" aria-label="Tender actions">
                               {canEditTenders && (
@@ -1079,6 +1349,10 @@ const FireTender = ({ embeddedInHub = false }) => {
                   handleContactChange={handleContactChange}
                   addContactRow={addContactRow}
                   removeContact={removeContact}
+                  onRemoveSavedDocument={removeSavedDocument}
+                  onRemovePendingFile={removePendingFile}
+                  onViewDocument={handleViewDocument}
+                  onDownloadDocument={handleDownloadDocument}
                 />
               </div>
               <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-slate-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-end sm:gap-3 sm:px-8 sm:py-4">
@@ -1146,6 +1420,10 @@ const FireTender = ({ embeddedInHub = false }) => {
                   handleContactChange={handleContactChange}
                   addContactRow={addContactRow}
                   removeContact={removeContact}
+                  onRemoveSavedDocument={removeSavedDocument}
+                  onRemovePendingFile={removePendingFile}
+                  onViewDocument={handleViewDocument}
+                  onDownloadDocument={handleDownloadDocument}
                 />
               </div>
               <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-white px-4 py-4 sm:flex-row sm:justify-end sm:gap-3 sm:px-6 sm:py-4">
