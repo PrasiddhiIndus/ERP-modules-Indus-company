@@ -426,7 +426,16 @@ export default function EnquiryDashboard() {
 
     for (const row of filteredRows) {
       ids.total.push(row.id);
-      ids[dashboardBucket(row, today)].push(row.id);
+      const bucket = dashboardBucket(row, today);
+      ids[bucket].push(row.id);
+
+      // In Progress KPI includes every Work in Progress enquiry even when overdue / due soon.
+      // Overdue (and other date boxes) still keep their own lists — rows can appear in both.
+      const status = String(getRowStatusValue(row) || '').trim().toLowerCase();
+      const isInProgressStatus = status === 'work in progress' || status === 'in progress';
+      if (isInProgressStatus && bucket !== 'wip') {
+        ids.wip.push(row.id);
+      }
     }
 
     return ids;
@@ -508,7 +517,7 @@ export default function EnquiryDashboard() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-5 gap-2">
         <KpiCard icon={ClipboardList} label="Total" value={stats.total} sub="Sum of all boxes" tone="blue" onClick={openHandler('total', 'Total')} />
         <KpiCard icon={Users} label="Not Started" value={stats.notStarted} sub="Assigned, not yet due" tone="amber" onClick={openHandler('notStarted', 'Not Started')} />
-        <KpiCard icon={UserCheck} label="In Progress" value={stats.wip} sub="Assigned, not yet due" tone="sky" onClick={openHandler('wip', 'In Progress')} />
+        <KpiCard icon={UserCheck} label="In Progress" value={stats.wip} sub="All Work in Progress (incl. overdue)" tone="sky" onClick={openHandler('wip', 'In Progress')} />
         <KpiCard icon={Timer} label="Early Closer" value={stats.earlyCloser} sub="Closed before target date" tone="teal" onClick={openHandler('earlyCloser', 'Early Closer')} />
         <KpiCard icon={CheckCircle2} label="Completed" value={stats.completed} sub="Completed on target date" tone="green" onClick={openHandler('completed', 'Completed')} />
         <KpiCard icon={AlertTriangle} label="Regret" value={stats.regret} tone="red" onClick={openHandler('regret', 'Regret')} />

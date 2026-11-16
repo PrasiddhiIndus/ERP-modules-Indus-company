@@ -135,8 +135,8 @@ function getSubCategorySummary(row) {
   return parts.length ? parts.join(" › ") : "";
 }
 
-/** Remark field stays inside the cell; height grows as text wraps. */
-function AutoGrowRemark({ value, onChange, className = "" }) {
+/** Text field stays inside the cell; height grows as text wraps. */
+function AutoGrowRemark({ value, onChange, className = "", placeholder = "Remark", title }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -152,7 +152,8 @@ function AutoGrowRemark({ value, onChange, className = "" }) {
       value={value ?? ""}
       onChange={onChange}
       rows={1}
-      placeholder="Remark"
+      placeholder={placeholder}
+      title={title}
       className={`box-border block w-full max-w-full min-h-[1.75rem] resize-none overflow-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] ${className}`}
     />
   );
@@ -1190,8 +1191,7 @@ const CostingTable = ({
                             {displayAliases[row.component] || row.component}
                           </span>
                         ) : (
-                          <input
-                            type="text"
+                          <AutoGrowRemark
                             value={row.component}
                             onChange={(e) =>
                               handleChange(
@@ -1214,7 +1214,7 @@ const CostingTable = ({
                     <div className="flex min-w-0 items-start gap-1">
                       <div className="min-w-0 flex-1">
                         {subSummary ? (
-                          <p className="line-clamp-2 break-words leading-snug text-slate-800" title={subSummary}>
+                          <p className="whitespace-pre-wrap break-words leading-snug text-slate-800 [overflow-wrap:anywhere]">
                             {subSummary}
                           </p>
                         ) : (
@@ -1242,9 +1242,8 @@ const CostingTable = ({
                   </td>
 
                   {/* Manual Sub Category — label driven by catalog component name */}
-                  <td className={`${td} bg-white`}>
-                    <input
-                      type="text"
+                  <td className={`${td} bg-white align-top`}>
+                    <AutoGrowRemark
                       value={row.manualSub}
                       title={getManualSubLabel(row.component)}
                       placeholder={getManualSubPlaceholder(row.component) || getManualSubLabel(row.component)}

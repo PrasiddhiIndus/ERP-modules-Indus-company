@@ -222,6 +222,8 @@ import {
   ProjectsSignatureConfig,
   RmPoAtGlance,
   RmSignatureConfig,
+  CommercialPoAtGlance,
+  CommercialSignatureConfig,
   CommercialFireTenderManagement,
   MaintenanceExpoSeminar,
   MaintenanceGSTUpload,
@@ -664,6 +666,8 @@ function App() {
             <Route path="commercial/manpower-training/po-entry" element={<Commercial />} />
             <Route path="commercial/manpower-training/contact-log" element={<Commercial />} />
             <Route path="commercial/manpower-training/fire-tender-management" element={<CommercialFireTenderManagement />} />
+            <Route path="commercial/manpower-training/po-at-glance" element={<CommercialPoAtGlance />} />
+            <Route path="commercial/manpower-training/po-at-glance/signature-config" element={<CommercialSignatureConfig />} />
 
             {/* Commercial — R&M */}
             <Route path="commercial/rm-mm-amc-iev" element={<CommercialRmMmAmcIev />} />

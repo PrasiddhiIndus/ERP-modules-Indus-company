@@ -931,11 +931,11 @@ export default function AdminOpsDashboard() {
       </PageTaskHeader>
 
       <FilterBar>
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-0.5 w-auto">
           <label className="text-[10px] font-semibold text-ink-muted uppercase">From</label>
           <TinyInput type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
         </div>
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-0.5 w-auto">
           <label className="text-[10px] font-semibold text-ink-muted uppercase">To</label>
           <TinyInput type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
         </div>

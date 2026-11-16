@@ -59,7 +59,7 @@ export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
       .then(([map, code, finance]) => {
         if (!alive) return;
         setReviewerCodes(
-          ["PLANNING", "VERTICAL_HEAD"].map((slot) => map[slot]?.employee_code).filter(Boolean)
+          ["PLANNING", "VERTICAL_HEAD", "FINANCE"].map((slot) => map[slot]?.employee_code).filter(Boolean)
         );
         setMyCode(code || "");
         setFinanceUser(finance === true);

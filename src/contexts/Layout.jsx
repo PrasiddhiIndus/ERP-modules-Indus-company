@@ -101,7 +101,7 @@ const RupeeIcon = ({ className = '' }) => {
 
 const moduleRow =
   "group grid w-full grid-cols-[1rem_minmax(0,1fr)_0.875rem] items-center gap-x-2.5 px-2.5 py-2 rounded-control transition-colors duration-theme ease-theme min-h-[2.35rem] border-y border-y-transparent border-r border-r-transparent border-l-[3px]";
-const topLinkBase = `${moduleRow} flex-none text-sidebar-text hover:bg-sidebar-hover hover:text-sidebar-strong`;
+const topLinkBase = `${moduleRow} rail-link flex-none text-sidebar-text hover:bg-sidebar-hover hover:text-sidebar-strong`;
 const subLinkBase =
   "group flex w-full flex-none items-center gap-2.5 px-2.5 py-1.5 rounded-control transition-colors duration-theme ease-theme border-y border-y-transparent border-r border-r-transparent border-l-[3px] text-sidebar-text hover:bg-sidebar-hover hover:text-sidebar-strong";
 const activeClass =
@@ -121,10 +121,77 @@ const navChevron = "h-3.5 w-3.5 shrink-0 justify-self-end transition-transform d
 
 function NavSectionTitle({ children }) {
   return (
-    <p className="grid grid-cols-[1rem_minmax(0,1fr)_0.875rem] items-center gap-x-2.5 px-2.5 pt-3 pb-0.5">
+    <p className="rail-title grid grid-cols-[1rem_minmax(0,1fr)_0.875rem] items-center gap-x-2.5 px-2.5 pt-3 pb-0.5">
       <span className="col-start-2 type-caption font-semibold text-sidebar-muted">{children}</span>
     </p>
   );
+}
+
+const RAIL_MEDIA_QUERY = "(min-width: 1024px)";
+const RAIL_ITEM_SELECTOR = ".rail-section, .rail-link";
+
+/**
+ * Collapsed-rail hover: anchor the hovered item's flyout beside the rail, level with its icon.
+ * Flyouts are `position: fixed` DOM children of the item, so they escape the nav's scroll
+ * clipping while hover/focus still counts as being "inside" the item.
+ */
+const RAIL_FLYOUT_GAP = 6;
+const RAIL_CLOSE_DELAY_MS = 180;
+
+function clearRailTimer(el) {
+  if (el?._railCloseTimer) {
+    clearTimeout(el._railCloseTimer);
+    el._railCloseTimer = null;
+  }
+}
+
+function closeRailItem(el) {
+  clearRailTimer(el);
+  delete el.dataset.railActive;
+  delete el.dataset.railDismissed;
+}
+
+function positionRailFlyout(e) {
+  const item = e.target?.closest?.(RAIL_ITEM_SELECTOR);
+  if (!item) return;
+  clearRailTimer(item);
+  if (item.dataset.railActive === "1") return;
+  const nav = e.currentTarget;
+  nav.querySelectorAll('[data-rail-active="1"]').forEach((el) => {
+    if (el !== item) closeRailItem(el);
+  });
+  const anchor = item.classList.contains("rail-section") ? item.firstElementChild || item : item;
+  const rect = anchor.getBoundingClientRect();
+  const aside = nav.closest("aside");
+  const railRight = aside ? aside.getBoundingClientRect().right : rect.right;
+  item.style.setProperty("--rail-left", `${railRight + RAIL_FLYOUT_GAP}px`);
+  item.style.setProperty("--rail-top", `${rect.top}px`);
+  item.style.setProperty("--rail-anchor-h", `${rect.height}px`);
+  item.dataset.railActive = "1";
+  delete item.dataset.railDismissed;
+  const flyout = item.querySelector(":scope > .rail-flyout");
+  if (flyout) {
+    // Keep tall menus on-screen: lift the panel if it would run past the viewport bottom.
+    const maxTop = window.innerHeight - flyout.scrollHeight - 8;
+    if (rect.top > maxTop) item.style.setProperty("--rail-top", `${Math.max(8, maxTop)}px`);
+  }
+}
+
+function releaseRailFlyout(e) {
+  const item = e.target?.closest?.(RAIL_ITEM_SELECTOR);
+  if (!item || item.contains(e.relatedTarget)) return;
+  clearRailTimer(item);
+  // Short grace period so the pointer can cross the gap between rail and flyout.
+  item._railCloseTimer = setTimeout(() => closeRailItem(item), RAIL_CLOSE_DELAY_MS);
+}
+
+/** Hide the flyout once a destination is picked (until the pointer leaves). */
+function dismissRailFlyout(e) {
+  const link = e.target?.closest?.("a[href]");
+  const item = link?.closest?.(RAIL_ITEM_SELECTOR);
+  if (!item) return;
+  item.dataset.railDismissed = "1";
+  link.blur();
 }
 
 /** Parse activity route label (`Module · Page`) into app-bar eyebrow + title. */
@@ -241,6 +308,18 @@ const Layout = () => {
       return false;
     }
   });
+  // Desktop (lg+) only: collapsed sidebar becomes an icon rail with hover flyouts.
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia ? window.matchMedia(RAIL_MEDIA_QUERY).matches : true
+  );
+  useEffect(() => {
+    if (!window.matchMedia) return undefined;
+    const mq = window.matchMedia(RAIL_MEDIA_QUERY);
+    const onChange = (e) => setIsDesktop(e.matches);
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+  const isRail = sidebarCollapsed && isDesktop;
   const [commandOpen, setCommandOpen] = useState(false);
   const [navFilter, setNavFilter] = useState("");
   const { theme, toggleTheme } = useTheme();
@@ -592,7 +671,10 @@ const Layout = () => {
             </div>
             <button
               type="button"
-              onClick={() => setSidebarCollapsed((v) => !v)}
+              onClick={() => {
+                setNavFilter("");
+                setSidebarCollapsed((v) => !v);
+              }}
               className="hidden lg:inline-flex p-1.5 rounded-control text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-strong border border-transparent"
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -644,7 +726,15 @@ const Layout = () => {
           )}
 
           {/* Nav Links */}
-          <nav className={`flex-1 p-3 space-y-1.5 overflow-y-auto ${sidebarCollapsed ? "lg:px-2" : ""}`}>
+          <nav
+            className={`erp-sidebar-nav flex-1 p-3 space-y-1.5 overflow-y-auto ${sidebarCollapsed ? "lg:px-2" : ""}`}
+            data-rail={isRail ? "true" : undefined}
+            onMouseOver={isRail ? positionRailFlyout : undefined}
+            onFocus={isRail ? positionRailFlyout : undefined}
+            onMouseOut={isRail ? releaseRailFlyout : undefined}
+            onBlur={isRail ? releaseRailFlyout : undefined}
+            onClick={isRail ? dismissRailFlyout : undefined}
+          >
             {navFilterNorm ? (
               <div className="space-y-0.5">
                 <p className="px-2 pb-1 type-mono-micro text-sidebar-muted">Matching pages</p>
@@ -669,18 +759,14 @@ const Layout = () => {
             {!navFilterNorm && can("overview") && (
               <NavLink to="/app/dashboard" className={topNavClass} title="Main Dashboard">
                 <BarChart3 className="w-4 h-4 shrink-0" />
-                {!sidebarCollapsed ? (
-                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Main Dashboard</span>
-                ) : (
-                  <span className="type-body-medium type-truncate min-w-0 flex-1 text-left lg:hidden">Main Dashboard</span>
-                )}
+                <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Main Dashboard</span>
               </NavLink>
             )}
             {!navFilterNorm && (
-            <div className={sidebarCollapsed ? "lg:hidden space-y-1.5" : "space-y-1.5"}>
+            <div className="space-y-1.5">
             {/* IN-House HR/Admin */}
             {(can("admin") || canAccessSalaryAdmin(userProfile, user) || canSeeProbationReviews) && (
-            <div>
+            <div className="rail-section">
               <button
                 onClick={() => {
                   if (!adminOpen) collapseAdminSubmodules();
@@ -704,8 +790,8 @@ const Layout = () => {
                 />
               </button>
 
-              {adminOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+              {(adminOpen || isRail) && (
+                <div data-title="IN-House HR/Admin" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   {canSub("admin.dashboard") && (
                   <NavLink to="admin/dashboard" className={subNavClass}>
                     <LayoutDashboard className="h-4 w-4 shrink-0 text-sidebar-accent" />
@@ -939,7 +1025,7 @@ const Layout = () => {
 
             {/* Commercial */}
             {(can("commercialMt") || can("sales")) && (
-            <div>
+            <div className="rail-section">
               <button
                 type="button"
                 onClick={() => setCommercialMtOpen(!commercialMtOpen)}
@@ -954,8 +1040,8 @@ const Layout = () => {
                 />
               </button>
 
-              {commercialMtOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+              {(commercialMtOpen || isRail) && (
+                <div data-title="Commercial" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="/app/commercial/manpower-training/dashboard" className={subNavClass}>
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
@@ -971,6 +1057,10 @@ const Layout = () => {
                   <NavLink to="/app/manpower/quotation" className={subNavClass}>
                     <ReceiptIcon className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Quotation</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial/manpower-training/po-at-glance" className={subNavClass}>
+                    <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">PO At Glance</span>
                   </NavLink>
 
                   <button
@@ -1028,7 +1118,7 @@ const Layout = () => {
 
             {/* HR */}
             {can("hr") && (
-            <div>
+            <div className="rail-section">
               <button
                 onClick={() => setHrAdminOpen(!hrAdminOpen)}
                 className={sectionBtnClass(
@@ -1050,8 +1140,8 @@ const Layout = () => {
                 />
               </button>
 
-              {hrAdminOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+              {(hrAdminOpen || isRail) && (
+                <div data-title="HR Site" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   {canSub("hr.dashboard") && (
                   <NavLink to="hr/dashboard" className={subNavClass}>
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
@@ -1153,7 +1243,7 @@ const Layout = () => {
 
             {/* Site Operations */}
             {can("operations") && (
-            <div>
+            <div className="rail-section">
               <button
                 onClick={() => setOperationsOpen(!operationsOpen)}
                 className={sectionBtnClass(pathname.startsWith("/app/operations"))}
@@ -1169,8 +1259,8 @@ const Layout = () => {
                 />
               </button>
 
-              {operationsOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+              {(operationsOpen || isRail) && (
+                <div data-title="Site Operations" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <div className="flex w-full items-center">
                     <NavLink
                       to="operations"
@@ -1242,7 +1332,7 @@ const Layout = () => {
 
             {/* Projects */}
             {can("projects") && (
-            <div>
+            <div className="rail-section">
               <button
                 onClick={() => setProjectsOpen(!projectsOpen)}
                 className={sectionBtnClass(
@@ -1267,8 +1357,8 @@ const Layout = () => {
                 />
               </button>
 
-              {projectsOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+              {(projectsOpen || isRail) && (
+                <div data-title="Projects" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="projects/dashboard" className={subNavClass}>
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Project Dashboard</span>
@@ -1345,7 +1435,7 @@ const Layout = () => {
 
             {/* Maintenance */}
             {can("maintenance") && (
-            <div>
+            <div className="rail-section">
               <button
                 onClick={() => setMaintenanceOpen(!maintenanceOpen)}
                 className={sectionBtnClass(pathname.startsWith("/app/maintenance"))}
@@ -1361,8 +1451,8 @@ const Layout = () => {
                 />
               </button>
 
-              {maintenanceOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+              {(maintenanceOpen || isRail) && (
+                <div data-title="Maintenance (M&M)" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="/app/maintenance" className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Maintenance Dashboard</span>
@@ -1422,7 +1512,7 @@ const Layout = () => {
 
             {/* Marketing */}
             {can("marketing") && (
-            <div>
+            <div className="rail-section">
               <button
                 onClick={() => setMarketingOpen(!marketingOpen)}
                 className={sectionBtnClass(pathname.startsWith("/app/marketing"))}
@@ -1438,8 +1528,8 @@ const Layout = () => {
                 />
               </button>
 
-              {marketingOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+              {(marketingOpen || isRail) && (
+                <div data-title="Marketing" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   {MARKETING_NAV_ITEMS.map((item) => {
                     if (!canSub(item.subModule)) return null;
                     const Icon = item.icon;
@@ -1474,7 +1564,7 @@ const Layout = () => {
 
             {/* Billing */}
             {can("billing") && (
-            <div>
+            <div className="rail-section">
               <button
                 onClick={() => setBillingOpen(!billingOpen)}
                 className={sectionBtnClass(pathname.startsWith("/app/billing"))}
@@ -1489,8 +1579,8 @@ const Layout = () => {
                   }`}
                 />
               </button>
-              {billingOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+              {(billingOpen || isRail) && (
+                <div data-title="Billing" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="/app/billing" end className={subNavClass}>
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Billing Dashboard</span>
@@ -1537,7 +1627,7 @@ const Layout = () => {
             )}
 
             {can("finance") && (
-            <div>
+            <div className="rail-section">
               <button
                 type="button"
                 onClick={() => setFinanceOpen(!financeOpen)}
@@ -1549,8 +1639,8 @@ const Layout = () => {
                 </span>
                 <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${financeOpen ? "rotate-180" : ""}`} />
               </button>
-              {financeOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+              {(financeOpen || isRail) && (
+                <div data-title="Finance" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="/app/accounts-finance/reports/site-ledger" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">P&amp;L</span>
@@ -1572,7 +1662,7 @@ const Layout = () => {
 
             {/* Compliance */}
             {canAccessCompliance(userProfile, user) && (
-            <div>
+            <div className="rail-section">
               <button
                 onClick={() => setComplianceOpen(!complianceOpen)}
                 className={sectionBtnClass(
@@ -1593,8 +1683,8 @@ const Layout = () => {
                 />
               </button>
 
-              {complianceOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+              {(complianceOpen || isRail) && (
+                <div data-title="Compliance" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   {canSub("compliance.payroll") && (
                   <>
                   <NavLink
@@ -1660,7 +1750,7 @@ const Layout = () => {
             {misScopedOnly && (
               <NavLink
                 to="admin/payroll-mis"
-                className={`${moduleRow} hover:bg-sidebar-hover ${
+                className={`${moduleRow} rail-link hover:bg-sidebar-hover ${
                   pathname.startsWith("/app/admin/payroll-mis")
                     ? "bg-sidebar-active text-sidebar-strong shadow-nav-active border-l-sidebar-accent"
                     : "border-l-transparent text-sidebar-strong"
@@ -1674,7 +1764,7 @@ const Layout = () => {
             {showIevGroup && <NavSectionTitle>IEV</NavSectionTitle>}
 
             {can("fireTender") && (canOpenPath("/app/fire-tender") || ievCostingTabs.length > 0 || canOpenPath("/app/fire-tender-manufacturing")) && (
-            <div>
+            <div className="rail-section">
               <button
                 type="button"
                 onClick={() => setFtCostingOpen((open) => !open)}
@@ -1688,8 +1778,8 @@ const Layout = () => {
                 </span>
                 <ChevronDown className={`${navChevron} ${ftCostingOpen ? "rotate-180" : ""}`} />
               </button>
-              {ftCostingOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+              {(ftCostingOpen || isRail) && (
+                <div data-title="FT Costing" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   {canOpenPath("/app/fire-tender") && (
                   <NavLink to="fire-tender" end className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
@@ -1726,7 +1816,7 @@ const Layout = () => {
 
             {/* R&M */}
             {(can("commercialRm") || can("sales")) && (
-            <div>
+            <div className="rail-section">
               <button
                 type="button"
                 onClick={() => setCommercialRmOpen(!commercialRmOpen)}
@@ -1741,8 +1831,8 @@ const Layout = () => {
                 />
               </button>
 
-              {commercialRmOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+              {(commercialRmOpen || isRail) && (
+                <div data-title="R&M" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   <NavLink to="/app/commercial/rm-mm-amc-iev/dashboard" className={subNavClass}>
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
@@ -1781,7 +1871,7 @@ const Layout = () => {
 
             {/* AMC Management */}
             {can("amc") && (
-            <div>
+            <div className="rail-section">
               <button
                 type="button"
                 onClick={() => setAmcOpen(!amcOpen)}
@@ -1793,8 +1883,8 @@ const Layout = () => {
                 </span>
                 <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${amcOpen ? "rotate-180" : ""}`} />
               </button>
-              {amcOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2 max-h-64 overflow-y-auto">
+              {(amcOpen || isRail) && (
+                <div data-title="AMC Management" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2 max-h-64 overflow-y-auto">
                   <NavLink to="/app/amc" end className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>

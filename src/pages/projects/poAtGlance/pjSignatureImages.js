@@ -1,10 +1,10 @@
 /**
  * Projects PO At Glance (browser only): signature images for the Word export and preview.
  * Each completed stage uses the signature of the login that signed it (signed_user_id, stamped by the database),
- * fetched from that employee's own Indus One upload. Nothing here lets a user pick a signature.
+ * served by /api/projects/oc/signature-file. Nothing here lets a user pick a signature.
  */
+import { pjStageSignatureBytes, fetchOcSignatureUrl } from "../oc/ocApi";
 import { fetchApiWithAuth } from "../../../lib/apiBase";
-import { fetchOcSignatureUrl } from "../oc/ocApi";
 import { PJ_OC_SIGNOFF_SLOTS } from "./pjOcDepartment";
 
 const MAX_W = 120;
@@ -29,8 +29,8 @@ async function imageSize(blob) {
   }
 }
 
-/** Same-origin bytes. A direct file link is often blocked when the Word file is built. */
-async function signatureBytes(userId) {
+/** Fallback when the stage endpoint is unavailable: userId → Indus One file bytes. */
+async function signatureBytesByUser(userId) {
   const res = await fetchApiWithAuth("/api/employee-signature/file", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -44,15 +44,19 @@ async function signatureBytes(userId) {
   return data;
 }
 
-async function loadOne(userId) {
-  let data = await signatureBytes(userId);
-  if (!data) {
-    const url = await fetchOcSignatureUrl(userId);
-    if (!url) return null;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    data = new Uint8Array(await res.arrayBuffer());
+async function loadOne(ocId, slot, userId) {
+  let data = ocId ? await pjStageSignatureBytes(ocId, slot) : null;
+  if (!data && userId) {
+    data = await signatureBytesByUser(userId);
+    if (!data) {
+      const url = await fetchOcSignatureUrl(userId);
+      if (!url) return null;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      data = new Uint8Array(await res.arrayBuffer());
+    }
   }
+  if (!data) return null;
   const type = imageType(data);
   if (!type) return null; // e.g. a PDF signature file — the export keeps the name and date only
   const { w, h } = await imageSize(new Blob([data]));
@@ -62,12 +66,13 @@ async function loadOne(userId) {
 
 /** { [slot]: { data, type, width, height } } for every saved sign-off on the form. */
 export async function loadPjSignatureImages(form) {
+  const ocId = form?.id || null;
   const entries = await Promise.all(
     PJ_OC_SIGNOFF_SLOTS.map(async ({ slot }) => {
       const s = form?.signoff?.[slot];
       if (!s?.saved_by || !s?.signed_user_id) return [slot, null];
       try {
-        return [slot, await loadOne(s.signed_user_id)];
+        return [slot, await loadOne(ocId, slot, s.signed_user_id)];
       } catch (e) {
         console.warn("[PO At Glance] signature image not loaded for", slot, e);
         return [slot, null];
