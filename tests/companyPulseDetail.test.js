@@ -61,7 +61,7 @@ describe("companyPulseDetail", () => {
     expect(detail.actions.some((a) => a.path === "/app/hr")).toBe(true);
   });
 
-  it("builds module detail with links as breakout rows", () => {
+  it("builds module detail that fetches live records instead of nav links", () => {
     const detail = buildPulseDetail("module", {
       view: {
         id: "hr",
@@ -79,7 +79,9 @@ describe("companyPulseDetail", () => {
     });
     expect(detail.title).toBe("HR");
     expect(detail.attention.length).toBeGreaterThan(0);
-    expect(detail.rows[0].path).toBe("/app/hr/attendance");
+    expect(detail.fetchKey).toBe("module:hr");
+    expect(detail.rows).toEqual([]);
+    expect(detail.actions.some((a) => a.path === "/app/hr")).toBe(true);
   });
 
   it("builds site and month chart details", () => {

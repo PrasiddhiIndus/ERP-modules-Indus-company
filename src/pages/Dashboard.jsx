@@ -4,7 +4,6 @@ import { supabase } from "../lib/supabase";
 import { fetchCommercialPOs, fetchInvoices } from "../services/billingApi";
 import { getCommercialPOs as getCommercialPOsLocal, getInvoices as getInvoicesLocal } from "../data/billingStore";
 import { fetchFinanceModuleData, invalidateFinanceCache, subscribeFinanceRefresh } from "../services/financeApi";
-import { countPendingLeaveRequests } from "../lib/adminLeaveRequests";
 import { calcSite } from "./finance/lib/calculations";
 import { filterSitesByFinancePlAccess } from "./finance/constants/financePlSiteAccess";
 import { useAuth } from "../contexts/AuthContext";
@@ -22,28 +21,13 @@ import { isPathAllowed } from "../config/roles";
 import CompanyPulse from "./dashboard/CompanyPulse";
 import { buildTimelinePresets } from "./dashboard/companyPulseModel";
 import { loadCompanyAttendance } from "./dashboard/companyAttendance";
+import {
+  collectPulseRealtimeTables,
+  emptyPulseFootprint,
+  loadPulseFootprint,
+} from "./dashboard/pulseRegistry";
 
-const META_PREFIX = "__META__:";
-const DAY_MS = 24 * 60 * 60 * 1000;
-const BID_DEADLINE_ALERT_DAYS = [7, 3, 1];
-
-const EMPTY_MODULES = {
-  people: 0,
-  leavePending: 0,
-  marketing: 0,
-  maintenance: 0,
-  projects: 0,
-  manpowerTotal: 0,
-  manpowerPending: 0,
-  manpowerApproved: 0,
-  manpowerDueSoon: 0,
-  fireTenderTotal: 0,
-  fireTenderPending: 0,
-  amcActive: 0,
-  amcAtRisk: 0,
-  amcComplaints: 0,
-  commercialPending: 0,
-};
+const EMPTY_MODULES = emptyPulseFootprint();
 
 function invAmount(inv) {
   return Number(inv?.totalAmount ?? inv?.total_amount ?? inv?.calculatedInvoiceAmount ?? 0) || 0;
@@ -60,140 +44,6 @@ function formatMonthShort(key) {
   const [y, m] = key.split("-");
   const names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return `${names[Number(m) - 1] || m} ${String(y).slice(2)}`;
-}
-
-function parseMeta(raw) {
-  if (!raw || typeof raw !== "string" || !raw.startsWith(META_PREFIX)) return {};
-  try {
-    return JSON.parse(raw.slice(META_PREFIX.length)) || {};
-  } catch {
-    return {};
-  }
-}
-
-function toLocalDateStart(value) {
-  if (!value) return null;
-  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (match) {
-    const [, y, m, d] = match;
-    return new Date(Number(y), Number(m) - 1, Number(d));
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function countManpowerDueSoon(rows) {
-  const today = new Date();
-  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  let n = 0;
-  for (const row of rows || []) {
-    const status = String(row.status || "").trim().toLowerCase();
-    if (["approved", "rejected", "cancelled", "canceled"].includes(status)) continue;
-    const meta = parseMeta(row.authorization_to);
-    const deadline = toLocalDateStart(meta.submissionBidDeadline || row.due_date);
-    if (!deadline) continue;
-    const daysUntil = Math.round((deadline.getTime() - start.getTime()) / DAY_MS);
-    if (BID_DEADLINE_ALERT_DAYS.includes(daysUntil)) n += 1;
-  }
-  return n;
-}
-
-async function safeHeadCount(query) {
-  try {
-    const { count, error } = await query;
-    if (error) return 0;
-    return typeof count === "number" ? count : 0;
-  } catch {
-    return 0;
-  }
-}
-
-async function loadModuleFootprint() {
-  const out = { ...EMPTY_MODULES };
-
-  const peopleP = safeHeadCount(
-    supabase.from("admin_ifsp_employee_master").select("id", { count: "exact", head: true }).eq("status", "Active")
-  );
-  const leaveP = (async () => {
-    try {
-      return await countPendingLeaveRequests();
-    } catch {
-      return 0;
-    }
-  })();
-  const marketingP = safeHeadCount(supabase.from("marketing_enquiries").select("id", { count: "exact", head: true }));
-  // maintenance_* tables are not deployed on this project — never probe (avoids console 404).
-  const maintenanceP = Promise.resolve(0);
-  const fireTotalP = safeHeadCount(supabase.from("tenders").select("id", { count: "exact", head: true }));
-  const firePendingP = safeHeadCount(
-    supabase.from("tenders").select("id", { count: "exact", head: true }).eq("status", "Pending")
-  );
-  // projects.enquiries needs the `projects` API schema. This host does not expose it
-  // (HEAD /rest/v1/enquiries → 403), so do not probe from the home dashboard.
-  const projectsP = Promise.resolve(0);
-  const manpowerP = (async () => {
-    try {
-      const { data, error } = await supabase
-        .from("manpower_enquiries")
-        .select("id, status, due_date, authorization_to")
-        .limit(800);
-      if (error) return { total: 0, pending: 0, approved: 0, dueSoon: 0 };
-      const rows = data || [];
-      const approved = rows.filter((r) => String(r.status || "").toLowerCase() === "approved").length;
-      const rejected = rows.filter((r) => String(r.status || "").toLowerCase() === "rejected").length;
-      return {
-        total: rows.length,
-        approved,
-        pending: Math.max(0, rows.length - approved - rejected),
-        dueSoon: countManpowerDueSoon(rows),
-      };
-    } catch {
-      return { total: 0, pending: 0, approved: 0, dueSoon: 0 };
-    }
-  })();
-  const amcP = (async () => {
-    try {
-      const { data, error } = await supabase.from("vw_amc_dashboard_summary").select("*").maybeSingle();
-      if (error || !data) return { active: 0, atRisk: 0, complaints: 0 };
-      return {
-        active: Number(data.active_contracts) || 0,
-        atRisk: Number(data.contracts_at_risk) || 0,
-        complaints: Number(data.open_complaints) || 0,
-      };
-    } catch {
-      return { active: 0, atRisk: 0, complaints: 0 };
-    }
-  })();
-
-  const [people, leavePending, marketing, maintenance, fireTotal, firePending, projects, manpower, amc] =
-    await Promise.all([
-      peopleP,
-      leaveP,
-      marketingP,
-      maintenanceP,
-      fireTotalP,
-      firePendingP,
-      projectsP,
-      manpowerP,
-      amcP,
-    ]);
-
-  out.people = people;
-  out.leavePending = leavePending;
-  out.marketing = marketing;
-  out.maintenance = maintenance;
-  out.projects = projects;
-  out.fireTenderTotal = fireTotal;
-  out.fireTenderPending = firePending;
-  out.manpowerTotal = manpower.total;
-  out.manpowerPending = manpower.pending;
-  out.manpowerApproved = manpower.approved;
-  out.manpowerDueSoon = manpower.dueSoon;
-  out.amcActive = amc.active;
-  out.amcAtRisk = amc.atRisk;
-  out.amcComplaints = amc.complaints;
-  return out;
 }
 
 function indiaFyStartKey(anchor = new Date()) {
@@ -309,7 +159,7 @@ const Dashboard = () => {
         }
       })();
 
-      const modulesP = loadModuleFootprint();
+      const modulesP = loadPulseFootprint();
 
       if (force || !attendanceLoadedRef.current) {
         attendanceLoadedRef.current = true;
@@ -368,19 +218,27 @@ const Dashboard = () => {
 
     const unsubFinance = subscribeFinanceRefresh(schedule);
 
-    const channel = supabase
-      .channel("executive-dashboard-live")
-      .on("postgres_changes", { event: "*", schema: "finance", table: "period_entries" }, schedule)
-      .on("postgres_changes", { event: "*", schema: "finance", table: "revenue_entry_lines" }, schedule)
-      .on("postgres_changes", { event: "*", schema: "finance", table: "expense_entry_lines" }, schedule)
-      .on("postgres_changes", { event: "*", schema: "billing", table: "po_wo" }, schedule)
-      .on("postgres_changes", { event: "*", schema: "billing", table: "invoice" }, schedule)
-      .on("postgres_changes", { event: "*", schema: "public", table: "admin_ifsp_employee_master" }, schedule)
-      .on("postgres_changes", { event: "*", schema: "public", table: "marketing_enquiries" }, schedule)
-      .on("postgres_changes", { event: "*", schema: "public", table: "manpower_enquiries" }, schedule)
-      .on("postgres_changes", { event: "*", schema: "public", table: "tenders" }, schedule)
-      .subscribe();
-    // Note: maintenance_* tables are not deployed on all projects — footprint uses safeHeadCount.
+    let channel = supabase.channel("executive-dashboard-live");
+    const pulseTables = collectPulseRealtimeTables();
+    const fallbackTables = [
+      { schema: "finance", table: "period_entries" },
+      { schema: "finance", table: "revenue_entry_lines" },
+      { schema: "finance", table: "expense_entry_lines" },
+      { schema: "billing", table: "po_wo" },
+      { schema: "billing", table: "invoice" },
+    ];
+    const seen = new Set();
+    for (const spec of [...pulseTables, ...fallbackTables]) {
+      const key = `${spec.schema}.${spec.table}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      channel = channel.on(
+        "postgres_changes",
+        { event: "*", schema: spec.schema, table: spec.table },
+        schedule
+      );
+    }
+    channel.subscribe();
 
     const interval = window.setInterval(() => load({ showLoading: false }), 45000);
     window.addEventListener("erp-dashboard-refresh", schedule);
@@ -584,6 +442,7 @@ const Dashboard = () => {
         allowPath={allowPath}
         modules={modules}
         commercialStats={commercialStats}
+        invoices={commercial.invoices || []}
         pl={pl}
         billRate={billRate}
         collectRate={collectRate}
