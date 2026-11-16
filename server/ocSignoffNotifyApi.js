@@ -61,6 +61,24 @@ export const OC_NOTIFY_PROFILES = {
     configPath: 'R&M → PO At Glance Sign-off Assignment',
     assigneeCount: 'three',
   },
+  commercial: {
+    masterTable: 'cm_oc_master',
+    assigneesTable: 'cm_oc_signoff_assignees',
+    signoffTable: 'cm_oc_signoff',
+    slotLabels: {
+      CREATOR: 'OC Creator',
+      COMMERCIAL_MANAGER: 'Commercial Manager',
+      FINANCE: 'Finance / Accounts',
+      BILLING_IR_SALARY: 'Billing / IR / Salary',
+      HR_OPERATIONS: 'HR / Operations',
+      SAFETY_HEAD: 'Safety Head',
+    },
+    /** Only these assignment rows are emailed (older Commercial boxes stay in the table but are no longer used). */
+    activeSlots: ['COMMERCIAL_MANAGER', 'FINANCE', 'BILLING_IR_SALARY', 'HR_OPERATIONS', 'SAFETY_HEAD'],
+    reviewPath: 'Commercial → PO At Glance',
+    configPath: 'Commercial → PO At Glance Sign-off Assignment',
+    assigneeCount: 'Commercial approval',
+  },
 };
 
 function httpError(status, message) {
@@ -335,7 +353,9 @@ export async function notifyOcSignoffAssignees({
     .from(profile.assigneesTable)
     .select('slot, employee_code, employee_name');
   if (aErr) throw httpError(500, 'Could not load sign-off assignees.');
-  const rows = assignees || [];
+  const rows = (assignees || []).filter(
+    (r) => !profile.activeSlots || profile.activeSlots.includes(String(r.slot || '').toUpperCase())
+  );
 
   let signoffRows = [];
   if (profile.signoffTable) {

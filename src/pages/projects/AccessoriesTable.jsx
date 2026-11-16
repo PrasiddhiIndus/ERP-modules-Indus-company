@@ -287,7 +287,7 @@ function formatInr(n) {
   });
 }
 
-/** Grows with content so title/description stay fully visible. */
+/** Grows vertically so title/description wrap and stay fully visible. */
 function AutoGrowTextarea({ value, onChange, placeholder, className = "" }) {
   const ref = useRef(null);
 
@@ -298,18 +298,14 @@ function AutoGrowTextarea({ value, onChange, placeholder, className = "" }) {
     el.style.height = `${Math.max(36, el.scrollHeight)}px`;
   }, [value]);
 
-  const text = value ?? "";
-  const minCh = Math.min(80, Math.max(16, text.length + 2));
-
   return (
     <textarea
       ref={ref}
-      value={text}
+      value={value ?? ""}
       onChange={onChange}
       rows={1}
       placeholder={placeholder}
-      style={{ minWidth: `${minCh}ch`, width: "100%" }}
-      className={`min-h-[2.25rem] resize-none overflow-hidden whitespace-pre-wrap break-words p-1 border rounded ${className}`}
+      className={`box-border block w-full min-h-[2.25rem] resize-none overflow-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] p-1 border rounded ${className}`}
     />
   );
 }
@@ -826,142 +822,249 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
   const marginFormula = `Formula: total accessories cost × Accessories margin % ÷ 100\n₹${formatInr(totalAccessoriesCost)} × ${formatInr(parsePercentValue(marginPct))}% ÷ 100 = ₹${formatInr(marginAmount)}`;
   const finalFormula = `Formula: total accessories cost + Accessories margin\n₹${formatInr(totalAccessoriesCost)} + ₹${formatInr(marginAmount)} = ₹${formatInr(finalAccessoriesCost)}`;
 
+  // Excel-like freeze panes:
+  // - Header row sticks vertically
+  // - S.No + Title + Description stick horizontally (Qty/Price/Total/Action scroll)
+  // erp-table-exempt: shell CSS forces thead th { background: transparent } + border-collapse,
+  // which lets body text bleed through sticky headers. Solid inline backgrounds + border-separate.
+  const SN_W = "3rem";
+  const TITLE_W = "14rem";
+  const DESC_W = "20rem";
+  const TITLE_LEFT = SN_W;
+  const DESC_LEFT = "17rem"; // 3rem + 14rem
+  const HEAD_BG = "#f3f4f6"; // gray-100
+  const BODY_BG = "#ffffff";
+  const stickySn = [
+    "sticky left-0 box-border border border-slate-200 px-2 py-1 text-center",
+    "w-[3rem] min-w-[3rem] max-w-[3rem]",
+  ].join(" ");
+  const stickyTitle = [
+    "sticky box-border border border-slate-200 px-2 py-1 text-left",
+    "w-[14rem] min-w-[14rem] max-w-[14rem]",
+  ].join(" ");
+  const stickyDesc = [
+    "sticky box-border border border-slate-200 px-2 py-1 text-left",
+    "w-[20rem] min-w-[20rem] max-w-[20rem]",
+    "shadow-[4px_0_8px_-4px_rgba(0,0,0,0.2)]",
+  ].join(" ");
+  const cell = "border border-slate-200 px-2 py-1";
+  const headCell = `${cell} sticky font-semibold text-slate-700`;
+  const freezeHead = { top: 0, zIndex: 40, backgroundColor: HEAD_BG };
+  const scrollHead = { top: 0, zIndex: 30, backgroundColor: HEAD_BG };
+  const freezeBody = (bg = BODY_BG) => ({ zIndex: 20, backgroundColor: bg });
+  const TOTAL_BG = HEAD_BG;
+  const MARGIN_BG = "#f8fafc"; // slate-50
+  const FINAL_BG = "#eff6ff"; // blue-50
+
   return (
-    <div className="bg-white p-6 shadow rounded-lg overflow-x-auto">
+    <div className="bg-white p-6 shadow rounded-lg">
       <h2 className="text-lg font-semibold mb-4">Accessories Costing</h2>
 
-      <table className="border-collapse border text-sm w-full mb-4 table-auto">
-        <thead className="bg-gray-100">
-          <tr>
-            <th className="border px-2 py-1 text-center w-11">S.No</th>
-            <th className="border px-2 py-1 min-w-[12rem]">Title</th>
-            <th className="border px-2 py-1 min-w-[18rem]">Description</th>
-            <th className="border px-2 py-1">Qty</th>
-            <th className="border px-2 py-1">Price</th>
-            <th className="border px-2 py-1">Total</th>
-            <th className="border px-2 py-1 w-24">Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
+      <div className="mb-4 max-h-[calc(100dvh-16rem)] max-w-full overflow-auto overscroll-contain rounded border border-slate-200 [isolation:isolate] bg-white">
+        <table
+          className="erp-table-exempt border-separate border-spacing-0 text-sm"
+          style={{ tableLayout: "fixed", width: "64rem", minWidth: "64rem", borderCollapse: "separate" }}
+        >
+          <colgroup>
+            <col style={{ width: SN_W }} />
+            <col style={{ width: TITLE_W }} />
+            <col style={{ width: DESC_W }} />
+            <col style={{ width: "6rem" }} />
+            <col style={{ width: "7rem" }} />
+            <col style={{ width: "8rem" }} />
+            <col style={{ width: "6rem" }} />
+          </colgroup>
+          <thead>
             <tr>
-              <td colSpan={7} className="border px-2 py-4 text-center text-gray-500">
-                {loading ? (
-                  "Loading accessories..."
-                ) : (
-                  <div>
-                    <p className="mb-2 font-semibold">No accessories found.</p>
-                    <p className="text-sm">
-                      Add a line below, or manage the catalog in{" "}
-                      <a 
-                        href="/app/fire-tender/configuration/accessories" 
-                        className="text-blue-600 hover:underline font-semibold"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Configuration → Accessories
-                      </a>
-                      .
-                    </p>
-                  </div>
-                )}
-              </td>
+              <th className={`${stickySn} font-semibold text-slate-700`} style={freezeHead}>
+                S.No
+              </th>
+              <th
+                className={`${stickyTitle} font-semibold text-slate-700`}
+                style={{ ...freezeHead, left: TITLE_LEFT }}
+              >
+                Title
+              </th>
+              <th
+                className={`${stickyDesc} font-semibold text-slate-700`}
+                style={{ ...freezeHead, left: DESC_LEFT }}
+              >
+                Description
+              </th>
+              <th className={headCell} style={scrollHead}>
+                Qty
+              </th>
+              <th className={headCell} style={scrollHead}>
+                Price
+              </th>
+              <th className={headCell} style={scrollHead}>
+                Total
+              </th>
+              <th className={headCell} style={scrollHead}>
+                Action
+              </th>
             </tr>
-          ) : (
-            rows.map((row, index) => (
-              <tr key={row.id || row.accessory_id || index} className="hover:bg-gray-50 align-top">
-                <td className="border px-2 py-1 text-center tabular-nums text-gray-600">{index + 1}</td>
-                <td className="border px-2 py-1">
-                  <AutoGrowTextarea
-                    value={row.title || ""}
-                    onChange={(e) => updateRow(index, "title", e.target.value)}
-                    className="font-medium"
-                    placeholder="Enter title"
-                  />
-                </td>
-                <td className="border px-2 py-1">
-                  <AutoGrowTextarea
-                    value={row.description || ""}
-                    onChange={(e) => updateRow(index, "description", e.target.value)}
-                    placeholder="Enter description"
-                  />
-                </td>
-                <td className="border px-2 py-1">
-                  <NumericInput
-                    value={row.qty}
-                    onChange={(val) => updateRow(index, "qty", parseNumericInput(val, 0))}
-                    className="w-full p-1 border rounded"
-                  />
-                </td>
-                <td className="border px-2 py-1">
-                  <NumericInput
-                    value={row.price}
-                    onChange={(val) => updateRow(index, "price", parseNumericInput(val, 0))}
-                    className="w-full p-1 border rounded"
-                  />
-                </td>
-                <td className="border px-2 py-1 text-right whitespace-nowrap">
-                  ₹ {formatInr(Number(row.qty) * Number(row.price))}
-                </td>
-                <td className="border px-2 py-1 text-center">
-                  <button
-                    type="button"
-                    onClick={() => requestDeleteAccessory(index)}
-                    disabled={saving}
-                    title="Delete accessory"
-                    aria-label="Delete accessory"
-                    className="inline-flex items-center justify-center rounded p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-50"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td className={stickySn} style={freezeBody()} />
+                <td className={stickyTitle} style={{ ...freezeBody(), left: TITLE_LEFT }} />
+                <td className={stickyDesc} style={{ ...freezeBody(), left: DESC_LEFT }} />
+                <td colSpan={4} className={`${cell} bg-white text-center text-gray-500`}>
+                  {loading ? (
+                    "Loading accessories..."
+                  ) : (
+                    <div>
+                      <p className="mb-2 font-semibold">No accessories found.</p>
+                      <p className="text-sm">
+                        Add a line below, or manage the catalog in{" "}
+                        <a
+                          href="/app/fire-tender/configuration/accessories"
+                          className="text-blue-600 hover:underline font-semibold"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Configuration → Accessories
+                        </a>
+                        .
+                      </p>
+                    </div>
+                  )}
                 </td>
               </tr>
-            ))
-          )}
-          <tr className="bg-gray-100 font-semibold">
-            <td colSpan={5} className="border px-2 py-2 text-right">Total Accessories cost</td>
-            <td className="border px-2 py-2 text-right whitespace-nowrap">₹ {formatInr(totalAccessoriesCost)}</td>
-            <td className="border px-2 py-2" />
-          </tr>
-          <tr className="bg-slate-50">
-            <td colSpan={5} className="border px-2 py-2 text-right align-top">
-              <div className="flex flex-col items-end gap-1">
-                <label className="inline-flex items-center gap-2 font-semibold text-slate-800">
-                  <span>Accessories Margin %:</span>
-                  <NumericInput
-                    value={marginPct}
-                    onChange={(val) => setMarginPct(val)}
-                    className="!w-16 !min-w-0 !max-w-[4rem] shrink-0 p-1 border rounded text-sm text-right font-normal"
-                    aria-label="Accessories margin percent"
-                  />
-                  <span className="text-sm font-medium text-slate-600">%</span>
-                </label>
-                <span className="max-w-md whitespace-pre-wrap text-left text-[11px] font-normal text-slate-500" title={marginFormula}>
-                  {marginFormula}
-                </span>
-              </div>
-            </td>
-            <td className="border px-2 py-2 text-right align-top text-sm font-semibold whitespace-nowrap">
-              ₹ {formatInr(marginAmount)}
-            </td>
-            <td className="border px-2 py-2" />
-          </tr>
-          <tr className="bg-blue-50 font-semibold">
-            <td colSpan={5} className="border px-2 py-2 text-right align-top">
-              <div className="flex flex-col items-end gap-1">
-                <span className="text-blue-900">Final Accessories cost</span>
-                <span className="max-w-md whitespace-pre-wrap text-left text-[11px] font-normal text-slate-500" title={finalFormula}>
-                  {finalFormula}
-                </span>
-              </div>
-            </td>
-            <td className="border px-2 py-2 text-right text-blue-900 whitespace-nowrap align-top">
-              ₹ {formatInr(finalAccessoriesCost)}
-            </td>
-            <td className="border px-2 py-2" />
-          </tr>
-        </tbody>
-      </table>
+            ) : (
+              rows.map((row, index) => (
+                <tr key={row.id || row.accessory_id || index} className="align-top">
+                  <td
+                    className={`${stickySn} tabular-nums text-gray-600`}
+                    style={freezeBody()}
+                  >
+                    {index + 1}
+                  </td>
+                  <td className={stickyTitle} style={{ ...freezeBody(), left: TITLE_LEFT }}>
+                    <AutoGrowTextarea
+                      value={row.title || ""}
+                      onChange={(e) => updateRow(index, "title", e.target.value)}
+                      className="font-medium"
+                      placeholder="Enter title"
+                    />
+                  </td>
+                  <td className={stickyDesc} style={{ ...freezeBody(), left: DESC_LEFT }}>
+                    <AutoGrowTextarea
+                      value={row.description || ""}
+                      onChange={(e) => updateRow(index, "description", e.target.value)}
+                      placeholder="Enter description"
+                    />
+                  </td>
+                  <td className={`${cell} bg-white`}>
+                    <NumericInput
+                      value={row.qty}
+                      onChange={(val) => updateRow(index, "qty", parseNumericInput(val, 0))}
+                      className="w-full p-1 border rounded"
+                    />
+                  </td>
+                  <td className={`${cell} bg-white`}>
+                    <NumericInput
+                      value={row.price}
+                      onChange={(val) => updateRow(index, "price", parseNumericInput(val, 0))}
+                      className="w-full p-1 border rounded"
+                    />
+                  </td>
+                  <td className={`${cell} bg-white text-right whitespace-nowrap`}>
+                    ₹ {formatInr(Number(row.qty) * Number(row.price))}
+                  </td>
+                  <td className={`${cell} bg-white text-center`}>
+                    <button
+                      type="button"
+                      onClick={() => requestDeleteAccessory(index)}
+                      disabled={saving}
+                      title="Delete accessory"
+                      aria-label="Delete accessory"
+                      className="inline-flex items-center justify-center rounded p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+            <tr className="font-semibold">
+              <td className={stickySn} style={freezeBody(TOTAL_BG)} />
+              <td className={stickyTitle} style={{ ...freezeBody(TOTAL_BG), left: TITLE_LEFT }} />
+              <td
+                className={`${stickyDesc} text-right`}
+                style={{ ...freezeBody(TOTAL_BG), left: DESC_LEFT }}
+              >
+                Total Accessories cost
+              </td>
+              <td className={`${cell} bg-gray-100`} />
+              <td className={`${cell} bg-gray-100`} />
+              <td className={`${cell} bg-gray-100 text-right whitespace-nowrap`}>
+                ₹ {formatInr(totalAccessoriesCost)}
+              </td>
+              <td className={`${cell} bg-gray-100`} />
+            </tr>
+            <tr>
+              <td className={stickySn} style={freezeBody(MARGIN_BG)} />
+              <td className={stickyTitle} style={{ ...freezeBody(MARGIN_BG), left: TITLE_LEFT }} />
+              <td
+                className={`${stickyDesc} text-right align-top`}
+                style={{ ...freezeBody(MARGIN_BG), left: DESC_LEFT }}
+              >
+                <div className="flex flex-col items-end gap-1">
+                  <label className="inline-flex flex-wrap items-center justify-end gap-2 font-semibold text-slate-800">
+                    <span>Accessories Margin %:</span>
+                    <NumericInput
+                      value={marginPct}
+                      onChange={(val) => setMarginPct(val)}
+                      className="!w-16 !min-w-0 !max-w-[4rem] shrink-0 p-1 border rounded text-sm text-right font-normal"
+                      aria-label="Accessories margin percent"
+                    />
+                    <span className="text-sm font-medium text-slate-600">%</span>
+                  </label>
+                  <span
+                    className="max-w-full whitespace-pre-wrap text-left text-[11px] font-normal text-slate-500"
+                    title={marginFormula}
+                  >
+                    {marginFormula}
+                  </span>
+                </div>
+              </td>
+              <td className={`${cell} bg-slate-50`} />
+              <td className={`${cell} bg-slate-50`} />
+              <td className={`${cell} bg-slate-50 text-right align-top text-sm font-semibold whitespace-nowrap`}>
+                ₹ {formatInr(marginAmount)}
+              </td>
+              <td className={`${cell} bg-slate-50`} />
+            </tr>
+            <tr className="font-semibold">
+              <td className={stickySn} style={freezeBody(FINAL_BG)} />
+              <td className={stickyTitle} style={{ ...freezeBody(FINAL_BG), left: TITLE_LEFT }} />
+              <td
+                className={`${stickyDesc} text-right align-top`}
+                style={{ ...freezeBody(FINAL_BG), left: DESC_LEFT }}
+              >
+                <div className="flex flex-col items-end gap-1">
+                  <span className="text-blue-900">Final Accessories cost</span>
+                  <span
+                    className="max-w-full whitespace-pre-wrap text-left text-[11px] font-normal text-slate-500"
+                    title={finalFormula}
+                  >
+                    {finalFormula}
+                  </span>
+                </div>
+              </td>
+              <td className={`${cell} bg-blue-50`} />
+              <td className={`${cell} bg-blue-50`} />
+              <td className={`${cell} bg-blue-50 text-right text-blue-900 whitespace-nowrap align-top`}>
+                ₹ {formatInr(finalAccessoriesCost)}
+              </td>
+              <td className={`${cell} bg-blue-50`} />
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button

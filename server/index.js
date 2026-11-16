@@ -1900,6 +1900,57 @@ app.post('/api/projects/oc/signoff-notify', einvoiceRateLimit, requireAuth, asyn
   }
 });
 
+/**
+ * Projects PO At Glance: signature of the login that signed one approval stage.
+ * pj_oc_signature_file checks Projects PO At Glance (or Finance Master) access; only Indus One
+ * signature files (signature/{employee code}/…) are served. Body: { ocId, slot, bytes? }.
+ */
+app.post('/api/projects/oc/signature-file', requireAuth, async (req, res) => {
+  try {
+    const ocId = String(req.body?.ocId || '').trim();
+    const slot = String(req.body?.slot || '').trim().toUpperCase();
+    if (!ocId || !slot) return res.status(400).json({ error: 'Choose the PO and stage.' });
+    const jwt = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    const userDb = createClient(getSupabaseUrlForServer(), getSupabaseAnonKeyForServer(), {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: jwt ? { headers: { Authorization: `Bearer ${jwt}` } } : undefined,
+    });
+    const { data, error } = await userDb.rpc('pj_oc_signature_file', { p_oc_id: ocId, p_slot: slot });
+    if (error) {
+      const status = String(error.code || '') === '42501' ? 403 : 400;
+      return res.status(status).json({ error: error.message || 'Could not load this signature.' });
+    }
+    const employeeCode = String(data?.employeeCode || '').trim();
+    const objectKey = String(data?.objectKey || '').trim();
+    if (!employeeCode || !objectKey.startsWith(`signature/${employeeCode}/`) || objectKey.includes('..')) {
+      return res.status(404).json({ error: 'No digital signature found for this stage.' });
+    }
+    if (req.body?.bytes) {
+      const obj = await getR2S3Client().send(new GetObjectCommand({ Bucket: getR2BucketName(), Key: objectKey }));
+      const raw = obj?.Body ? await obj.Body.transformToByteArray() : null;
+      if (!raw?.length) return res.status(404).json({ error: 'No digital signature found for this stage.' });
+      return res.json({
+        contentType: String(data.contentType || obj.ContentType || 'image/png'),
+        base64: Buffer.from(raw).toString('base64'),
+      });
+    }
+    const url = await getSignedUrl(
+      getR2S3Client(),
+      new GetObjectCommand({
+        Bucket: getR2BucketName(),
+        Key: objectKey,
+        ResponseContentType: data.contentType || 'image/png',
+        ResponseContentDisposition: 'inline',
+      }),
+      { expiresIn: 600 },
+    );
+    return res.json({ url });
+  } catch (err) {
+    console.error('[projects/oc/signature-file]', err?.message || err);
+    return res.status(500).json({ error: 'Could not open the signature.' });
+  }
+});
+
 app.post('/api/rm/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
   try {
     const result = await notifyOcSignoffAssignees({
@@ -1916,6 +1967,76 @@ app.post('/api/rm/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req
     if (status >= 500) console.error('[rm/oc/signoff-notify]', err?.message || err);
     const message = err?.message || 'Could not send the sign-off notification.';
     return res.status(status).json({ error: message, message });
+  }
+});
+
+app.post('/api/commercial/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
+  try {
+    const result = await notifyOcSignoffAssignees({
+      db: crmInHouseServiceClient(),
+      ocId: req.body?.ocId,
+      signatures: req.body?.signatures,
+      senderMailboxId: req.body?.senderMailboxId,
+      signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
+      department: 'commercial',
+    });
+    return res.json(result);
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    if (status >= 500) console.error('[commercial/oc/signoff-notify]', err?.message || err);
+    const message = err?.message || 'Could not send the sign-off notification.';
+    return res.status(status).json({ error: message, message });
+  }
+});
+
+/**
+ * Commercial PO At Glance: signature of the login that signed one approval stage.
+ * cm_oc_signature_file runs as the caller and checks Commercial PO At Glance access; only Indus One
+ * signature files (signature/{employee code}/…) are served. Body: { ocId, slot, bytes? }.
+ */
+app.post('/api/commercial/oc/signature-file', requireAuth, async (req, res) => {
+  try {
+    const ocId = String(req.body?.ocId || '').trim();
+    const slot = String(req.body?.slot || '').trim().toUpperCase();
+    if (!ocId || !slot) return res.status(400).json({ error: 'Choose the PO and stage.' });
+    const jwt = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    const userDb = createClient(getSupabaseUrlForServer(), getSupabaseAnonKeyForServer(), {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: jwt ? { headers: { Authorization: `Bearer ${jwt}` } } : undefined,
+    });
+    const { data, error } = await userDb.rpc('cm_oc_signature_file', { p_oc_id: ocId, p_slot: slot });
+    if (error) {
+      const status = String(error.code || '') === '42501' ? 403 : 400;
+      return res.status(status).json({ error: error.message || 'Could not load this signature.' });
+    }
+    const employeeCode = String(data?.employeeCode || '').trim();
+    const objectKey = String(data?.objectKey || '').trim();
+    if (!employeeCode || !objectKey.startsWith(`signature/${employeeCode}/`) || objectKey.includes('..')) {
+      return res.status(404).json({ error: 'No digital signature found for this stage.' });
+    }
+    if (req.body?.bytes) {
+      const obj = await getR2S3Client().send(new GetObjectCommand({ Bucket: getR2BucketName(), Key: objectKey }));
+      const raw = obj?.Body ? await obj.Body.transformToByteArray() : null;
+      if (!raw?.length) return res.status(404).json({ error: 'No digital signature found for this stage.' });
+      return res.json({
+        contentType: String(data.contentType || obj.ContentType || 'image/png'),
+        base64: Buffer.from(raw).toString('base64'),
+      });
+    }
+    const url = await getSignedUrl(
+      getR2S3Client(),
+      new GetObjectCommand({
+        Bucket: getR2BucketName(),
+        Key: objectKey,
+        ResponseContentType: data.contentType || 'image/png',
+        ResponseContentDisposition: 'inline',
+      }),
+      { expiresIn: 600 },
+    );
+    return res.json({ url });
+  } catch (err) {
+    console.error('[commercial/oc/signature-file]', err?.message || err);
+    return res.status(500).json({ error: 'Could not open the signature.' });
   }
 });
 

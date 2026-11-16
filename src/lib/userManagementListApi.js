@@ -6,6 +6,10 @@ import {
   PROFILE_LIST_SELECT,
   PROFILE_LIST_SELECT_WITH_EMP,
 } from "./profileSelect";
+import { EMPLOYEE_MASTER_TABLE } from "./userManagementHierarchy";
+
+/** Cap name→code lookup so PostgREST OR filters stay within URL limits. */
+const NAME_MATCH_CODE_LIMIT = 400;
 
 const PROFILE_LIST_SELECT_NO_ACTIVE =
   "id, email, username, team, role, allowed_modules, allowed_sub_modules, module_access_pending, created_at";
@@ -108,7 +112,47 @@ function applySort(query, sort, includeEmpCode) {
   return q.order("email", { ascending: true, nullsFirst: false });
 }
 
-function applyFilters(query, filters, includeEmpCode, excludeProfileIds = []) {
+/**
+ * Resolve Employee Master codes whose full_name matches the search term.
+ * Display names in User Management come from Employee Master, not always profiles.username.
+ */
+export async function fetchEmployeeCodesMatchingName(supabase, searchTerm) {
+  const term = String(searchTerm ?? "").trim();
+  if (!term || !supabase) return [];
+
+  const pattern = escapeIlikePattern(term);
+  const { data, error } = await supabase
+    .from(EMPLOYEE_MASTER_TABLE)
+    .select("employee_code")
+    .ilike("full_name", `%${pattern}%`)
+    .not("employee_code", "is", null)
+    .neq("employee_code", "")
+    .limit(NAME_MATCH_CODE_LIMIT);
+
+  if (error) {
+    // Fall back to profile-only search if Employee Master is unavailable.
+    console.warn("[user-mgmt] name search via Employee Master failed:", error.message || error);
+    return [];
+  }
+
+  const codes = [];
+  const seen = new Set();
+  for (const row of data || []) {
+    const code = String(row?.employee_code ?? "").trim();
+    if (!code) continue;
+    const key = code.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    codes.push(code);
+  }
+  return codes;
+}
+
+function quotePostgrestValue(value) {
+  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function applyFilters(query, filters, includeEmpCode, excludeProfileIds = [], nameMatchCodes = []) {
   let q = query;
   if (excludeProfileIds.length) {
     q = q.not("id", "in", `(${excludeProfileIds.join(",")})`);
@@ -119,6 +163,9 @@ function applyFilters(query, filters, includeEmpCode, excludeProfileIds = []) {
     const parts = [`email.ilike.%${pattern}%`, `username.ilike.%${pattern}%`];
     if (includeEmpCode) {
       parts.push(`employee_code.ilike.%${pattern}%`);
+      if (nameMatchCodes.length) {
+        parts.push(`employee_code.in.(${nameMatchCodes.map(quotePostgrestValue).join(",")})`);
+      }
     }
     q = q.or(parts.join(","));
   }
@@ -159,9 +206,14 @@ export async function fetchUserManagementProfiles(
   const from = (safePage - 1) * safeSize;
   const to = from + safeSize - 1;
 
+  const searchTerm = String(filters.search ?? "").trim();
+  const nameMatchCodes = searchTerm
+    ? await fetchEmployeeCodesMatchingName(supabase, searchTerm)
+    : [];
+
   const buildQuery = (selectCols, includeEmpCode) => {
     let query = supabase.from("profiles").select(selectCols, { count: "exact" });
-    query = applyFilters(query, filters, includeEmpCode, excludeProfileIds);
+    query = applyFilters(query, filters, includeEmpCode, excludeProfileIds, includeEmpCode ? nameMatchCodes : []);
     return query.range(from, to);
   };
 
@@ -203,10 +255,21 @@ export async function fetchAllUserManagementProfiles(
   let from = 0;
   let empCodeSupported = preferEmpCode;
 
+  const searchTerm = String(filters.search ?? "").trim();
+  const nameMatchCodes = searchTerm
+    ? await fetchEmployeeCodesMatchingName(supabase, searchTerm)
+    : [];
+
   while (true) {
     const buildQuery = (selectCols, includeEmpCode) => {
       let query = supabase.from("profiles").select(selectCols);
-      query = applyFilters(query, filters, includeEmpCode, excludeProfileIds);
+      query = applyFilters(
+        query,
+        filters,
+        includeEmpCode,
+        excludeProfileIds,
+        includeEmpCode ? nameMatchCodes : []
+      );
       return query.range(from, from + batchSize - 1);
     };
 

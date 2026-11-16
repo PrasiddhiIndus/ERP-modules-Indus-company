@@ -268,20 +268,29 @@ export function BarCompareChart({
   categoryWidth = 118,
   onBarClick,
   activeName = null,
+  /** When set, horizontal charts grow with row count so category labels do not collide. */
+  rowHeight = 0,
 }) {
   const horizontal = layout === "horizontal";
   const highlight = activeName != null && series.length === 1;
   const moneyAxis = yTickFormatter || xTickFormatter || compactInrTick;
-  const catTick = (v) => truncateLabel(v, horizontal ? 16 : 12);
+  const rowPx = rowHeight > 0 ? rowHeight : horizontal ? 28 : 0;
+  const chartHeight =
+    horizontal && rowPx > 0 ? Math.max(height, (data?.length || 0) * rowPx + 28) : height;
+  const compact = chartHeight < 180;
+  const axisTick = compact ? { ...AXIS, fontSize: 10 } : AXIS;
+  const catTick = (v) => truncateLabel(v, horizontal ? (compact ? 12 : 16) : 12);
+  const yWidth = horizontal ? Math.max(categoryWidth, compact ? 72 : categoryWidth) : 58;
 
   return (
-    <ResponsiveContainer width="100%" height={height} minWidth={0}>
+    <ResponsiveContainer width="100%" height={chartHeight} minWidth={0}>
       <BarChart
         data={data}
         layout={horizontal ? "vertical" : "horizontal"}
+        barCategoryGap={horizontal ? "18%" : "12%"}
         margin={
           horizontal
-            ? { top: 8, right: 16, left: 8, bottom: 4 }
+            ? { top: 4, right: 12, left: 4, bottom: 2 }
             : { top: 8, right: 12, left: 4, bottom: 4 }
         }
       >
@@ -290,7 +299,7 @@ export function BarCompareChart({
           <>
             <XAxis
               type="number"
-              tick={AXIS}
+              tick={axisTick}
               axisLine={false}
               tickLine={false}
               tickFormatter={moneyAxis}
@@ -299,20 +308,20 @@ export function BarCompareChart({
             <YAxis
               type="category"
               dataKey={xKey}
-              tick={AXIS}
+              tick={axisTick}
               axisLine={false}
               tickLine={false}
-              width={categoryWidth}
+              width={yWidth}
               tickFormatter={catTick}
-              tickMargin={8}
+              tickMargin={6}
               interval={0}
             />
           </>
         ) : (
           <>
-            <XAxis dataKey={xKey} tick={AXIS} axisLine={false} tickLine={false} interval={0} tickFormatter={catTick} />
+            <XAxis dataKey={xKey} tick={axisTick} axisLine={false} tickLine={false} interval={0} tickFormatter={catTick} />
             <YAxis
-              tick={AXIS}
+              tick={axisTick}
               axisLine={false}
               tickLine={false}
               width={58}
@@ -336,7 +345,7 @@ export function BarCompareChart({
             stackId={stacked ? "a" : undefined}
             isAnimationActive
             animationDuration={750}
-            maxBarSize={36}
+            maxBarSize={horizontal ? 18 : 36}
             cursor={onBarClick ? "pointer" : "default"}
             onClick={(entry) => onBarClick?.(entry?.payload || entry)}
           >
@@ -382,6 +391,10 @@ export function DonutChart({
 }) {
   const rows = (data || []).filter((d) => (Number(d[valueKey]) || 0) > 0);
   const total = rows.reduce((a, d) => a + (Number(d[valueKey]) || 0), 0);
+  const compact = height < 160;
+  const hole = compact
+    ? { inner: innerRadius === "58%" || innerRadius === "52%" ? "48%" : innerRadius, outer: outerRadius === "78%" ? "72%" : outerRadius }
+    : { inner: innerRadius, outer: outerRadius };
   return (
     <div className="relative w-full min-w-0" style={{ height }}>
       <ResponsiveContainer width="100%" height={height} minWidth={0}>
@@ -392,8 +405,8 @@ export function DonutChart({
             nameKey={nameKey}
             cx="50%"
             cy="50%"
-            innerRadius={innerRadius}
-            outerRadius={outerRadius}
+            innerRadius={hole.inner}
+            outerRadius={hole.outer}
             paddingAngle={2}
             stroke={UI_TOKENS.surface}
             strokeWidth={2}
@@ -414,9 +427,29 @@ export function DonutChart({
         </PieChart>
       </ResponsiveContainer>
       {(centerLabel != null || centerValue != null) && (
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          {centerValue != null ? <p className="type-figure text-ink">{centerValue ?? total}</p> : null}
-          {centerLabel ? <p className="type-mono-caption text-ink-muted mt-0.5">{centerLabel}</p> : null}
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-2 text-center">
+          {centerLabel ? (
+            <p
+              className={
+                compact
+                  ? "text-[9px] font-bold uppercase tracking-[0.06em] text-ink-muted leading-none"
+                  : "type-mono-caption text-ink-muted leading-none"
+              }
+            >
+              {centerLabel}
+            </p>
+          ) : null}
+          {centerValue != null ? (
+            <p
+              className={
+                compact
+                  ? "mt-1 text-[12px] font-semibold tabular-nums text-ink leading-tight"
+                  : "type-figure text-ink mt-0.5 leading-tight"
+              }
+            >
+              {centerValue ?? total}
+            </p>
+          ) : null}
         </div>
       )}
     </div>

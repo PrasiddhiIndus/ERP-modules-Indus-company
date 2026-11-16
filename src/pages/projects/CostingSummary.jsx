@@ -84,7 +84,15 @@ const NET_TOTAL_PERCENT_OF_FABRICATION = new Set([
 const NET_TOTAL_PERCENT_OF_CHASSIS = new Set([COMPONENT_CHASSIS_MARGIN_PCT]);
 
 /** Enter amount in ₹; `unitCost` and `total` both = rupees (used directly in downstream sums). */
-const NET_TOTAL_RUPEE_ENTRY = new Set(["BD cost ", "RTO charges ", "Insurance "]);
+const COMPONENT_TRANSPORTATION = "TRANSPORTATION";
+const COMPONENT_WARRANTY = "WARRANTY";
+const NET_TOTAL_RUPEE_ENTRY = new Set([
+  "BD cost ",
+  "RTO charges ",
+  "Insurance ",
+  COMPONENT_TRANSPORTATION,
+  COMPONENT_WARRANTY,
+]);
 
 /** Tender Mode: enter a plain % (not % of fabrication); `total` is unused (kept 0). */
 const NET_TOTAL_TENDER_MODE_PERCENT = new Set(["Tender Mode"]);
@@ -238,7 +246,9 @@ function applyNetTotalDerivedTotals(updated, { grandTotal, chassisTotal, accesso
     const j = updated.find((row) => row.component === "RTO charges ")?.total || 0;
     const k = updated.find((row) => row.component === "Insurance ")?.total || 0;
     const l = updated.find((row) => row.component === "ACCESSORIES")?.total || 0;
-    updated[totalPriceWithChassisIndex].total = h + i + j + k + l;
+    const n = updated.find((row) => row.component === COMPONENT_TRANSPORTATION)?.total || 0;
+    const o = updated.find((row) => row.component === COMPONENT_WARRANTY)?.total || 0;
+    updated[totalPriceWithChassisIndex].total = h + i + j + k + l + n + o;
   }
 
   const totalPriceWithChassis =
@@ -305,7 +315,13 @@ function getNetTotalFormulaText(row, rows, ctx) {
     return `Formula: ${letter("Inflation Cost %")}+${letter("Overhead cost %")}+${letter("Financial cost%")}+${letter("Cost of negogiation %")} + fabrication base\n₹${f(a)} + ₹${f(b)} + ₹${f(c)} + ₹${f(d)} + ₹${f(grandTotal)} = ₹${f(row.total)}`;
   }
 
-  if (comp === "BD cost " || comp === "RTO charges " || comp === "Insurance ") {
+  if (
+    comp === "BD cost " ||
+    comp === "RTO charges " ||
+    comp === "Insurance " ||
+    comp === COMPONENT_TRANSPORTATION ||
+    comp === COMPONENT_WARRANTY
+  ) {
     return `Formula: amount entered (₹)\n₹${f(row.total)} on this line`;
   }
 
@@ -349,7 +365,9 @@ function getNetTotalFormulaText(row, rows, ctx) {
     const jT = tot("RTO charges ");
     const kT = tot("Insurance ");
     const lT = tot("ACCESSORIES");
-    return `Formula: H + I + J + K + L\n${letter(h)} ₹${f(hT)} + ${letter("CHASSIS PRICE")} ₹${f(iT)} + ${letter("RTO charges ")} ₹${f(jT)} + ${letter("Insurance ")} ₹${f(kT)} + ${letter("ACCESSORIES")} ₹${f(lT)} = ₹${f(row.total)}`;
+    const nT = tot(COMPONENT_TRANSPORTATION);
+    const oT = tot(COMPONENT_WARRANTY);
+    return `Formula: ${letter(h)} + ${letter("CHASSIS PRICE")} + ${letter("RTO charges ")} + ${letter("Insurance ")} + ${letter("ACCESSORIES")} + ${letter(COMPONENT_TRANSPORTATION)} + ${letter(COMPONENT_WARRANTY)}\n${letter(h)} ₹${f(hT)} + ${letter("CHASSIS PRICE")} ₹${f(iT)} + ${letter("RTO charges ")} ₹${f(jT)} + ${letter("Insurance ")} ₹${f(kT)} + ${letter("ACCESSORIES")} ₹${f(lT)} + ${letter(COMPONENT_TRANSPORTATION)} ₹${f(nT)} + ${letter(COMPONENT_WARRANTY)} ₹${f(oT)} = ₹${f(row.total)}`;
   }
 
   if (comp === COMPONENT_FINAL_TENDER_EX_GST) {
@@ -408,6 +426,8 @@ const CostingSummary = ({
     { component: "RTO charges ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: true, remark: "" },
     { component: "Insurance ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: true, remark: "" },
     { component: "ACCESSORIES", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: true, remark: "" },
+    { component: COMPONENT_TRANSPORTATION, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: true, remark: "" },
+    { component: COMPONENT_WARRANTY, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: true, remark: "" },
     { component: "Total Price with chassis ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: true, remark: "" },
     { component: COMPONENT_FINAL_TENDER_EX_GST, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: true, remark: "" },
     { component: "Final Tender Cost (inc. GST)", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: true, remark: "" },
@@ -873,7 +893,7 @@ const CostingSummary = ({
         </p>
         {!showGemPortalRows ? (
           <p className="mb-3 text-xs text-slate-500">
-            Tender Mode (O) and Gem Cost (P) are available only when the tender source is Gem Portal.
+            Tender Mode and Gem Cost are available only when the tender source is Gem Portal.
           </p>
         ) : null}
         {!remarkColumnSupported ? (
@@ -1043,12 +1063,12 @@ const CostingSummary = ({
                       })}
                     </span>
                   )}
-                  <input
-                    type="text"
+                  <textarea
                     value={row.remark || ""}
                     onChange={(e) => handleRowChange(index, "remark", e.target.value)}
                     placeholder="Remarks"
-                    className="min-w-[10rem] flex-1 rounded border border-slate-200 p-2 text-sm"
+                    rows={2}
+                    className="min-w-[10rem] min-h-[2.5rem] flex-1 rounded border border-slate-200 p-2 text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere] resize-y"
                   />
                   </div>
                   <div className="w-full shrink-0 rounded border border-slate-200 bg-white px-3 py-2 text-xs leading-snug text-slate-700 sm:max-w-md sm:flex-1 whitespace-pre-wrap sm:border-l-2 sm:border-t-0">

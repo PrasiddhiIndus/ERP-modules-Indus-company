@@ -23,6 +23,7 @@ import {
 import {
   BarCompareChart,
   ComposedTrendChart,
+  DonutChart,
   makeMoneyAxisFormatter,
   RadialScoreChart,
 } from "../../components/charts/DashboardCharts";
@@ -153,6 +154,7 @@ export default function CompanyPulse({
   allowPath,
   modules,
   commercialStats,
+  invoices = [],
   pl,
   billRate,
   collectRate,
@@ -162,6 +164,9 @@ export default function CompanyPulse({
   const [chartsReady, setChartsReady] = useState(false);
   const [detail, setDetail] = useState(null);
   const [clock, setClock] = useState(() => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+  const [matrixSearch, setMatrixSearch] = useState("");
+  const [matrixFilter, setMatrixFilter] = useState("all");
+  const [matrixSort, setMatrixSort] = useState("attention");
 
   useEffect(() => {
     setChartsReady(true);
@@ -191,6 +196,30 @@ export default function CompanyPulse({
   const listed = useMemo(() => pulse.views.filter((view) => view.visible), [pulse.views]);
   const attention = useMemo(() => listed.filter((view) => view.attention), [listed]);
 
+  const matrixViews = useMemo(() => {
+    const needle = matrixSearch.trim().toLowerCase();
+    let rows = listed.filter((view) => {
+      if (matrixFilter === "attention" && !view.attention) return false;
+      if (matrixFilter === "revenue" && !view.revenue) return false;
+      if (matrixFilter === "live" && (view.planned || view.score == null)) return false;
+      if (!needle) return true;
+      return (
+        view.short.toLowerCase().includes(needle) ||
+        view.name.toLowerCase().includes(needle) ||
+        (view.metrics || []).some((m) => String(m.label).toLowerCase().includes(needle) || String(m.value).toLowerCase().includes(needle))
+      );
+    });
+    rows = [...rows].sort((a, b) => {
+      if (matrixSort === "name") return a.short.localeCompare(b.short);
+      if (matrixSort === "score") return (a.score ?? 999) - (b.score ?? 999);
+      const ar = a.attention ? 0 : a.planned ? 2 : 1;
+      const br = b.attention ? 0 : b.planned ? 2 : 1;
+      if (ar !== br) return ar - br;
+      return (a.score ?? 999) - (b.score ?? 999) || a.short.localeCompare(b.short);
+    });
+    return rows;
+  }, [listed, matrixFilter, matrixSearch, matrixSort]);
+
   const ledgerPath = "/app/accounts-finance/reports/site-ledger";
   const ledgerOpen = Boolean(allowPath?.(ledgerPath));
   const billingReports = "/app/billing/reports";
@@ -209,6 +238,7 @@ export default function CompanyPulse({
     () => ({
       modules,
       commercialStats,
+      invoices,
       pl,
       billRate,
       collectRate,
@@ -229,6 +259,7 @@ export default function CompanyPulse({
       billRate,
       collectRate,
       commercialStats,
+      invoices,
       ledgerOpen,
       modules,
       peoplePath,
@@ -305,7 +336,11 @@ export default function CompanyPulse({
   const sites = useMemo(() => {
     const rows = pl?.siteRows || [];
     const profitable = rows.filter((row) => row.profit > 0);
-    return (profitable.length ? profitable : rows).slice(0, 6);
+    return (profitable.length ? profitable : rows).slice(0, 5).map((row) => ({
+      ...row,
+      fullName: row.name,
+      name: row.shortName || row.name,
+    }));
   }, [pl?.siteRows]);
 
   const trendAxis = useMemo(() => {
@@ -323,7 +358,7 @@ export default function CompanyPulse({
       <header className="cp-chrome">
         <div className="cp-chrome-title">
           <div>
-            <p className="cp-kicker">Company ops · bird’s-eye</p>
+            <p className="cp-kicker">Managing director view · live company board</p>
             <h1>Company Pulse</h1>
           </div>
           <button
@@ -407,50 +442,87 @@ export default function CompanyPulse({
         <section className="cp-ops" aria-label="Company operations overview">
           <div className="cp-matrix-panel">
             <div className="cp-panel-head">
-              <h2>Ops matrix</h2>
-              <span>
-                {listed.length} modules
-                {attention.length ? ` · ${attention.length} need a look` : ""}
-              </span>
+              <div>
+                <h2>Modules</h2>
+                <span>
+                  {matrixViews.length}/{listed.length}
+                  {attention.length ? ` · ${attention.length} need action` : " · all clear"}
+                </span>
+              </div>
+              <div className="cp-matrix-tools">
+                <input
+                  className="cp-filter-input"
+                  type="search"
+                  placeholder="Find module…"
+                  value={matrixSearch}
+                  onChange={(e) => setMatrixSearch(e.target.value)}
+                  aria-label="Filter modules"
+                />
+                <select
+                  className="cp-select"
+                  value={matrixFilter}
+                  onChange={(e) => setMatrixFilter(e.target.value)}
+                  aria-label="Module filter"
+                >
+                  <option value="all">All</option>
+                  <option value="attention">Needs action</option>
+                  <option value="revenue">Revenue</option>
+                  <option value="live">With score</option>
+                </select>
+                <select
+                  className="cp-select"
+                  value={matrixSort}
+                  onChange={(e) => setMatrixSort(e.target.value)}
+                  aria-label="Module sort"
+                >
+                  <option value="attention">Priority</option>
+                  <option value="score">Lowest score</option>
+                  <option value="name">Name</option>
+                </select>
+              </div>
             </div>
             <div className="cp-matrix" role="list">
-              {listed.map((view, index) => {
-                const status = statusOf(view);
-                const Icon = ICONS[view.id] || FolderKanban;
-                const metric = primaryMetric(view);
-                const score = view.score;
-                return (
-                  <button
-                    key={view.id}
-                    type="button"
-                    role="listitem"
-                    className={`cp-cell${view.attention ? " is-att" : ""}${view.canOpen ? "" : " is-locked"}${view.planned ? " is-plan" : ""}`}
-                    style={{
-                      "--c": status.color,
-                      "--p": score == null ? 0 : score,
-                      animationDelay: `${Math.min(index, 18) * 18}ms`,
-                    }}
-                    title={`${view.name} detail`}
-                    onClick={() => openDetail("module", { view })}
-                  >
-                    <span className="cp-cell-top">
-                      <span className="cp-cell-icon">
-                        <Icon size={14} strokeWidth={2.25} />
+              {matrixViews.length === 0 ? (
+                <p className="cp-note cp-matrix-empty">No modules match these filters.</p>
+              ) : (
+                matrixViews.map((view, index) => {
+                  const status = statusOf(view);
+                  const Icon = ICONS[view.id] || ICONS[view.icon] || FolderKanban;
+                  const metric = primaryMetric(view);
+                  const score = view.score;
+                  return (
+                    <button
+                      key={view.id}
+                      type="button"
+                      role="listitem"
+                      className={`cp-cell${view.attention ? " is-att" : ""}${view.canOpen ? "" : " is-locked"}${view.planned ? " is-plan" : ""}`}
+                      style={{
+                        "--c": status.color,
+                        "--p": score == null ? 0 : score,
+                        animationDelay: `${Math.min(index, 18) * 18}ms`,
+                      }}
+                      title={`${view.name} detail`}
+                      onClick={() => openDetail("module", { view })}
+                    >
+                      <span className="cp-cell-top">
+                        <span className="cp-cell-icon">
+                          <Icon size={14} strokeWidth={2.25} />
+                        </span>
+                        <strong>{view.short}</strong>
+                        {!view.canOpen ? <Lock size={11} /> : view.revenue ? <i className="cp-rev">₹</i> : null}
                       </span>
-                      <strong>{view.short}</strong>
-                      {!view.canOpen ? <Lock size={11} /> : view.revenue ? <i className="cp-rev">₹</i> : null}
-                    </span>
-                    <span className="cp-cell-metric">
-                      <small>{metric.label}</small>
-                      <b>{loading ? "—" : metric.value}</b>
-                    </span>
-                    <span className="cp-cell-foot">
-                      <em>{status.label}</em>
-                      <span>{score == null ? "—" : score}</span>
-                    </span>
-                  </button>
-                );
-              })}
+                      <span className="cp-cell-metric">
+                        <small>{metric.label}</small>
+                        <b>{loading ? "—" : metric.value}</b>
+                      </span>
+                      <span className="cp-cell-foot">
+                        <em>{status.label}</em>
+                        <span>{score == null ? "—" : score}</span>
+                      </span>
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
 
@@ -483,7 +555,7 @@ export default function CompanyPulse({
                     areas={[{ key: "revenue", name: "Revenue", color: CHART.rev, fillOpacity: 0.18 }]}
                     bars={[{ key: "expense", name: "Expense", color: CHART.exp }]}
                     lines={[{ key: "profit", name: "Profit", color: CHART.net, width: 2.5 }]}
-                    height={168}
+                    height={148}
                     showLegend={false}
                     compact
                     formatter={(value) => inrShort(value)}
@@ -494,23 +566,43 @@ export default function CompanyPulse({
                   <p className="cp-note">{chartsReady ? "No ledger movement in this range." : " "}</p>
                 )}
               </div>
-              <div className="cp-chart-block cp-chart-sites">
-                <p className="cp-mini-label">Profit by site</p>
-                {chartsReady && sites.length ? (
-                  <BarCompareChart
-                    data={sites}
-                    layout="horizontal"
-                    xKey="name"
-                    series={[{ key: "profit", name: "Profit", color: CHART.net }]}
-                    height={140}
-                    categoryWidth={88}
-                    formatter={(value) => inrShort(value)}
-                    yTickFormatter={siteAxis}
-                    onBarClick={(row) => openDetail("site", { site: row })}
-                  />
-                ) : (
-                  <p className="cp-note">{chartsReady ? "No site profit in this range." : " "}</p>
-                )}
+              <div className="cp-books-split">
+                <div className="cp-chart-block cp-chart-sites">
+                  <p className="cp-mini-label">Profit by site</p>
+                  {chartsReady && sites.length ? (
+                    <BarCompareChart
+                      data={sites}
+                      layout="horizontal"
+                      xKey="name"
+                      series={[{ key: "profit", name: "Profit", color: CHART.net }]}
+                      height={Math.max(140, sites.length * 30)}
+                      rowHeight={30}
+                      categoryWidth={96}
+                      formatter={(value) => inrShort(value)}
+                      yTickFormatter={siteAxis}
+                      onBarClick={(row) => openDetail("site", { site: row })}
+                    />
+                  ) : (
+                    <p className="cp-note">{chartsReady ? "No site profit in this range." : " "}</p>
+                  )}
+                </div>
+                <div className="cp-chart-block cp-chart-mix">
+                  <p className="cp-mini-label">Expense mix</p>
+                  {chartsReady && (pl?.expenseMix || []).length ? (
+                    <DonutChart
+                      data={pl.expenseMix}
+                      height={140}
+                      innerRadius="46%"
+                      outerRadius="74%"
+                      centerLabel="Spend"
+                      centerValue={inrShort(pl.expense)}
+                      formatter={(value) => inrShort(value)}
+                      onSliceClick={() => openDetail("books")}
+                    />
+                  ) : (
+                    <p className="cp-note">{chartsReady ? "No expense heads in range." : " "}</p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -566,7 +658,7 @@ export default function CompanyPulse({
               </div>
 
               <div className="cp-attention">
-                <p className="cp-mini-label">Needs a look</p>
+                <p className="cp-mini-label">Needs action</p>
                 {attention.length === 0 ? (
                   <p className="cp-note">Nothing flagged in modules you can see.</p>
                 ) : (
@@ -593,7 +685,12 @@ export default function CompanyPulse({
         </section>
       )}
 
-      <CompanyPulseDetail detail={detail} onClose={() => setDetail(null)} onOpen={onOpen} />
+      <CompanyPulseDetail
+        detail={detail}
+        dataCtx={detailCtx}
+        onClose={() => setDetail(null)}
+        onOpen={onOpen}
+      />
     </div>
   );
 }

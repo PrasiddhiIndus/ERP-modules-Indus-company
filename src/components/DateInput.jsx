@@ -124,7 +124,11 @@ export function DateInput({
   };
 
   return (
-    <div className={`erp-date-input flex w-full items-stretch gap-0 overflow-hidden ${className}`.trim()}>
+    <div
+      className={`erp-date-input flex items-stretch gap-0 overflow-hidden ${
+        compact ? "inline-flex w-auto max-w-full" : "w-full"
+      } ${className}`.trim()}
+    >
       <input
         type="text"
         inputMode="numeric"
@@ -144,14 +148,16 @@ export function DateInput({
         title={title || "Enter date as dd/mm/yyyy or use calendar"}
         aria-label={ariaLabel}
         placeholder={placeholder}
-        className={`erp-date-input-text min-w-0 flex-1 border-0 bg-transparent px-3 text-inherit placeholder:text-slate-400 focus:outline-none focus:ring-0 ${
-          compact ? "py-1 text-xs" : "text-sm"
+        className={`erp-date-input-text border-0 bg-transparent text-inherit placeholder:text-slate-400 focus:outline-none focus:ring-0 tabular-nums ${
+          compact
+            ? "w-[7rem] flex-none px-2 py-1 text-xs"
+            : "min-w-0 flex-1 px-3 text-sm"
         }`}
       />
       <div
         className={`erp-date-input-calendar relative shrink-0 flex items-center justify-center border-l border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 ${
           disabled || readOnly ? "opacity-50 pointer-events-none" : "cursor-pointer"
-        } ${compact ? "px-2" : "px-2.5"}`}
+        } ${compact ? "px-1.5" : "px-2.5"}`}
         onClick={openCalendar}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
