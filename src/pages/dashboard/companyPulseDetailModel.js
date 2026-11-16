@@ -18,8 +18,9 @@ function pushAttn(list, item) {
 }
 
 /**
- * Build a detail card for any Company Pulse click target.
- * Uses only data already loaded on the main dashboard (no extra fetches).
+ * Build a detail card shell for any Company Pulse click target.
+ * Snapshot metrics come from dashboard state; live breakout rows load via fetchKey
+ * in CompanyPulseDetail (pulseDetailData.js).
  */
 export function buildPulseDetail(kind, ctx = {}) {
   const {
@@ -62,12 +63,9 @@ export function buildPulseDetail(kind, ctx = {}) {
           { label: "Leave queue", value: countLabel(modules.leavePending) },
         ],
         attention,
-        rows: departments.slice(0, 8).map((row) => ({
-          label: row.name,
-          value: row.expected ? `${row.pct.toFixed(0)}%` : "—",
-          meta: `${row.present || 0} present · ${row.absent || 0} absent · ${row.late || 0} late`,
-        })),
-        note: departments.length ? "Top departments by today’s attendance." : "Open HR for the full employee register.",
+        rows: [],
+        fetchKey: "people",
+        note: "Pending leave and roster load below. Open HR for the full register.",
         actions: [
           paths.people ? { label: "Open people", path: paths.people } : null,
           paths.attendance ? { label: "Open attendance", path: paths.attendance } : null,
@@ -91,12 +89,9 @@ export function buildPulseDetail(kind, ctx = {}) {
           attn("Sites in loss", pl.lossSites, "risk"),
           attn("Thin margin sites", pl.thinSites, "watch"),
         ].filter(Boolean),
-        rows: (pl.siteRows || []).slice(0, 8).map((row) => ({
-          label: row.name,
-          value: inrShort(row.revenue),
-          meta: `Profit ${inrShort(row.profit)} · Margin ${pct(row.margin)}`,
-        })),
-        note: "Revenue by site for this timeline.",
+        rows: [],
+        fetchKey: "revenue",
+        note: "Site revenue for this timeline loads below.",
         actions: paths.ledger ? [{ label: "Open site ledger", path: paths.ledger }] : [],
       };
 
@@ -117,16 +112,9 @@ export function buildPulseDetail(kind, ctx = {}) {
           attn("Thin margin sites", pl.thinSites, "watch"),
           n(pl.profit) < 0 ? attn("Period in loss", inrShort(pl.profit), "risk") : null,
         ].filter(Boolean),
-        rows: (pl.siteRows || [])
-          .slice()
-          .sort((a, b) => a.profit - b.profit)
-          .slice(0, 8)
-          .map((row) => ({
-            label: row.name,
-            value: inrShort(row.profit),
-            meta: `Revenue ${inrShort(row.revenue)} · Margin ${pct(row.margin)}`,
-          })),
-        note: "Sites sorted with weakest profit first.",
+        rows: [],
+        fetchKey: "profit",
+        note: "Sites sorted with weakest profit first — list loads below.",
         actions: paths.ledger ? [{ label: "Open site ledger", path: paths.ledger }] : [],
       };
 
@@ -148,7 +136,9 @@ export function buildPulseDetail(kind, ctx = {}) {
           attn("Outstanding", commercialStats.outstanding ? inrShort(commercialStats.outstanding) : 0, "risk"),
           billRate < 70 && n(commercialStats.contractBook) > 0 ? attn("Low book cover", `${billRate}%`, "watch") : null,
         ].filter(Boolean),
-        note: "Commercial billing against the contract book.",
+        rows: [],
+        fetchKey: "billed",
+        note: "Invoices in this timeline load below.",
         actions: paths.receivables ? [{ label: "Open billing", path: paths.receivables }] : [],
       };
 
@@ -168,7 +158,9 @@ export function buildPulseDetail(kind, ctx = {}) {
           attn("Outstanding dues", commercialStats.outstanding ? inrShort(commercialStats.outstanding) : 0, "risk"),
           collectRate < 75 && n(commercialStats.billed) > 0 ? attn("Collection below 75%", `${collectRate}%`, "watch") : null,
         ].filter(Boolean),
-        note: "Uncollected billed amount in this timeline.",
+        rows: [],
+        fetchKey: "outstanding",
+        note: "Unpaid invoices in this timeline load below.",
         actions: paths.receivables ? [{ label: "Open receivables", path: paths.receivables }] : [],
       };
 
@@ -190,15 +182,9 @@ export function buildPulseDetail(kind, ctx = {}) {
           attn("Sites in loss", lossSites.length, "risk"),
           attn("Thin margin sites", thinSites.length, "watch"),
         ].filter(Boolean),
-        rows: [...lossSites, ...thinSites, ...(pl.siteRows || [])]
-          .filter((row, index, all) => all.findIndex((item) => item.id === row.id) === index)
-          .slice(0, 10)
-          .map((row) => ({
-            label: row.name,
-            value: inrShort(row.profit),
-            meta: row.profit < 0 ? "In loss" : row.margin < (pl.warnMargin || 8) ? "Thin margin" : `Margin ${pct(row.margin)}`,
-          })),
-        note: "Sites that need a look appear first.",
+        rows: [],
+        fetchKey: "sites",
+        note: "Sites that need a look appear first — list loads below.",
         actions: paths.ledger ? [{ label: "Open site ledger", path: paths.ledger }] : [],
       };
     }
@@ -213,7 +199,7 @@ export function buildPulseDetail(kind, ctx = {}) {
         headline: { label: "Health", value: health == null ? "—" : String(health) },
         metrics: [
           { label: "Scored modules", value: countLabel(scored.length) },
-          { label: "Need a look", value: countLabel(flagged.length) },
+          { label: "Need action", value: countLabel(flagged.length) },
           { label: "Open modules", value: countLabel(views.filter((item) => item.visible && item.canOpen).length) },
         ],
         attention: flagged.slice(0, 8).map((item) => ({
@@ -225,10 +211,13 @@ export function buildPulseDetail(kind, ctx = {}) {
           .slice()
           .sort((a, b) => (a.score ?? 999) - (b.score ?? 999))
           .map((item) => ({
+            id: item.id,
             label: item.name,
             value: String(item.score),
-            meta: item.attention ? "Needs a look" : "Steady",
+            meta: item.attention ? "Needs action" : "Steady",
+            status: item.attention ? "Watch" : "OK",
           })),
+        fetchKey: "health",
         note: "Lower scores rise to the top.",
         actions: [],
       };
@@ -245,28 +234,24 @@ export function buildPulseDetail(kind, ctx = {}) {
             pushAttn(attention, attn(metric.label, metric.value, /loss|absent|risk/i.test(metric.label) ? "risk" : "watch"));
           }
         }
-        if (!attention.length) attention.push({ label: "Needs a look", value: view.short, severity: "watch" });
+        if (!attention.length) attention.push({ label: "Needs action", value: view.short, severity: "watch" });
       }
       return {
         id: `module:${view.id}`,
         title: view.name,
-        subtitle: view.planned ? "Planned module" : view.attention ? "Needs attention" : "Module snapshot",
+        subtitle: view.planned ? "Planned module" : view.attention ? "Needs attention" : "Live module data",
         headline: {
           label: view.score == null ? "Status" : "Health",
           value: view.score == null ? (view.planned ? "Soon" : "Live") : String(view.score),
         },
         metrics: (view.metrics || []).map((metric) => ({ label: metric.label, value: metric.value })),
         attention,
-        rows: (view.links || []).map((link) => ({
-          label: link.label,
-          value: "Open",
-          meta: link.path,
-          path: link.path,
-        })),
-        note: view.note || (view.canOpen ? "Open the module dashboard for the full register." : "No access on this login."),
+        rows: [],
+        fetchKey: `module:${view.id}`,
+        note: view.note || "Records for this module load below. Use Open for the full page.",
         actions: [
           view.canOpen && view.openPath ? { label: `Open ${view.short}`, path: view.openPath } : null,
-          ...(view.links || []).slice(0, 3).map((link) => ({ label: link.label, path: link.path })),
+          ...(view.links || []).slice(0, 2).map((link) => ({ label: link.label, path: link.path })),
         ].filter(Boolean),
       };
     }
@@ -293,12 +278,9 @@ export function buildPulseDetail(kind, ctx = {}) {
           attn("Late", company.late, "watch"),
           attn("Leave waiting", modules.leavePending, "watch"),
         ].filter(Boolean),
-        rows: departments.slice(0, 10).map((row) => ({
-          label: row.name,
-          value: row.expected ? `${row.pct.toFixed(0)}%` : "—",
-          meta: `Present ${row.present || 0} · Absent ${row.absent || 0} · Late ${row.late || 0}`,
-        })),
-        note: "Department cut of today’s register.",
+        rows: [],
+        fetchKey: "attendance",
+        note: "Department attendance loads below.",
         actions: [
           paths.attendance ? { label: "Open attendance", path: paths.attendance } : null,
           paths.people ? { label: "Open people", path: paths.people } : null,
@@ -321,7 +303,9 @@ export function buildPulseDetail(kind, ctx = {}) {
           billRate < 70 && n(commercialStats.contractBook) > 0 ? attn("Low billing cover", `${billRate}%`, "watch") : null,
           attn("Unbilled", commercialStats.unbilled ? inrShort(commercialStats.unbilled) : 0, "watch"),
         ].filter(Boolean),
-        note: "Billing progress against commercial POs.",
+        rows: [],
+        fetchKey: "billRate",
+        note: "Invoices against the contract book load below.",
         actions: paths.receivables ? [{ label: "Open billing", path: paths.receivables }] : [],
       };
 
@@ -341,7 +325,9 @@ export function buildPulseDetail(kind, ctx = {}) {
           collectRate < 75 && n(commercialStats.billed) > 0 ? attn("Collection below 75%", `${collectRate}%`, "risk") : null,
           attn("Outstanding", commercialStats.outstanding ? inrShort(commercialStats.outstanding) : 0, "risk"),
         ].filter(Boolean),
-        note: "Focus on outstanding invoices when collection lags.",
+        rows: [],
+        fetchKey: "collectRate",
+        note: "Outstanding invoices load below.",
         actions: paths.receivables ? [{ label: "Open receivables", path: paths.receivables }] : [],
       };
 
@@ -360,6 +346,16 @@ export function buildPulseDetail(kind, ctx = {}) {
         attention: [
           n(month.profit) < 0 ? attn("Month in loss", inrShort(month.profit), "risk") : null,
         ].filter(Boolean),
+        rows: [
+          {
+            id: month.key || month.name,
+            label: month.fullName || month.name,
+            value: inrShort(month.profit),
+            meta: `Revenue ${inrShort(month.revenue)} · Expense ${inrShort(month.expense)}`,
+            status: n(month.profit) < 0 ? "Loss" : "OK",
+            amount: month.profit,
+          },
+        ],
         note: "Open the ledger filtered to this month for site-level lines.",
         actions: paths.ledger
           ? [
@@ -392,6 +388,16 @@ export function buildPulseDetail(kind, ctx = {}) {
             ? attn("Thin margin", pct(site.margin), "watch")
             : null,
         ].filter(Boolean),
+        rows: [
+          {
+            id: site.id || site.name,
+            label: site.name,
+            value: inrShort(site.profit),
+            meta: `Revenue ${inrShort(site.revenue)} · Margin ${pct(site.margin)}`,
+            status: n(site.profit) < 0 ? "Loss" : n(site.margin) < (pl.warnMargin || 8) ? "Thin" : "OK",
+            amount: site.profit,
+          },
+        ],
         note: "Open the ledger for this site’s full lines.",
         actions: paths.ledger
           ? [
@@ -420,12 +426,16 @@ export function buildPulseDetail(kind, ctx = {}) {
           attn("Sites in loss", pl.lossSites, "risk"),
           attn("Thin margin sites", pl.thinSites, "watch"),
         ].filter(Boolean),
-        rows: (pl.trend || []).slice(-8).map((row) => ({
+        rows: (pl.trend || []).map((row) => ({
+          id: row.key || row.name,
           label: row.fullName || row.name,
           value: inrShort(row.profit),
           meta: `Rev ${inrShort(row.revenue)} · Exp ${inrShort(row.expense)}`,
+          status: n(row.profit) < 0 ? "Loss" : "OK",
+          amount: row.profit,
         })),
-        note: "Monthly profit trail for this timeline.",
+        fetchKey: "books",
+        note: "Monthly trail above; site breakout loads below when available.",
         actions: paths.ledger ? [{ label: "Open site ledger", path: paths.ledger }] : [],
       };
 

@@ -3,15 +3,17 @@ import {
   employeesWithBirthdayInRange,
   employeesWithAnniversaryInRange,
   employeesWithWorkAnniversaryInRange,
+  employeesWithWorkAnniversaryToday,
   employeesWithBirthdayToday,
   celebrationOccurrenceIsoInRange,
   summarizeReminderCoverage,
   computeWorkAnniversaryYears,
+  isWorkAnniversaryMilestone,
 } from "../src/utils/employeeMasterReminders.js";
 
 const employees = [
-  { id: 1, full_name: "ISO mid-month", status: "Active", date_of_birth: "1990-08-11", date_of_anniversary: "2015-08-20", date_of_joining: "2019-08-05" },
-  { id: 2, full_name: "First of month", status: "Active", date_of_birth: "1988-08-01", date_of_joining: "2020-08-01" },
+  { id: 1, full_name: "ISO mid-month", status: "Active", date_of_birth: "1990-08-11", date_of_anniversary: "2015-08-20", date_of_joining: "2021-08-05" },
+  { id: 2, full_name: "First of month", status: "Active", date_of_birth: "1988-08-01", date_of_joining: "2016-08-01" },
   { id: 3, full_name: "Last of month", status: "Active", date_of_birth: "1988-08-31", date_of_joining: "2020-08-31" },
   { id: 4, full_name: "dd-mm-yyyy", status: "Active", date_of_birth: "15-08-1991" },
   { id: 5, full_name: "dd/mm/yyyy", status: "Active", date_of_birth: "22/08/1992" },
@@ -41,14 +43,14 @@ describe("reminder capture audit", () => {
     ]);
   });
 
-  it("captures wedding and work anniversaries in range", () => {
+  it("captures wedding and milestone work anniversaries in range", () => {
     expect(names(employeesWithAnniversaryInRange(employees, "2026-08-01", "2026-08-31"))).toEqual([
       "ISO mid-month",
     ]);
+    // 5y (2021→2026) and 10y (2016→2026); 6y (2020→2026) is skipped
     expect(names(employeesWithWorkAnniversaryInRange(employees, "2026-08-01", "2026-08-31"))).toEqual([
       "ISO mid-month",
       "First of month",
-      "Last of month",
     ]);
   });
 
@@ -93,5 +95,23 @@ describe("reminder capture audit", () => {
     expect(computeWorkAnniversaryYears("2019-08-05", "2026-08-11")).toBe(7);
     expect(computeWorkAnniversaryYears("2020-08-31", "2026-08-31")).toBe(6);
     expect(computeWorkAnniversaryYears("2020-09-01", "2026-08-31")).toBe(5);
+  });
+
+  it("flags work anniversaries only on 5-year milestones", () => {
+    expect(isWorkAnniversaryMilestone(0)).toBe(false);
+    expect(isWorkAnniversaryMilestone(1)).toBe(false);
+    expect(isWorkAnniversaryMilestone(4)).toBe(false);
+    expect(isWorkAnniversaryMilestone(5)).toBe(true);
+    expect(isWorkAnniversaryMilestone(10)).toBe(true);
+    expect(isWorkAnniversaryMilestone(15)).toBe(true);
+    expect(isWorkAnniversaryMilestone(7)).toBe(false);
+
+    expect(names(employeesWithWorkAnniversaryToday(employees, new Date(2026, 7, 5)))).toEqual([
+      "ISO mid-month",
+    ]);
+    expect(names(employeesWithWorkAnniversaryToday(employees, new Date(2026, 7, 1)))).toEqual([
+      "First of month",
+    ]);
+    expect(names(employeesWithWorkAnniversaryToday(employees, new Date(2026, 7, 31)))).toEqual([]);
   });
 });

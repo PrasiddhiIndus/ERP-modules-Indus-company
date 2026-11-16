@@ -84,13 +84,14 @@ describe("Company Pulse bird's-eye", () => {
     });
     expect(html).toContain("Company Pulse");
     expect(html).toContain("cp-bird");
-    expect(html).toContain("Ops matrix");
+    expect(html).toContain("Modules");
     expect(html).toContain("Books ·");
     expect(html).toContain("Today");
     expect(html).toContain("People");
     expect(html).toContain("Marketing");
     expect(html).toContain("Procurement");
     expect(html).toContain("Present today");
+    expect(html).toContain("Find module");
     expect(html).not.toContain("cp-orbit");
   });
 
@@ -99,7 +100,7 @@ describe("Company Pulse bird's-eye", () => {
       role: "executive",
       allowPath: (path) => String(path).startsWith("/app/hr"),
     });
-    expect(html).toContain("Ops matrix");
+    expect(html).toContain("Modules");
     expect(html).toContain("HR");
     expect(html).not.toContain("Marketing");
     expect(html).not.toContain(">AMC<");
