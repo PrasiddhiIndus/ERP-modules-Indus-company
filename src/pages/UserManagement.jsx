@@ -1585,7 +1585,7 @@ const UserManagement = () => {
                   name="user-management-directory-search"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Email, username, or emp code…"
+                  placeholder="Name, email, username, or emp code…"
                   autoComplete="off"
                   autoCorrect="off"
                   autoCapitalize="off"

@@ -336,7 +336,11 @@ export default function CompanyPulse({
   const sites = useMemo(() => {
     const rows = pl?.siteRows || [];
     const profitable = rows.filter((row) => row.profit > 0);
-    return (profitable.length ? profitable : rows).slice(0, 6);
+    return (profitable.length ? profitable : rows).slice(0, 5).map((row) => ({
+      ...row,
+      fullName: row.name,
+      name: row.shortName || row.name,
+    }));
   }, [pl?.siteRows]);
 
   const trendAxis = useMemo(() => {
@@ -571,8 +575,9 @@ export default function CompanyPulse({
                       layout="horizontal"
                       xKey="name"
                       series={[{ key: "profit", name: "Profit", color: CHART.net }]}
-                      height={120}
-                      categoryWidth={80}
+                      height={Math.max(140, sites.length * 30)}
+                      rowHeight={30}
+                      categoryWidth={96}
                       formatter={(value) => inrShort(value)}
                       yTickFormatter={siteAxis}
                       onBarClick={(row) => openDetail("site", { site: row })}
@@ -586,9 +591,9 @@ export default function CompanyPulse({
                   {chartsReady && (pl?.expenseMix || []).length ? (
                     <DonutChart
                       data={pl.expenseMix}
-                      height={120}
-                      innerRadius="52%"
-                      outerRadius="78%"
+                      height={140}
+                      innerRadius="46%"
+                      outerRadius="74%"
                       centerLabel="Spend"
                       centerValue={inrShort(pl.expense)}
                       formatter={(value) => inrShort(value)}

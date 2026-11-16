@@ -227,13 +227,24 @@ export async function fetchEmployeeHierarchyForProfile(supabase, profile) {
 }
 
 export async function fetchManagerCandidates(supabase) {
-  const { data, error } = await supabase
-    .from(EMPLOYEE_MASTER_TABLE)
-    .select(MANAGER_CANDIDATE_SELECT)
-    .order("full_name");
-
-  if (error) throw error;
-  return (data || []).filter(isActiveEmployeeRow);
+  // Page through Employee Master so name search is not capped by the default row limit.
+  const pageSize = 1000;
+  const all = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from(EMPLOYEE_MASTER_TABLE)
+      .select(MANAGER_CANDIDATE_SELECT)
+      .order("full_name")
+      .order("employee_code")
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const chunk = data || [];
+    all.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+  return all.filter(isActiveEmployeeRow);
 }
 
 /**

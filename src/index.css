@@ -1099,3 +1099,143 @@ main.erp-app-shell header.sticky {
   color: #000000;
   color-scheme: light;
 }
+
+/* Sidebar nav: keep scroll, hide the scrollbar track (rail + expanded). */
+.erp-sidebar-nav,
+aside.bg-sidebar nav,
+.bg-sidebar .overflow-y-auto {
+  scrollbar-width: none !important; /* Firefox */
+  -ms-overflow-style: none !important; /* legacy Edge */
+}
+.erp-sidebar-nav::-webkit-scrollbar,
+aside.bg-sidebar nav::-webkit-scrollbar,
+.bg-sidebar .overflow-y-auto::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important; /* Chrome / Safari / Edge */
+}
+
+/* ─── Collapsed sidebar: icon rail + hover flyouts (lg+) ─────────────────
+   Layout.jsx sets data-rail on <nav> only when collapsed on desktop and
+   positions flyouts via --rail-left / --rail-top on the hovered item. */
+@media (min-width: 1024px) {
+  nav[data-rail] .rail-section > button,
+  nav[data-rail] .rail-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+    min-height: 2.5rem;
+  }
+  nav[data-rail] .rail-section > button .type-body-medium,
+  nav[data-rail] .rail-section > button > svg {
+    display: none;
+  }
+  nav[data-rail] .rail-section > button svg,
+  nav[data-rail] .rail-link > svg {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+  nav[data-rail] .rail-section[data-rail-active="1"] > button,
+  nav[data-rail] .rail-link[data-rail-active="1"] {
+    background-color: var(--sidebar-hover);
+    color: var(--sidebar-text-strong);
+  }
+
+  /* Group titles collapse into thin dividers */
+  nav[data-rail] .rail-title {
+    display: block;
+    height: 0;
+    margin: 0.5rem 0.625rem;
+    padding: 0;
+    border-top: 1px solid var(--sidebar-border);
+  }
+  nav[data-rail] .rail-title > * {
+    display: none;
+  }
+
+  /* Shared flyout surface */
+  nav[data-rail] .rail-flyout,
+  nav[data-rail] .rail-link > span {
+    position: fixed;
+    z-index: 60;
+    left: var(--rail-left, var(--sidebar-width-collapsed));
+    top: var(--rail-top, 0);
+    background: var(--sidebar-bg-elevated);
+    border: 1px solid var(--sidebar-border);
+    border-radius: var(--radius-card, 0.75rem);
+    box-shadow: 0 12px 32px rgba(10, 14, 30, 0.28), 0 2px 6px rgba(10, 14, 30, 0.18);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateX(-6px);
+    transition:
+      opacity 140ms ease,
+      transform 160ms ease,
+      visibility 0s linear 160ms;
+  }
+
+  /* Section menu panel */
+  nav[data-rail] .rail-flyout {
+    width: 16.5rem;
+    max-height: min(calc(100vh - 16px), calc(100vh - var(--rail-top, 0px) - 8px));
+    margin: 0 !important;
+    padding: 0.375rem !important;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge */
+  }
+  nav[data-rail] .rail-flyout::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none; /* Chrome / Safari / Edge */
+  }
+  nav[data-rail] .rail-flyout::before {
+    content: attr(data-title);
+    display: block;
+    padding: 0.375rem 0.625rem 0.5rem;
+    margin-bottom: 0.25rem;
+    border-bottom: 1px solid var(--sidebar-border);
+    color: var(--sidebar-text-strong);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+
+  /* Single-link label tooltip (clickable, it lives inside the link) */
+  nav[data-rail] .rail-link > span {
+    display: flex;
+    align-items: center;
+    min-height: var(--rail-anchor-h, 2.5rem);
+    padding: 0 0.875rem;
+    white-space: nowrap;
+    max-width: 18rem;
+    color: var(--sidebar-text-strong);
+    flex: none;
+  }
+
+  nav[data-rail] .rail-section[data-rail-active="1"]:not([data-rail-dismissed]) > .rail-flyout,
+  nav[data-rail] .rail-section:has(:focus-visible):not([data-rail-dismissed]) > .rail-flyout,
+  nav[data-rail] .rail-link[data-rail-active="1"]:not([data-rail-dismissed]) > span,
+  nav[data-rail] .rail-link:focus-visible > span {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateX(0);
+    transition:
+      opacity 140ms ease,
+      transform 160ms ease,
+      visibility 0s;
+  }
+}
+
+@media (min-width: 1024px) and (prefers-reduced-motion: reduce) {
+  nav[data-rail] .rail-flyout,
+  nav[data-rail] .rail-link > span {
+    transform: none;
+    transition: none;
+  }
+}
