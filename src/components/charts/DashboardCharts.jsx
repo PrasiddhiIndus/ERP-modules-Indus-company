@@ -202,12 +202,13 @@ export function AreaTrendChart({
   height = 220,
   formatter,
   yTickFormatter = compactInrTick,
+  yAxisWidth = 58,
   onPointClick,
 }) {
   const gid = useId().replace(/:/g, "");
   return (
     <ResponsiveContainer width="100%" height={height} minWidth={0}>
-      <AreaChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+      <AreaChart data={data} margin={{ top: 8, right: yAxisWidth < 48 ? 8 : 12, left: yAxisWidth < 48 ? 0 : 4, bottom: 4 }}>
         <defs>
           {series.map((s, i) => (
             <linearGradient key={s.key} id={`area-${gid}-${i}`} x1="0" y1="0" x2="0" y2="1">
@@ -222,9 +223,9 @@ export function AreaTrendChart({
           tick={AXIS}
           axisLine={false}
           tickLine={false}
-          width={58}
+          width={yAxisWidth}
           tickFormatter={yTickFormatter}
-          tickMargin={6}
+          tickMargin={yAxisWidth < 48 ? 4 : 6}
         />
         <Tooltip content={<ChartTooltip formatter={formatter} />} />
         {series.length > 1 ? <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} /> : null}
@@ -466,6 +467,7 @@ export function RadialScoreChart({
 }) {
   const pct = max > 0 ? Math.min(100, Math.round((Number(value) / max) * 100)) : 0;
   const data = [{ name: label, value: pct, fill: color }];
+  const cornerRadius = pct > 0 && pct < 12 ? 3 : 8;
   return (
     <button
       type="button"
@@ -477,7 +479,7 @@ export function RadialScoreChart({
       <ResponsiveContainer width="100%" height={height} minWidth={0}>
         <RadialBarChart cx="50%" cy="50%" innerRadius="68%" outerRadius="100%" data={data} startAngle={90} endAngle={-270}>
           <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-          <RadialBar background={{ fill: UI_TOKENS.surfaceSunken }} dataKey="value" cornerRadius={8} isAnimationActive animationDuration={900} />
+          <RadialBar background={{ fill: UI_TOKENS.surfaceSunken }} dataKey="value" cornerRadius={cornerRadius} isAnimationActive animationDuration={900} />
           <Tooltip content={<ChartTooltip formatter={(v) => `${v}%`} />} />
         </RadialBarChart>
       </ResponsiveContainer>
