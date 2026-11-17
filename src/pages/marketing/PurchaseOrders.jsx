@@ -4,7 +4,8 @@ import { X, Plus, Edit2, Trash2, MoreVertical, Download, FileText, Upload } from
 import { exportToExcel } from './utils/excelExport';
 import NumberInput from './components/NumberInput';
 import { parseIndianNumber } from './utils/numberFormat';
-import { formatDateDdMmYyyy } from '../../utils/dateDisplay';;
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
+import { workingCostSheetLabel } from './utils/workingCostSheets';
 import FormDateInput from "../../components/FormDateInput";
 
 
@@ -24,6 +25,13 @@ function quotationsForContext(quotations, enquiryId, clientId) {
 
 function bestQuotationId(quotations, enquiryId, clientId) {
   return quotationsForContext(quotations, enquiryId, clientId)[0]?.id || '';
+}
+
+function businessCategoryForContract(contract, enquiries, quotations) {
+  const quotation = quotations.find((row) => row.id === contract.quotation_id);
+  const enquiryId = contract.enquiry_id || quotation?.enquiry_id || '';
+  const enquiry = enquiries.find((row) => row.id === enquiryId);
+  return workingCostSheetLabel(enquiry?.cost_sheet_type) || '-';
 }
 
 function quotationNumberForContract(contract, quotations) {
@@ -141,10 +149,17 @@ const PurchaseOrders = () => {
 
   const fetchEnquiries = async () => {
     try {
-      const { data } = await supabase
+      let { data, error } = await supabase
         .from('marketing_enquiries')
-        .select('id, enquiry_number, client_id')
+        .select('id, enquiry_number, client_id, cost_sheet_type')
         .order('created_at', { ascending: false });
+      if (error && String(error.message || '').includes('cost_sheet_type')) {
+        const fallback = await supabase
+          .from('marketing_enquiries')
+          .select('id, enquiry_number, client_id')
+          .order('created_at', { ascending: false });
+        data = fallback.data;
+      }
       setEnquiries(data || []);
     } catch (error) {
       console.error('Error fetching enquiries:', error);
@@ -349,6 +364,7 @@ const PurchaseOrders = () => {
       'PO Value (₹)': contract.po_value || 0,
       'Quotation Number': quotationNumberForContract(contract, quotations),
       'Client': contract.marketing_clients?.client_name || '-',
+      'Business Category': businessCategoryForContract(contract, enquiries, quotations),
       'Status': contract.status,
       'Awarded Date': contract.awarded_date ? formatDateDdMmYyyy(contract.awarded_date) : '-',
       'Expected Delivery Date': contract.expected_delivery_date ? formatDateDdMmYyyy(contract.expected_delivery_date) : '-',
@@ -425,6 +441,7 @@ const PurchaseOrders = () => {
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">PO Date</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase hidden lg:table-cell">Quotation #</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
+                    <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Business Category</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">PO Value</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase hidden xl:table-cell">Awarded Date</th>
@@ -447,6 +464,9 @@ const PurchaseOrders = () => {
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">
                         {contract.marketing_clients?.client_name || '-'}
+                      </td>
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-700">
+                        {businessCategoryForContract(contract, enquiries, quotations)}
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">
                         {contract.po_value ? `₹${parseFloat(contract.po_value).toLocaleString('en-IN')}` : '-'}
