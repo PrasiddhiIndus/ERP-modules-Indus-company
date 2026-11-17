@@ -226,8 +226,15 @@ describe("appointment letter layout (local + production zip fill)", () => {
     // Letter-width full footer (612pt), not A4 (595.3pt); footer distance stays 0 (no gap below red bar).
     expect(footer).toMatch(/footer-full|612pt/);
     expect(footer).not.toMatch(/595\.3pt/);
-    expect(footer).toMatch(/position:absolute/);
+    // Inline (not absolute) so LO reserves Word's footer band (50.4pt) and body text stops above it;
+    // negative indents = page margins take the strip edge-to-edge.
+    expect(footer).not.toMatch(/position:absolute/);
+    expect(footer).toMatch(/width:612pt;height:50\.4pt/);
+    expect(footer).toMatch(/<w:ind w:left="-993" w:right="-758"/);
     const body = zip.file("word/document.xml")?.asText() || "";
+    // Annexure II opens page 4 like Word (LO ignores keepNext into the table).
+    const annexII = body.slice(body.lastIndexOf("<w:p ", body.indexOf("<w:t>Annexure II</w:t>")), body.indexOf("<w:t>Annexure II</w:t>"));
+    expect(annexII).toMatch(/w:pageBreakBefore/);
     expect(body).toMatch(/<w:pgSz w:w="12240" w:h="15840"\/>/);
     expect(body).toMatch(/w:footer="0"/);
   }, 120000);
