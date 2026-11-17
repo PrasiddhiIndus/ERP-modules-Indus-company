@@ -1,0 +1,349 @@
+.indus-payroll-host{position:absolute;inset:0;display:flex;flex-direction:column;background:#f5f6f8;min-height:0}
+.indus-payroll{color-scheme:light;flex:1;height:100%;min-height:0;overflow:hidden;position:relative;display:flex;flex-direction:column;transform:translateZ(0)}
+
+.indus-payroll{--bg:#f5f6f8;--panel:#fff;--ink:#101828;--ink2:#475467;--ink3:#8a94a6;--line:#e4e7ec;--line2:#f0f2f5;--hover:#f9fafb;
+--pri:#3442b4;--pri-h:#2b379b;--pri2:#eef0fb;--side:#0f172a;--side2:#1e293b;--side-ink:#cbd5e1;--side-mute:#64748b;
+--ok:#067647;--okbg:#ecfdf3;--okdot:#17b26a;--warn:#b54708;--warnbg:#fffaeb;--warndot:#f79009;--bad:#b42318;--badbg:#fef3f2;--baddot:#f04438;--mute:#667085;--mutebg:#f2f4f7;
+--mono:'JetBrains Mono',ui-monospace,monospace;--r:10px;--sh:0 1px 2px rgba(16,24,40,.04)}
+.indus-payroll *{box-sizing:border-box}.indus-payroll,.indus-payroll{margin:0;height:100%}
+.indus-payroll{font:13.5px/1.5 Inter,system-ui,sans-serif;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased;font-feature-settings:'cv11','ss01'}
+.indus-payroll button,.indus-payroll input,.indus-payroll select,.indus-payroll textarea{font:inherit;color:inherit}
+.indus-payroll .app{display:flex !important;flex-direction:column !important;grid-template-columns:none !important;height:100%;min-height:0;flex:1}
+.indus-payroll .app>main{min-width:0;min-height:0;height:100%;flex:1;width:100%}
+.indus-payroll nav,.indus-payroll #nav{display:none !important;width:0 !important;padding:0 !important;overflow:hidden !important}
+.indus-payroll nav .brand{display:flex;align-items:center;gap:10px;padding:2px 8px 18px}
+.indus-payroll nav .logo{width:30px;height:30px;border-radius:8px;background:var(--pri);display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px}
+.indus-payroll nav .bt{color:#fff;font-weight:650;font-size:14px;line-height:1.2}.indus-payroll nav .bs{font-size:11.5px;color:var(--side-mute)}
+.indus-payroll nav .grp{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--side-mute);padding:14px 10px 6px}
+.indus-payroll nav a{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:7px;color:var(--side-ink);text-decoration:none;cursor:pointer;font-weight:500;font-size:13px}
+.indus-payroll nav a svg{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+.indus-payroll nav a:hover{background:var(--side2);color:#fff}.indus-payroll nav a.on{background:var(--side2);color:#fff;box-shadow:inset 2px 0 0 var(--pri)}
+.indus-payroll nav .foot{margin-top:auto;font-size:11px;color:var(--side-mute);padding:12px 10px 0;border-top:1px solid var(--side2);line-height:1.5}
+.indus-payroll main{overflow:auto;display:flex;flex-direction:column}
+.indus-payroll .top{display:flex;align-items:center;gap:14px;padding:14px 28px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.indus-payroll .top h1{font-size:17px;margin:0;font-weight:650;letter-spacing:-.01em}.indus-payroll .top .ctx{font-size:12.5px;color:var(--ink3);margin-top:1px}
+.indus-payroll .top .sp{flex:1}
+.indus-payroll .dbs{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2)}.indus-payroll .dbs i{width:7px;height:7px;border-radius:50%;background:var(--ink3)}
+.indus-payroll .dbs.ok i{background:var(--okdot)}.indus-payroll .dbs.warn i{background:var(--warndot)}.indus-payroll .dbs.bad i{background:var(--baddot)}
+.indus-payroll .page{padding:22px 28px 64px;max-width:1440px;width:100%}
+.indus-payroll .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;margin-bottom:16px;box-shadow:var(--sh)}
+.indus-payroll .card h2{font-size:14px;margin:0 0 12px;font-weight:650;letter-spacing:-.005em}.indus-payroll .card h3{font-size:12px;margin:18px 0 8px;font-weight:600;color:var(--ink2);text-transform:uppercase;letter-spacing:.05em}
+.indus-payroll .card.flush{padding:0}.indus-payroll .card.flush .chead{padding:14px 20px;border-bottom:1px solid var(--line)}
+.indus-payroll .chead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.indus-payroll .chead h2{margin:0}
+.indus-payroll .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.indus-payroll .grow{flex:1}
+.indus-payroll .grid{display:grid;gap:14px}.indus-payroll .g2{grid-template-columns:1fr 1fr}.indus-payroll .g3{grid-template-columns:repeat(3,1fr)}.indus-payroll .g4{grid-template-columns:repeat(4,1fr)}
+.indus-payroll .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:#fff;padding:0 12px;height:34px;border-radius:8px;cursor:pointer;font-weight:550;font-size:13px;white-space:nowrap;color:var(--ink);box-shadow:var(--sh)}
+.indus-payroll .btn:hover{background:var(--hover);border-color:#d0d5dd}.indus-payroll .btn.pri{background:var(--pri);border-color:var(--pri);color:#fff}.indus-payroll .btn.pri:hover{background:var(--pri-h)}
+.indus-payroll .btn.sm{height:28px;padding:0 10px;font-size:12.5px}.indus-payroll .btn.ghost{border-color:transparent;background:transparent;box-shadow:none}.indus-payroll .btn.ghost:hover{background:var(--mutebg)}.indus-payroll .btn.danger{color:var(--bad)}
+.indus-payroll .btn:disabled{opacity:.45;cursor:not-allowed}
+.indus-payroll .grid>.btn{justify-content:flex-start;height:38px}
+.indus-payroll input.in,.indus-payroll select.in,.indus-payroll textarea.in{border:1px solid var(--line);border-radius:8px;padding:0 10px;height:34px;background:#fff;min-width:0;box-shadow:var(--sh)}
+.indus-payroll textarea.in{height:auto;padding:8px 10px}
+.indus-payroll input.in:focus,.indus-payroll select.in:focus,.indus-payroll textarea.in:focus{outline:3px solid var(--pri2);border-color:var(--pri)}
+.indus-payroll .tbl input.in,.indus-payroll .tbl select.in{height:30px;box-shadow:none;border-color:transparent;background:transparent}
+.indus-payroll .tbl tr:hover input.in,.indus-payroll .tbl tr:hover select.in{border-color:var(--line);background:#fff}
+.indus-payroll .tbl input.in:focus,.indus-payroll .tbl select.in:focus{border-color:var(--pri);background:#fff}
+.indus-payroll label.f{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--ink2);font-weight:550}
+.indus-payroll .tbl{width:100%;border-collapse:collapse;font-size:13px}
+.indus-payroll .tbl th{background:#fafbfc;text-align:left;font-weight:600;color:var(--ink3);font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:9px 12px;border-bottom:1px solid var(--line);position:sticky;top:0;white-space:nowrap;z-index:1}
+.indus-payroll .tbl td{padding:9px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
+.indus-payroll .tbl tbody tr:hover td{background:var(--hover)}.indus-payroll .tbl td.n,.indus-payroll .tbl th.n{text-align:right;font-variant-numeric:tabular-nums}
+.indus-payroll .tbl tbody tr:last-child td{border-bottom:0}
+.indus-payroll .tbl tfoot td{font-weight:650;background:#fafbfc;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+.indus-payroll .tbl tr.click{cursor:pointer}
+.indus-payroll .tbl.nw td,.indus-payroll .tbl.nw th{white-space:nowrap}
+.indus-payroll .tbl.nw td:nth-child(1),.indus-payroll .tbl.nw th:nth-child(1){position:sticky;left:0;width:72px;min-width:72px;background:#fff;z-index:2}
+.indus-payroll .tbl.nw td:nth-child(2),.indus-payroll .tbl.nw th:nth-child(2){position:sticky;left:72px;background:#fff;z-index:2;box-shadow:inset -1px 0 0 var(--line)}
+.indus-payroll .tbl.nw th:nth-child(1),.indus-payroll .tbl.nw th:nth-child(2){background:#fafbfc;z-index:3}
+.indus-payroll .tbl.nw tbody tr:hover td:nth-child(1),.indus-payroll .tbl.nw tbody tr:hover td:nth-child(2){background:var(--hover)}
+.indus-payroll .tbl.nw tfoot td:nth-child(1),.indus-payroll .tbl.nw tfoot td:nth-child(2){background:#fafbfc}
+.indus-payroll .tbl tr.held td,.indus-payroll .tbl.nw tr.held td:nth-child(1),.indus-payroll .tbl.nw tr.held td:nth-child(2){background:var(--badbg)}
+.indus-payroll .tbl.nostick td,.indus-payroll .tbl.nostick th{white-space:nowrap}
+.indus-payroll .scroll{overflow:auto;max-height:64vh;border:1px solid var(--line);border-radius:8px}
+.indus-payroll .card.flush .scroll{border:0;border-radius:0 0 var(--r) var(--r);max-height:none}
+.indus-payroll .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:6px;font-size:11.5px;font-weight:550;white-space:nowrap;border:1px solid transparent}
+.indus-payroll .pill::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.9}
+.indus-payroll .p-ok{background:var(--okbg);color:var(--ok)}.indus-payroll .p-warn{background:var(--warnbg);color:var(--warn)}.indus-payroll .p-bad{background:var(--badbg);color:var(--bad)}.indus-payroll .p-mute{background:var(--mutebg);color:var(--mute)}.indus-payroll .p-pri{background:var(--pri2);color:var(--pri)}
+.indus-payroll .tag{display:inline-block;font-size:11px;font-weight:550;color:var(--ink2);background:var(--mutebg);border-radius:5px;padding:1px 6px;white-space:nowrap}
+.indus-payroll .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:16px}
+.indus-payroll .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;box-shadow:var(--sh)}
+.indus-payroll .kpi .l{font-size:12px;color:var(--ink2);font-weight:550}.indus-payroll .kpi .v{font-size:22px;font-weight:650;margin-top:6px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.indus-payroll .kpi .s{font-size:12px;color:var(--ink3);margin-top:2px}
+.indus-payroll .bar{display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--mutebg);margin-top:10px}.indus-payroll .bar i{display:block}
+.indus-payroll .steps{display:flex;gap:0;margin-bottom:16px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:6px;box-shadow:var(--sh)}
+.indus-payroll .step{flex:1;padding:8px 12px;border-radius:7px;cursor:pointer;display:flex;gap:10px;align-items:center;font-weight:550;color:var(--ink2);font-size:13px}
+.indus-payroll .step:hover{background:var(--hover)}
+.indus-payroll .step .no{width:22px;height:22px;border-radius:50%;border:1.5px solid #d0d5dd;display:grid;place-items:center;font-size:11.5px;font-weight:600;color:var(--ink3);background:#fff}
+.indus-payroll .step.on{background:var(--pri2);color:var(--pri)}.indus-payroll .step.on .no{background:var(--pri);border-color:var(--pri);color:#fff}
+.indus-payroll .step.done .no{background:var(--ok);border-color:var(--ok);color:#fff}
+.indus-payroll .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.indus-payroll .tab{padding:9px 12px;cursor:pointer;font-weight:550;color:var(--ink2);border-bottom:2px solid transparent;margin-bottom:-1px;font-size:13px}
+.indus-payroll .tab:hover{color:var(--ink)}.indus-payroll .tab.on{color:var(--pri);border-color:var(--pri)}
+.indus-payroll .seg{display:inline-flex;background:var(--mutebg);border-radius:8px;padding:3px;gap:2px}
+.indus-payroll .seg button{border:0;background:transparent;padding:4px 10px;border-radius:6px;font-size:12.5px;font-weight:550;color:var(--ink2);cursor:pointer}
+.indus-payroll .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(16,24,40,.08)}
+.indus-payroll .seg button span{color:var(--ink3);margin-left:4px;font-weight:500}
+.indus-payroll .mono{font-family:var(--mono);font-size:12px}
+.indus-payroll .muted{color:var(--ink3)}.indus-payroll .small{font-size:12px}.indus-payroll .b{font-weight:650}
+.indus-payroll .cell{width:64px;border:1px solid transparent;background:transparent;padding:4px 6px;border-radius:6px;text-align:right;font-variant-numeric:tabular-nums}
+.indus-payroll .cell:hover{border-color:var(--line);background:#fff}.indus-payroll .cell:focus{border-color:var(--pri);background:#fff;outline:3px solid var(--pri2)}
+.indus-payroll .flag{font-size:11px;padding:1px 6px;border-radius:5px;background:var(--warnbg);color:var(--warn);margin-right:4px;white-space:nowrap;font-weight:550}
+.indus-payroll .flag.bad{background:var(--badbg);color:var(--bad)}
+.indus-payroll .drop{border:1.5px dashed #d0d5dd;border-radius:var(--r);padding:30px;text-align:center;background:#fcfcfd;cursor:pointer;transition:.15s}
+.indus-payroll .drop:hover,.indus-payroll .drop.over{border-color:var(--pri);background:var(--pri2)}
+.indus-payroll .toast{position:fixed;bottom:20px;right:20px;background:var(--side);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 12px 32px rgba(15,23,42,.25);z-index:50;max-width:420px;font-size:13px}
+.indus-payroll .modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:40;display:grid;place-items:center;padding:20px}
+.indus-payroll .modal{background:#fff;border-radius:12px;max-width:760px;width:100%;max-height:90vh;overflow:auto;padding:22px;box-shadow:0 24px 48px rgba(15,23,42,.2)}
+.indus-payroll .modal h2{margin:0 0 14px;font-size:16px;font-weight:650}
+.indus-payroll .note{background:#f9fafb;border:1px solid var(--line);border-radius:8px;padding:10px 14px;color:var(--ink2);font-size:12.5px}
+.indus-payroll .note.warn{background:var(--warnbg);border-color:#fedf89;color:#7a2e0e}
+.indus-payroll .formula{font-family:var(--mono);font-size:12px;width:100%}
+.indus-payroll .err{color:var(--bad);font-size:11.5px}
+.indus-payroll .chk{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.indus-payroll input[type=checkbox]{accent-color:var(--pri);width:15px;height:15px}
+.indus-payroll .siteline{display:flex;flex-direction:column;line-height:1.35}.indus-payroll .siteline b{font-weight:600}.indus-payroll .siteline small{color:var(--ink3);font-size:12px}
+.indus-payroll .empty{padding:36px;text-align:center;color:var(--ink3)}
+.indus-payroll details summary{cursor:pointer;font-weight:600;color:var(--ink2)}
+.indus-payroll .go{color:var(--ink3);font-size:16px}
+.indus-payroll .rtbl td:first-child{min-width:240px}
+.indus-payroll .modal .grid.g2{grid-template-columns:repeat(2,minmax(0,1fr))}.indus-payroll .modal .grid.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.indus-payroll .modal .grid .in{width:100%;box-sizing:border-box;min-width:0}
+.indus-payroll .hrstate{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:10px;background:#fafbfc;border:1px solid var(--line2)}.indus-payroll .hrstate b{font-size:13.5px}
+.indus-payroll .hrdot{flex:none;width:10px;height:10px;border-radius:50%;margin-top:5px;background:#98a2b3}.indus-payroll .hrstate.ok{background:var(--okbg);border-color:transparent}.indus-payroll .hrstate.ok .hrdot{background:var(--ok)}.indus-payroll .hrstate.warn{background:var(--warnbg);border-color:transparent}.indus-payroll .hrstate.warn .hrdot{background:var(--warn)}.indus-payroll .hrstate.bad{background:var(--badbg);border-color:transparent}.indus-payroll .hrstate.bad .hrdot{background:var(--bad)}
+.indus-payroll .hrsum{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}.indus-payroll .hrsum div{padding:8px 10px;border:1px solid var(--line2);border-radius:8px}.indus-payroll .hrsum span{display:block;font-size:11.5px;color:var(--ink3)}.indus-payroll .hrsum b{font-size:15px;font-variant-numeric:tabular-nums}
+.indus-payroll .upalt{margin-top:16px}.indus-payroll .upalt-h{cursor:pointer;gap:10px}.indus-payroll .upalt.open .chev{transform:rotate(90deg)}.indus-payroll .drop.dis{opacity:.5}
+.indus-payroll .srcline{margin-bottom:12px;padding:9px 14px;border-radius:8px;font-size:12.5px}.indus-payroll .srcline.ok{background:var(--okbg);color:var(--ok)}.indus-payroll .srcline.warn{background:var(--warnbg);color:var(--warn)}
+.indus-payroll .hrband{display:flex;align-items:center;gap:18px;margin-bottom:16px}.indus-payroll .hrbar{width:220px;height:8px;border-radius:8px;background:var(--mutebg);overflow:hidden;display:flex}.indus-payroll .hrbar i{display:block;height:100%}
+
+.indus-payroll .shead{display:flex;align-items:center;gap:16px}.indus-payroll .shead select{width:100%!important;max-width:340px;box-sizing:border-box}.indus-payroll .schips2{display:flex;flex-wrap:wrap;gap:6px}.indus-payroll .schips2 span{font-size:12px;padding:3px 9px;border-radius:999px;background:var(--mutebg);color:var(--ink2)}.indus-payroll .schips2 span.chipok{background:#e7f6ec;color:#17643a}
+.indus-payroll #sbody .grid.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.indus-payroll #sbody .grid.g2{grid-template-columns:repeat(2,minmax(0,1fr))}.indus-payroll #sbody .grid .in{width:100%;box-sizing:border-box;min-width:0}
+.indus-payroll .sgrid{display:grid;grid-template-columns:240px minmax(0,1fr);gap:16px;align-items:start}
+.indus-payroll .snav{position:sticky;top:88px}.indus-payroll .snavi{padding:12px 16px;border-bottom:1px solid var(--line2);cursor:pointer}.indus-payroll .snavi:last-child{border-bottom:0}.indus-payroll .snavi b{display:block;font-size:13px;font-weight:600}.indus-payroll .snavi span{font-size:11.5px;color:var(--ink3)}
+.indus-payroll .snavi:hover{background:var(--hover)}.indus-payroll .snavi.on{background:var(--pri2);box-shadow:inset 3px 0 0 var(--pri)}.indus-payroll .snavi.on b{color:var(--pri)}
+.indus-payroll .ssbar{position:sticky;bottom:12px;z-index:5;display:flex;align-items:center;gap:12px;margin-top:16px;padding:10px 14px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(16,24,40,.10)}
+.indus-payroll .gsec{margin-bottom:16px}.indus-payroll .gsh{display:flex;align-items:baseline;gap:10px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--line2)}.indus-payroll .gsh b{font-size:14px}.indus-payroll .gsh span{font-size:12px;color:var(--ink3)}
+.indus-payroll .efgrid.g3c{grid-template-columns:repeat(3,minmax(0,1fr))}
+.indus-payroll .ssample{display:flex;flex-wrap:wrap;gap:22px;padding:10px 20px;background:#fafbfc;border-top:1px solid var(--line2);border-bottom:1px solid var(--line2);font-size:13px;color:var(--ink2)}.indus-payroll .ssample b{color:var(--ink);font-variant-numeric:tabular-nums}.indus-payroll .ssample .net b{color:var(--pri)}
+.indus-payroll .sgrp{border-bottom:1px solid var(--line2)}.indus-payroll .sgrp-h{display:flex;align-items:center;gap:10px;padding:14px 20px 8px}.indus-payroll .sgrp-h b{font-size:13px}
+.indus-payroll .sbar{width:4px;height:16px;border-radius:2px;background:var(--ok)}.indus-payroll .sbar.X{background:var(--pri)}.indus-payroll .sbar.D{background:var(--bad)}.indus-payroll .sbar.R{background:var(--warn)}.indus-payroll .sbar.C{background:#98a2b3}
+.indus-payroll .srow{border-top:1px solid var(--line2)}.indus-payroll .srow-h{display:grid;grid-template-columns:18px minmax(180px,1.1fr) minmax(0,2fr) auto 110px;gap:14px;align-items:center;padding:10px 20px;cursor:pointer}.indus-payroll .srow-h:hover{background:var(--hover)}
+.indus-payroll .srow.open .srow-h{background:#fafbfc}.indus-payroll .srow.open .chev{transform:rotate(90deg)}.indus-payroll .srow.off .srow-h{opacity:.5}
+.indus-payroll .srow-n b{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.indus-payroll .srow-n span{font-size:11.5px;color:var(--ink3)}
+.indus-payroll .srow-c{font-size:12.5px;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}.indus-payroll .srow-t{display:flex;gap:4px}.indus-payroll .srow-v{text-align:right;font-variant-numeric:tabular-nums;font-size:13px;font-weight:550}
+.indus-payroll .stag{font-size:10.5px;font-weight:600;padding:1px 6px;border-radius:4px;background:var(--pri2);color:var(--pri)}.indus-payroll .stag.w{background:var(--warnbg);color:var(--warn)}.indus-payroll .stag.m{background:var(--mutebg);color:var(--ink3)}
+.indus-payroll .sdet{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,1fr);gap:20px;padding:6px 20px 18px 52px;background:#fafbfc}
+.indus-payroll .sparams{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:6px}.indus-payroll .stoggles{display:flex;flex-wrap:wrap;gap:16px;margin-top:6px}
+
+.indus-payroll .fxlist{border-top:1px solid var(--line2)}.indus-payroll .fxgrp{border-bottom:1px solid var(--line2)}.indus-payroll .fxgrp:last-child{border-bottom:0}
+.indus-payroll .fxhead{display:flex;align-items:center;gap:14px;padding:14px 20px;cursor:pointer}.indus-payroll .fxhead:hover{background:var(--hover)}.indus-payroll .fxhead b{font-size:13.5px}
+.indus-payroll .chev{flex:none;width:18px;color:var(--ink3);font-size:18px;line-height:1;transition:transform .15s;text-align:center}.indus-payroll .fxgrp.open .chev{transform:rotate(90deg)}
+.indus-payroll .fxprev{margin-top:4px;font-size:12.5px;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.indus-payroll .fxmeta{flex:none;min-width:70px;text-align:right;font-size:12.5px;color:var(--ink2)}.indus-payroll .fxmeta b{font-variant-numeric:tabular-nums}
+.indus-payroll .fxgrp.open .fxhead{background:#fafbfc}.indus-payroll .fxbody{padding:4px 0 8px}
+.indus-payroll .fxrow{display:flex;align-items:center;gap:14px;padding:10px 20px 10px 52px;cursor:pointer;border-top:1px dashed var(--line2)}.indus-payroll .fxrow:hover{background:var(--hover)}
+.indus-payroll .fxpar{flex:none;max-width:300px;text-align:right}
+
+.indus-payroll .fxt tr.fxg td{background:#fafbfc;padding-top:14px;padding-bottom:8px;border-bottom:1px solid var(--line2)}.indus-payroll .fxt tr.fxg td b{font-size:13.5px;margin-right:6px}
+.indus-payroll .fx{display:inline-block;padding:0 6px;border-radius:5px;font-size:12px;line-height:20px;font-weight:550}.indus-payroll .fx.c{background:var(--okbg);color:var(--ok)}.indus-payroll .fx.p{background:var(--warnbg);color:var(--warn)}.indus-payroll .fx.v{background:var(--pri2);color:var(--pri)}.indus-payroll .fx.r{background:var(--mutebg);color:var(--ink2);font-family:var(--mono,monospace)}
+.indus-payroll .fxl{font-size:13px;line-height:24px}.indus-payroll .pchip{display:inline-block;font-size:11.5px;background:var(--warnbg);color:var(--warn);border-radius:5px;padding:1px 7px;margin:1px 0}.indus-payroll .pchip i{font-style:normal;font-weight:650}
+.indus-payroll .fegrid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:16px;align-items:start}.indus-payroll .fegrid .card{margin-bottom:16px}
+.indus-payroll #fe_try .in{width:100%;box-sizing:border-box;min-width:0}.indus-payroll #fe_try .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.indus-payroll .fehelp{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}.indus-payroll .fepre{margin-top:12px;padding:12px 14px;background:#fafbfc;border:1px solid var(--line2);border-radius:8px;font-size:14px;line-height:26px;min-height:26px}
+.indus-payroll .fetry{margin:14px 0 6px;padding:12px 14px;background:var(--pri2);border-radius:8px;color:var(--pri);font-size:13px}.indus-payroll .fetry b{font-size:20px;margin-left:8px;font-variant-numeric:tabular-nums}
+.indus-payroll .stbl td{vertical-align:top;padding-top:10px;padding-bottom:10px}.indus-payroll .stbl tr.soff td{opacity:.45}.indus-payroll .spar{display:inline-flex;align-items:center;gap:8px;margin:0 12px 4px 0;font-size:12px;color:var(--ink2)}.indus-payroll .spar .rin.sm{width:110px;height:28px}
+.indus-payroll .ovr{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--warn);margin-left:4px;vertical-align:middle}
+.indus-payroll .stfoot{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:14px 20px;border-top:1px solid var(--line2)}.indus-payroll .stsum{display:flex;gap:18px;font-size:13px;color:var(--ink2)}.indus-payroll .stsum b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+.indus-payroll .salcard{overflow:hidden}.indus-payroll .salhead{display:flex;align-items:center;gap:14px;padding:16px 20px;background:linear-gradient(180deg,#f8f9ff,#fff);border-bottom:1px solid var(--line2)}
+.indus-payroll .salhead b{display:block;font-size:14.5px}.indus-payroll .salhead .grow>span{font-size:12px;color:var(--ink3)}
+.indus-payroll .salsec{padding:18px 20px;border-bottom:1px solid var(--line2)}.indus-payroll .salsec:last-child{border-bottom:0}
+.indus-payroll .salsh{display:flex;align-items:baseline;gap:10px;margin-bottom:14px}.indus-payroll .salsh b{font-size:13.5px;font-weight:650}.indus-payroll .salsh span{font-size:12px;color:var(--ink3)}
+.indus-payroll .rtype{display:flex;align-items:center;gap:12px;margin-bottom:16px}.indus-payroll .rtype .seg button{padding:6px 14px}
+.indus-payroll .cpl{font-size:12px;font-weight:600;color:var(--ink2)}.indus-payroll .cpl b{color:var(--bad)}
+.indus-payroll .cpgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.indus-payroll .cp{display:flex;flex-direction:column;gap:6px;background:#fafbfc;border:1px solid var(--line2);border-radius:10px;padding:12px 14px}
+.indus-payroll .cpin{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:0 12px;height:46px;transition:border-color .12s,box-shadow .12s}
+.indus-payroll .cpin:focus-within{border-color:var(--pri);box-shadow:0 0 0 3px var(--pri2)}
+.indus-payroll .cpin i{font-style:normal;color:var(--ink3);font-size:16px}.indus-payroll .cpin input{border:0;outline:0;flex:1;min-width:0;font:inherit;font-size:20px;font-weight:650;font-variant-numeric:tabular-nums;background:transparent}
+.indus-payroll .cpin em{font-style:normal;font-size:12px;color:var(--ink3);white-space:nowrap}.indus-payroll .cph{font-size:11.5px;color:var(--ink3);line-height:1.4}
+.indus-payroll .effrow{display:flex;align-items:center;gap:12px;margin-top:14px;padding:10px 14px;background:var(--warnbg);border-radius:8px}
+.indus-payroll .rtbl2 td{vertical-align:middle;padding-top:8px;padding-bottom:8px}.indus-payroll .rtbl2 th{font-size:11px}.indus-payroll .rtl{font-weight:600;font-size:13px}.indus-payroll .rtc{font-size:11px;color:var(--ink3)}.indus-payroll .rtd{font-variant-numeric:tabular-nums;font-weight:550}
+.indus-payroll .statrow{display:flex;align-items:center;gap:28px;flex-wrap:wrap}
+.indus-payroll .salgrid{grid-template-columns:minmax(0,1.45fr) minmax(320px,1fr)}
+.indus-payroll .salprev{position:sticky;top:88px;overflow:hidden}
+.indus-payroll .pshead{padding:18px 20px;background:linear-gradient(135deg,#2e3aa6,#3442b4 60%,#4b59cc);color:#fff}.indus-payroll .pshead .small{color:rgba(255,255,255,.75)}
+.indus-payroll .psnet{margin:8px 0 14px}.indus-payroll .psnet span{display:block;font-size:12px;color:rgba(255,255,255,.75)}.indus-payroll .psnet b{font-size:28px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.indus-payroll .pskpi{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.indus-payroll .pskpi div{background:rgba(255,255,255,.12);border-radius:8px;padding:8px 10px}.indus-payroll .pskpi span{display:block;font-size:11px;color:rgba(255,255,255,.75)}.indus-payroll .pskpi b{font-size:14px;font-variant-numeric:tabular-nums}
+.indus-payroll .psbody{padding:6px 20px 16px}.indus-payroll .pss{display:flex;justify-content:space-between;font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);padding:14px 0 6px;border-bottom:1px solid var(--line2)}.indus-payroll .pss span{color:var(--ink2)}
+.indus-payroll .psr{display:flex;align-items:center;gap:12px;padding:7px 0;border-bottom:1px dashed var(--line2);font-size:13px}.indus-payroll .psr:last-child{border-bottom:0}.indus-payroll .psr>b{font-variant-numeric:tabular-nums;font-weight:600;min-width:70px;text-align:right}.indus-payroll .psr b.neg{color:var(--bad)}
+.indus-payroll .psl{flex:1;min-width:0}.indus-payroll .psl span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.indus-payroll .psbar{height:3px;background:var(--mutebg);border-radius:3px;margin-top:4px;overflow:hidden}.indus-payroll .psbar i{display:block;height:100%;background:var(--ok);border-radius:3px}.indus-payroll .psbar.D i{background:var(--bad)}.indus-payroll .psbar.X i{background:var(--pri)}
+.indus-payroll .psown{font-style:normal;font-size:10px;font-weight:600;background:var(--warnbg);color:var(--warn);padding:1px 5px;border-radius:4px}
+.indus-payroll .psal{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:24px;padding:18px 20px;align-items:start}
+.indus-payroll .pis{font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:6px}
+.indus-payroll .pir{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line2);font-size:13px}.indus-payroll .pir span{color:var(--ink2)}.indus-payroll .pir b{font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+.indus-payroll .ptag{font-style:normal;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px;margin-left:4px;vertical-align:middle}.indus-payroll .ptag.o{background:var(--pri2);color:var(--pri)}.indus-payroll .ptag.s{background:var(--mutebg);color:var(--ink3)}
+.indus-payroll .pswrap{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+
+.indus-payroll .blockcard{border-color:#fda29b;box-shadow:0 0 0 3px var(--badbg)}.indus-payroll .bico{flex:none;width:28px;height:28px;border-radius:50%;background:var(--bad);color:#fff;display:grid;place-items:center;font-weight:800}
+.indus-payroll .psal{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);gap:24px;padding:16px 20px}
+.indus-payroll .sbars{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}.indus-payroll .sbx{background:#fafbfc;border:1px solid var(--line2);border-radius:8px;padding:10px 12px}.indus-payroll .sbx span{display:block;font-size:11.5px;color:var(--ink3)}.indus-payroll .sbx b{font-size:16px;font-variant-numeric:tabular-nums}.indus-payroll .sbx.b{background:var(--pri2);border-color:transparent}.indus-payroll .sbx.b b{color:var(--pri)}
+.indus-payroll .schips{display:flex;flex-wrap:wrap;gap:6px}.indus-payroll .schip{font-size:12px;padding:3px 8px;border-radius:6px;background:var(--okbg);color:var(--ok)}.indus-payroll .schip b{margin-left:4px}.indus-payroll .schip.D{background:var(--badbg);color:var(--bad)}.indus-payroll .schip.X{background:var(--pri2);color:var(--pri)}
+
+.indus-payroll .eftabs button{padding:7px 14px;font-size:13px}.indus-payroll .sdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--warn);margin-left:4px;vertical-align:middle}
+.indus-payroll .salcta{display:flex;align-items:center;gap:16px;border-style:dashed}
+.indus-payroll .salgrid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:16px;align-items:start}
+.indus-payroll .salprev{position:sticky;top:88px}
+.indus-payroll #salbox .efgrid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.indus-payroll .efsub{font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin:18px 0 10px;padding-top:14px;border-top:1px dashed var(--line)}
+.indus-payroll .sstr td{padding:6px 4px;font-size:13px}.indus-payroll .sstr tr.sh td{font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);padding-top:14px;border-bottom:1px solid var(--line2)}
+.indus-payroll .sstr tr.st td{font-weight:650;border-top:1px solid var(--line)}.indus-payroll .sstr tr.sn td{font-weight:700;font-size:15px;background:var(--pri2);color:var(--pri)}
+
+.indus-payroll .efwrap{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px;align-items:start;padding-bottom:80px}
+.indus-payroll .efnav{position:sticky;top:88px}
+.indus-payroll .efwho{display:flex;align-items:center;gap:12px;padding:16px}.indus-payroll .efwho .eav.lg>span{width:46px;height:46px;font-size:16px}.indus-payroll .efwho b{display:block;font-size:14px}.indus-payroll .efwho div>span{font-size:12px;color:var(--ink3)}
+.indus-payroll .efsec{display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid var(--line2);cursor:pointer;text-decoration:none;color:inherit}
+.indus-payroll .efsec:hover{background:var(--hover)}.indus-payroll .efsec.on{background:var(--pri2);box-shadow:inset 3px 0 0 var(--pri)}
+.indus-payroll .efsec b{display:block;font-size:13px;font-weight:600}.indus-payroll .efsec .grow span{font-size:11.5px;color:var(--ink3)}
+.indus-payroll .efdot{flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-size:11px;font-weight:700}
+.indus-payroll .efdot.y{background:var(--ok);border-color:var(--ok);color:#fff}.indus-payroll .efdot.w{background:var(--warnbg);border-color:#fdb022;color:var(--warn)}
+.indus-payroll .efcard{margin-bottom:16px}.indus-payroll .efh{display:flex;align-items:baseline;gap:10px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--line2)}.indus-payroll .efh h3{margin:0;font-size:14px;font-weight:650;text-transform:none;letter-spacing:0;color:var(--ink)}
+.indus-payroll .efgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px 16px}
+.indus-payroll .ef{display:flex;flex-direction:column;gap:6px;min-width:0}
+.indus-payroll .efl{font-size:12px;font-weight:600;color:var(--ink2)}.indus-payroll .efl b{color:var(--bad);margin-left:3px}
+.indus-payroll .ef .in{height:38px;padding:0 11px;font-size:13.5px;width:100%;box-sizing:border-box}.indus-payroll .ef textarea.in{height:auto;padding:9px 11px;resize:vertical}
+.indus-payroll .ef .rin{height:38px}.indus-payroll .ef select.in{padding-right:28px}
+.indus-payroll .ef em{font-style:normal;font-size:11.5px;color:var(--ink3);min-height:14px}.indus-payroll .ef em.e{color:var(--bad)}
+.indus-payroll .in.bad,.indus-payroll .rin.bad{border-color:var(--bad)!important;box-shadow:0 0 0 3px var(--badbg)!important}
+.indus-payroll .in:focus{outline:0;border-color:var(--pri);box-shadow:0 0 0 3px var(--pri2)}
+.indus-payroll .fseg{display:flex;width:100%;height:38px;box-sizing:border-box}.indus-payroll .fseg button{flex:1;white-space:nowrap}
+.indus-payroll kbd{font-family:inherit;font-size:11px;background:var(--mutebg);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 4px}
+
+.indus-payroll .efilt{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px 20px;border-top:1px solid var(--line2);border-bottom:1px solid var(--line2);background:#fafbfc}
+.indus-payroll .esite{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line2)}
+.indus-payroll .erow{cursor:pointer}.indus-payroll .erow:hover td{background:var(--hover)}
+.indus-payroll .eav{display:flex;align-items:center;gap:10px}.indus-payroll .eav>span{flex:none;width:32px;height:32px;border-radius:50%;background:var(--pri2);color:var(--pri);font-size:11.5px;font-weight:700;display:grid;place-items:center}
+.indus-payroll .eav b{display:block;font-weight:600;font-size:13px;white-space:nowrap}.indus-payroll .eav em{font-style:normal;font-size:11.5px;color:var(--ink3)}
+.indus-payroll .eav.lg>span{width:60px;height:60px;font-size:20px}
+.indus-payroll .pbar{width:70px;height:6px;border-radius:6px;background:var(--mutebg);overflow:hidden;display:inline-block;vertical-align:middle;margin-right:6px}.indus-payroll .pbar i{display:block;height:100%;border-radius:6px}
+.indus-payroll .pbar.lg{width:100%;height:8px}
+.indus-payroll .ephead{display:flex;align-items:center;gap:20px}
+.indus-payroll .epgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:16px;align-items:start}.indus-payroll .epgrid .card{margin:0}.indus-payroll .epcol{display:flex;flex-direction:column;gap:16px}
+.indus-payroll .eps{font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:10px}
+.indus-payroll .edl{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;margin:0;font-size:13px}.indus-payroll .edl dt{color:var(--ink3)}.indus-payroll .edl dd{margin:0;font-weight:550;text-align:right;word-break:break-word}
+
+.indus-payroll .ratewrap{display:grid;grid-template-columns:3fr 2fr;border-top:1px solid var(--line2)}
+.indus-payroll .rgrp{padding:16px 20px}.indus-payroll .rgrp+.rgrp{border-left:1px solid var(--line2)}
+.indus-payroll .rgh{display:flex;align-items:center;gap:10px;margin-bottom:12px}.indus-payroll .rgh b{font-size:13px}
+.indus-payroll .rgi{font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--pri);background:var(--pri2);border-radius:6px;padding:3px 7px}
+.indus-payroll .rgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.indus-payroll .rgrp+.rgrp .rgrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.indus-payroll .rt{display:flex;flex-direction:column;gap:5px;background:#fafbfc;border:1px solid var(--line2);border-radius:8px;padding:10px 12px}
+.indus-payroll .rt>span{font-size:11.5px;color:var(--ink2);font-weight:550}.indus-payroll .rt em{font-style:normal;font-size:11px;color:var(--ink3)}
+.indus-payroll .rt.sum{background:var(--pri2);border-color:transparent}.indus-payroll .rt.sum b{font-size:16px;font-weight:650;color:var(--pri);font-variant-numeric:tabular-nums}
+.indus-payroll .rin{display:flex;align-items:center;gap:4px;background:#fff;border:1px solid var(--line);border-radius:7px;padding:0 9px;height:34px;transition:border-color .12s,box-shadow .12s}
+.indus-payroll .rin:focus-within{border-color:var(--pri);box-shadow:0 0 0 3px var(--pri2)}
+.indus-payroll .rin input{border:0;outline:0;background:transparent;width:100%;min-width:0;font:inherit;font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink)}
+.indus-payroll .rin i{font-style:normal;color:var(--ink3);font-size:12.5px}
+.indus-payroll .rin.sm{height:30px;width:120px}.indus-payroll .rin.sm input{font-size:13px;font-weight:550}
+.indus-payroll .mst{display:grid;grid-template-columns:290px minmax(0,1fr);gap:16px;align-items:start;padding-bottom:70px}
+.indus-payroll .mlist{position:sticky;top:88px}.indus-payroll .mlh{padding:12px;border-bottom:1px solid var(--line2)}.indus-payroll .mlh .in{width:100%}
+.indus-payroll .mrows{max-height:calc(100vh - 200px);overflow:auto}
+.indus-payroll .mrow{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--line2)}
+.indus-payroll .mrow:last-child{border-bottom:0}.indus-payroll .mrow:hover{background:var(--hover)}
+.indus-payroll .mrow.on{background:var(--pri2);box-shadow:inset 3px 0 0 var(--pri)}
+.indus-payroll .mrow b{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.indus-payroll .mrow .grow>span{font-size:11.5px;color:var(--ink3)}
+.indus-payroll .mcode{flex:none;width:32px;height:32px;border-radius:8px;background:var(--mutebg);color:var(--ink2);font-size:11px;font-weight:700;display:grid;place-items:center;letter-spacing:.03em}
+.indus-payroll .mrow.on .mcode{background:var(--pri);color:#fff}.indus-payroll .mcode.lg{width:44px;height:44px;font-size:14px;border-radius:10px;background:var(--pri);color:#fff}
+.indus-payroll .mdots{display:flex;gap:4px}.indus-payroll .mdots i{font-style:normal;font-size:9.5px;font-weight:700;padding:2px 5px;border-radius:4px;background:var(--mutebg);color:#b0b6c0}
+.indus-payroll .mdots i.y{background:var(--okbg);color:var(--ok)}
+.indus-payroll .mdh{display:flex;align-items:center;gap:14px;padding:18px 20px;border-bottom:1px solid var(--line2)}
+.indus-payroll .msec{padding:18px 20px;border-bottom:1px solid var(--line2)}.indus-payroll .msec:last-child{border-bottom:0}
+.indus-payroll .msh{display:flex;align-items:center;gap:12px;margin-bottom:14px}.indus-payroll .msh h3{margin:0;font-size:14px;font-weight:650}
+.indus-payroll .mcols{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:20px;align-items:start}
+.indus-payroll .slab td{vertical-align:middle;padding-top:6px;padding-bottom:6px}
+.indus-payroll .mrules{background:#fafbfc;border:1px solid var(--line2);border-radius:10px;padding:14px}
+.indus-payroll .mrt{font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:10px}
+.indus-payroll .mrl{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;font-size:12.5px}
+.indus-payroll .rftool{display:grid;grid-template-columns:auto minmax(200px,1fr) 180px auto;gap:16px;align-items:end;margin-bottom:16px}
+.indus-payroll .rftool .efl{display:block;font-size:11.5px;font-weight:600;color:var(--ink2);margin-bottom:5px}.indus-payroll .rftool .in{width:100%;box-sizing:border-box}
+.indus-payroll .rfmeter{height:6px;border-radius:99px;background:var(--mutebg);margin-top:10px;overflow:hidden}.indus-payroll .rfmeter i{display:block;height:100%;background:var(--ok);border-radius:99px}
+.indus-payroll .rftw{max-height:560px;overflow:auto}.indus-payroll .rft td{vertical-align:middle}.indus-payroll .rft tr.rfoff td{color:var(--ink3)}.indus-payroll .rft tr.rfoff .rfname{color:var(--ink2)}
+.indus-payroll .rfname{font-weight:600;color:var(--ink);cursor:pointer}.indus-payroll .rfname:hover{color:var(--pri);text-decoration:underline}
+.indus-payroll .rflist{display:flex;flex-direction:column;gap:8px}
+.indus-payroll .rfi{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:#fff}.indus-payroll .rfi:hover{border-color:#c7cbe8}
+.indus-payroll .rfi b{display:block;font-size:13px;font-weight:600}.indus-payroll .rfi .grow span{display:block;font-size:11.5px;color:var(--ink3);margin-top:1px}.indus-payroll .rfi.dim{opacity:.62}
+.indus-payroll .rfform{display:inline-block!important;font-size:10.5px!important;font-weight:700;color:var(--pri)!important;background:var(--pri2);border-radius:4px;padding:0 5px;margin:0 0 2px!important}
+.indus-payroll .rfhow{margin:6px 0 0;padding-left:18px;color:var(--ink2);line-height:1.6}
+.indus-payroll .rfbulk{position:sticky;bottom:12px;margin-top:16px;display:none;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 14px;box-shadow:0 12px 32px rgba(15,23,42,.16);z-index:5}.indus-payroll .rfbulk.show{display:flex}
+.indus-payroll .rfbar{height:8px;background:var(--mutebg);border-radius:99px;overflow:hidden}.indus-payroll .rfbar i{display:block;height:100%;background:var(--pri);transition:width .2s}
+.indus-payroll .rfbg{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:40;display:flex;justify-content:flex-end}
+.indus-payroll .rfdr{width:min(600px,100vw);height:100%;background:var(--bg,#f6f7fb);display:flex;flex-direction:column;box-shadow:-16px 0 40px rgba(15,23,42,.2);animation:rfin .18s ease-out}
+@keyframes rfin{from{transform:translateX(30px);opacity:.4}to{transform:none;opacity:1}}
+.indus-payroll .rfdh{display:flex;align-items:flex-start;gap:12px;padding:18px 22px 12px;background:#fff;border-bottom:1px solid var(--line)}
+.indus-payroll .rfms{display:grid;grid-template-columns:repeat(12,1fr);gap:4px;padding:10px 22px;background:#fff;border-bottom:1px solid var(--line)}
+.indus-payroll .rfmc{border:1px solid var(--line);background:#fff;border-radius:8px;padding:5px 0 4px;font-size:11.5px;font-weight:600;color:var(--ink2);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.1}
+.indus-payroll .rfmc span{font-size:10px;font-weight:500;color:var(--ink3)}.indus-payroll .rfmc i{width:6px;height:6px;border-radius:50%;background:#d0d5dd;margin-bottom:2px}
+.indus-payroll .rfmc.locked i{background:var(--ok)}.indus-payroll .rfmc.draft i{background:var(--warn)}.indus-payroll .rfmc.none{color:var(--ink3)}
+.indus-payroll .rfmc.on{border-color:var(--pri);background:var(--pri2);color:var(--pri)}.indus-payroll .rfmc:hover{border-color:#c7cbe8}
+.indus-payroll .rfdb{flex:1;overflow:auto;padding:16px 22px}
+.indus-payroll .rfsum{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:14px}
+.indus-payroll .rfcat{margin-bottom:16px}.indus-payroll .rfcat .rfi{margin-bottom:6px}
+.indus-payroll .rfch{display:flex;align-items:center;justify-content:space-between;margin:0 2px 8px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink2)}.indus-payroll .rfch .chk{text-transform:none;letter-spacing:0}
+.indus-payroll .rfempty{background:#fff;border:1px dashed var(--line);border-radius:12px;padding:28px;text-align:center}
+.indus-payroll .rfdf{display:flex;align-items:center;gap:10px;padding:12px 22px;background:#fff;border-top:1px solid var(--line)}
+.indus-payroll .rfpick{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 18px;padding:12px;border:1px solid var(--line);border-radius:10px}
+@media(max-width:1100px){.indus-payroll .rftool{grid-template-columns:1fr 1fr}}
+@media(max-width:700px){.indus-payroll .rftool{grid-template-columns:1fr}.indus-payroll .rfms{grid-template-columns:repeat(6,1fr)}.indus-payroll .rfi{flex-wrap:wrap}}
+.indus-payroll .rvhead{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.indus-payroll .rvf{display:grid;grid-template-columns:minmax(200px,260px) auto 150px minmax(200px,1fr);gap:16px;align-items:end;margin-bottom:16px}.indus-payroll .rvf .efl{display:block;font-size:11.5px;font-weight:600;color:var(--ink2);margin-bottom:5px}.indus-payroll .rvf .in{width:100%;box-sizing:border-box}
+.indus-payroll .rvt tr.rvrow{cursor:pointer}.indus-payroll .rvt tr.rvrow:hover td{background:#f7f8fc}
+.indus-payroll .up{color:var(--ok)}.indus-payroll .dn{color:var(--bad)}
+.indus-payroll .rvemp{display:grid;grid-template-columns:320px minmax(0,1fr);gap:16px;align-items:start}
+.indus-payroll .rvel .efl{display:block;font-size:11.5px;font-weight:600;color:var(--ink2);margin-bottom:5px}.indus-payroll .rvell{max-height:620px;overflow:auto;border-top:1px solid var(--line)}
+.indus-payroll .rvell a{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--line2);cursor:pointer}.indus-payroll .rvell a:hover{background:#f7f8fc}.indus-payroll .rvell a.on{background:var(--pri2)}
+.indus-payroll .rvell a b{display:block;font-size:13px;font-weight:600}.indus-payroll .rvell a .small{display:block}
+.indus-payroll .rvnow{display:flex;flex-direction:column;align-items:flex-end;padding:0 10px;border-left:1px solid var(--line)}.indus-payroll .rvnow span{font-size:11px;color:var(--ink3)}.indus-payroll .rvnow b{font-size:16px}
+.indus-payroll .rvtl{position:relative;padding-left:4px}
+.indus-payroll .rvte{position:relative;display:flex;gap:14px;align-items:flex-start;padding:12px 0 12px 22px;border-bottom:1px solid var(--line2)}.indus-payroll .rvte:last-child{border-bottom:0}
+.indus-payroll .rvte>i{position:absolute;left:4px;top:18px;width:10px;height:10px;border-radius:50%;background:var(--pri);box-shadow:0 0 0 3px var(--pri2)}
+.indus-payroll .rvte::before{content:'';position:absolute;left:8px;top:0;bottom:0;width:2px;background:var(--line)}.indus-payroll .rvte:first-child::before{top:20px}.indus-payroll .rvte:last-child::before{bottom:calc(100% - 20px)}
+.indus-payroll .rvte.rev{opacity:.6}.indus-payroll .rvte.rev .rvch b{text-decoration:line-through}.indus-payroll .rvte.sch>i{background:var(--warn);box-shadow:0 0 0 3px var(--warnbg)}.indus-payroll .rvte.old>i{background:#c3c8d4;box-shadow:none}
+.indus-payroll .rvtd{width:118px;flex:none}.indus-payroll .rvtd b{display:block;font-size:13px}.indus-payroll .rvtd span{font-size:11.5px;color:var(--ink3)}
+.indus-payroll .rvch{display:flex;flex-wrap:wrap;gap:6px 18px;margin:7px 0 4px;font-size:13px}.indus-payroll .rvch em{font-style:normal;color:var(--ink3);margin-right:4px}.indus-payroll .rvch i{font-style:normal;font-size:11.5px;margin-left:4px}.indus-payroll .rvch i.up{color:var(--ok)}.indus-payroll .rvch i.dn{color:var(--bad)}
+.indus-payroll .rvimp{display:flex;flex-direction:column;align-items:flex-end}.indus-payroll .rvimp span{font-size:11px;color:var(--ink3)}.indus-payroll .rvimp b{font-size:18px;color:var(--ok)}
+.indus-payroll .rvfoot{display:flex;align-items:center;gap:10px;padding:14px 20px;border-top:1px solid var(--line)}
+.indus-payroll .rvhd{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap}.indus-payroll .rvmeta{display:flex;gap:0;flex-wrap:wrap}.indus-payroll .rvmeta>div{display:flex;flex-direction:column;padding:0 18px;border-left:1px solid var(--line)}.indus-payroll .rvmeta span{font-size:11px;color:var(--ink3)}.indus-payroll .rvmeta b{font-size:15px;margin-top:2px}.indus-payroll .rvmeta em{font-style:normal;font-size:11.5px;color:var(--ink3)}
+.indus-payroll .rvlink{cursor:pointer;color:var(--pri)}.indus-payroll .rvlink.on{font-weight:700;color:var(--ink)}
+.indus-payroll .efgrid.g4c{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.indus-payroll .mwsites{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px}
+.indus-payroll .mwsite{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer}.indus-payroll .mwsite.on{border-color:var(--pri);background:var(--pri2)}.indus-payroll .mwsite b{display:block;font-size:13px}.indus-payroll .mwsite span span{display:block;font-size:11.5px;color:var(--ink3)}
+.indus-payroll .mwopt{display:grid;grid-template-columns:1.3fr 1.3fr .8fr .6fr;gap:16px;align-items:start;margin-top:16px;padding-top:14px;border-top:1px solid var(--line2)}
+.indus-payroll .mwp{border-top:1px solid var(--line)}.indus-payroll .mwp>summary{display:flex;gap:14px;align-items:center;padding:11px 20px;cursor:pointer}.indus-payroll .mwp tr.mwx td{opacity:.45}
+.indus-payroll .inch{display:flex;gap:10px;align-items:center;margin-bottom:8px}.indus-payroll .inch select.in:first-child{width:260px}
+.indus-payroll .inpick{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 10px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 16px}
+@media(max-width:1100px){.indus-payroll .rvf,.indus-payroll .efgrid.g4c,.indus-payroll .mwopt{grid-template-columns:1fr 1fr}.indus-payroll .rvemp{grid-template-columns:1fr}}
+.indus-payroll .patg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start;padding:4px 20px 14px}
+.indus-payroll .patc{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:#fff}
+.indus-payroll .patc.def{border-color:var(--pri);box-shadow:0 0 0 3px rgba(37,99,235,.08)}
+.indus-payroll .patc .mrl .rin input{width:90px}.indus-payroll .patc .mrl select.in,.indus-payroll .patc .mrl input[type=date]{width:190px}
+.indus-payroll .path{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:14px}
+.indus-payroll .patd{display:flex;align-items:center;gap:14px;padding:12px 20px;border-top:1px solid var(--line);margin-bottom:12px}
+.indus-payroll .patl{border-top:1px solid var(--line)}.indus-payroll .patl>summary{padding:12px 20px;cursor:pointer;font-weight:600;font-size:13px}
+@media(max-width:900px){.indus-payroll .patg{grid-template-columns:1fr}}
+.indus-payroll .mcalc{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)}
+.indus-payroll .mempty{padding:18px;text-align:center;color:var(--ink3);background:#fafbfc;border:1px dashed var(--line);border-radius:10px;font-size:12.5px}
+.indus-payroll .mchips{display:flex;flex-wrap:wrap;gap:6px}
+.indus-payroll .mchip{border:1px solid var(--line);background:#fff;border-radius:7px;padding:5px 0;width:48px;font-size:12px;font-weight:600;color:var(--ink2);cursor:pointer}
+.indus-payroll .mchip:hover{border-color:var(--pri)}.indus-payroll .mchip.on{background:var(--pri);border-color:var(--pri);color:#fff}
+.indus-payroll .lwg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:16px}
+.indus-payroll .xbtn{border:0;background:transparent;color:var(--ink3);font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:6px}.indus-payroll .xbtn:hover{background:var(--badbg);color:var(--bad)}
+.indus-payroll .sw{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:550;color:var(--ink2);cursor:pointer;user-select:none}
+.indus-payroll .sw input{display:none}.indus-payroll .sw span{width:34px;height:20px;border-radius:20px;background:#d0d5dd;position:relative;transition:background .15s;flex:none}
+.indus-payroll .sw span::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(16,24,40,.2);transition:left .15s}
+.indus-payroll .sw input:checked+span{background:var(--pri)}.indus-payroll .sw input:checked+span::after{left:16px}
+.indus-payroll .msave{position:fixed;left:28px;right:28px;bottom:16px;display:none;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 14px;box-shadow:0 12px 32px rgba(16,24,40,.14);z-index:20}
+.indus-payroll .msave.show{display:flex}
+.indus-payroll .btn.sm{height:28px;padding:0 10px;font-size:12px}
+
+.indus-payroll .repi{padding:12px 16px;border-bottom:1px solid var(--line2);cursor:pointer;display:flex;flex-direction:column;gap:2px}.indus-payroll .repi:last-child{border-bottom:0}
+.indus-payroll .repi b{font-weight:600;font-size:13px}.indus-payroll .repi span{font-size:11.5px;color:var(--ink3);line-height:1.4}.indus-payroll .repi:hover{background:var(--hover)}.indus-payroll .repi.on{background:var(--pri2);box-shadow:inset 3px 0 0 var(--pri)}.indus-payroll .repi.on b{color:var(--pri)}
+@media (max-width:900px){.indus-payroll .kpis{grid-template-columns:repeat(2,1fr)}.indus-payroll .g3,.indus-payroll .g4{grid-template-columns:1fr 1fr}.indus-payroll .page{padding:16px}}
