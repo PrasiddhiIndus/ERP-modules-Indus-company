@@ -16,7 +16,7 @@ import { useProbationReviewsAccess } from "../pages/adminOperations/probationRev
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import { resolveModule } from "../lib/activityDescriptors";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
-import { SALARY_SUB_NAV, HR_SALARY_BASE, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
+import { SALARY_SUB_NAV, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
 import { OPERATIONS_NAV, operationsNavHref, operationsNavIsActive } from "../pages/operations/navConfig";
 import { MARKETING_NAV_ITEMS } from "../pages/marketing/marketingNav";
 import PoApprovalBell from "../components/PoApprovalBell";
@@ -86,6 +86,21 @@ import {
   PanelLeft,
   Search as SearchIcon,
 } from "lucide-react";
+
+const SALARY_NAV_ICONS = {
+  dashboard: LayoutDashboard,
+  process: ClipboardCheck,
+  employees: Users,
+  held: Clock,
+  loans: CreditCard,
+  revisions: TrendingUp,
+  reports: BarChart3,
+  compliance: FileText,
+  masters: Shield,
+  setup: SlidersHorizontal,
+  components: Package,
+  formulas: Calculator,
+};
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
 const RupeeIcon = ({ className = '' }) => {
@@ -518,7 +533,6 @@ const Layout = () => {
   const [adminStoreOpen, setAdminStoreOpen] = useState(false);
   const [adminGateOpen, setAdminGateOpen] = useState(false);
   const [adminMiscOpen, setAdminMiscOpen] = useState(false);
-  const [hrSalaryOpen, setHrSalaryOpen] = useState(false);
   const [manpowerOperationsOpen, setManpowerOperationsOpen] = useState(false);
   const [manpowerConfigOpen, setManpowerConfigOpen] = useState(false);
 
@@ -534,7 +548,6 @@ const Layout = () => {
   // Keep expandable section open when current path is under that section
   useEffect(() => {
     if (pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/salary") || pathname.startsWith("/app/people-management") || pathname.startsWith("/app/hr/payroll/salary")) setHrAdminOpen(true);
-    if (pathname.startsWith("/app/hr/payroll/salary")) setHrSalaryOpen(true);
     if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance") || pathname === "/app/compliance" || pathname.startsWith("/app/compliance/")) setComplianceOpen(true);
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
     if (pathname.startsWith("/app/marketing")) setMarketingOpen(true);
@@ -565,6 +578,13 @@ const Layout = () => {
     }
     if (pathname.startsWith("/app/amc")) setAmcOpen(true);
     if (pathname.startsWith("/app/accounts-finance")) setFinanceOpen(true);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!pathname.startsWith("/app/hr/payroll/salary")) return;
+    const segment = pathname.replace(/\/$/, "").split("/").pop();
+    const el = document.getElementById(`hr-salary-nav-${segment}`);
+    if (el) el.scrollIntoView({ block: "nearest" });
   }, [pathname]);
 
   const handleSignOut = async () => {
@@ -1141,82 +1161,28 @@ const Layout = () => {
               </button>
 
               {(hrAdminOpen || isRail) && (
-                <div data-title="HR Site" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                  {canSub("hr.dashboard") && (
-                  <NavLink to="hr/dashboard" className={subNavClass}>
-                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
-                  </NavLink>
-                  )}
-                  {canSub("hr.employee-master") && (
-                  <NavLink
-                    to="hr/employee-master"
-                    className={() => {
-                      const path = pathname;
-                      const active =
-                        path.startsWith("/app/hr/employee-master") ||
-                        path === "/app/hr";
-                      return subNavClass({ isActive: active });
-                    }}
-                  >
-                    <User className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">HR Management</span>
-                  </NavLink>
-                  )}
-                  {(canSub("hr.calling-master") ||
-                    hasAnyRecruitmentTabAccess(userProfile, accessibleModules, user?.user_metadata)) && (
-                  <NavLink
-                    to={getRecruitmentLandingPath(userProfile, accessibleModules, user?.user_metadata).replace(
-                      /^\/app\//,
-                      ""
-                    )}
-                    className={() =>
-                      subNavClass({
-                        isActive: pathname.startsWith("/app/hr/calling-master"),
-                      })
-                    }
-                  >
-                    <PhoneCall className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Recruitment</span>
-                  </NavLink>
-                  )}
-                  {canSub("hr.attendance") && (
-                  <NavLink to="attendance" className={subNavClass}>
-                    <Clock className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Attendance</span>
-                  </NavLink>
-                  )}
-                  {canSub("hr.salary-management") && (
-                  <>
-                  <button
-                    type="button"
-                    onClick={() => setHrSalaryOpen(!hrSalaryOpen)}
-                    className={subToggleClass(pathname.startsWith(`/app/${HR_SALARY_BASE}`))}
-                    aria-expanded={hrSalaryOpen}
-                    aria-label="Toggle salary management menu"
-                  >
-                    <span className="flex items-center gap-2.5 min-w-0 flex-1">
-                      <Wallet className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                      <span className="type-meta type-truncate min-w-0 text-left">Salary Management</span>
-                    </span>
-                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${hrSalaryOpen ? "rotate-180" : ""}`} />
-                  </button>
-                  {hrSalaryOpen && (
-                    <div className="ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                      {SALARY_SUB_NAV.map((item) => (
+                <div data-title="HR Site" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2 max-h-[min(70vh,40rem)] overflow-y-auto pr-1">
+                  {canSub("hr.salary-management") && SALARY_SUB_NAV.map((item) => {
+                    const Icon = SALARY_NAV_ICONS[item.icon];
+                    const active = salaryNavIsActive(item, location);
+                    return (
+                      <div key={item.to}>
+                        {item.group ? (
+                          <div className="px-2.5 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-sidebar-muted">
+                            {item.group}
+                          </div>
+                        ) : null}
                         <NavLink
-                          key={item.to}
+                          id={`hr-salary-nav-${item.to}`}
                           to={salaryNavPath(item.to).replace(/^\/app\//, "")}
-                          className={() => subNavClass({ isActive: salaryNavIsActive(item, location) })}
+                          className={() => subNavClass({ isActive: active })}
                         >
-                          <span className="h-4 w-4 shrink-0" aria-hidden="true" />
-                          <span className="type-meta type-truncate min-w-0 flex-1 text-left">{item.label}</span>
+                          {Icon ? <Icon className="w-4 h-4 shrink-0 text-sidebar-accent" /> : <span className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                          <span className="type-meta min-w-0 flex-1 text-left leading-snug">{item.label}</span>
                         </NavLink>
-                      ))}
-                    </div>
-                  )}
-                  </>
-                  )}
+                      </div>
+                    );
+                  })}
                   {canSub("hr.site-attendance") && (
                   <NavLink
                     to="hr/site-attendance"
@@ -2117,7 +2083,9 @@ const Layout = () => {
 
         <main
           className={
-            pathname.startsWith("/app/software-subscriptions-reminders")
+            pathname.startsWith("/app/hr/payroll/salary")
+              ? "erp-app-shell relative flex flex-col flex-1 min-h-0 overflow-hidden p-0"
+              : pathname.startsWith("/app/software-subscriptions-reminders")
               ? "erp-app-shell erp-workspace-glow flex-1 overflow-y-auto px-3 py-4 sm:px-4 sm:py-5"
               : "erp-app-shell erp-workspace-glow flex-1 overflow-y-auto px-5 py-5 sm:px-8 sm:py-7"
           }
