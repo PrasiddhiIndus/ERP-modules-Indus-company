@@ -151,6 +151,12 @@ export function buildCmOcDocument(form, { logo = null, signatures = {} } = {}) {
       cell("Date", { cols: HEAD, from: 2 }),
       cell(formatCmDate(form.po_date), { cols: HEAD, from: 3 }),
     ]),
+    row([
+      cell("PO No.", { cols: HEAD }),
+      cell(form.customer_po_no, { cols: HEAD, from: 1 }),
+      cell("PO Date", { cols: HEAD, from: 2 }),
+      cell(formatCmDate(form.customer_po_date), { cols: HEAD, from: 3 }),
+    ]),
   ]);
 
   const desc = table(DESC, [

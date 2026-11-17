@@ -11,11 +11,11 @@ import {
 import {
   CM_CURRENCIES, CM_MANPOWER_FIELDS, blankCmContact, blankCmDeploymentItem, cmApprovalProgress,
   cmExportFileName, cmFormFromRecord, contractValueInWords, durationDays, emptyCmForm, formatSignedAt, isBlank,
-  toCmSavePayload, validateCmForm,
+  normalizeWoDocuments, toCmSavePayload, validateCmForm,
 } from "./cmOcModel";
 import {
-  amFinance, cmStageSignatureUrl, friendlyCmError, loadCmAssignees, loadCmOc, myCmSignatureUrl, myEmployeeCode,
-  notifyCmSignoff, saveCmOc, signCmStage,
+  amFinance, clearCmWoDocuments, cmStageSignatureUrl, cmWoDocumentUrl, friendlyCmError, loadCmAssignees, loadCmOc,
+  myCmSignatureUrl, myEmployeeCode, notifyCmSignoff, removeCmWoDocument, saveCmOc, signCmStage, uploadCmWoDocuments,
 } from "./cmOcApi";
 
 const DEPT = COMMERCIAL_OC_DEPARTMENT;
@@ -224,6 +224,8 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
   const [stageSignatureUrls, setStageSignatureUrls] = useState({});
   /** Built-in deployment columns hidden via Remove on this form (cleared on save). */
   const [hiddenManpowerKeys, setHiddenManpowerKeys] = useState(() => new Set());
+  const [pendingWoFiles, setPendingWoFiles] = useState([]);
+  const [uploadingWo, setUploadingWo] = useState(false);
   const topRef = useRef(null);
 
   useEffect(() => {
@@ -257,6 +259,10 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
       setForm(blank);
       setInitial(JSON.stringify(blank));
       setHiddenManpowerKeys(new Set());
+      setPendingWoFiles((prev) => {
+        prev.forEach((p) => p?.url && URL.revokeObjectURL(p.url));
+        return [];
+      });
       setLoading(false);
       return undefined;
     }
@@ -269,6 +275,10 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
         setForm(f);
         setInitial(JSON.stringify(f));
         setHiddenManpowerKeys(new Set());
+        setPendingWoFiles((prev) => {
+          prev.forEach((p) => p?.url && URL.revokeObjectURL(p.url));
+          return [];
+        });
       })
       .catch((err) => alive && toast.error(friendlyCmError(err, "Could not load this PO At Glance.")))
       .finally(() => alive && setLoading(false));
@@ -296,7 +306,10 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
     };
   }, [form.id, signedKey]);
 
-  const dirty = useMemo(() => JSON.stringify(form) !== initial, [form, initial]);
+  const dirty = useMemo(
+    () => JSON.stringify(form) !== initial || pendingWoFiles.length > 0,
+    [form, initial, pendingWoFiles.length],
+  );
   const words = useMemo(() => contractValueInWords(form.contract_value, form.currency), [form.contract_value, form.currency]);
   const readOnly = !canEdit;
   const saved = Boolean(form.id);
@@ -356,6 +369,116 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
   const cls = (k) => `${inputCls} ${errors[k] ? errCls : ""}`;
   const digits = (v) => v.replace(/[^\d]/g, "");
 
+  const dropPendingWoFiles = () => {
+    pendingWoFiles.forEach((p) => {
+      if (p?.url) URL.revokeObjectURL(p.url);
+    });
+    setPendingWoFiles([]);
+  };
+
+  const applyWoDocuments = (docs) => {
+    const next = normalizeWoDocuments(docs);
+    setForm((f) => ({ ...f, wo_documents: next }));
+    setInitial((prev) => {
+      try {
+        return JSON.stringify({ ...JSON.parse(prev), wo_documents: next });
+      } catch {
+        return prev;
+      }
+    });
+  };
+
+  const openWoDocument = async (doc) => {
+    if (doc?.url) {
+      window.open(doc.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (!doc?.path) return;
+    try {
+      const url = await cmWoDocumentUrl(doc.path);
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      toast.error(friendlyCmError(err, "Could not open the work order file."));
+    }
+  };
+
+  const onWoFile = async (event) => {
+    const picked = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!picked.length || readOnly) return;
+    if (!form.id) {
+      setPendingWoFiles((prev) => [
+        ...prev,
+        ...picked.map((file) => ({ file, url: URL.createObjectURL(file) })),
+      ]);
+      return;
+    }
+    setUploadingWo(true);
+    try {
+      const savedDocs = await uploadCmWoDocuments(form.id, picked);
+      applyWoDocuments(savedDocs);
+      toast.success(picked.length > 1 ? `${picked.length} work order files uploaded.` : "Work order file uploaded.");
+    } catch (err) {
+      toast.error(friendlyCmError(err, "Could not upload the work order file."));
+    } finally {
+      setUploadingWo(false);
+    }
+  };
+
+  const removePendingWoFile = (index) => {
+    setPendingWoFiles((prev) => {
+      const next = [...prev];
+      const [gone] = next.splice(index, 1);
+      if (gone?.url) URL.revokeObjectURL(gone.url);
+      return next;
+    });
+  };
+
+  const removeWoFile = async (doc) => {
+    if (!form.id || !doc?.path || readOnly) return;
+    if (!(await confirmDialog({
+      title: "Remove work order file",
+      message: `Remove ${doc.name || "this work order file"}?`,
+      confirmLabel: "Remove",
+      tone: "danger",
+    }))) return;
+    setUploadingWo(true);
+    try {
+      const updated = await removeCmWoDocument(form.id, doc.path);
+      applyWoDocuments(updated);
+      toast.success("Work order file removed.");
+    } catch (err) {
+      toast.error(friendlyCmError(err, "Could not remove the work order file."));
+    } finally {
+      setUploadingWo(false);
+    }
+  };
+
+  const clearAllWoFiles = async () => {
+    if (pendingWoFiles.length) {
+      dropPendingWoFiles();
+      return;
+    }
+    const docs = form.wo_documents?.length ? form.wo_documents : normalizeWoDocuments(form);
+    if (!form.id || !docs.length || readOnly) return;
+    if (!(await confirmDialog({
+      title: "Remove all work order files",
+      message: "Remove all work order files from this record?",
+      confirmLabel: "Remove all",
+      tone: "danger",
+    }))) return;
+    setUploadingWo(true);
+    try {
+      await clearCmWoDocuments(form.id, docs.map((d) => d.path));
+      applyWoDocuments([]);
+      toast.success("Work order files removed.");
+    } catch (err) {
+      toast.error(friendlyCmError(err, "Could not remove the work order files."));
+    } finally {
+      setUploadingWo(false);
+    }
+  };
+
   const reload = async (id) => {
     const f = cmFormFromRecord(await loadCmOc(id), SLOTS);
     setForm(f);
@@ -399,10 +522,19 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
       return;
     }
     const creating = !form.id;
+    const pendingUpload = pendingWoFiles.map((p) => p.file);
     setSaving(true);
     let res;
     try {
       res = await saveCmOc(toCmSavePayload(form));
+      if (pendingUpload.length) {
+        try {
+          await uploadCmWoDocuments(res.id, pendingUpload);
+          dropPendingWoFiles();
+        } catch (uploadErr) {
+          toast.error(friendlyCmError(uploadErr, "PO saved, but work order files could not be uploaded."));
+        }
+      }
       await reload(res.id);
       toast.success(saved ? "PO At Glance updated." : res.oc_no ? `PO At Glance for OC No. ${res.oc_no} created.` : "PO At Glance created.");
       onSaved?.(res.id);
@@ -437,9 +569,10 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
   };
 
   const handleBack = async () => {
-    if (dirty && canEdit && !(await confirmDialog({
+    if ((dirty || pendingWoFiles.length) && canEdit && !(await confirmDialog({
       title: "Discard changes", message: "Discard unsaved changes?", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger",
     }))) return;
+    dropPendingWoFiles();
     onBack();
   };
 
@@ -496,7 +629,7 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
         </div>
         <h2 className="border-b border-slate-300 py-2 text-center text-base font-bold tracking-wider text-slate-900">{DEPT.formTitle}</h2>
 
-        <fieldset disabled={readOnly} className="min-w-0">
+        <fieldset className={`min-w-0 ${readOnly ? "cm-po-view-only" : ""}`}>
           <div className="grid grid-cols-1 border-l border-slate-300 md:grid-cols-[minmax(9rem,20%)_1fr_minmax(9rem,16%)_1fr]">
             <Label required>PO Category</Label>
             <Value full>
@@ -566,6 +699,105 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
             <Value>
               <input type="date" className={cls("po_date")} value={form.po_date} onChange={(e) => set("po_date", e.target.value)} />
               <FieldError msg={err("po_date")} />
+            </Value>
+
+            <div className={headingCls}>
+              <span>PO details &amp; work order documents</span>
+            </div>
+
+            <Label>PO No.</Label>
+            <Value>
+              <input
+                className={inputCls}
+                placeholder="Customer purchase order number"
+                value={form.customer_po_no}
+                onChange={(e) => set("customer_po_no", e.target.value)}
+              />
+            </Value>
+            <Label>PO Date</Label>
+            <Value>
+              <input
+                type="date"
+                className={inputCls}
+                value={form.customer_po_date}
+                onChange={(e) => set("customer_po_date", e.target.value)}
+              />
+            </Value>
+
+            <Label>PO notes</Label>
+            <Value full>
+              <textarea
+                rows={2}
+                className={inputCls}
+                placeholder="Optional notes about the purchase order"
+                value={form.customer_po_notes}
+                onChange={(e) => set("customer_po_notes", e.target.value)}
+              />
+            </Value>
+
+            <Label>WO documents</Label>
+            <Value full>
+              {(() => {
+                const savedDocs = form.wo_documents?.length
+                  ? form.wo_documents
+                  : normalizeWoDocuments(form);
+                const hasAny = pendingWoFiles.length > 0 || savedDocs.length > 0;
+                return (
+                  <div className="space-y-2">
+                    {!hasAny && (
+                      <span className="text-xs text-slate-500">No work order documents uploaded.</span>
+                    )}
+                    {pendingWoFiles.map((p, index) => (
+                      <div key={`pending-wo-${p.file.name}-${index}`} className="flex flex-wrap items-center gap-2">
+                        <button type="button" data-active className={smallBtn} onClick={() => openWoDocument(p)}>
+                          View {p.file.name}
+                        </button>
+                        {canEdit && (
+                          <button type="button" className={smallBtn} disabled={uploadingWo} onClick={() => removePendingWoFile(index)}>
+                            Remove
+                          </button>
+                        )}
+                        <span className="text-[11px] text-slate-500">Pending save</span>
+                      </div>
+                    ))}
+                    {savedDocs.map((doc) => (
+                      <div key={doc.path} className="flex flex-wrap items-center gap-2">
+                        <button type="button" data-active className={smallBtn} onClick={() => openWoDocument(doc)}>
+                          View {doc.name}
+                        </button>
+                        {canEdit && (
+                          <button type="button" className={smallBtn} disabled={uploadingWo} onClick={() => removeWoFile(doc)}>
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {canEdit && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className={`${smallBtn} cursor-pointer ${uploadingWo ? "opacity-50" : ""}`}>
+                          {uploadingWo ? "Uploading…" : hasAny ? "Add documents" : "Upload work order"}
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
+                            multiple
+                            disabled={uploadingWo}
+                            onChange={onWoFile}
+                          />
+                        </label>
+                        {hasAny && (
+                          <button type="button" className={smallBtn} disabled={uploadingWo} onClick={clearAllWoFiles}>
+                            Remove all
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {canEdit && pendingWoFiles.length > 0 && !form.id && (
+                      <p className="text-[11px] text-slate-500">These files are kept when you save. Cancel discards them.</p>
+                    )}
+                  </div>
+                );
+              })()}
             </Value>
 
             <Label required>Description of work</Label>
@@ -798,6 +1030,27 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
 
           </div>
         </fieldset>
+        {readOnly && (
+          <style>{`
+            .cm-po-view-only input,
+            .cm-po-view-only textarea,
+            .cm-po-view-only select,
+            .cm-po-view-only button,
+            .cm-po-view-only label {
+              pointer-events: none;
+            }
+            .cm-po-view-only input,
+            .cm-po-view-only textarea,
+            .cm-po-view-only select {
+              background-color: rgb(241 245 249);
+              color: rgb(100 116 139);
+            }
+            .cm-po-view-only [data-active] {
+              pointer-events: auto;
+              opacity: 1;
+            }
+          `}</style>
+        )}
 
         <div className="border-t border-slate-300">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-300 bg-slate-200/70 px-3 py-2 text-xs font-bold text-slate-800">
