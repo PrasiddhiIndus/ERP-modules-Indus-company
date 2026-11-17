@@ -27,7 +27,7 @@ export const SALARY_NAV = [{ to: HR_SALARY_DASHBOARD, label: "Dashboard" }];
 
 /** Sidebar under Payroll & compliance. Same order and labels as the payroll module. */
 export const SALARY_SUB_NAV = [
-  { to: "dashboard", label: "Dashboard", group: "Payroll", icon: "dashboard" },
+  { to: "dashboard", label: "Dashboard", icon: "dashboard" },
   { to: "process", label: "Process salary", icon: "process" },
   { to: "employees", label: "Employee master", icon: "employees" },
   { to: "held", label: "Held salary", icon: "held" },
