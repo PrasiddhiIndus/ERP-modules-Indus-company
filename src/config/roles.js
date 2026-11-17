@@ -1078,6 +1078,7 @@ export const NAV_MODULE_TREE = [
       { value: "billing.reports",       label: "Reports",              pathPrefix: "/app/billing/reports" },
       { value: "billing.tracking",      label: "Tracking",             pathPrefix: "/app/billing/tracking" },
       { value: "billing.notifications", label: "Notifications",        pathPrefix: "/app/billing/notifications" },
+      { value: "billing.tracker",       label: "Billing Tracker",      pathPrefix: "/app/billing/tracker" },
     ],
   },
   {
@@ -1093,6 +1094,7 @@ export const NAV_MODULE_TREE = [
     label: "Projects",
     // Sidebar order: Dashboard → Enquiry → Quotation → PO at Glance → Contract → Management → Billing → Reports
     subModules: [
+      { value: "projects.dashboard", label: "Project Dashboard", pathPrefix: "/app/projects/dashboard" },
       {
         value: "projects.enquiry",
         label: "Enquiry Master",
@@ -1111,6 +1113,7 @@ export const NAV_MODULE_TREE = [
       },
       { value: "projects.management", label: "Management / Planning", pathPrefix: "/app/projects-management" },
       { value: "projects.billing", label: "Billing", pathPrefix: "/app/projects-billing" },
+      { value: "projects.reports", label: "Project Reports", pathPrefix: "/app/projects/reports" },
     ],
   },
   {
@@ -1152,6 +1155,11 @@ export const NAV_MODULE_TREE = [
         ],
       },
       {
+        value: "finance.bank-formats",
+        label: "Bank formats",
+        pathPrefix: "/app/accounts-finance/bank-formats",
+      },
+      {
         value: FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY,
         label: "Master PO At Glance",
         pathPrefix: FINANCE_MASTER_PO_AT_GLANCE_PATH,
@@ -1181,6 +1189,17 @@ export const NAV_MODULE_TREE = [
     subModules: [
       { value: "itIs.subscriptions", label: "Software Subscriptions (View / Update / Delete)",  pathPrefix: "/app/software-subscriptions-reminders" },
       { value: "itIs.api-health",    label: "API Health",              pathPrefix: "/app/api-health" },
+    ],
+  },
+  {
+    value: "indusLms",
+    label: "Indus LMS / Trainings",
+    subModules: [
+      {
+        value: "indusLms.trainings",
+        label: "Trainings",
+        pathPrefix: "/app/indus-lms-trainings",
+      },
     ],
   },
   {

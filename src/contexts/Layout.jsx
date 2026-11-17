@@ -1060,27 +1060,39 @@ const Layout = () => {
 
               {(commercialMtOpen || isRail) && (
                 <div data-title="Commercial" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  {canSub("commercialMt.dashboard") && (
                   <NavLink to="/app/commercial/manpower-training/dashboard" className={subNavClass}>
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
                   </NavLink>
+                  )}
+                  {canSub("commercialMt.enquiry") && (
                   <NavLink to="/app/manpower" end className={subNavClass}>
                     <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Enquiry</span>
                   </NavLink>
+                  )}
+                  {canSub("commercialMt.internal-quotation") && (
                   <NavLink to="/app/manpower/internal-quotation" className={subNavClass}>
                     <Calculator className="w-4 h-4 shrink-0 text-green-700" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Internal Quotation</span>
                   </NavLink>
+                  )}
+                  {canSub("commercialMt.quotation") && (
                   <NavLink to="/app/manpower/quotation" className={subNavClass}>
                     <ReceiptIcon className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Quotation</span>
                   </NavLink>
+                  )}
+                  {canSub("commercialMt.po-at-glance") && (
                   <NavLink to="/app/commercial/manpower-training/po-at-glance" className={subNavClass}>
                     <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">PO At Glance</span>
                   </NavLink>
+                  )}
 
+                  {canSub("commercialMt.configuration") && (
+                  <>
                   <button
                     type="button"
                     onClick={() => setManpowerConfigOpen((v) => !v)}
@@ -1117,18 +1129,26 @@ const Layout = () => {
                       </NavLink>
                     </div>
                   )}
+                  </>
+                  )}
+                  {canSub("commercialMt.po-entry") && (
                   <NavLink to="/app/commercial/manpower-training/po-entry" className={subNavClass}>
                     <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Contract Management</span>
                   </NavLink>
+                  )}
+                  {canSub("commercialMt.contact-log") && (
                   <NavLink to="/app/commercial/manpower-training/contact-log" className={subNavClass}>
                     <ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Contact Log</span>
                   </NavLink>
+                  )}
+                  {canSub("commercialMt.fire-tender-management") && (
                   <NavLink to="/app/commercial/manpower-training/fire-tender-management" className={subNavClass}>
                     <Truck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Fire Tender Management</span>
                   </NavLink>
+                  )}
                 </div>
               )}
             </div>
@@ -1323,10 +1343,13 @@ const Layout = () => {
 
               {(projectsOpen || isRail) && (
                 <div data-title="Projects" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  {canSub("projects.dashboard") && (
                   <NavLink to="projects/dashboard" className={subNavClass}>
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Project Dashboard</span>
                   </NavLink>
+                  )}
+                  {enquiryTabs.length > 0 && (
                   <NavLink
                     to={enquiryTabs.length ? `projects/enquiry/${enquiryTabs[0]}` : "projects/enquiry"}
                     className={() => subNavClass({ isActive: pathname.startsWith("/app/projects/enquiry") })}
@@ -1334,14 +1357,19 @@ const Layout = () => {
                     <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Enquiry Master</span>
                   </NavLink>
+                  )}
+                  {canSub("projects.quotation-master") && (
                   <NavLink to="projects/quotation" className={subNavClass}>
                     <ClipboardList className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Quotation Master</span>
                   </NavLink>
+                  )}
+                  {canSub("projects.po-at-glance") && (
                   <NavLink to="/app/projects-po-at-glance" end className={subNavClass}>
                     <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">PO at Glance</span>
                   </NavLink>
+                  )}
                   {contractTabs.length > 0 && (
                     <div>
                       <button
@@ -1380,18 +1408,24 @@ const Layout = () => {
                       )}
                     </div>
                   )}
+                  {canSub("projects.management") && (
                   <NavLink to="projects-management" className={subNavClass}>
                     <FolderOpen className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Management / Planning</span>
                   </NavLink>
+                  )}
+                  {canSub("projects.billing") && (
                   <NavLink to="/app/projects-billing" end className={subNavClass}>
                     <Receipt className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate">Billing</span>
                   </NavLink>
+                  )}
+                  {canSub("projects.reports") && (
                   <NavLink to="projects/reports" className={subNavClass}>
                     <FileSpreadsheet className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Project Reports</span>
                   </NavLink>
+                  )}
                 </div>
               )}
             </div>
@@ -1417,58 +1451,84 @@ const Layout = () => {
 
               {(maintenanceOpen || isRail) && (
                 <div data-title="Maintenance (M&M)" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  {canSub("maintenance.dashboard") && (
                   <NavLink to="/app/maintenance" className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Maintenance Dashboard</span>
                   </NavLink>
+                  )}
+                  {canSub("maintenance.enquiry-master") && (
                   <NavLink to="/app/maintenance/enquiry-master" className={subNavClass}>
                     <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Enquiry Master</span>
                   </NavLink>
+                  )}
+                  {canSub("maintenance.quotation") && (
                   <NavLink to="/app/maintenance/quotation-tracker" className={subNavClass}>
                     <RupeeIcon className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Quotation Tracker</span>
                   </NavLink>
+                  )}
+                  {canSub("maintenance.follow-up") && (
                   <NavLink to="/app/maintenance/follow-up-planner" className={subNavClass}>
                     <Calendar className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Follow-up Planner</span>
                   </NavLink>
+                  )}
+                  {canSub("maintenance.client-master") && (
                   <NavLink to="/app/maintenance/client-master" className={subNavClass}>
                     <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Client Master</span>
                   </NavLink>
+                  )}
+                  {canSub("maintenance.product-catalog") && (
                   <NavLink to="/app/maintenance/product-catalog" className={subNavClass}>
                     <Package className="w-4 h-4 shrink-0 text-yellow-600" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Product Catalog</span>
                   </NavLink>
+                  )}
+                  {canSub("maintenance.purchase-orders") && (
                   <NavLink to="/app/maintenance/purchase-orders" className={subNavClass}>
                     <ShoppingCart className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Purchase Orders</span>
                   </NavLink>
+                  )}
+                  {canSub("maintenance.mm-po-entry") && (
                   <NavLink to="/app/maintenance/mm-po-entry" className={subNavClass}>
                     <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">PO Entry</span>
                   </NavLink>
+                  )}
+                  {canSub("maintenance.po-at-glance") && (
                   <NavLink to="/app/maintenance/po-at-glance" end className={subNavClass}>
                     <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">PO At Glance</span>
                   </NavLink>
+                  )}
+                  {canSub("maintenance.expo-seminar") && (
                   <NavLink to="/app/maintenance/expo-seminar" className={subNavClass}>
                     <MapPin className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Expo & Seminar</span>
                   </NavLink>
+                  )}
+                  {canSub("maintenance.gst") && (
                   <NavLink to="/app/maintenance/gst-upload" className={subNavClass}>
                     <Receipt className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">GST Documents</span>
                   </NavLink>
+                  )}
+                  {canSub("maintenance.mail-template") && (
                   <NavLink to="/app/maintenance/mail-templates" className={subNavClass}>
                     <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Maintenance Mail Template</span>
                   </NavLink>
+                  )}
+                  {canSub("maintenance.reports") && (
                   <NavLink to="/app/maintenance/reports-analytics" className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Reports & Analytics</span>
                   </NavLink>
+                  )}
                 </div>
               )}
             </div>
@@ -1545,46 +1605,66 @@ const Layout = () => {
               </button>
               {(billingOpen || isRail) && (
                 <div data-title="Billing" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  {canSub("billing.dashboard") && (
                   <NavLink to="/app/billing" end className={subNavClass}>
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Billing Dashboard</span>
                   </NavLink>
+                  )}
+                  {canSub("billing.create") && (
                   <NavLink to="/app/billing/create-invoice" className={subNavClass}>
                     <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Create Invoice</span>
                   </NavLink>
+                  )}
+                  {canSub("billing.add-on") && (
                   <NavLink to="/app/billing/add-on-invoices" className={subNavClass}>
                     <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Add-On Invoices</span>
                   </NavLink>
+                  )}
+                  {canSub("billing.manage") && (
                   <NavLink to="/app/billing/manage-invoices" className={subNavClass}>
                     <FileText className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Manage Invoices</span>
                   </NavLink>
+                  )}
+                  {canSub("billing.e-invoice") && (
                   <NavLink to="/app/billing/generated-e-invoice" className={subNavClass}>
                     <FileDigit className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Generated E-Invoice</span>
                   </NavLink>
+                  )}
+                  {canSub("billing.credit-notes") && (
                   <NavLink to="/app/billing/credit-notes" className={subNavClass}>
                     <Receipt className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Credit/Debit Notes</span>
                   </NavLink>
+                  )}
+                  {canSub("billing.reports") && (
                   <NavLink to="/app/billing/reports" className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Reports</span>
                   </NavLink>
+                  )}
+                  {canSub("billing.tracking") && (
                   <NavLink to="/app/billing/tracking" className={subNavClass}>
                     <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Tracking</span>
                   </NavLink>
+                  )}
+                  {canSub("billing.notifications") && (
                   <NavLink to="/app/billing/notifications" className={subNavClass}>
                     <Bell className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Notifications</span>
                   </NavLink>
+                  )}
+                  {canSub("billing.tracker") && (
                   <NavLink to="/app/billing/tracker" className={subNavClass}>
                     <CalendarDays className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Billing Tracker</span>
                   </NavLink>
+                  )}
                 </div>
               )}
             </div>
@@ -1605,14 +1685,18 @@ const Layout = () => {
               </button>
               {(financeOpen || isRail) && (
                 <div data-title="Finance" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  {canSub("finance.pl") && (
                   <NavLink to="/app/accounts-finance/reports/site-ledger" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">P&amp;L</span>
                   </NavLink>
+                  )}
+                  {canSub("finance.bank-formats") && (
                   <NavLink to="/app/accounts-finance/bank-formats" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Bank formats</span>
                   </NavLink>
+                  )}
                   {canSub(FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY) && (
                   <NavLink to="/app/accounts-finance/po-at-glance" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -1797,30 +1881,42 @@ const Layout = () => {
 
               {(commercialRmOpen || isRail) && (
                 <div data-title="R&M" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                  {canSub("commercialRm.dashboard") && (
                   <NavLink to="/app/commercial/rm-mm-amc-iev/dashboard" className={subNavClass}>
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
                   </NavLink>
+                  )}
+                  {canSub("commercialRm.enquiry") && (
                   <NavLink to="/app/commercial/rm-mm-amc-iev/manpower-management" className={subNavClass}>
                     <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Enquiry</span>
                   </NavLink>
+                  )}
+                  {canSub("commercialRm.internal-quotation") && (
                   <NavLink to="/app/commercial/rm-mm-amc-iev/internal-quotation" className={subNavClass}>
                     <Calculator className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Internal Quotation</span>
                   </NavLink>
+                  )}
+                  {canSub("commercialRm.po-entry") && (
                   <NavLink to="/app/commercial/rm-mm-amc-iev/po-entry" className={subNavClass}>
                     <FileCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">PO Entry</span>
                   </NavLink>
+                  )}
+                  {canSub("commercialRm.contact-log") && (
                   <NavLink to="/app/commercial/rm-mm-amc-iev/contact-log" className={subNavClass}>
                     <ClipboardCheck className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Contact Log</span>
                   </NavLink>
+                  )}
+                  {canSub("commercialRm.po-at-glance") && (
                   <NavLink to="/app/commercial/rm-mm-amc-iev/po-at-glance" end className={subNavClass}>
                     <ClipboardList className="w-4 h-4 shrink-0 text-rose-600" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">PO At Glance</span>
                   </NavLink>
+                  )}
                 </div>
               )}
             </div>

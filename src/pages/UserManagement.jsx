@@ -2106,7 +2106,7 @@ const UserManagement = () => {
                       Module access
                     </label>
                     <span className="text-xs text-gray-500">
-                      Tick a module for full access, or untick it and expand to pick sub-modules and pages
+                      Tick a module for full access, or untick it and expand to pick pages. Role still controls Edit / Approve.
                     </span>
                   </div>
                   <div className="rounded-lg">
@@ -2319,7 +2319,7 @@ const UserManagement = () => {
                       Module access
                     </label>
                     <span className="text-xs text-gray-500">
-                      Tick a module for full access, or untick it and expand to pick sub-modules and pages
+                      Tick a module for full access, or untick it and expand to pick pages. Role still controls Edit / Approve.
                     </span>
                   </div>
                   <div className="rounded-lg">

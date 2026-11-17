@@ -77,6 +77,18 @@ export async function saveCmOc(payload) {
   return data;
 }
 
+/** Append-only customer PO versions for an OC (entered / amended); never overwritten. */
+export async function loadCmPoHistory(ocId) {
+  if (!ocId) return [];
+  const { data, error } = await supabase
+    .from("cm_oc_po_history")
+    .select("id, revision_no, event_kind, customer_po_no, customer_po_date, customer_po_notes, recorded_at")
+    .eq("oc_id", ocId)
+    .order("revision_no", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
 /** Signs one approval stage with the caller's own signature; returns { slot, signed_by, signed_at, signed_user_id }. */
 export async function signCmStage(ocId, slot) {
   const { data, error } = await supabase.rpc("cm_oc_sign_stage", { p_oc_id: ocId, p_slot: slot });
