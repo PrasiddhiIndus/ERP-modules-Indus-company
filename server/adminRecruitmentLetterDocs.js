@@ -323,7 +323,8 @@ function departmentClause(department) {
 /**
  * Letter header address under To,. Prefer Employee Master current address when
  * enrichAppointmentCandidate attached it; else recruitment location/hometown.
- * Splits on newlines then commas into at most 3 template lines (empty lines omitted).
+ * Packs into at most 3 lines: keep newline breaks as-is; for comma-only text,
+ * avoid orphaning a short house/flat number on its own line.
  */
 function splitAddress(candidate) {
   const raw = String(
@@ -334,28 +335,38 @@ function splitAddress(candidate) {
   ).trim();
   if (!raw) return { line1: '', line2: '', line3: '' };
 
-  const parts = [];
-  for (const chunk of raw.split(/\r?\n+/)) {
-    const line = String(chunk || '').trim();
-    if (!line) continue;
-    if (/,/.test(line)) {
-      for (const bit of line.split(/,\s*/)) {
-        const p = String(bit || '').trim();
-        if (p) parts.push(p);
-      }
-    } else {
-      parts.push(line);
+  const packThree = (parts) => {
+    const list = (parts || []).map((p) => String(p || '').trim()).filter(Boolean);
+    if (!list.length) return { line1: raw, line2: '', line3: '' };
+    if (list.length === 1) return { line1: list[0], line2: '', line3: '' };
+    if (list.length === 2) return { line1: list[0], line2: list[1], line3: '' };
+    if (list.length === 3) return { line1: list[0], line2: list[1], line3: list[2] };
+    // Merge a short leading house/flat no. with the next segment (e.g. "107" + street).
+    let start = 1;
+    let line1 = list[0];
+    if (list[0].length <= 8) {
+      line1 = `${list[0]}, ${list[1]}`;
+      start = 2;
     }
-  }
-  if (!parts.length) return { line1: raw, line2: '', line3: '' };
-  if (parts.length === 1) return { line1: parts[0], line2: '', line3: '' };
-  if (parts.length === 2) return { line1: parts[0], line2: parts[1], line3: '' };
-  if (parts.length === 3) return { line1: parts[0], line2: parts[1], line3: parts[2] };
-  return {
-    line1: parts[0],
-    line2: parts.slice(1, -1).join(', '),
-    line3: parts[parts.length - 1],
+    const rest = list.slice(start);
+    if (!rest.length) return { line1, line2: '', line3: '' };
+    if (rest.length === 1) return { line1, line2: rest[0], line3: '' };
+    if (rest.length === 2) return { line1, line2: rest[0], line3: rest[1] };
+    return {
+      line1,
+      line2: rest.slice(0, -1).join(', '),
+      line3: rest[rest.length - 1],
+    };
   };
+
+  // Prefer explicit newlines as letter lines (do not re-split those lines on commas).
+  const nlParts = raw
+    .split(/\r?\n+/)
+    .map((s) => String(s || '').trim())
+    .filter(Boolean);
+  if (nlParts.length >= 2) return packThree(nlParts);
+
+  return packThree(raw.split(/,\s*/));
 }
 
 /** Monthly CTC from calculator snapshot / expected_ctc, else offer annual/12. */
@@ -545,8 +556,8 @@ function formatDobShort(value) {
   if (!d) return '';
   const day = String(d.getDate()).padStart(2, '0');
   const month = d.toLocaleDateString('en-GB', { month: 'short' }).replace(/\.$/, '');
-  const yy = String(d.getFullYear()).slice(-2);
-  return `${day}-${month}-${yy}`;
+  // Annexure II shows the full year (e.g. 22-Jun-2004), not a 2-digit year.
+  return `${day}-${month}-${d.getFullYear()}`;
 }
 
 function formatDojShort(value) {

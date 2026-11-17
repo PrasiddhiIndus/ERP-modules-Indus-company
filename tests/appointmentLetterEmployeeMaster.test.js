@@ -73,7 +73,7 @@ describe("appointment letter Employee Master fields + formatting", () => {
     expect(addr.filter((x) => x === "").length).toBe(0);
 
     expect(t).toContain("11143");
-    expect(t).toMatch(/22-Jun-04/);
+    expect(t).toMatch(/22-Jun-2004/);
     expect(t).toContain("Employee Code");
     expect(t).toContain("DOB");
     expect(t).not.toContain("{{ADDRESS_LINE");
