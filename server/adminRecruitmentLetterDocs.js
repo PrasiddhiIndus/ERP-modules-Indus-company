@@ -1007,15 +1007,8 @@ function fixLibreOfficeAppointmentChrome(docxBuffer) {
       }
     }
 
-    const footerPath = 'word/footer1.xml';
-    const footerBefore = zip.file(footerPath)?.asText() || '';
-    if (footerBefore && /margin-left:-49/.test(footerBefore)) {
-      const footerAfter = rebuildLibreOfficeAppointmentFooter(footerBefore);
-      if (footerAfter && footerAfter !== footerBefore) {
-        zip.file(footerPath, footerAfter);
-        changed = true;
-      }
-    }
+    const withFooter = applyAppointmentFullWidthFooter(zip);
+    if (withFooter) changed = true;
 
     return changed ? zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }) : buf;
   } catch (err) {
@@ -1025,14 +1018,48 @@ function fixLibreOfficeAppointmentChrome(docxBuffer) {
   }
 }
 
-/** Flatten absolute VML footer bars into paragraph border + shaded bar (LibreOffice-safe). */
-function rebuildLibreOfficeAppointmentFooter(footerXml) {
-  const src = String(footerXml || '');
-  const nsMatch = src.match(/<w:ftr\b[^>]*>/);
-  if (!nsMatch) return src;
-  const decl = src.startsWith('<?xml') ? src.slice(0, src.indexOf('?>') + 2) + '\n' : '';
-  // Keep the address-strip image (rId1 → image4.png); drop absolute red rect + grey line.
-  return `${decl}${nsMatch[0]}<w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="8" w:space="6" w:color="333333"/></w:pBdr><w:jc w:val="center"/><w:spacing w:before="80" w:after="40" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:pict><v:shapetype id="_x0000_t75" coordsize="21600,21600" o:spt="75" o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f"><v:stroke joinstyle="miter"/><v:formulas><v:f eqn="if lineDrawn pixelLineWidth 0"/><v:f eqn="sum @0 1 0"/><v:f eqn="sum 0 0 @1"/><v:f eqn="prod @2 1 2"/><v:f eqn="prod @3 21600 pixelWidth"/><v:f eqn="prod @3 21600 pixelHeight"/><v:f eqn="sum @0 0 1"/><v:f eqn="prod @6 1 2"/><v:f eqn="prod @7 21600 pixelWidth"/><v:f eqn="sum @8 21600 0"/><v:f eqn="prod @7 21600 pixelHeight"/><v:f eqn="sum @10 21600 0"/></v:formulas><v:path o:extrusionok="f" gradientshapeok="t" o:connecttype="rect"/><o:lock v:ext="edit" aspectratio="t"/></v:shapetype><v:shape id="_x0000_i1027" type="#_x0000_t75" style="width:525pt;height:38.4pt"><v:imagedata r:id="rId1" o:title="11111"/></v:shape></w:pict></w:r></w:p><w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="80" w:lineRule="exact"/><w:shd w:val="clear" w:color="auto" w:fill="C00000"/></w:pPr><w:r><w:t xml:space="preserve"> </w:t></w:r></w:p></w:ftr>`;
+/**
+ * PDF-only footer: one full-page image with black line + address + red bar connected
+ * edge-to-edge (matches Word). Absolute VML bars often leave a gap on the right in PDF.
+ * Returns true when the zip was modified.
+ */
+function applyAppointmentFullWidthFooter(zip) {
+  const footerPngPath = path.join(__dirname, 'assets', 'appointment-footer-full.png');
+  if (!fs.existsSync(footerPngPath)) return false;
+  const footerPath = 'word/footer1.xml';
+  const footerBefore = zip.file(footerPath)?.asText() || '';
+  if (!footerBefore) return false;
+  // Already replaced with the full-bleed footer image.
+  if (/appointment-footer-full|o:title="footer-full"/i.test(footerBefore)) return false;
+
+  const png = fs.readFileSync(footerPngPath);
+  zip.file('word/media/image4.png', png);
+
+  const nsMatch = footerBefore.match(/<w:ftr\b[^>]*>/);
+  if (!nsMatch) return false;
+  const decl = footerBefore.startsWith('<?xml')
+    ? `${footerBefore.slice(0, footerBefore.indexOf('?>') + 2)}\n`
+    : '';
+  // 1240×155 px @ 150 dpi → 595.3pt × 74.4pt. Negative indent reaches page edges
+  // (template margins: left 993 twips, right 758 twips).
+  const footerAfter = `${decl}${nsMatch[0]}<w:p><w:pPr><w:ind w:left="-993" w:right="-758"/><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr><w:r><w:pict><v:shapetype id="_x0000_t75" coordsize="21600,21600" o:spt="75" o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f"><v:stroke joinstyle="miter"/><v:formulas><v:f eqn="if lineDrawn pixelLineWidth 0"/><v:f eqn="sum @0 1 0"/><v:f eqn="sum 0 0 @1"/><v:f eqn="prod @2 1 2"/><v:f eqn="prod @3 21600 pixelWidth"/><v:f eqn="prod @3 21600 pixelHeight"/><v:f eqn="sum @0 0 1"/><v:f eqn="prod @6 1 2"/><v:f eqn="prod @7 21600 pixelWidth"/><v:f eqn="sum @8 21600 0"/><v:f eqn="prod @7 21600 pixelHeight"/><v:f eqn="sum @10 21600 0"/></v:formulas><v:path o:extrusionok="f" gradientshapeok="t" o:connecttype="rect"/><o:lock v:ext="edit" aspectratio="t"/></v:shapetype><v:shape id="_x0000_i1027" type="#_x0000_t75" style="width:595.3pt;height:74.4pt" o:allowincell="f"><v:imagedata r:id="rId1" o:title="footer-full"/></v:shape></w:pict></w:r></w:p></w:ftr>`;
+  zip.file(footerPath, footerAfter);
+  return true;
+}
+
+/** PDF convert buffer: connect black + red footer bars edge-to-edge (stored DOCX unchanged). */
+export function fixAppointmentFooterForPdf(docxBuffer) {
+  const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
+  if (buf.length < 100) return buf;
+  try {
+    const zip = new PizZip(buf);
+    if (!applyAppointmentFullWidthFooter(zip)) return buf;
+    return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[admin-recruitment] appointment footer PDF fix skipped:', err?.message || err);
+    return buf;
+  }
 }
 
 /** Drop empty trailing paragraphs inside table cells (Annexure II Department row, etc.). */
@@ -1468,11 +1495,15 @@ export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
 
   // Word / Graph print the filled template; appointment buffer is re-finalized so
   // production email PDF matches the stored 4-page Word letter (blank page stripped).
-  const exactBuffer = isOfferLetter
+  // Footer black+red bars are flattened to a full-width image for PDF only (DOCX download unchanged).
+  let exactBuffer = isOfferLetter
     ? normalizeOfferLetterDocxLayout(docxBuffer)
     : isAppointmentLetter
       ? finalizeAppointmentLetterDocx(docxBuffer)
       : docxBuffer;
+  if (isAppointmentLetter) {
+    exactBuffer = fixAppointmentFooterForPdf(exactBuffer);
+  }
 
   if (!forceLibreOffice && process.platform === 'win32') {
     const viaWord = await convertDocxViaWord(exactBuffer, baseName);
