@@ -67,6 +67,7 @@ export const ROUTE_MODULE_MAP = [
   ['/app/admin/alerts-notifications', 'IN-House HR/Admin · Alerts & notifications'],
   ['/app/admin/reports-analytics', 'IN-House HR/Admin · Reports & analytics'],
   ['/app/admin/dashboard', 'IN-House HR/Admin · Dashboard'],
+  ['/app/activity-history', 'Internal Utilities · Activity history'],
   ['/app/compliance/payroll-process', 'Compliance · Payroll'],
   ['/app/compliance/forms', 'Compliance · Forms'],
   ['/app/compliance', 'Compliance · Dashboard'],

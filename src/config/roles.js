@@ -19,6 +19,10 @@ import {
   EMPLOYEE_MASTER_PATH_PREFIX,
 } from '../pages/adminOperations/salaryAdmin/salaryAccess';
 import {
+  canAccessActivityLog,
+  isActivityLogAppPath,
+} from '../pages/adminOperations/activityLogAccess';
+import {
   canAccessComplianceSection,
   canOpenCompliancePath,
   isCompliancePath,
@@ -1727,6 +1731,11 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
   // Hard gate: Salary Admin only for allowlisted emails
   if (isSalaryAdminPath(pathname)) {
     return canAccessSalaryAdmin(accessIdentity, accessIdentity);
+  }
+
+  // Hard gate: full activity history is Super Admin / Super Admin Pro only
+  if (isActivityLogAppPath(pathname)) {
+    return canAccessActivityLog(accessIdentity);
   }
 
   // Payroll MIS for vertical heads: the page and database check report access themselves.

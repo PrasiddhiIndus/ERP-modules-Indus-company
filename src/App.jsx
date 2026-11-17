@@ -12,6 +12,7 @@ import { AppAccessConfigProvider } from "./contexts/AppAccessConfigContext";
 import SalaryAdminGuard from "./pages/adminOperations/salaryAdmin/SalaryAdminGuard";
 import RulesConsoleGuard from "./pages/adminOperations/rulesConsole/RulesConsoleGuard";
 import ProbationReviewsGuard from "./pages/adminOperations/probationReviews/ProbationReviewsGuard";
+import ActivityLogGuard from "./pages/adminOperations/ActivityLogGuard";
 import ComplianceGuard from "./pages/compliance/payroll/ComplianceGuard";
 import { checkSupabaseConnection } from "./lib/supabase";
 import { runBackendDiagnostics } from "./lib/backendDiagnostics";
@@ -111,6 +112,7 @@ import {
   AdminOpsDashboard,
   AdminOpsAlerts,
   AdminOpsReports,
+  ActivityLogHistoryPage,
   // AdminOpsSettings, // NAV_HIDDEN
   IndusPayrollPage,
   EmployeeOnboardingPage,
@@ -595,6 +597,7 @@ function App() {
             <Route path="admin/misc/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/alerts-notifications" element={<AdminOpsAlerts />} />
             <Route path="admin/reports-analytics" element={<AdminOpsReports />} />
+            <Route path="admin/activity-log" element={<Navigate to="/app/activity-history" replace />} />
             <Route path="admin/settings-masters" element={<Navigate to="/app/admin/dashboard" replace />} />
 
             {/* Legacy Admin Operations URL redirect */}
@@ -784,6 +787,10 @@ function App() {
             <Route path="all-employees" element={<AllEmployeesDirectoryPage />} />
             <Route path="software-subscriptions-reminders" element={<SoftwareSubscriptions />} />
             <Route path="api-health" element={<ApiHealthDashboard />} />
+            <Route
+              path="activity-history"
+              element={<ActivityLogGuard><ActivityLogHistoryPage /></ActivityLogGuard>}
+            />
 
             {/* Settings */}
             <Route path="settings" element={<Settings />} />
