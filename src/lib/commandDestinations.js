@@ -24,6 +24,7 @@ export const COMMAND_DESTINATIONS = [
   { label: "Employee Administration", path: "/app/admin/employee", group: "IN-House HR/Admin", keywords: "" },
   { label: "Salary Admin", path: "/app/admin/salary-admin", group: "IN-House HR/Admin", keywords: "payroll processing" },
   { label: "Rules Console", path: "/app/admin/rules-console", group: "IN-House HR/Admin", keywords: "policies" },
+  { label: "Activity history", path: "/app/activity-history", group: "Internal Utilities", keywords: "audit log who what when" },
   { label: "Compliance", path: "/app/compliance", group: "Compliance", keywords: "statutory pf esic" },
   { label: "IFSPL Employee Compliance", path: "/app/ifsp-employee-compliance", group: "Compliance", keywords: "" },
   { label: "Marketing", path: "/app/marketing", group: "Marketing", keywords: "leads" },
