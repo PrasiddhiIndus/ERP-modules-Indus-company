@@ -155,8 +155,8 @@ export default function CommercialPoList() {
                       {r.oc_no || <span className="rounded-full bg-amber-50 px-2 py-0.5 font-sans text-[11px] text-amber-700">Pending (Finance)</span>}
                     </td>
                     <td className="px-4 py-2 text-slate-600">{formatCmDate(r.oc_date) || "—"}</td>
-                    <td className="px-4 py-2 text-slate-900">{r.client_name}</td>
-                    <td className="px-4 py-2 text-slate-600">{r.po_wo_no}</td>
+                    <td className="px-4 py-2 text-slate-900">{r.client_name || "—"}</td>
+                    <td className="px-4 py-2 text-slate-600">{r.po_wo_no || "—"}</td>
                     <td className="px-4 py-2 text-slate-600">{cmCategoryLabel(r.po_category) || <span className="text-amber-700">Not set</span>}</td>
                     <td className="px-4 py-2 text-slate-600">
                       {r.duration_text || "—"}

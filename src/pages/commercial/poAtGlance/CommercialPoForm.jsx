@@ -679,7 +679,7 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
               <input type="date" className={`${inputCls} read-only:bg-slate-100 read-only:text-slate-500`} value={form.oc_date} readOnly={!isFinance} onChange={(e) => set("oc_date", e.target.value)} />
             </Value>
 
-            <Label required>Customer</Label>
+            <Label>Customer</Label>
             <Value>
               <input className={cls("client_name")} placeholder="Customer name" value={form.client_name} onChange={(e) => set("client_name", e.target.value)} />
               <FieldError msg={err("client_name")} />
@@ -690,12 +690,12 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
               <YesNo name="Whether SEZ" value={form.is_sez} onChange={(v) => set("is_sez", v)} />
             </Value>
 
-            <Label required>WO No.</Label>
+            <Label>WO No.</Label>
             <Value>
               <input className={cls("po_wo_no")} value={form.po_wo_no} onChange={(e) => set("po_wo_no", e.target.value)} />
               <FieldError msg={err("po_wo_no")} />
             </Value>
-            <Label required>Date</Label>
+            <Label>Date</Label>
             <Value>
               <input type="date" className={cls("po_date")} value={form.po_date} onChange={(e) => set("po_date", e.target.value)} />
               <FieldError msg={err("po_date")} />
@@ -800,7 +800,7 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
               })()}
             </Value>
 
-            <Label required>Description of work</Label>
+            <Label>Description of work</Label>
             <Value full>
               <textarea rows={2} className={cls("project_description")} value={form.project_description} onChange={(e) => set("project_description", e.target.value)} />
               <FieldError msg={err("project_description")} />
@@ -872,26 +872,26 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
             </div>
             <div className="md:col-span-4 grid grid-cols-2 border-b border-r border-slate-300 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
               {visibleManpowerFields.map(({ key, label }) => (
-                <div key={key} className="relative border-r border-slate-200 px-3 py-2 last:border-r-0">
+                <div key={key} className="relative min-w-0 border-r border-slate-200 px-3 py-2 last:border-r-0">
                   <div className="flex items-start justify-between gap-1">
-                    <span className="text-[11px] font-semibold text-slate-700">{label}</span>
+                    <span className="break-words text-[11px] font-semibold leading-snug text-slate-700">{label}</span>
                     {canEdit && (
                       <button
                         type="button"
                         aria-label={`Remove ${label}`}
                         onClick={() => removeBuiltinDeployment(key)}
-                        className="rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
                     )}
                   </div>
-                  <input
-                    type="text"
+                  <textarea
+                    rows={1}
                     inputMode="numeric"
                     placeholder="-"
                     aria-label={label}
-                    className={`${cls(key)} mt-1 text-center`}
+                    className={`${cls(key)} mt-1 resize-y overflow-hidden whitespace-pre-wrap break-words text-center [field-sizing:content]`}
                     value={form[key]}
                     onChange={(e) => set(key, digits(e.target.value))}
                     disabled={!canEdit}
@@ -900,10 +900,11 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
                 </div>
               ))}
               {(form.extra_deployment || []).map((row, i) => (
-                <div key={row.key} className="relative border-r border-slate-200 px-3 py-2 last:border-r-0">
+                <div key={row.key} className="relative min-w-0 border-r border-slate-200 px-3 py-2 last:border-r-0">
                   <div className="flex items-start gap-1">
-                    <input
-                      className={`${cls(`extra_deployment.${i}.label`)} min-w-0 flex-1 border-slate-200 px-1 py-0.5 text-[11px] font-semibold text-slate-700`}
+                    <textarea
+                      rows={1}
+                      className={`${cls(`extra_deployment.${i}.label`)} min-w-0 flex-1 resize-y overflow-hidden whitespace-pre-wrap break-words border-slate-200 px-1 py-0.5 text-[11px] font-semibold leading-snug text-slate-700 [field-sizing:content]`}
                       placeholder="e.g. Driver"
                       aria-label="Deployment name"
                       value={row.label}
@@ -915,18 +916,18 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
                         type="button"
                         aria-label="Remove deployment field"
                         onClick={() => removeDeploymentItem(i)}
-                        className="rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
                     )}
                   </div>
-                  <input
-                    type="text"
+                  <textarea
+                    rows={1}
                     inputMode="numeric"
                     placeholder="-"
                     aria-label={`${row.label || "Deployment"} quantity`}
-                    className={`${cls(`extra_deployment.${i}.count`)} mt-1 text-center`}
+                    className={`${cls(`extra_deployment.${i}.count`)} mt-1 resize-y overflow-hidden whitespace-pre-wrap break-words text-center [field-sizing:content]`}
                     value={row.count}
                     onChange={(e) => setDeploymentItem(i, { count: digits(e.target.value) })}
                     disabled={!canEdit}
