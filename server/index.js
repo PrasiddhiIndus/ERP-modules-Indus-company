@@ -1788,42 +1788,41 @@ app.post('/api/admin/salary/ctc-email', einvoiceRateLimit, requireAuth, requireC
   }
 });
 
-app.post('/api/fire-tender/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
-  try {
-    const result = await notifyOcSignoffAssignees({
-      db: crmInHouseServiceClient(),
-      ocId: req.body?.ocId,
-      signatures: req.body?.signatures,
-      senderMailboxId: req.body?.senderMailboxId,
-      signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
-    });
-    return res.json(result);
-  } catch (err) {
-    const status = Number(err?.status) || 500;
-    if (status >= 500) console.error('[oc/signoff-notify]', err?.message || err);
-    const message = err?.message || 'Could not send the sign-off notification.';
-    return res.status(status).json({ error: message, message });
-  }
-});
+/**
+ * PO At Glance sign-off emails (security fix C3). The caller is the authenticated user only:
+ * signatures, signer name, OC Number, remarks and sender mailbox are verified on the server —
+ * see server/ocSignoffNotifyApi.js. Only ocId, the signed slots, event and an optional
+ * senderMailboxId are read from the body.
+ */
+function ocSignoffNotifyHandler(department, logTag) {
+  return async (req, res) => {
+    try {
+      const result = await notifyOcSignoffAssignees({
+        db: crmInHouseServiceClient(),
+        department,
+        ocId: req.body?.ocId,
+        signatures: req.body?.signatures,
+        senderMailboxId: req.body?.senderMailboxId,
+        event: req.body?.event,
+        caller: {
+          userId: req.user?.id || null,
+          profile: req.profile || null,
+          emails: userEmailsFromRequest(req),
+        },
+      });
+      return res.json(result);
+    } catch (err) {
+      const status = Number(err?.status) || 500;
+      if (status >= 500) console.error(logTag, err?.message || err);
+      const message = err?.message || 'Could not send the sign-off notification.';
+      return res.status(status).json({ error: message, message });
+    }
+  };
+}
 
-app.post('/api/maintenance/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
-  try {
-    const result = await notifyOcSignoffAssignees({
-      db: crmInHouseServiceClient(),
-      ocId: req.body?.ocId,
-      signatures: req.body?.signatures,
-      senderMailboxId: req.body?.senderMailboxId,
-      signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
-      department: 'maintenance',
-    });
-    return res.json(result);
-  } catch (err) {
-    const status = Number(err?.status) || 500;
-    if (status >= 500) console.error('[maintenance/oc/signoff-notify]', err?.message || err);
-    const message = err?.message || 'Could not send the sign-off notification.';
-    return res.status(status).json({ error: message, message });
-  }
-});
+app.post('/api/fire-tender/oc/signoff-notify', einvoiceRateLimit, requireAuth, ocSignoffNotifyHandler('iev', '[oc/signoff-notify]'));
+
+app.post('/api/maintenance/oc/signoff-notify', einvoiceRateLimit, requireAuth, ocSignoffNotifyHandler('maintenance', '[maintenance/oc/signoff-notify]'));
 
 app.post('/api/employee-signature/file', requireAuth, async (req, res) => {
   try {
@@ -1876,29 +1875,7 @@ app.post('/api/employee-signature/file', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/projects/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
-  try {
-    const result = await notifyOcSignoffAssignees({
-      db: crmInHouseServiceClient(),
-      ocId: req.body?.ocId,
-      signatures: req.body?.signatures,
-      senderMailboxId: req.body?.senderMailboxId,
-      signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
-      department: 'projects',
-      event: req.body?.event,
-      ocNo: req.body?.ocNo,
-      ocDate: req.body?.ocDate,
-      remarks: req.body?.remarks,
-      actorName: req.body?.actorName,
-    });
-    return res.json(result);
-  } catch (err) {
-    const status = Number(err?.status) || 500;
-    if (status >= 500) console.error('[projects/oc/signoff-notify]', err?.message || err);
-    const message = err?.message || 'Could not send the sign-off notification.';
-    return res.status(status).json({ error: message, message });
-  }
-});
+app.post('/api/projects/oc/signoff-notify', einvoiceRateLimit, requireAuth, ocSignoffNotifyHandler('projects', '[projects/oc/signoff-notify]'));
 
 /**
  * Projects PO At Glance: signature of the login that signed one approval stage.
@@ -1951,43 +1928,9 @@ app.post('/api/projects/oc/signature-file', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/rm/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
-  try {
-    const result = await notifyOcSignoffAssignees({
-      db: crmInHouseServiceClient(),
-      ocId: req.body?.ocId,
-      signatures: req.body?.signatures,
-      senderMailboxId: req.body?.senderMailboxId,
-      signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
-      department: 'rm',
-    });
-    return res.json(result);
-  } catch (err) {
-    const status = Number(err?.status) || 500;
-    if (status >= 500) console.error('[rm/oc/signoff-notify]', err?.message || err);
-    const message = err?.message || 'Could not send the sign-off notification.';
-    return res.status(status).json({ error: message, message });
-  }
-});
+app.post('/api/rm/oc/signoff-notify', einvoiceRateLimit, requireAuth, ocSignoffNotifyHandler('rm', '[rm/oc/signoff-notify]'));
 
-app.post('/api/commercial/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
-  try {
-    const result = await notifyOcSignoffAssignees({
-      db: crmInHouseServiceClient(),
-      ocId: req.body?.ocId,
-      signatures: req.body?.signatures,
-      senderMailboxId: req.body?.senderMailboxId,
-      signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
-      department: 'commercial',
-    });
-    return res.json(result);
-  } catch (err) {
-    const status = Number(err?.status) || 500;
-    if (status >= 500) console.error('[commercial/oc/signoff-notify]', err?.message || err);
-    const message = err?.message || 'Could not send the sign-off notification.';
-    return res.status(status).json({ error: message, message });
-  }
-});
+app.post('/api/commercial/oc/signoff-notify', einvoiceRateLimit, requireAuth, ocSignoffNotifyHandler('commercial', '[commercial/oc/signoff-notify]'));
 
 /**
  * Commercial PO At Glance: signature of the login that signed one approval stage.

@@ -38,6 +38,12 @@ jobs:
       - name: Security check
         run: npm run security-check
 
+      - name: RLS policy check (no new USING (true) policies)
+        run: npm run security:rls
+
+      - name: Security regression tests
+        run: npm run test:security
+
       - name: Smoke tests
         run: npm run test:smoke
 
