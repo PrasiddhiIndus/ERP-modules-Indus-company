@@ -249,9 +249,9 @@ export default function InvoiceHtmlPreview({
   const uiTitle = docTitle;
 
   return (
-    <div className="w-full bg-[#e8e8e8] p-4 sm:p-6">
+    <div className="w-full bg-[#e8e8e8] dark:bg-surface-sunken p-4 sm:p-6">
       <div
-        className="mx-auto w-full max-w-[780px] bg-white border border-[#ccc] text-[#1f2937]"
+        className="erp-paper mx-auto w-full max-w-[780px] bg-white border border-[#ccc] text-[#1f2937]"
         style={{ fontFamily: 'var(--font-sans)' }}
       >
         <div className="px-[28px] pt-4 pb-3">

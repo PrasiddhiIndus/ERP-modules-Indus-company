@@ -29,6 +29,7 @@ import {
   uploadSoftwareSubFileToR2,
 } from "../lib/softwareSubR2";
 import FormDateInput from "../components/FormDateInput";
+import { confirmDialog } from "../lib/dialog";
 
 
 const TABLE_NAME = "software_subscriptions";
@@ -799,7 +800,7 @@ const SoftwareSubscriptions = () => {
   };
 
   const deleteSubscription = async (row) => {
-    if (!window.confirm(`Delete subscription for ${row.tool_service}?`)) return;
+    if (!(await confirmDialog({ title: "Delete subscription", message: `Delete subscription for ${row.tool_service}?`, confirmLabel: "Delete", tone: "danger" }))) return;
     setSaving(true);
     setError("");
     try {

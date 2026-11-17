@@ -6,6 +6,7 @@ import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { Modal } from "../../../components/erpUi";
 import { downloadBlob } from "../../../lib/exportNodeToPdf";
+import { forceLightThemeOnClone } from "../../../lib/captureLightTheme";
 import PayslipTemplate from "./PayslipTemplate";
 import { toast } from "../../../lib/toast";
 import { supabase } from "../../../lib/supabase";
@@ -26,6 +27,7 @@ async function payslipNodeToPdfBlob(node) {
     useCORS: true,
     backgroundColor: "#ffffff",
     logging: false,
+    onclone: forceLightThemeOnClone,
     scrollX: 0,
     scrollY: 0,
   });
@@ -117,7 +119,7 @@ export default function PayslipPreviewModal({ payslip: slip, onClose, profileHre
         </div>
       }
     >
-      <div className="max-h-[72vh] overflow-auto bg-[#e8e8e8] -mx-1 px-3 py-5 rounded-lg">
+      <div className="max-h-[72vh] overflow-auto bg-[#e8e8e8] dark:bg-surface-sunken -mx-1 px-3 py-5 rounded-lg">
         <div
           className="bg-white mx-auto"
           style={{

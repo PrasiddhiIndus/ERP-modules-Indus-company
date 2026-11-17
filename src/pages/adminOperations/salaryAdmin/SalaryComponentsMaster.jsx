@@ -24,6 +24,7 @@ import {
   validateComponentFormula,
 } from "./salaryComponentsCatalog";
 import { toast } from "../../../lib/toast";
+import { confirmDialog } from "../../../lib/dialog";
 
 const inputCls =
   "h-8 w-full border border-slate-200 rounded-md px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-accent/30";
@@ -357,7 +358,7 @@ export default function SalaryComponentsMaster() {
   };
 
   const handleDelete = async (row) => {
-    if (!window.confirm(`Remove ${row.code} from this employee’s CTC?`)) return;
+    if (!(await confirmDialog({ title: "Remove component", message: `Remove ${row.code} from this employee’s CTC?`, confirmLabel: "Remove", tone: "danger" }))) return;
     const ok = await persistPerson(personComponents.filter((c) => c.id !== row.id));
     if (ok) toast.success(`Removed ${row.code}`);
   };

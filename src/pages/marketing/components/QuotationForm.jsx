@@ -971,7 +971,7 @@ const QuotationForm = ({
                     value={enquiry.id}
                     style={{
                       backgroundColor: enquiry.hasQuotation ? 'var(--info-soft)' : 'white',
-                      color: enquiry.hasQuotation ? 'var(--info)' : 'inherit',
+                      color: enquiry.hasQuotation ? 'var(--info-text)' : 'inherit',
                       fontWeight: enquiry.hasQuotation ? '600' : 'inherit'
                     }}
                   >

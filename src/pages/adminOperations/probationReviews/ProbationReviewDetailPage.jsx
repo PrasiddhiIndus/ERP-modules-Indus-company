@@ -32,6 +32,7 @@ import { PROBATION_REVIEWS_PATH, useProbationReviewsAccess } from "./probationAc
 import { t } from "./probationStrings";
 import "./probationReview.css";
 import "./probationIoTheme.css";
+import { confirmDialog } from "../../../lib/dialog";
 
 export default function ProbationReviewDetailPage() {
   const { id = "" } = useParams();
@@ -304,7 +305,7 @@ export default function ProbationReviewDetailPage() {
         }
         const meta = await fetchOwnSignatureMeta();
         if (!meta.has_signature) throw new Error(t("probation.signatureRequired"));
-        if (!window.confirm(t("probation.submitConfirm"))) throw new Error("cancelled");
+        if (!(await confirmDialog({ title: "Submit review", message: t("probation.submitConfirm"), confirmLabel: "Submit" }))) throw new Error("cancelled");
         return submitProbationReviewL1(id, scores, recommendation, l1Remarks);
       },
       async () => {
@@ -323,7 +324,7 @@ export default function ProbationReviewDetailPage() {
         if (action === "approve") {
           const meta = await fetchOwnSignatureMeta();
           if (!meta.has_signature) throw new Error(t("probation.signatureRequired"));
-          if (!window.confirm(t("probation.approveConfirm"))) throw new Error("cancelled");
+          if (!(await confirmDialog({ title: "Approve review", message: t("probation.approveConfirm"), confirmLabel: "Approve" }))) throw new Error("cancelled");
         }
         const note = action === "approve" && stageAction === "l2" ? l2Remarks : comments;
         return actOnProbationReview(id, stageAction, action, note);

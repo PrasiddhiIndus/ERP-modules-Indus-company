@@ -78,14 +78,23 @@ export function employeesWithAnniversaryToday(employees, refDate = new Date()) {
   );
 }
 
-/** Work anniversary (date_of_joining). */
+/**
+ * Work anniversary flags only on milestone years: 5, 10, 15, …
+ * Year 0 (joining day) and non-milestone years are skipped.
+ */
+export function isWorkAnniversaryMilestone(years) {
+  const n = Number(years);
+  return Number.isFinite(n) && n >= 5 && n % 5 === 0;
+}
+
+/** Work anniversary milestone today (date_of_joining). */
 export function employeesWithWorkAnniversaryToday(employees, refDate = new Date()) {
-  return (employees || []).filter(
-    (e) =>
-      isActiveEmployee(e) &&
-      e.date_of_joining &&
-      isSameMonthDay(e.date_of_joining, refDate)
-  );
+  return (employees || []).filter((e) => {
+    if (!isActiveEmployee(e) || !e.date_of_joining || !isSameMonthDay(e.date_of_joining, refDate)) {
+      return false;
+    }
+    return isWorkAnniversaryMilestone(computeWorkAnniversaryYears(e.date_of_joining, refDate));
+  });
 }
 
 /**
@@ -134,12 +143,12 @@ export function employeesWithAnniversaryInRange(employees, fromDate, toDate) {
 }
 
 export function employeesWithWorkAnniversaryInRange(employees, fromDate, toDate) {
-  return (employees || []).filter(
-    (e) =>
-      isActiveEmployee(e) &&
-      e.date_of_joining &&
-      celebrationInRange(e.date_of_joining, fromDate, toDate)
-  );
+  return (employees || []).filter((e) => {
+    if (!isActiveEmployee(e) || !e.date_of_joining) return false;
+    const occurrenceIso = celebrationOccurrenceIsoInRange(e.date_of_joining, fromDate, toDate);
+    if (!occurrenceIso) return false;
+    return isWorkAnniversaryMilestone(computeWorkAnniversaryYears(e.date_of_joining, occurrenceIso));
+  });
 }
 
 /**

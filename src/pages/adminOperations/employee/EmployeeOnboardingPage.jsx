@@ -58,6 +58,7 @@ import {
   getEmployeeDocumentFileUrl,
   listEmployeeDocuments,
 } from "../../../lib/adminEmployeeDocuments";
+import { confirmDialog } from "../../../lib/dialog";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 const JOINING_ACCEPT = ".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp";
@@ -668,7 +669,7 @@ export function EmployeeOnboardingPage() {
       toast.warning("Manage this document from Employee Master.");
       return;
     }
-    const ok = window.confirm(`Remove “${doc.title}”?`);
+    const ok = await confirmDialog({ title: "Remove document", message: `Remove “${doc.title}”?`, confirmLabel: "Remove", tone: "danger" });
     if (!ok) return;
     setSaving(true);
     try {

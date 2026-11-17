@@ -323,7 +323,8 @@ function departmentClause(department) {
 /**
  * Letter header address under To,. Prefer Employee Master current address when
  * enrichAppointmentCandidate attached it; else recruitment location/hometown.
- * Splits on newlines then commas into at most 3 template lines (empty lines omitted).
+ * Packs into at most 3 lines: keep newline breaks as-is; for comma-only text,
+ * avoid orphaning a short house/flat number on its own line.
  */
 function splitAddress(candidate) {
   const raw = String(
@@ -334,28 +335,38 @@ function splitAddress(candidate) {
   ).trim();
   if (!raw) return { line1: '', line2: '', line3: '' };
 
-  const parts = [];
-  for (const chunk of raw.split(/\r?\n+/)) {
-    const line = String(chunk || '').trim();
-    if (!line) continue;
-    if (/,/.test(line)) {
-      for (const bit of line.split(/,\s*/)) {
-        const p = String(bit || '').trim();
-        if (p) parts.push(p);
-      }
-    } else {
-      parts.push(line);
+  const packThree = (parts) => {
+    const list = (parts || []).map((p) => String(p || '').trim()).filter(Boolean);
+    if (!list.length) return { line1: raw, line2: '', line3: '' };
+    if (list.length === 1) return { line1: list[0], line2: '', line3: '' };
+    if (list.length === 2) return { line1: list[0], line2: list[1], line3: '' };
+    if (list.length === 3) return { line1: list[0], line2: list[1], line3: list[2] };
+    // Merge a short leading house/flat no. with the next segment (e.g. "107" + street).
+    let start = 1;
+    let line1 = list[0];
+    if (list[0].length <= 8) {
+      line1 = `${list[0]}, ${list[1]}`;
+      start = 2;
     }
-  }
-  if (!parts.length) return { line1: raw, line2: '', line3: '' };
-  if (parts.length === 1) return { line1: parts[0], line2: '', line3: '' };
-  if (parts.length === 2) return { line1: parts[0], line2: parts[1], line3: '' };
-  if (parts.length === 3) return { line1: parts[0], line2: parts[1], line3: parts[2] };
-  return {
-    line1: parts[0],
-    line2: parts.slice(1, -1).join(', '),
-    line3: parts[parts.length - 1],
+    const rest = list.slice(start);
+    if (!rest.length) return { line1, line2: '', line3: '' };
+    if (rest.length === 1) return { line1, line2: rest[0], line3: '' };
+    if (rest.length === 2) return { line1, line2: rest[0], line3: rest[1] };
+    return {
+      line1,
+      line2: rest.slice(0, -1).join(', '),
+      line3: rest[rest.length - 1],
+    };
   };
+
+  // Prefer explicit newlines as letter lines (do not re-split those lines on commas).
+  const nlParts = raw
+    .split(/\r?\n+/)
+    .map((s) => String(s || '').trim())
+    .filter(Boolean);
+  if (nlParts.length >= 2) return packThree(nlParts);
+
+  return packThree(raw.split(/,\s*/));
 }
 
 /** Monthly CTC from calculator snapshot / expected_ctc, else offer annual/12. */
@@ -545,8 +556,8 @@ function formatDobShort(value) {
   if (!d) return '';
   const day = String(d.getDate()).padStart(2, '0');
   const month = d.toLocaleDateString('en-GB', { month: 'short' }).replace(/\.$/, '');
-  const yy = String(d.getFullYear()).slice(-2);
-  return `${day}-${month}-${yy}`;
+  // Annexure II shows the full year (e.g. 22-Jun-2004), not a 2-digit year.
+  return `${day}-${month}-${d.getFullYear()}`;
 }
 
 function formatDojShort(value) {
@@ -897,11 +908,14 @@ function fixAppointmentAnnexureIPagination(xml) {
 }
 
 /**
- * LibreOffice-only prep: compact No Spacing, annexure page break, strip blank name page, font remap.
- * Exported for regression tests. Does not change the stored Word template.
+ * LibreOffice-only prep: compact No Spacing, annexure page break, strip blank name page,
+ * letterhead/footer VML fixes, font remap. Exported for regression tests.
+ * Does not change the stored Word template or the Word/Graph PDF path.
  */
 export function prepareAppointmentDocxForLibreOffice(docxBuffer) {
-  return remapDocxFontsForLibreOffice(normalizeAppointmentLetterDocxLayout(docxBuffer));
+  return remapDocxFontsForLibreOffice(
+    fixLibreOfficeAppointmentChrome(normalizeAppointmentLetterDocxLayout(docxBuffer)),
+  );
 }
 
 /** Appointment-only layout fixes for Word-faithful PDF. Does not touch offer table/page logic. */
@@ -927,6 +941,8 @@ function normalizeAppointmentLetterDocxLayout(docxBuffer) {
     // Benefits on page 2 + tighten signature→Annexure gap (LibreOffice blank page).
     docXml = ensureAppointmentBenefitsPageBreak(docXml);
     docXml = fixAppointmentAnnexureIPagination(docXml);
+    // Empty trailing cell paragraphs inflate Annexure II row heights in LibreOffice.
+    docXml = stripTrailingEmptyTableCellParagraphs(docXml);
     docXml = pinAppointmentNoSpacingParagraphs(docXml);
 
     const stylesFile = zip.file('word/styles.xml');
@@ -942,6 +958,178 @@ function normalizeAppointmentLetterDocxLayout(docxBuffer) {
     console.warn('[admin-recruitment] appointment layout normalize skipped:', err?.message || err);
     return buf;
   }
+}
+
+/**
+ * LibreOffice ignores VML cropright on the letterhead EMF (full strip squeezed into a
+ * narrow box → overlapping letters) and mis-places absolute footer bars. Swap the EMF
+ * for a pre-cropped PNG and flatten the footer to inline content for the LO convert only.
+ */
+function fixLibreOfficeAppointmentChrome(docxBuffer) {
+  const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
+  if (buf.length < 100) return buf;
+  try {
+    const zip = new PizZip(buf);
+    let changed = false;
+
+    // Keep US Letter (template) — LibreOffice user profiles often default to A4.
+    if (applyAppointmentLetterPageSize(zip)) changed = true;
+
+    const letterheadPngPath = path.join(__dirname, 'assets', 'appointment-letterhead-left.png');
+    if (fs.existsSync(letterheadPngPath)) {
+      const relsPath = 'word/_rels/document.xml.rels';
+      const rels = zip.file(relsPath)?.asText() || '';
+      if (/Target="media\/image1\.emf"/i.test(rels)) {
+        zip.file('word/media/image1.png', fs.readFileSync(letterheadPngPath));
+        zip.file(relsPath, rels.replace(/Target="media\/image1\.emf"/i, 'Target="media/image1.png"'));
+        try {
+          zip.remove('word/media/image1.emf');
+        } catch {
+          /* optional */
+        }
+        const docPath = 'word/document.xml';
+        const docXml = zip.file(docPath)?.asText() || '';
+        // Drop cropleft/cropright/etc so LO uses the already-cropped PNG as-is.
+        const nextDoc = docXml.replace(
+          /(<v:imagedata\b[^>]*r:id="rId7"[^>]*)(\/?>)/gi,
+          (_full, open, close) => `${open.replace(/\s+crop(?:left|right|top|bottom)="[^"]*"/gi, '')}${close}`,
+        );
+        if (nextDoc !== docXml) zip.file(docPath, nextDoc);
+        const ctPath = '[Content_Types].xml';
+        const ct = zip.file(ctPath)?.asText() || '';
+        if (ct && !/Extension="png"/i.test(ct)) {
+          zip.file(
+            ctPath,
+            ct.replace(
+              /<Types[^>]*>/,
+              (open) => `${open}<Default Extension="png" ContentType="image/png"/>`,
+            ),
+          );
+        }
+        changed = true;
+      }
+    }
+
+    const withFooter = applyAppointmentFullWidthFooter(zip);
+    if (withFooter) changed = true;
+
+    return changed ? zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }) : buf;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[admin-recruitment] LibreOffice chrome fix skipped:', err?.message || err);
+    return buf;
+  }
+}
+
+/** Appointment letter template page size (US Letter): 8.5" × 11" = 12240 × 15840 twips. */
+const APPOINTMENT_LETTER_PG_W = '12240';
+const APPOINTMENT_LETTER_PG_H = '15840';
+/** Full Letter width in points (matches template footer red bar 611.55pt ≈ 612pt). */
+const APPOINTMENT_LETTER_FOOTER_WIDTH_PT = '612';
+const APPOINTMENT_LETTER_FOOTER_HEIGHT_PT = '74.4';
+
+/**
+ * Pin every section to US Letter so Word/LibreOffice/Graph cannot fall back to A4.
+ * Returns true when the zip was modified.
+ */
+function applyAppointmentLetterPageSize(zip) {
+  const docPath = 'word/document.xml';
+  const xml = zip.file(docPath)?.asText() || '';
+  if (!xml) return false;
+  let changed = false;
+  const next = xml.replace(/<w:pgSz\b[^/]*\/>/g, (tag) => {
+    const pinned = `<w:pgSz w:w="${APPOINTMENT_LETTER_PG_W}" w:h="${APPOINTMENT_LETTER_PG_H}"/>`;
+    if (tag !== pinned) changed = true;
+    return pinned;
+  });
+  if (changed) zip.file(docPath, next);
+  return changed;
+}
+
+/**
+ * Align absolute VML footer bars to full Letter width (source DOCX already uses Letter;
+ * the black line was slightly shorter than the red bar, which showed as a right-edge gap in PDF).
+ * Returns true when modified.
+ */
+function alignAppointmentFooterBarsToLetter(zip) {
+  const footerPath = 'word/footer1.xml';
+  let footer = zip.file(footerPath)?.asText() || '';
+  if (!footer || /o:title="footer-full"/i.test(footer)) return false;
+  const before = footer;
+  // Match the red bar's Letter full-bleed geometry.
+  footer = footer
+    .replace(/margin-left:-48\.75pt/gi, 'margin-left:-49.2pt')
+    .replace(/width:607\.5pt/gi, 'width:611.55pt');
+  if (footer === before) return false;
+  zip.file(footerPath, footer);
+  return true;
+}
+
+/**
+ * LibreOffice / Graph PDF-only footer: one Letter-width image (black line + address + red bar).
+ * Do not use A4 width (595.3pt) — the appointment template is US Letter (612pt).
+ * Returns true when the zip was modified.
+ */
+function applyAppointmentFullWidthFooter(zip) {
+  const footerPngPath = path.join(__dirname, 'assets', 'appointment-footer-full.png');
+  if (!fs.existsSync(footerPngPath)) return false;
+  const footerPath = 'word/footer1.xml';
+  const footerBefore = zip.file(footerPath)?.asText() || '';
+  if (!footerBefore) return false;
+  // Already replaced with the full-bleed footer image.
+  if (/appointment-footer-full|o:title="footer-full"/i.test(footerBefore)) return false;
+
+  const png = fs.readFileSync(footerPngPath);
+  zip.file('word/media/image4.png', png);
+
+  const nsMatch = footerBefore.match(/<w:ftr\b[^>]*>/);
+  if (!nsMatch) return false;
+  const decl = footerBefore.startsWith('<?xml')
+    ? `${footerBefore.slice(0, footerBefore.indexOf('?>') + 2)}\n`
+    : '';
+  // 1275×155 px @ 150 dpi → 612pt × 74.4pt (US Letter). Negative indent reaches page edges
+  // (template margins: left 993 twips, right 758 twips). Keep pgMar footer="0" so the red
+  // bar sits on the page edge — raising footer distance leaves empty space below the bar.
+  // Absolute VML (like the Word template) anchors the strip to the bottom.
+  const footerAfter = `${decl}${nsMatch[0]}<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr><w:r><w:pict><v:shapetype id="_x0000_t75" coordsize="21600,21600" o:spt="75" o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f"><v:stroke joinstyle="miter"/><v:formulas><v:f eqn="if lineDrawn pixelLineWidth 0"/><v:f eqn="sum @0 1 0"/><v:f eqn="sum 0 0 @1"/><v:f eqn="prod @2 1 2"/><v:f eqn="prod @3 21600 pixelWidth"/><v:f eqn="prod @3 21600 pixelHeight"/><v:f eqn="sum @0 0 1"/><v:f eqn="prod @6 1 2"/><v:f eqn="prod @7 21600 pixelWidth"/><v:f eqn="sum @8 21600 0"/><v:f eqn="prod @7 21600 pixelHeight"/><v:f eqn="sum @10 21600 0"/></v:formulas><v:path o:extrusionok="f" gradientshapeok="t" o:connecttype="rect"/><o:lock v:ext="edit" aspectratio="t"/></v:shapetype><v:shape id="_x0000_i1027" type="#_x0000_t75" style="position:absolute;margin-left:-49.2pt;margin-top:0;width:${APPOINTMENT_LETTER_FOOTER_WIDTH_PT}pt;height:${APPOINTMENT_LETTER_FOOTER_HEIGHT_PT}pt;z-index:1" o:allowincell="f"><v:imagedata r:id="rId1" o:title="footer-full"/></v:shape></w:pict></w:r></w:p></w:ftr>`;
+  zip.file(footerPath, footerAfter);
+  return true;
+}
+
+/**
+ * PDF convert buffer for Word COM: keep Letter page size + connect VML footer bars
+ * (stored DOCX unchanged). Does not swap in the LO full-bleed PNG.
+ */
+export function fixAppointmentFooterForPdf(docxBuffer) {
+  const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
+  if (buf.length < 100) return buf;
+  try {
+    const zip = new PizZip(buf);
+    const page = applyAppointmentLetterPageSize(zip);
+    const bars = alignAppointmentFooterBarsToLetter(zip);
+    if (!page && !bars) return buf;
+    return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[admin-recruitment] appointment footer PDF fix skipped:', err?.message || err);
+    return buf;
+  }
+}
+
+/** Drop empty trailing paragraphs inside table cells (Annexure II Department row, etc.). */
+function stripTrailingEmptyTableCellParagraphs(xml) {
+  return String(xml || '').replace(/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/g, (tc) => {
+    const paras = [...tc.matchAll(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)];
+    if (paras.length < 2) return tc;
+    let out = tc;
+    for (let i = paras.length - 1; i >= 1; i -= 1) {
+      const p = paras[i][0];
+      if (paragraphPlainText(p)) break;
+      if (/w:pict|w:drawing|w:pageBreakBefore/.test(p)) break;
+      out = out.replace(p, '');
+    }
+    return out;
+  });
 }
 
 /**
@@ -1312,8 +1500,19 @@ $word.Visible = $false
 $word.DisplayAlerts = 0
 try {
   $doc = $word.Documents.Open($src, $false, $true)
+  # Force US Letter (8.5 x 11 in = 612 x 792 pt) so printer/locale A4 defaults cannot resize the PDF.
+  # Keep FooterDistance at the template value (0) so the red bar sits on the page edge —
+  # raising it leaves empty white space below the footer in the PDF.
+  foreach ($section in $doc.Sections) {
+    $ps = $section.PageSetup
+    $ps.Orientation = 0 # wdOrientPortrait
+    try { $ps.PaperSize = 1 } catch { } # wdPaperLetter
+    $ps.PageWidth = 612
+    $ps.PageHeight = 792
+    $ps.FooterDistance = 0
+  }
   if (Test-Path $out) { Remove-Item $out -Force }
-  # 17 = wdFormatPDF
+  # 17 = wdFormatPDF (SaveAs2 keeps the section page size; ExportAsFixedFormat can remount paper)
   $doc.SaveAs2($out, 17)
   $doc.Close($false)
 } finally {
@@ -1360,12 +1559,17 @@ export async function convertDocxBufferToPdf(docxBuffer, baseName = 'letter') {
   const forceLibreOffice = String(process.env.FORCE_LIBREOFFICE_PDF || '').trim() === '1';
 
   // Word / Graph print the filled template; appointment buffer is re-finalized so
-  // production email PDF matches the stored 4-page Word letter (blank page stripped).
-  const exactBuffer = isOfferLetter
+  // production email PDF matches the stored Word letter (blank page stripped).
+  // Appointment: pin US Letter page size + align footer bars (DOCX download unchanged).
+  // LibreOffice path additionally flattens footer to a Letter-width image.
+  let exactBuffer = isOfferLetter
     ? normalizeOfferLetterDocxLayout(docxBuffer)
     : isAppointmentLetter
       ? finalizeAppointmentLetterDocx(docxBuffer)
       : docxBuffer;
+  if (isAppointmentLetter) {
+    exactBuffer = fixAppointmentFooterForPdf(exactBuffer);
+  }
 
   if (!forceLibreOffice && process.platform === 'win32') {
     const viaWord = await convertDocxViaWord(exactBuffer, baseName);
@@ -1556,11 +1760,12 @@ export async function buildAppointmentLetterPdf(appt, offer, candidate, companyN
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
   const p = appointmentPlaceholders(appt, offer, candidate, companyName);
   const pdf = await PDFDocument.create();
-  const page = pdf.addPage([595.28, 841.89]);
+  // US Letter — same page size as appointment-letter.docx (not A4).
+  const page = pdf.addPage([612, 792]);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const margin = 54;
-  let y = 841.89 - 40;
+  let y = 792 - 40;
 
   const letterheadPath = path.join(TEMPLATE_DIR, 'offer-assets', 'letterhead.png');
   try {
@@ -1568,7 +1773,7 @@ export async function buildAppointmentLetterPdf(appt, offer, candidate, companyN
       const img = await pdf.embedPng(fs.readFileSync(letterheadPath));
       const w = 220;
       const h = (img.height / img.width) * w;
-      page.drawImage(img, { x: (595.28 - w) / 2, y: y - h, width: w, height: h });
+      page.drawImage(img, { x: (612 - w) / 2, y: y - h, width: w, height: h });
       y -= h + 18;
     }
   } catch {

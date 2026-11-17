@@ -5,6 +5,7 @@ import { exportToExcel } from './utils/excelExport';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import * as XLSX from 'xlsx';
 import { toast } from '../../lib/toast';
+import { confirmDialog } from "../../lib/dialog";
 
 const ProductCatalog = () => {
   const [products, setProducts] = useState([]);
@@ -167,7 +168,7 @@ const ProductCatalog = () => {
 
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this product?')) return;
+    if (!(await confirmDialog({ title: "Delete product", message: 'Are you sure you want to delete this product?', confirmLabel: "Delete", tone: "danger" }))) return;
 
     try {
       const { error } = await supabase

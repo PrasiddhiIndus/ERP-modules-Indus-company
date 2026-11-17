@@ -3,6 +3,7 @@ import { Check, Loader2, Trash2, X } from 'lucide-react';
 import { Modal } from '../../../components/erpUi';
 import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
 import { decideEnquiryDeletion, deletionErrorMessage } from './enquiryDeletionApi';
+import { confirmDialog } from "../../../lib/dialog";
 
 /** Manager view: pending enquiry deletion requests with Approve / Reject. */
 export default function EnquiryDeletionRequests({ requests, serialById, onDecided }) {
@@ -16,7 +17,12 @@ export default function EnquiryDeletionRequests({ requests, serialById, onDecide
     const question = approve
       ? `Delete enquiry #${serialById.get(req.enquiry_id) ?? req.enquiry_serial} permanently?`
       : 'Reject this request? The enquiry will stay.';
-    if (!window.confirm(question)) return;
+    if (!(await confirmDialog({
+        title: approve ? 'Delete enquiry' : 'Reject deletion request',
+        message: question,
+        confirmLabel: approve ? 'Delete' : 'Reject',
+        tone: 'danger',
+      }))) return;
     setBusyId(req.id);
     setError('');
     try {

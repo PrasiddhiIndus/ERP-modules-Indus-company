@@ -11,6 +11,7 @@ import {
 import { CHART_SERIES } from "../../theme/tokens";
 
 import { toast } from "../../lib/toast";
+import { confirmDialog } from "../../lib/dialog";
 const PARENT_PALETTE = [...CHART_SERIES];
 
 export default function ExpenseHeads() {
@@ -101,7 +102,7 @@ export default function ExpenseHeads() {
                   <span className="flex gap-1 justify-end">
                     <button type="button" className="text-xs text-blue-700" onClick={() => { setParentForm(r); setParentOpen(true); }}>Edit</button>
                     <button type="button" className="text-xs text-red-700" onClick={async () => {
-                      if (!confirm(`Delete parent "${r.label}"?`)) return;
+                      if (!(await confirmDialog({ title: "Delete parent head", message: `Delete parent "${r.label}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
                       await deleteExpenseParentHead(r.id);
                       refresh();
                     }}>Delete</button>
@@ -128,7 +129,7 @@ export default function ExpenseHeads() {
                   <span className="flex gap-1 justify-end">
                     <button type="button" className="text-xs text-blue-700" onClick={() => { setChildForm(r); setChildOpen(true); }}>Edit</button>
                     <button type="button" className="text-xs text-red-700" onClick={async () => {
-                      if (!confirm(`Delete "${r.label}"?`)) return;
+                      if (!(await confirmDialog({ title: "Delete expense head", message: `Delete "${r.label}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
                       await deleteExpenseChildHead(r.id);
                       refresh();
                     }}>Delete</button>

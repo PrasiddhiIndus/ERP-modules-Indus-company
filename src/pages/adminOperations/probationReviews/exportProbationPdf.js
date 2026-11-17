@@ -5,6 +5,7 @@
  * - Replaces <input>/<textarea> in the clone so text is not clipped
  * - Inlines signature images as data URLs so html2canvas always paints them
  */
+import { forceLightThemeOnClone } from '../../../lib/captureLightTheme';
 async function toDataUrl(src) {
     if (!src)
         return null;
@@ -96,6 +97,7 @@ export async function exportNodeToPdfBlob(node, { marginMm = 10 } = {}) {
             scrollX: 0,
             scrollY: 0,
             onclone: (_doc, cloned) => {
+                forceLightThemeOnClone(_doc);
                 cloned.querySelectorAll('.pr-no-print').forEach((el) => {
                     el.style.display = 'none';
                 });

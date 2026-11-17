@@ -28,6 +28,7 @@ import {
   StatusBadge,
 } from "./deductionsUi";
 import { toast } from "../../../../lib/toast";
+import { confirmDialog } from "../../../../lib/dialog";
 
 function blankForm() {
   return {
@@ -190,9 +191,7 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
     const row = rows.find((r) => r.id === id);
     if (!row || row.status === "closed") return;
     if (status === "closed") {
-      const ok = window.confirm(
-        "Close this entry? It will stop affecting salary processing. History stays visible."
-      );
+      const ok = await confirmDialog({ title: "Close entry", message: "Close this entry? It will stop affecting salary processing. History stays visible.", confirmLabel: "Close entry" });
       if (!ok) return;
     }
     setBusy(true);

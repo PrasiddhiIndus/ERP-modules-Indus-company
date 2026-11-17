@@ -45,6 +45,7 @@ import {
   formatScopeTooltip,
   getScopeLabels,
 } from './summary/summaryHelpers';
+import { confirmDialog } from "../../../lib/dialog";
 
 export default function QuotationList() {
   const navigate = useNavigate();
@@ -214,7 +215,7 @@ export default function QuotationList() {
 
   const bulkUpdateStatus = async () => {
     if (!bulkStatus || selectedIds.size === 0) return;
-    if (!window.confirm(`Update ${selectedIds.size} quotation(s) to "${bulkStatus}"?`)) return;
+    if (!(await confirmDialog({ title: "Update quotation status", message: `Update ${selectedIds.size} quotation(s) to "${bulkStatus}"?`, confirmLabel: "Update" }))) return;
     try {
       const ids = [...selectedIds];
       const { error: e } = await projectsTable('quotations')
@@ -230,7 +231,7 @@ export default function QuotationList() {
   };
 
   const deleteRow = async (id) => {
-    if (!window.confirm('Delete this quotation?')) return;
+    if (!(await confirmDialog({ title: "Delete quotation", message: 'Delete this quotation?', confirmLabel: "Delete", tone: "danger" }))) return;
     try {
       const { error: e } = await projectsTable('quotations').delete().eq('id', id);
       if (e) throw e;
@@ -241,7 +242,7 @@ export default function QuotationList() {
   };
 
   const markRevised = async (row) => {
-    if (!window.confirm('Create revised offer (clone line items) and supersede this one?')) return;
+    if (!(await confirmDialog({ title: "Create revised offer", message: 'Create revised offer (clone line items) and supersede this one?', confirmLabel: "Create revision" }))) return;
     setBusyId(row.id);
     try {
       const inserted = await createQuotationRevision(row, { userId: user?.id });

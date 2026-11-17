@@ -61,6 +61,7 @@ import {
 } from "./utils/commercialInquiryAssignees";
 
 import { toast } from "../../lib/toast";
+import { confirmDialog } from "../../lib/dialog";
 const DEFAULT_PAGE_SIZE = 10;
 const DEFAULT_SORT = { key: "receivedDate", dir: "desc" };
 const MANPOWER_BASE = "/app/commercial/manpower-training/manpower-management";
@@ -510,7 +511,7 @@ const ManpowerManagement = () => {
   };
 
   const handleDelete = async (rowId) => {
-    if (!confirm("Delete this enquiry?")) return;
+    if (!(await confirmDialog({ title: "Delete enquiry", message: "Delete this enquiry?", confirmLabel: "Delete", tone: "danger" }))) return;
     const { error } = await supabase.from("manpower_enquiries").delete().eq("id", rowId);
     if (error) console.error(error);
     fetchEnquiries();

@@ -45,7 +45,7 @@ import {
   getReceivedMonthOptions,
   STATUS_CHART_COLORS,
 } from "./utils/manpowerInquiryDashboard";
-import { TOKENS } from "../../theme/tokens";
+import { UI_TOKENS } from "../../theme/tokens";
 import {
   FilterBar,
   KpiTile,
@@ -397,12 +397,12 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
               {monthlyVolume.length ? (
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={monthlyVolume} margin={{ top: 12, right: 8, left: 0, bottom: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={TOKENS.chartGrid} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={UI_TOKENS.chartGrid} />
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                     <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                     <Tooltip content={<ChartTooltip />} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="enquiries" name="Enquiries" fill={TOKENS.info} radius={[4, 4, 0, 0]} stackId="vol" {...CHART_ANIM} />
+                    <Bar dataKey="enquiries" name="Enquiries" fill={UI_TOKENS.info} radius={[4, 4, 0, 0]} stackId="vol" {...CHART_ANIM} />
                     <Bar dataKey="tenders" name="Tenders" fill={CHART_PALETTE[2]} radius={[4, 4, 0, 0]} stackId="vol" {...CHART_ANIM} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -520,11 +520,11 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
                   <ComposedChart data={awardTrend} margin={{ top: 16, right: 8, left: 0, bottom: 8 }}>
                     <defs>
                       <linearGradient id="mpAwardArea" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={TOKENS.success} stopOpacity={0.35} />
-                        <stop offset="100%" stopColor={TOKENS.success} stopOpacity={0.02} />
+                        <stop offset="0%" stopColor={UI_TOKENS.success} stopOpacity={0.35} />
+                        <stop offset="100%" stopColor={UI_TOKENS.success} stopOpacity={0.02} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={TOKENS.chartGrid} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={UI_TOKENS.chartGrid} />
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                     <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                     <Tooltip content={<ChartTooltip suffix="awards" />} />
@@ -533,7 +533,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
                       type="monotone"
                       dataKey="awarded"
                       name="Awarded"
-                      stroke={TOKENS.success}
+                      stroke={UI_TOKENS.success}
                       strokeWidth={2.5}
                       dot={{ r: 4, fill: "var(--surface)", strokeWidth: 2 }}
                       {...CHART_ANIM}
@@ -551,7 +551,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
               {funnelData.some((d) => d.value > 0) ? (
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={funnelData} layout="vertical" margin={{ top: 8, right: 28, left: 8, bottom: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={TOKENS.chartGrid} />
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={UI_TOKENS.chartGrid} />
                     <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
                     <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 11 }} />
                     <Tooltip content={<ChartTooltip />} />

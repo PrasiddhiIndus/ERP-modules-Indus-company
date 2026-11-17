@@ -3,6 +3,7 @@ import { supabase } from "../../../lib/supabase";
 import FireTenderNavbar from "../FireTenderNavbar";
 
 import { toast } from "../../../lib/toast";
+import { confirmDialog } from "../../../lib/dialog";
 const FireTenderMailTemplatePage = () => {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -79,7 +80,7 @@ const FireTenderMailTemplatePage = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this template?")) return;
+    if (!(await confirmDialog({ title: "Delete template", message: "Are you sure you want to delete this template?", confirmLabel: "Delete", tone: "danger" }))) return;
 
     try {
       const { error } = await supabase

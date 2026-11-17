@@ -16,6 +16,7 @@ const PriceMasterPage = () => {
   const [priceList, setPriceList] = useState([]);
   const [mainComponents, setMainComponents] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState(DEFAULT_FIRE_TENDER_TEMPLATE);
+  const [searchQuery, setSearchQuery] = useState("");
   const [userId, setUserId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -30,6 +31,23 @@ const PriceMasterPage = () => {
       .filter((value, index, self) => self.indexOf(value) === index)
       .sort();
     return values;
+  };
+
+  const matchesMasterSearch = (item, query) => {
+    const q = String(query || "").trim().toLowerCase();
+    if (!q) return true;
+    const tokens = [
+      item.main_component,
+      item.sub_category1,
+      item.sub_category2,
+      item.sub_category3,
+      item.sub_category4,
+      item.sub_category5,
+      item.manual_sub_category,
+      item.weight,
+      item.unit_cost,
+    ];
+    return tokens.some((token) => String(token ?? "").toLowerCase().includes(q));
   };
 
   useEffect(() => {
@@ -369,7 +387,9 @@ const PriceMasterPage = () => {
     );
   }
 
-  const visiblePrices = priceList.filter((item) => rowMatchesTemplate(item, selectedTemplate));
+  const templatePrices = priceList.filter((item) => rowMatchesTemplate(item, selectedTemplate));
+  const visiblePrices = templatePrices.filter((item) => matchesMasterSearch(item, searchQuery));
+  const hasSearch = Boolean(String(searchQuery || "").trim());
 
   return (
     <div className="p-6">
@@ -381,24 +401,47 @@ const PriceMasterPage = () => {
           <p className="text-gray-600 text-sm mt-1">
             Add weight and unit cost for each component from Main Components page
           </p>
-          <div className="mt-2 flex items-center gap-2">
-            <label className="text-sm font-medium text-gray-600">Template</label>
-            <select
-              value={selectedTemplate}
-              onChange={(e) => setSelectedTemplate(e.target.value)}
-              className="border rounded px-3 py-1.5 text-sm"
-            >
-              {FIRE_TENDER_TEMPLATES.map((tmpl) => (
-                <option key={tmpl} value={tmpl}>
-                  {tmpl}
-                </option>
-              ))}
-            </select>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-600">Template</label>
+              <select
+                value={selectedTemplate}
+                onChange={(e) => setSelectedTemplate(e.target.value)}
+                className="border rounded px-3 py-1.5 text-sm"
+              >
+                {FIRE_TENDER_TEMPLATES.map((tmpl) => (
+                  <option key={tmpl} value={tmpl}>
+                    {tmpl}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2 min-w-[240px] flex-1 max-w-md">
+              <label className="text-sm font-medium text-gray-600 whitespace-nowrap">Master search</label>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search component, subcategory, weight, cost…"
+                className="w-full border rounded px-3 py-1.5 text-sm"
+              />
+              {hasSearch && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="text-sm text-gray-500 hover:text-gray-700 whitespace-nowrap"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-sm text-gray-500">
-            {visiblePrices.length} components in {selectedTemplate}
+            {hasSearch
+              ? `${visiblePrices.length} of ${templatePrices.length} in ${selectedTemplate}`
+              : `${visiblePrices.length} components in ${selectedTemplate}`}
           </div>
           <button
             onClick={handleSyncFromMainComponents}
@@ -602,16 +645,34 @@ const PriceMasterPage = () => {
                     <svg className="w-12 h-12 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
-                    <p className="text-lg font-medium text-gray-900 mb-2">No Components Found</p>
-                    <p className="text-gray-500 mb-4">
-                      Add components in the Main Components page first, then they will appear here.
-                    </p>
-                    <button
-                      onClick={() => window.location.reload()}
-                      className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-                    >
-                      Refresh Page
-                    </button>
+                    {hasSearch ? (
+                      <>
+                        <p className="text-lg font-medium text-gray-900 mb-2">No matching components</p>
+                        <p className="text-gray-500 mb-4">
+                          No rows match “{searchQuery.trim()}” in {selectedTemplate}.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setSearchQuery("")}
+                          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                        >
+                          Clear search
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-lg font-medium text-gray-900 mb-2">No Components Found</p>
+                        <p className="text-gray-500 mb-4">
+                          Add components in the Main Components page first, then they will appear here.
+                        </p>
+                        <button
+                          onClick={() => window.location.reload()}
+                          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                        >
+                          Refresh Page
+                        </button>
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>

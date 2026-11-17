@@ -4,6 +4,7 @@
  * letterhead is drawn at the same positions as in Word (letterheadLayout).
  */
 import { renderAsync } from "docx-preview";
+import { forceLightThemeOnClone } from "./captureLightTheme";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import PizZip from "pizzip";
@@ -378,6 +379,7 @@ export async function exitDocumentDocxToPdf(docxBlob, options = {}) {
         letterRendering: true,
         imageTimeout: 15_000,
         onclone(_doc, cloned) {
+          forceLightThemeOnClone(_doc);
           cloned.style.boxShadow = "none";
           cloned.style.margin = "0";
           cloned.style.transform = "none";

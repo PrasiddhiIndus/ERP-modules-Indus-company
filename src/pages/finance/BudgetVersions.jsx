@@ -9,6 +9,7 @@ import { estTotals } from "./lib/calculations";
 import { buildMonthOptions } from "./lib/periods";
 
 import { toast } from "../../lib/toast";
+import { confirmDialog } from "../../lib/dialog";
 export default function BudgetVersions() {
   const { data, loading, error, refresh, permissions } = useFinance();
   const [searchParams] = useSearchParams();
@@ -87,7 +88,7 @@ export default function BudgetVersions() {
               render: (r) =>
                 permissions.canEditMasters ? (
                   <button type="button" className="text-xs text-red-700" onClick={async () => {
-                    if (!confirm("Delete this budget version?")) return;
+                    if (!(await confirmDialog({ title: "Delete budget version", message: "Delete this budget version?", confirmLabel: "Delete", tone: "danger" }))) return;
                     await deleteBudgetVersion(r.id);
                     refresh();
                   }}>Delete</button>

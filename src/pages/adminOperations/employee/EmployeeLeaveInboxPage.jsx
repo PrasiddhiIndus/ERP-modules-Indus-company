@@ -265,10 +265,12 @@ export function EmployeeLeavesPage() {
           days: r.days,
           holidayDates,
         });
-        // Prefer sandwich-inclusive count (WO + NH/PH between leave); keep stored if larger.
+        // Always derive Days from the current from/to dates (incl. sandwich WO/NH·PH).
+        // Do not Math.max with stored days — after a reschedule the stored value can be stale
+        // and would keep showing the previous duration.
         const days =
           Number.isFinite(sandwichDays) && sandwichDays > 0
-            ? Math.max(storedDays, sandwichDays)
+            ? sandwichDays
             : storedDays;
         return {
           id: r.id,

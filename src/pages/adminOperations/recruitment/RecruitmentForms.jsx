@@ -548,10 +548,11 @@ export function AppointmentModal({ open, candidate, skipOffer = false, onClose, 
         <EmployeeNameSuggest
           value={reportingTo}
           onChange={setReportingTo}
-          onPick={(emp) => setReportingTo(emp?.name || "")}
-          placeholder="Start typing employee name…"
+          onPick={(emp) => setReportingTo(String(emp?.designation || "").trim() || String(emp?.name || "").trim())}
+          placeholder="Start typing employee name — designation is filled"
           aria-label="Reporting to"
         />
+        <p className="mt-1 text-[10px] text-ink-muted">Search by name; the letter and this field use their designation.</p>
       </Field>
       <Field label="Additional terms">
         <textarea className={textareaClass} value={terms} onChange={(e) => setTerms(e.target.value)} />

@@ -106,6 +106,7 @@ export default function PayslipTemplate({
 
   return (
     <div
+      className="erp-paper"
       style={{
         width: "210mm",
         maxWidth: "100%",

@@ -89,7 +89,132 @@ const accentScale = {
   950: 'var(--accent-deep)',
 };
 
+/**
+ * Foreground scales — used for text / border / ring / outline / divide /
+ * placeholder / caret / decoration / stroke utilities.
+ * Identical to the fill scales in light mode; in dark mode the `-text` tokens
+ * are lifted so coloured text, icons and active borders stay readable
+ * (the fill tokens are too dark to be used as foreground on dark surfaces).
+ */
+const buildForeground = (softSuffix) => {
+  const soft = (name) => `var(--${name}-${softSuffix})`;
+  const scale = (name) => ({
+    50: soft(name),
+    100: soft(name),
+    200: `var(--${name}-border)`,
+    300: `var(--${name}-border)`,
+    400: `var(--${name}-text)`,
+    500: `var(--${name}-text)`,
+    600: `var(--${name}-text)`,
+    700: `var(--${name}-text)`,
+    800: `var(--${name}-text)`,
+    900: `var(--${name}-text)`,
+    950: `var(--${name}-text)`,
+  });
+  const criticalFg = scale('critical');
+  const warningFg = scale('warning');
+  const successFg = scale('success');
+  const infoFg = scale('info');
+  const accentFg = {
+    ...scale('accent'),
+    700: 'var(--accent-deep-text)',
+    800: 'var(--accent-deep-text)',
+    900: 'var(--accent-deep-text)',
+    950: 'var(--accent-deep-text)',
+  };
+  const tone = (name) => ({
+    DEFAULT: `var(--${name}-text)`,
+    soft: soft(name),
+    border: `var(--${name}-border)`,
+  });
+  return {
+    accent: {
+      ...tone('accent'),
+      deep: 'var(--accent-deep-text)',
+      electric: 'var(--accent-electric)',
+      violet: 'var(--accent-violet)',
+    },
+    critical: tone('critical'),
+    warning: tone('warning'),
+    success: tone('success'),
+    info: tone('info'),
+    'neutral-state': {
+      DEFAULT: 'var(--neutral-state-text)',
+      soft: 'var(--neutral-state-soft)',
+      border: 'var(--neutral-state-border)',
+    },
+    'indus-red': 'var(--accent-text)',
+    'indus-red-hover': 'var(--accent-deep-text)',
+    'electric-blue': 'var(--info-text)',
+    'soft-cyan': 'var(--info-text)',
+    'secure-green': 'var(--success-text)',
+    'enterprise-green': 'var(--success-text)',
+    'erp-accent': 'var(--accent-text)',
+    'erp-accent-hover': 'var(--accent-deep-text)',
+    red: criticalFg,
+    rose: criticalFg,
+    pink: criticalFg,
+    fuchsia: criticalFg,
+    orange: warningFg,
+    amber: warningFg,
+    yellow: warningFg,
+    lime: successFg,
+    green: successFg,
+    emerald: successFg,
+    teal: { ...accentFg, DEFAULT: 'var(--teal-text)', soft: 'var(--teal-soft)' },
+    cyan: infoFg,
+    sky: infoFg,
+    blue: { ...infoFg, 600: 'var(--accent-text)', 700: 'var(--accent-deep-text)' },
+    indigo: infoFg,
+    violet: infoFg,
+    purple: infoFg,
+  };
+};
+
+/** Text: soft tints become light "on-solid" tints in dark (text-red-100 on bg-red-600). */
+const textForeground = buildForeground('soft-text');
+/** Borders / rings / strokes: soft tints stay soft fills. */
+const lineForeground = buildForeground('soft');
+
+/** Text only: light end of the grey scale + text sitting on solid fills. */
+const greyText = {
+  ...surface,
+  50: 'var(--text-inverse-strong)',
+  100: 'var(--text-inverse)',
+  200: 'var(--text-inverse-muted)',
+  300: 'var(--text-faint)',
+};
+
+/** Background only: solid neutral fills that carry white text. */
+const greyFill = {
+  ...surface,
+  400: 'var(--solid-neutral-400)',
+  500: 'var(--solid-neutral-500)',
+  600: 'var(--solid-neutral-600)',
+  700: 'var(--solid-neutral-700)',
+  800: 'var(--solid-neutral-800)',
+  900: 'var(--solid-neutral-800)',
+  950: 'var(--solid-neutral-800)',
+};
+/** Background only: 200/300 are stronger soft fills, not the (bright-in-dark) border tone. */
+const softStrong = (name) => ({ 200: `var(--${name}-soft-strong)`, 300: `var(--${name}-soft-strong)` });
+const semanticFill = (base, name) => ({ ...base, ...softStrong(name) });
+const sidebarForeground = {
+  DEFAULT: 'var(--sidebar-bg)',
+  elevated: 'var(--sidebar-bg-elevated)',
+  border: 'var(--sidebar-border)',
+  text: 'var(--sidebar-text)',
+  strong: 'var(--sidebar-text-strong)',
+  muted: 'var(--sidebar-text-muted)',
+  hover: 'var(--sidebar-hover)',
+  active: 'var(--sidebar-active)',
+  accent: 'var(--sidebar-accent-text)',
+};
+const greyFamilies = (scale) => ({ gray: scale, slate: scale, zinc: scale, neutral: scale, stone: scale });
+
 export default {
+  /* `dark:` utilities follow the ERP theme switch (ThemeContext), not the OS setting */
+  darkMode: ['class', '[data-theme="dark"]'],
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
@@ -214,6 +339,55 @@ export default {
         purple: infoScale,
         fuchsia: criticalScale,
       },
+      textColor: {
+        ...textForeground,
+        ...greyFamilies(greyText),
+        sidebar: sidebarForeground,
+        surface: {
+          DEFAULT: 'var(--on-solid)',
+          raised: 'var(--on-solid)',
+          sunken: 'var(--surface-sunken)',
+        },
+      },
+      borderColor: { ...lineForeground, sidebar: sidebarForeground },
+      ringColor: lineForeground,
+      outlineColor: lineForeground,
+      divideColor: lineForeground,
+      textDecorationColor: lineForeground,
+      caretColor: lineForeground,
+      placeholderColor: lineForeground,
+      stroke: lineForeground,
+      backgroundColor: {
+        ...greyFamilies(greyFill),
+        ink: {
+          DEFAULT: 'var(--solid-neutral-800)',
+          strong: 'var(--solid-neutral-700)',
+          secondary: 'var(--solid-neutral-600)',
+          muted: 'var(--solid-neutral-500)',
+          caption: 'var(--text-caption)',
+          disabled: 'var(--solid-neutral-400)',
+        },
+        red: semanticFill(criticalScale, 'critical'),
+        rose: semanticFill(criticalScale, 'critical'),
+        pink: semanticFill(criticalScale, 'critical'),
+        fuchsia: semanticFill(criticalScale, 'critical'),
+        orange: semanticFill(warningScale, 'warning'),
+        amber: semanticFill(warningScale, 'warning'),
+        yellow: semanticFill(warningScale, 'warning'),
+        lime: semanticFill(successScale, 'success'),
+        green: semanticFill(successScale, 'success'),
+        emerald: semanticFill(successScale, 'success'),
+        teal: { ...semanticFill(accentScale, 'accent'), DEFAULT: 'var(--teal)', soft: 'var(--teal-soft)' },
+        cyan: semanticFill(infoScale, 'info'),
+        sky: semanticFill(infoScale, 'info'),
+        blue: { ...semanticFill(infoScale, 'info'), 600: 'var(--accent)', 700: 'var(--accent-deep)' },
+        indigo: semanticFill(infoScale, 'info'),
+        violet: semanticFill(infoScale, 'info'),
+        purple: semanticFill(infoScale, 'info'),
+        /* bg-white/90 etc. follow the surface instead of staying white in dark */
+        white: 'rgb(var(--surface-rgb) / <alpha-value>)',
+      },
+      gradientColorStops: greyFamilies(greyFill),
       fontFamily: {
         sans: ['var(--font-sans)'],
         heading: ['var(--font-sans)'],

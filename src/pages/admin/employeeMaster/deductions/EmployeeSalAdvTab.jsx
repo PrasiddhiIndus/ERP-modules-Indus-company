@@ -28,6 +28,7 @@ import {
   StatusBadge,
 } from "./deductionsUi";
 import { toast } from "../../../../lib/toast";
+import { confirmDialog } from "../../../../lib/dialog";
 
 function blankForm() {
   return {
@@ -157,9 +158,7 @@ export default function EmployeeSalAdvTab({ employeeId, records, onReload }) {
     const row = rows.find((r) => r.id === id);
     if (!row || row.status === "closed") return;
     if (status === "closed") {
-      const ok = window.confirm(
-        "Close this salary advance? It will stop recovering from salary processing."
-      );
+      const ok = await confirmDialog({ title: "Close salary advance", message: "Close this salary advance? It will stop recovering from salary processing.", confirmLabel: "Close advance" });
       if (!ok) return;
     }
     setBusy(true);

@@ -5,6 +5,7 @@ import { toast } from "../../../lib/toast";
 import { WageFormStep } from "./WageStatutoryForm";
 import NominationDocument from "./NominationDocument";
 import { OshIdentityCards, OshLeaveRegister } from "./OshSpecialForms";
+import { confirmDialog } from "../../../lib/dialog";
 
 function PackForm({ form, header, rows, onHeader, onRows, readOnly = false }) {
   const shared = { form, header, rows, onHeader, onRows, readOnly };
@@ -119,7 +120,7 @@ export default function StatutoryCodePanel({
 
   const remove = async (pack) => {
     const label = summarize(pack, forms).establishment;
-    if (!window.confirm(`Delete the saved forms for ${label === "—" ? "this record" : label}?`)) return;
+    if (!(await confirmDialog({ title: "Delete saved forms", message: `Delete the saved forms for ${label === "—" ? "this record" : label}?`, confirmLabel: "Delete", tone: "danger" }))) return;
     await deletePack(pack.id);
     toast.success("Saved forms deleted");
     if (currentPage > 1 && pageRows.length === 1) setPage(currentPage - 1);

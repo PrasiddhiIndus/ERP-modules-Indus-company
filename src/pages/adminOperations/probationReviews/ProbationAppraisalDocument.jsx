@@ -120,7 +120,7 @@ const ProbationAppraisalDocument = forwardRef(function ProbationAppraisalDocumen
   );
 
   return (
-    <div className="pr-sheet" ref={ref}>
+    <div className="pr-sheet erp-paper" ref={ref}>
       <header className="pr-doc-head">
         <div className="pr-doc-title-row">
           <h1>PERFORMANCE APPRAISAL FORM [PROBATION REVIEW]</h1>

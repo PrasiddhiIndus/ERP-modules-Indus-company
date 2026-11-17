@@ -32,6 +32,7 @@ import {
   saveSetting,
   upsertRows,
 } from './misDb';
+import { confirmDialog } from "../../../../lib/dialog";
 
 const TABS = [
   { id: 'tags', label: 'Employee tags' },
@@ -107,7 +108,7 @@ function MasterEditor({ title, table, load, fields, columns, defaults = {}, toRo
   };
 
   const remove = async () => {
-    if (!editing?.[idKey] || !window.confirm('Delete this entry?')) return;
+    if (!editing?.[idKey] || !(await confirmDialog({ title: "Delete entry", message: 'Delete this entry?', confirmLabel: "Delete", tone: "danger" }))) return;
     setBusy(true);
     try {
       await deleteRow(table, idKey, editing[idKey]);

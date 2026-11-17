@@ -17,6 +17,7 @@ import { INDUS_LOGO_SRC } from '../../constants/branding.js';;
 import FormDateInput from "../../components/FormDateInput";
 import { toast } from '../../lib/toast';
 import { PageTaskHeader, PageShell, PrimaryButton, SecondaryButton } from '../../components/erpUi';
+import { confirmDialog } from "../../lib/dialog";
 
 
 const DropdownMenu = ({ buttonId, quotation, onView, onEdit, onDownloadPDF, onDelete, onRevision, hasRevisions }) => {
@@ -939,7 +940,7 @@ const QuotationTracker = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this quotation?')) return;
+    if (!(await confirmDialog({ title: "Delete quotation", message: 'Are you sure you want to delete this quotation?', confirmLabel: "Delete", tone: "danger" }))) return;
 
     try {
       // First, get the quotation to find its enquiry_id
@@ -1181,7 +1182,7 @@ const QuotationTracker = () => {
   };
 
   const handleDeleteCostingSheet = async (costingSheet) => {
-    if (!confirm('Are you sure you want to delete this costing sheet?')) {
+    if (!(await confirmDialog({ title: "Delete costing sheet", message: 'Are you sure you want to delete this costing sheet?', confirmLabel: "Delete", tone: "danger" }))) {
       return;
     }
 
@@ -1224,7 +1225,7 @@ const QuotationTracker = () => {
   };
 
   const handleDeleteInternalQuotation = async (quotationId) => {
-    if (!confirm('Are you sure you want to delete this internal quotation data? This will clear the subject and terms data.')) {
+    if (!(await confirmDialog({ title: "Delete internal quotation data", message: 'Are you sure you want to delete this internal quotation data? This will clear the subject and terms data.', confirmLabel: "Delete", tone: "danger" }))) {
       return;
     }
 
@@ -1676,7 +1677,7 @@ Maintenance Team`;
                 <p className="text-xs mt-1">Create your first quotation to get started</p>
               </div>
             ) : (
-              <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--accent) var(--surface-sunken)' }}>
+              <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--accent-text) var(--surface-sunken)' }}>
                 <style>{`
                   .overflow-x-auto::-webkit-scrollbar {
                     height: 8px;
@@ -2030,7 +2031,7 @@ Maintenance Team`;
                 No sent quotations with costing sheets found. Create and send quotations first.
               </div>
             ) : (
-              <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--accent) var(--surface-sunken)' }}>
+              <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--accent-text) var(--surface-sunken)' }}>
                 <style>{`
                   .overflow-x-auto::-webkit-scrollbar {
                     height: 8px;

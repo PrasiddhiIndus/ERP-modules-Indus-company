@@ -3,6 +3,7 @@ import { Check, History, Loader2, X } from 'lucide-react';
 import { Modal } from '../../../components/erpUi';
 import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
 import { decideEnquiryEdit, editErrorMessage } from './enquiryEditApi';
+import { confirmDialog } from "../../../lib/dialog";
 
 function ChangeList({ changes }) {
   const list = Array.isArray(changes) ? changes : [];
@@ -35,7 +36,12 @@ export default function EnquiryEditRequests({ requests, serialById, onDecided })
     const question = approve
       ? `Apply the requested changes to enquiry #${serial}?`
       : 'Reject this edit request? The enquiry stays as it is.';
-    if (!window.confirm(question)) return;
+    if (!(await confirmDialog({
+        title: approve ? 'Apply enquiry changes' : 'Reject edit request',
+        message: question,
+        confirmLabel: approve ? 'Apply changes' : 'Reject',
+        tone: approve ? 'primary' : 'danger',
+      }))) return;
     setBusyId(req.id);
     setError('');
     try {

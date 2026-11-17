@@ -11,6 +11,7 @@ import {
 } from "./ocModel";
 import {
   amFinance, fetchOcSignatureUrl, friendlyOcError, listEmployeeOptions, loadOc, loadSignoffAssignees,
+  pjStageSignatureUrl,
   loadProjectApprovalLog, myEmployeeCode, notifyOcSignoff, projectPoDocumentUrl, requestProjectOcModification, saveOc,
   clearProjectPoDocument, removeProjectPoDocument, setProjectPoRemarks,
   signProjectOcStage, uploadProjectPoDocuments,
@@ -19,6 +20,7 @@ import { getFinancePoDetail, setFinancePoCostCenter, setFinancePoOcNo, signFinan
 import { IEV_OC_DEPARTMENT } from "./ocDepartment";
 import ProjectsApprovalPanel, { openModificationRequest } from "../poAtGlance/ProjectsApprovalPanel";
 import PjDocumentPreviewModal from "../poAtGlance/PjDocumentPreviewModal";
+import { confirmDialog } from "../../../lib/dialog";
 
 const inputCls =
   "w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100 disabled:bg-slate-50 disabled:text-slate-600";
@@ -91,18 +93,19 @@ const STAGE_CHIP = {
   Returned: "bg-amber-100 text-amber-800",
 };
 
-/** Digital sign-off: the signer types their name; the date and time are recorded on save. */
+/** Digital sign-off: own Indus One signature (one-click) or typed name. Sign is based on assignment, not edit rights. */
 function SignatureBox({
   label, value, onChange, disabled, assignee, locked, onRequestSign, assigneeCount, status, signatureUrl, caption, note,
-  oneClickSign = false, onSign, signing = false, signBlockedReason = "", mySignatureUrl = "",
+  oneClickSign = false, canSign = false, onSign, signing = false, signBlockedReason = "", mySignatureUrl = "",
 }) {
   const dense = useDense();
   const pending = signoffPending(value);
   const signedAt = !pending && !isBlank(value.signed_by) ? formatSignedAt(value.signed_at) : "";
   const signName = assignee?.employee_name;
+  const showOneClickSign = oneClickSign && canSign && isBlank(value.saved_by);
 
   return (
-    <div className={`flex flex-col border-b border-r border-slate-300 ${dense ? "gap-1 p-2" : "gap-2 p-3"} ${locked ? "bg-slate-100" : ""}`}>
+    <div className={`flex flex-col border-b border-r border-slate-300 ${dense ? "gap-1 p-2" : "gap-2 p-3"} ${locked && !showOneClickSign ? "bg-slate-100" : ""}`}>
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-semibold text-slate-700">{label}</p>
         {status && (
@@ -112,7 +115,7 @@ function SignatureBox({
         )}
       </div>
       <p className="flex items-center gap-1 text-[11px] text-slate-500">
-        {locked && <Lock className="h-3 w-3 shrink-0" />}
+        {locked && !showOneClickSign && <Lock className="h-3 w-3 shrink-0" />}
         {caption || (assignee ? `Assigned to ${assignee.employee_name} (${assignee.employee_code})` : "No one assigned yet")}
       </p>
       {signatureUrl && (
@@ -124,12 +127,12 @@ function SignatureBox({
           className={inputCls}
           placeholder={locked || oneClickSign ? "" : "Type your name to sign"}
           value={value.signed_by}
-          disabled={locked}
+          disabled={locked && !showOneClickSign}
           readOnly={locked || oneClickSign}
           onChange={(e) => onChange({ ...value, signed_by: e.target.value })}
         />
       </label>
-      {oneClickSign && !disabled && !locked && isBlank(value.saved_by) && (
+      {showOneClickSign && (
         <>
           {mySignatureUrl && (
             <div className="rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1">
@@ -399,13 +402,16 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
       return undefined;
     }
     let alive = true;
-    fetchOcSignatureUrl(target).then((url) => {
+    (async () => {
+      let url = "";
+      if (form.id && autoSignedUserId) url = await pjStageSignatureUrl(form.id, slot);
+      if (!url) url = await fetchOcSignatureUrl(target);
       if (alive) setCreatorSignatureUrl(url || "");
-    });
+    })();
     return () => {
       alive = false;
     };
-  }, [department.autoCreatorSlot, autoSignedUserId, form.created_by, user?.id]);
+  }, [department.autoCreatorSlot, autoSignedUserId, form.created_by, form.id, user?.id]);
 
   // Projects: the logged-in employee's own signature, fetched from Indus One by their employee code.
   useEffect(() => {
@@ -432,12 +438,18 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     if (!signedStageKey) return undefined;
     let alive = true;
     const pairs = signedStageKey.split("|").map((p) => p.split(":")).filter(([, uid]) => uid);
-    Promise.all(pairs.map(([slot, uid]) => fetchOcSignatureUrl(uid).then((url) => [slot, url || ""])))
-      .then((entries) => alive && setSlotSignatureUrls(Object.fromEntries(entries)));
+    const ocId = form.id;
+    Promise.all(
+      pairs.map(async ([slot, uid]) => {
+        let url = ocId ? await pjStageSignatureUrl(ocId, slot) : "";
+        if (!url && uid) url = await fetchOcSignatureUrl(uid);
+        return [slot, url || ""];
+      }),
+    ).then((entries) => alive && setSlotSignatureUrls(Object.fromEntries(entries)));
     return () => {
       alive = false;
     };
-  }, [signedStageKey]);
+  }, [signedStageKey, form.id]);
 
   useEffect(() => {
     const slot = department.autoCreatorSlot;
@@ -534,8 +546,8 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   const openReturn = showApprovalAudit ? openModificationRequest(approvalLog) : null;
   const iAmOcCreator = Boolean(form.created_by) && form.created_by === user?.id;
   const projectsPo = department.key === "projects";
-  // Execution Team (PLANNING) / Department Head (VERTICAL_HEAD): never edit PO details.
-  const isAssignedReviewer = ["PLANNING", "VERTICAL_HEAD"].some((slot) => !isLockedFor(slot));
+  // Assigned signers (Execution / Dept Head / Finance) may remark + sign without editing PO details.
+  const isAssignedReviewer = ["PLANNING", "VERTICAL_HEAD", "FINANCE"].some((slot) => !isLockedFor(slot));
   const projectsRemarksOnly = projectsPo && !financeReview && !isFinance && isAssignedReviewer;
   const reviewerGatePending = projectsPo && !financeReview && !isFinance && (!codeLoaded || !assigneesLoaded);
   const fieldsLocked = (readOnly && !financeReview) || projectsRemarksOnly || reviewerGatePending;
@@ -553,6 +565,17 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     if (allStagesSigned && signed) return "Completed";
     if (signed) return "Approved";
     return "Pending";
+  };
+  /** Sign is allowed for the assigned login (or OC creator), even when the form is view-only. */
+  const canSignStage = (slot) => {
+    if (!oneClickSign || !saved || dirty) return false;
+    if (!isBlank(form.signoff?.[slot]?.saved_by)) return false;
+    if (!previousStageApproved(slot)) return false;
+    if (financeReview && slot !== "FINANCE") return false;
+    if (department.autoCreatorSlot === slot) {
+      return !form.created_by || form.created_by === user?.id;
+    }
+    return !isLockedFor(slot);
   };
 
   const remarkKey = (key) => projectsRemarksOnly && (key === "remarks" || key === "remarks_date");
@@ -652,7 +675,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
 
   const removePoFile = async (doc) => {
     if (!form.id || !doc?.path) return;
-    if (!window.confirm(`Remove ${doc.name || "this purchase order file"}?`)) return;
+    if (!(await confirmDialog({ title: "Remove PO file", message: `Remove ${doc.name || "this purchase order file"}?`, confirmLabel: "Remove", tone: "danger" }))) return;
     setUploadingPo(true);
     try {
       const updated = await removeProjectPoDocument(form.id, doc.path);
@@ -672,7 +695,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     }
     const docs = form.po_documents?.length ? form.po_documents : normalizePoDocuments(form);
     if (!form.id || !docs.length) return;
-    if (!window.confirm("Remove all original purchase order files?")) return;
+    if (!(await confirmDialog({ title: "Remove all PO files", message: "Remove all original purchase order files?", confirmLabel: "Remove all", tone: "danger" }))) return;
     setUploadingPo(true);
     try {
       await clearProjectPoDocument(form.id, docs.map((d) => d.path));
@@ -913,16 +936,22 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     }
   };
 
-  /** Projects: Sign → save the PO if needed, confirm with the user's own signature, then sign that stage. */
+  /** Projects: Sign → confirm with the user's own Indus One signature, then stamp that stage. */
   const handleStageSign = async (slot, label) => {
     if (!mySignatureUrl) {
       toast.error("No digital signature was found for your employee code. Upload your signature in Indus One first.");
       return;
     }
     let ocId = form.id;
-    if (!ocId || dirty) {
-      ocId = await handleSave();
-      if (!ocId) return;
+    if (!ocId) {
+      toast.error("Save the PO At Glance before signing.");
+      return;
+    }
+    if (dirty) {
+      // Assignees may only save remarks; creators/editors save the full form.
+      const savedId = await handleSave();
+      if (!savedId) return;
+      ocId = savedId;
     }
     setPendingSignSlot(slot);
     const signerName = department.autoCreatorSlot === slot
@@ -1038,8 +1067,8 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     }
   };
 
-  const handleBack = () => {
-    if ((dirty || pendingPoFiles.length) && (canEdit || projectsRemarksOnly) && !window.confirm("Discard unsaved changes?")) return;
+  const handleBack = async () => {
+    if ((dirty || pendingPoFiles.length) && (canEdit || projectsRemarksOnly) && !(await confirmDialog({ title: "Discard changes", message: "Discard unsaved changes?", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" }))) return;
     dropPendingPoFiles();
     onBack();
   };
@@ -1602,15 +1631,19 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
               const open = previousStageApproved(slot);
               const iAmCreator = !form.created_by || form.created_by === user?.id;
               const stageUnsigned = isBlank(form.signoff[slot]?.saved_by);
-              const creatorCanSign = auto && oneClickSign && iAmCreator && stageUnsigned;
+              const stageCanSign = canSignStage(slot);
               const locked = auto
-                ? !creatorCanSign
-                : isLockedFor(slot) || !open || (financeReview && slot !== "FINANCE");
+                ? !(stageCanSign || (oneClickSign && iAmCreator && stageUnsigned && dirty))
+                : (!stageCanSign && (isLockedFor(slot) || !open || (financeReview && slot !== "FINANCE")));
               const note = !open
                 ? "This stage opens after the previous stage is approved."
-                : auto && isBlank(form.signoff[slot]?.saved_by) && !iAmCreator
+                : auto && stageUnsigned && !iAmCreator
                   ? "Waiting for the person who created this OC."
-                  : "";
+                  : stageCanSign && dirty
+                    ? "Save your changes before signing."
+                    : !assignees[slot] && !auto && stageUnsigned
+                      ? "Assign someone in Sign-off Assignment first."
+                      : "";
               return (
               <Freeze key={slot} className="po-sign-open" on={financeReview && slot !== "FINANCE"}>
               <SignatureBox
@@ -1621,14 +1654,23 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                 assigneeCount={department.assigneeCount}
                 locked={locked}
                 status={stageStatus(slot)}
-                signatureUrl={auto ? (stageUnsigned ? "" : creatorSignatureUrl) : oneClickSign ? slotSignatureUrls[slot] || "" : ""}
-                oneClickSign={oneClickSign && (!auto || iAmCreator)}
+                signatureUrl={
+                  auto
+                    ? (stageUnsigned ? "" : creatorSignatureUrl)
+                    : oneClickSign
+                      ? slotSignatureUrls[slot] || ""
+                      : ""
+                }
+                oneClickSign={oneClickSign}
+                canSign={stageCanSign}
                 signing={signingSlot === slot}
                 signBlockedReason={
-                  mySignatureLoaded && !mySignatureUrl ? "No digital signature found for your employee code. Upload it in Indus One." : ""
+                  stageCanSign && mySignatureLoaded && !mySignatureUrl
+                    ? "No digital signature found for your employee code. Upload it in Indus One."
+                    : ""
                 }
                 onSign={() => handleStageSign(slot, label)}
-                mySignatureUrl={oneClickSign ? mySignatureUrl : ""}
+                mySignatureUrl={stageCanSign ? mySignatureUrl : ""}
                 caption={auto ? "Signed by the person who creates this OC." : undefined}
                 note={note}
                 onChange={(v) => setForm((f) => ({ ...f, signoff: { ...f.signoff, [slot]: v } }))}

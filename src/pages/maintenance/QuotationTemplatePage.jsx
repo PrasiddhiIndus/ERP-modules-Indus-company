@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
 import { toast } from '../../lib/toast';
+import { confirmDialog } from "../../lib/dialog";
 
 const TEMPLATE_TYPES = ["Subject", "Terms & Condition", "Annexure"];
 
@@ -89,7 +90,7 @@ const QuotationTemplatePage = () => {
   });
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this template?")) return;
+    if (!(await confirmDialog({ title: "Delete template", message: "Are you sure you want to delete this template?", confirmLabel: "Delete", tone: "danger" }))) return;
 
     try {
       const { error } = await supabase

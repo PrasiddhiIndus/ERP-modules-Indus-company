@@ -6,8 +6,8 @@ export const FORMULA_GROUPS = [
   {
     key: 'earnings',
     title: 'Earning Formulas',
-    dot: 'var(--success)',
-    accent: 'var(--success)',
+    dot: 'var(--success-text)',
+    accent: 'var(--success-text)',
     items: [
       { id: 'e1', name: 'Working Days', expression: 'Monthly days − week off' },
       { id: 'e2', name: 'Earned Basic', expression: 'Minimum wages × Present days' },
@@ -38,8 +38,8 @@ export const FORMULA_GROUPS = [
   {
     key: 'deductions',
     title: 'Deduction Formulas',
-    dot: 'var(--accent)',
-    accent: 'var(--accent)',
+    dot: 'var(--accent-text)',
+    accent: 'var(--accent-text)',
     items: [
       { id: 'd1', name: 'PF', expression: 'Earned Basic × 12 ÷ 100' },
       { id: 'd2', name: 'PF', expression: '(Earned Basic + Other Allowance) × 12 ÷ 100' },
@@ -60,9 +60,9 @@ export const FORMULAS = FORMULA_GROUPS.flatMap((group) =>
 );
 
 export const TYPE_META = {
-  e: { label: 'Earning', badge: 'bg-emerald-100 text-emerald-800', dot: 'var(--success)', accent: 'var(--success)' },
-  s: { label: 'Statutory', badge: 'bg-amber-100 text-amber-800', dot: 'var(--warning)', accent: 'var(--warning)' },
-  d: { label: 'Deduction', badge: 'bg-red-100 text-red-800', dot: 'var(--accent)', accent: 'var(--accent)' },
+  e: { label: 'Earning', badge: 'bg-emerald-100 text-emerald-800', dot: 'var(--success-text)', accent: 'var(--success-text)' },
+  s: { label: 'Statutory', badge: 'bg-amber-100 text-amber-800', dot: 'var(--warning-text)', accent: 'var(--warning-text)' },
+  d: { label: 'Deduction', badge: 'bg-red-100 text-red-800', dot: 'var(--accent-text)', accent: 'var(--accent-text)' },
 };
 
 export const TYPE_GROUP_ORDER = [

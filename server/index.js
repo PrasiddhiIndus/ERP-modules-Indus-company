@@ -404,6 +404,7 @@ const {
   requireAdminPoliciesR2,
   requireCommercialPoR2,
   requireMarketingExpoR2,
+  requireFireTenderR2,
 } = createAuthMiddleware({
   getSupabaseUrl: getSupabaseUrlForServer,
   getServiceRoleKey: getSupabaseServiceRoleKeyForServer,
@@ -443,9 +444,11 @@ const R2_ADMIN_PERSONAL_LETTERS_KEY_PREFIX = PERSONAL_LETTERS_R2_PREFIX;
 const R2_COMMERCIAL_PO_KEY_PREFIX = 'commercial-po/';
 const R2_MARKETING_EXPO_KEY_PREFIX = 'marketing-expo/';
 const R2_COMMERCIAL_PO_FOLDERS = new Set(['po-copy', 'scope-of-work', 'penalty-clause']);
+const R2_FIRE_TENDER_KEY_PREFIX = 'fire-tender/tenders/';
 const R2_PRESIGN_GET_EXPIRES_SEC = 600;
 const R2_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const R2_COMMERCIAL_PO_MAX_BYTES = 100 * 1024 * 1024;
+const R2_FIRE_TENDER_MAX_BYTES = 50 * 1024 * 1024;
 
 const R2_ALLOWED_EXT = new Set(['pdf', 'jpg', 'jpeg', 'png', 'webp', 'xlsx', 'xls', 'doc', 'docx']);
 const R2_EXT_TO_CONTENT_TYPE = {
@@ -526,6 +529,11 @@ const r2CommercialPoUpload = multer({
   limits: { fileSize: R2_COMMERCIAL_PO_MAX_BYTES },
 });
 
+const r2FireTenderUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: R2_FIRE_TENDER_MAX_BYTES },
+});
+
 const adminRecruitment = registerAdminRecruitmentRoutes(app, {
   requireAuth,
   getSupabaseUrl: getSupabaseUrlForServer,
@@ -575,6 +583,18 @@ function assertCommercialPoObjectKeyAllowed(objectKey) {
   }
   if (!R2_COMMERCIAL_PO_FOLDERS.has(parts[2])) {
     throw new HttpError(400, 'Invalid object key folder.');
+  }
+}
+
+function assertFireTenderObjectKeyAllowed(objectKey) {
+  const key = String(objectKey || '').trim();
+  if (!key.startsWith(R2_FIRE_TENDER_KEY_PREFIX) || key.includes('..') || key.includes('//')) {
+    throw new HttpError(400, 'Invalid object key.');
+  }
+  const parts = key.split('/').filter(Boolean);
+  // fire-tender/tenders/{tenderId}/{file}
+  if (parts.length < 4 || parts[0] !== 'fire-tender' || parts[1] !== 'tenders') {
+    throw new HttpError(400, 'Invalid object key.');
   }
 }
 
@@ -1768,42 +1788,41 @@ app.post('/api/admin/salary/ctc-email', einvoiceRateLimit, requireAuth, requireC
   }
 });
 
-app.post('/api/fire-tender/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
-  try {
-    const result = await notifyOcSignoffAssignees({
-      db: crmInHouseServiceClient(),
-      ocId: req.body?.ocId,
-      signatures: req.body?.signatures,
-      senderMailboxId: req.body?.senderMailboxId,
-      signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
-    });
-    return res.json(result);
-  } catch (err) {
-    const status = Number(err?.status) || 500;
-    if (status >= 500) console.error('[oc/signoff-notify]', err?.message || err);
-    const message = err?.message || 'Could not send the sign-off notification.';
-    return res.status(status).json({ error: message, message });
-  }
-});
+/**
+ * PO At Glance sign-off emails (security fix C3). The caller is the authenticated user only:
+ * signatures, signer name, OC Number, remarks and sender mailbox are verified on the server —
+ * see server/ocSignoffNotifyApi.js. Only ocId, the signed slots, event and an optional
+ * senderMailboxId are read from the body.
+ */
+function ocSignoffNotifyHandler(department, logTag) {
+  return async (req, res) => {
+    try {
+      const result = await notifyOcSignoffAssignees({
+        db: crmInHouseServiceClient(),
+        department,
+        ocId: req.body?.ocId,
+        signatures: req.body?.signatures,
+        senderMailboxId: req.body?.senderMailboxId,
+        event: req.body?.event,
+        caller: {
+          userId: req.user?.id || null,
+          profile: req.profile || null,
+          emails: userEmailsFromRequest(req),
+        },
+      });
+      return res.json(result);
+    } catch (err) {
+      const status = Number(err?.status) || 500;
+      if (status >= 500) console.error(logTag, err?.message || err);
+      const message = err?.message || 'Could not send the sign-off notification.';
+      return res.status(status).json({ error: message, message });
+    }
+  };
+}
 
-app.post('/api/maintenance/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
-  try {
-    const result = await notifyOcSignoffAssignees({
-      db: crmInHouseServiceClient(),
-      ocId: req.body?.ocId,
-      signatures: req.body?.signatures,
-      senderMailboxId: req.body?.senderMailboxId,
-      signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
-      department: 'maintenance',
-    });
-    return res.json(result);
-  } catch (err) {
-    const status = Number(err?.status) || 500;
-    if (status >= 500) console.error('[maintenance/oc/signoff-notify]', err?.message || err);
-    const message = err?.message || 'Could not send the sign-off notification.';
-    return res.status(status).json({ error: message, message });
-  }
-});
+app.post('/api/fire-tender/oc/signoff-notify', einvoiceRateLimit, requireAuth, ocSignoffNotifyHandler('iev', '[oc/signoff-notify]'));
+
+app.post('/api/maintenance/oc/signoff-notify', einvoiceRateLimit, requireAuth, ocSignoffNotifyHandler('maintenance', '[maintenance/oc/signoff-notify]'));
 
 app.post('/api/employee-signature/file', requireAuth, async (req, res) => {
   try {
@@ -1856,46 +1875,111 @@ app.post('/api/employee-signature/file', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/projects/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
+app.post('/api/projects/oc/signoff-notify', einvoiceRateLimit, requireAuth, ocSignoffNotifyHandler('projects', '[projects/oc/signoff-notify]'));
+
+/**
+ * Projects PO At Glance: signature of the login that signed one approval stage.
+ * pj_oc_signature_file checks Projects PO At Glance (or Finance Master) access; only Indus One
+ * signature files (signature/{employee code}/…) are served. Body: { ocId, slot, bytes? }.
+ */
+app.post('/api/projects/oc/signature-file', requireAuth, async (req, res) => {
   try {
-    const result = await notifyOcSignoffAssignees({
-      db: crmInHouseServiceClient(),
-      ocId: req.body?.ocId,
-      signatures: req.body?.signatures,
-      senderMailboxId: req.body?.senderMailboxId,
-      signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
-      department: 'projects',
-      event: req.body?.event,
-      ocNo: req.body?.ocNo,
-      ocDate: req.body?.ocDate,
-      remarks: req.body?.remarks,
-      actorName: req.body?.actorName,
+    const ocId = String(req.body?.ocId || '').trim();
+    const slot = String(req.body?.slot || '').trim().toUpperCase();
+    if (!ocId || !slot) return res.status(400).json({ error: 'Choose the PO and stage.' });
+    const jwt = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    const userDb = createClient(getSupabaseUrlForServer(), getSupabaseAnonKeyForServer(), {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: jwt ? { headers: { Authorization: `Bearer ${jwt}` } } : undefined,
     });
-    return res.json(result);
+    const { data, error } = await userDb.rpc('pj_oc_signature_file', { p_oc_id: ocId, p_slot: slot });
+    if (error) {
+      const status = String(error.code || '') === '42501' ? 403 : 400;
+      return res.status(status).json({ error: error.message || 'Could not load this signature.' });
+    }
+    const employeeCode = String(data?.employeeCode || '').trim();
+    const objectKey = String(data?.objectKey || '').trim();
+    if (!employeeCode || !objectKey.startsWith(`signature/${employeeCode}/`) || objectKey.includes('..')) {
+      return res.status(404).json({ error: 'No digital signature found for this stage.' });
+    }
+    if (req.body?.bytes) {
+      const obj = await getR2S3Client().send(new GetObjectCommand({ Bucket: getR2BucketName(), Key: objectKey }));
+      const raw = obj?.Body ? await obj.Body.transformToByteArray() : null;
+      if (!raw?.length) return res.status(404).json({ error: 'No digital signature found for this stage.' });
+      return res.json({
+        contentType: String(data.contentType || obj.ContentType || 'image/png'),
+        base64: Buffer.from(raw).toString('base64'),
+      });
+    }
+    const url = await getSignedUrl(
+      getR2S3Client(),
+      new GetObjectCommand({
+        Bucket: getR2BucketName(),
+        Key: objectKey,
+        ResponseContentType: data.contentType || 'image/png',
+        ResponseContentDisposition: 'inline',
+      }),
+      { expiresIn: 600 },
+    );
+    return res.json({ url });
   } catch (err) {
-    const status = Number(err?.status) || 500;
-    if (status >= 500) console.error('[projects/oc/signoff-notify]', err?.message || err);
-    const message = err?.message || 'Could not send the sign-off notification.';
-    return res.status(status).json({ error: message, message });
+    console.error('[projects/oc/signature-file]', err?.message || err);
+    return res.status(500).json({ error: 'Could not open the signature.' });
   }
 });
 
-app.post('/api/rm/oc/signoff-notify', einvoiceRateLimit, requireAuth, async (req, res) => {
+app.post('/api/rm/oc/signoff-notify', einvoiceRateLimit, requireAuth, ocSignoffNotifyHandler('rm', '[rm/oc/signoff-notify]'));
+
+app.post('/api/commercial/oc/signoff-notify', einvoiceRateLimit, requireAuth, ocSignoffNotifyHandler('commercial', '[commercial/oc/signoff-notify]'));
+
+/**
+ * Commercial PO At Glance: signature of the login that signed one approval stage.
+ * cm_oc_signature_file runs as the caller and checks Commercial PO At Glance access; only Indus One
+ * signature files (signature/{employee code}/…) are served. Body: { ocId, slot, bytes? }.
+ */
+app.post('/api/commercial/oc/signature-file', requireAuth, async (req, res) => {
   try {
-    const result = await notifyOcSignoffAssignees({
-      db: crmInHouseServiceClient(),
-      ocId: req.body?.ocId,
-      signatures: req.body?.signatures,
-      senderMailboxId: req.body?.senderMailboxId,
-      signerName: req.body?.signerName || req.profile?.full_name || req.user?.email || null,
-      department: 'rm',
+    const ocId = String(req.body?.ocId || '').trim();
+    const slot = String(req.body?.slot || '').trim().toUpperCase();
+    if (!ocId || !slot) return res.status(400).json({ error: 'Choose the PO and stage.' });
+    const jwt = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    const userDb = createClient(getSupabaseUrlForServer(), getSupabaseAnonKeyForServer(), {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: jwt ? { headers: { Authorization: `Bearer ${jwt}` } } : undefined,
     });
-    return res.json(result);
+    const { data, error } = await userDb.rpc('cm_oc_signature_file', { p_oc_id: ocId, p_slot: slot });
+    if (error) {
+      const status = String(error.code || '') === '42501' ? 403 : 400;
+      return res.status(status).json({ error: error.message || 'Could not load this signature.' });
+    }
+    const employeeCode = String(data?.employeeCode || '').trim();
+    const objectKey = String(data?.objectKey || '').trim();
+    if (!employeeCode || !objectKey.startsWith(`signature/${employeeCode}/`) || objectKey.includes('..')) {
+      return res.status(404).json({ error: 'No digital signature found for this stage.' });
+    }
+    if (req.body?.bytes) {
+      const obj = await getR2S3Client().send(new GetObjectCommand({ Bucket: getR2BucketName(), Key: objectKey }));
+      const raw = obj?.Body ? await obj.Body.transformToByteArray() : null;
+      if (!raw?.length) return res.status(404).json({ error: 'No digital signature found for this stage.' });
+      return res.json({
+        contentType: String(data.contentType || obj.ContentType || 'image/png'),
+        base64: Buffer.from(raw).toString('base64'),
+      });
+    }
+    const url = await getSignedUrl(
+      getR2S3Client(),
+      new GetObjectCommand({
+        Bucket: getR2BucketName(),
+        Key: objectKey,
+        ResponseContentType: data.contentType || 'image/png',
+        ResponseContentDisposition: 'inline',
+      }),
+      { expiresIn: 600 },
+    );
+    return res.json({ url });
   } catch (err) {
-    const status = Number(err?.status) || 500;
-    if (status >= 500) console.error('[rm/oc/signoff-notify]', err?.message || err);
-    const message = err?.message || 'Could not send the sign-off notification.';
-    return res.status(status).json({ error: message, message });
+    console.error('[commercial/oc/signature-file]', err?.message || err);
+    return res.status(500).json({ error: 'Could not open the signature.' });
   }
 });
 
@@ -2679,6 +2763,62 @@ app.post(
   }
 );
 
+// IEV New Tender documents: Cloudflare R2 (keys under fire-tender/tenders/{tenderId}/…).
+app.post(
+  '/api/fire-tender/r2/upload',
+  (req, res, next) => {
+    r2FireTenderUpload.single('file')(req, res, (err) => {
+      if (!err) {
+        next();
+        return;
+      }
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        res.status(400).json({ message: `File too large (max ${R2_FIRE_TENDER_MAX_BYTES} bytes).` });
+        return;
+      }
+      res.status(400).json({ message: err.message || 'Upload failed.' });
+    });
+  },
+  requireFireTenderR2,
+  async (req, res) => {
+    try {
+      const bucket = getR2BucketName();
+      const tenderId = sanitizeR2UploadFileName(String(req.body?.tenderId || '').trim());
+      if (!tenderId) {
+        return res.status(400).json({ message: 'tenderId is required.' });
+      }
+
+      const rawName = String(req.body?.fileName || '').trim();
+      if (!rawName) {
+        return res.status(400).json({ message: 'fileName is required.' });
+      }
+      if (!req.file?.buffer) {
+        return res.status(400).json({ message: 'file is required (multipart field name: file).' });
+      }
+
+      const contentTypeHint = String(req.body?.contentType || req.file.mimetype || '').trim();
+      const resolvedType = resolveR2ContentType(rawName, contentTypeHint || null);
+      const safeName = sanitizeR2UploadFileName(rawName);
+      const objectKey = `${R2_FIRE_TENDER_KEY_PREFIX}${tenderId}/${Date.now()}-${safeName}`;
+
+      const client = getR2S3Client();
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: objectKey,
+          Body: req.file.buffer,
+          ContentType: resolvedType,
+        })
+      );
+
+      res.json({ objectKey, bucket, contentType: resolvedType, fileName: safeName });
+    } catch (err) {
+      const status = Number(err?.status) || 500;
+      res.status(status).json({ message: err?.message || 'Upload failed.' });
+    }
+  }
+);
+
 app.post('/api/marketing/expo-r2/presign-get', requireMarketingExpoR2, async (req, res) => {
   try {
     const bucket = getR2BucketName();
@@ -2688,6 +2828,33 @@ app.post('/api/marketing/expo-r2/presign-get', requireMarketingExpoR2, async (re
     }
     const client = getR2S3Client();
     const getCmd = new GetObjectCommand({ Bucket: bucket, Key: objectKey });
+    const getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
+    res.json({ getUrl });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ message: err?.message || 'Presign GET failed.' });
+  }
+});
+
+app.post('/api/fire-tender/r2/presign-get', requireFireTenderR2, async (req, res) => {
+  try {
+    const bucket = getR2BucketName();
+    const objectKey = String(req.body?.objectKey || '').trim();
+    assertFireTenderObjectKeyAllowed(objectKey);
+
+    const downloadName = sanitizeR2UploadFileName(
+      String(req.body?.fileName || objectKey.split('/').pop() || 'download').trim() || 'download'
+    );
+    const asDownload = Boolean(req.body?.download);
+
+    const client = getR2S3Client();
+    const getCmd = new GetObjectCommand({
+      Bucket: bucket,
+      Key: objectKey,
+      ...(asDownload
+        ? { ResponseContentDisposition: `attachment; filename="${downloadName}"` }
+        : {}),
+    });
     const getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
     res.json({ getUrl });
   } catch (err) {

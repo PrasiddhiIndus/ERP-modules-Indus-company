@@ -56,6 +56,7 @@ import {
   startOfToday,
   todayIso,
 } from './enquiryDeadlines';
+import { confirmDialog } from "../../../lib/dialog";
 
 const DAYS_LEFT_KEY = '__days_left';
 
@@ -66,8 +67,8 @@ function SortIndicator({ fieldKey, sortConfig }) {
   const active = sortConfig.key === fieldKey;
   return (
     <span className="inline-flex items-center gap-0.5 ml-1 text-[10px] align-middle">
-      <span style={{ color: active && sortConfig.dir === 'asc' ? 'var(--success)' : 'var(--border-strong)' }}>▲</span>
-      <span style={{ color: active && sortConfig.dir === 'desc' ? 'var(--critical)' : 'var(--border-strong)' }}>▼</span>
+      <span style={{ color: active && sortConfig.dir === 'asc' ? 'var(--success-text)' : 'var(--border-strong)' }}>▲</span>
+      <span style={{ color: active && sortConfig.dir === 'desc' ? 'var(--critical-text)' : 'var(--border-strong)' }}>▼</span>
     </span>
   );
 }
@@ -341,7 +342,7 @@ export default function EnquiryDatabase() {
       setDeleteAsk(row);
       return;
     }
-    if (!window.confirm('Delete this enquiry record?')) return;
+    if (!(await confirmDialog({ title: "Delete enquiry record", message: 'Delete this enquiry record?', confirmLabel: "Delete", tone: "danger" }))) return;
     try {
       const { error: e } = await projectsTable('enquiries').delete().eq('id', row.id);
       if (e) throw e;

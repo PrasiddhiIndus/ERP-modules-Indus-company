@@ -43,6 +43,7 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { toast } from '../../lib/toast';
+import { confirmDialog } from "../../lib/dialog";
 
 const TRIPS_PAGE_SIZE = 20;
 const REPORT_PAGE_SIZE = 20;
@@ -758,7 +759,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
   };
 
   const handleCompleteTrip = async (tripId) => {
-    if (window.confirm('Are you sure you want to complete this trip?')) {
+    if (await confirmDialog({ title: "Complete trip", message: 'Are you sure you want to complete this trip?', confirmLabel: "Complete trip" })) {
       try {
         const trip = trips.find((item) => item.id === tripId);
         const { error } = await supabase
@@ -781,7 +782,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
   };
 
   const handleCancelTrip = async (tripId) => {
-    if (window.confirm('Are you sure you want to cancel this trip?')) {
+    if (await confirmDialog({ title: "Cancel trip", message: 'Are you sure you want to cancel this trip?', confirmLabel: "Cancel trip", cancelLabel: "Keep trip", tone: "danger" })) {
       try {
         const trip = trips.find((item) => item.id === tripId);
         const { error } = await supabase
@@ -804,7 +805,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this trip?')) {
+    if (await confirmDialog({ title: "Delete trip", message: 'Are you sure you want to delete this trip?', confirmLabel: "Delete", tone: "danger" })) {
       try {
         const trip = trips.find((item) => item.id === id);
         const { error } = await supabase

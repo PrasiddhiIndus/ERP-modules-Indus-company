@@ -3,6 +3,7 @@ import { Code2, Columns2, Eye, LayoutTemplate, Monitor, Smartphone } from 'lucid
 import { EMAIL_HTML_STARTER, looksLikeHtmlEmail } from '../../../../shared/emailHtml.mjs';
 import EmailPreviewFrame from './EmailPreviewFrame';
 import MergeTokenChips from './MergeTokenChips';
+import { confirmDialog } from "../../../lib/dialog";
 
 const MODES = [
   { id: 'code', label: 'Code', icon: Code2 },
@@ -80,8 +81,8 @@ export default function EmailBodyEditor({ value, onChange, tokens, renderPreview
     }
   };
 
-  const insertStarter = () => {
-    if (String(value || '').trim() && !window.confirm('Replace the current body with the HTML email layout?')) return;
+  const insertStarter = async () => {
+    if (String(value || '').trim() && !(await confirmDialog({ title: "Replace email body", message: 'Replace the current body with the HTML email layout?', confirmLabel: "Replace" }))) return;
     onChange(EMAIL_HTML_STARTER);
     if (mode === 'preview') setMode('split');
   };

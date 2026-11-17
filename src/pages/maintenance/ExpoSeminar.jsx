@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx';
 import { fetchActiveEmployeesForDropdown } from '../../utils/employeeDirectory';;
 import FormDateInput from "../../components/FormDateInput";
 import { toast } from '../../lib/toast';
+import { confirmDialog } from "../../lib/dialog";
 
 
 const ExpoSeminar = () => {
@@ -644,7 +645,7 @@ const ExpoSeminar = () => {
   };
 
   const handleDeleteSiteVisit = async (id) => {
-    if (!confirm('Are you sure you want to delete this site visit?')) return;
+    if (!(await confirmDialog({ title: "Delete site visit", message: 'Are you sure you want to delete this site visit?', confirmLabel: "Delete", tone: "danger" }))) return;
 
     try {
       const { error } = await supabase
@@ -703,7 +704,7 @@ const ExpoSeminar = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this expo/seminar?')) return;
+    if (!(await confirmDialog({ title: "Delete expo/seminar", message: 'Are you sure you want to delete this expo/seminar?', confirmLabel: "Delete", tone: "danger" }))) return;
 
     try {
       const { error } = await supabase

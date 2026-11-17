@@ -647,3 +647,16 @@
     break-inside: avoid;
   }
 }
+
+/* Dark theme — toolbar buttons outside the (always light) appraisal sheet */
+[data-theme="dark"] .pr-btn:not(.pr-sheet *),
+.theme-dark .pr-btn:not(.pr-sheet *) {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+[data-theme="dark"] .pr-btn-warn:not(.pr-sheet *),
+.theme-dark .pr-btn-warn:not(.pr-sheet *) {
+  border-color: var(--critical-text);
+  color: var(--critical-text);
+}

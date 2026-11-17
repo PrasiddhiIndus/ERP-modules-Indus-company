@@ -26,6 +26,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { toast } from '../../lib/toast';
+import { confirmDialog } from "../../lib/dialog";
 
 const VEHICLES_PAGE_SIZE = 20;
 
@@ -350,7 +351,7 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this vehicle?')) {
+    if (await confirmDialog({ title: "Delete vehicle", message: 'Are you sure you want to delete this vehicle?', confirmLabel: "Delete", tone: "danger" })) {
       try {
         const { error } = await supabase
           .from('operations_fire_tender_vehicle_master')

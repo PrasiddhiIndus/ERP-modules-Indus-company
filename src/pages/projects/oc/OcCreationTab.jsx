@@ -7,6 +7,7 @@ import { toast } from "../../../lib/toast";
 import { amFinance, deleteOc, friendlyOcError, listOcs, loadSignoffAssignees, myEmployeeCode } from "./ocApi";
 import { formatIndianAmount, formatOcDate } from "./ocModel";
 import OcCreationForm from "./OcCreationForm";
+import { confirmDialog } from "../../../lib/dialog";
 
 /**
  * PO At Glance: list of entries, and the form for one entry (?oc=<id> or ?oc=new).
@@ -58,7 +59,7 @@ export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
       .then(([map, code, finance]) => {
         if (!alive) return;
         setReviewerCodes(
-          ["PLANNING", "VERTICAL_HEAD"].map((slot) => map[slot]?.employee_code).filter(Boolean)
+          ["PLANNING", "VERTICAL_HEAD", "FINANCE"].map((slot) => map[slot]?.employee_code).filter(Boolean)
         );
         setMyCode(code || "");
         setFinanceUser(finance === true);
@@ -85,7 +86,7 @@ export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
 
   const handleDelete = async (row) => {
     const name = row.oc_no ? `PO At Glance for OC No. ${row.oc_no}` : `PO At Glance for ${row.client_name} (OC No. pending)`;
-    if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return;
+    if (!(await confirmDialog({ title: "Delete PO at a glance", message: `Delete ${name}? This cannot be undone.`, confirmLabel: "Delete", tone: "danger" }))) return;
     try {
       await deleteOc(row.id, department);
       toast.success(`${name} deleted.`);

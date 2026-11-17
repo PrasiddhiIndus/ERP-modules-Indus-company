@@ -33,6 +33,7 @@ import {
 import { hrPersonLabel } from "../../../lib/siteAttendance/siteAttendanceAccess";
 import { useSiteAttendanceAccess, useSiteAttendanceType } from "./SiteAttendanceLayout";
 import TablePager from "./TablePager";
+import { confirmDialog } from "../../../lib/dialog";
 
 const emptyDesignationRow = (name = "", selected = false) => ({
   designation: name,
@@ -320,7 +321,7 @@ export default function SiteMasterPage() {
   };
 
   const remove = async (site) => {
-    if (!window.confirm(`Delete site “${site.site_name}”? This cannot be undone.`)) return;
+    if (!(await confirmDialog({ title: "Delete site", message: `Delete site “${site.site_name}”? This cannot be undone.`, confirmLabel: "Delete", tone: "danger" }))) return;
     try {
       await deleteSite(site.id);
       toast.success("Site deleted.");

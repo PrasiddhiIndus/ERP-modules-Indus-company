@@ -3,6 +3,7 @@ import { Loader2, Plus, Tag, Trash2 } from 'lucide-react';
 import { projectsTable } from '../../../services/quotationApi';
 import { qInput, qLabel, slugifyKindKey } from './quotationConstants';
 import { useQuotationDropdowns } from './useQuotationDropdowns';
+import { confirmDialog } from "../../../lib/dialog";
 
 export default function QuotationDropdown() {
   const { kinds, loading, error, fetchDropdowns, setError } = useQuotationDropdowns();
@@ -74,7 +75,7 @@ export default function QuotationDropdown() {
   };
 
   const handleDeleteValue = async (id) => {
-    if (!window.confirm('Remove this option?')) return;
+    if (!(await confirmDialog({ title: "Remove option", message: 'Remove this option?', confirmLabel: "Remove", tone: "danger" }))) return;
     setDeletingId(id);
     setLocalError('');
     try {
@@ -89,7 +90,7 @@ export default function QuotationDropdown() {
   };
 
   const handleDeleteKind = async (kind) => {
-    if (!window.confirm(`Delete "${kind.label}" and all its options?`)) return;
+    if (!(await confirmDialog({ title: "Delete dropdown list", message: `Delete "${kind.label}" and all its options?`, confirmLabel: "Delete", tone: "danger" }))) return;
     setLocalError('');
     try {
       const { error: delError } = await projectsTable('quotation_dropdown_kinds').delete().eq('id', kind.id);

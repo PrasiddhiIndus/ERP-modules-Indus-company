@@ -191,7 +191,7 @@ export default function NominationDocument({ form, header = {}, rows = [], onHea
         <div className="overflow-x-auto rounded-lg border border-slate-200">
           <table className="min-w-[760px] w-full border-collapse text-sm">
             <thead>
-              <tr className="bg-[#eef2f6]">
+              <tr className="bg-[#eef2f6] dark:bg-surface-sunken">
                 {["S.No.", "Name in full with full address of nominee(s)", "Relationship with the employee", "Age of nominee", "Proportion by which the gratuity will be shared", ""].map((heading) => (
                   <th key={heading || "remove"} className="border border-slate-200 px-2 py-2 text-left text-[12px] font-medium text-slate-500">
                     {heading}

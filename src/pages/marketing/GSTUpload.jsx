@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { Plus, Edit2, Trash2 } from 'lucide-react';
 
 import { toast } from "../../lib/toast";
+import { confirmDialog } from "../../lib/dialog";
 const GSTUpload = () => {
   const [loading, setLoading] = useState(true);
   const [gstData, setGstData] = useState({
@@ -102,7 +103,7 @@ const GSTUpload = () => {
   };
 
   const handleDeleteRow = async (tableType, index) => {
-    if (!confirm('Are you sure you want to delete this row?')) return;
+    if (!(await confirmDialog({ title: "Delete row", message: 'Are you sure you want to delete this row?', confirmLabel: "Delete", tone: "danger" }))) return;
 
     const updatedData = JSON.parse(JSON.stringify(gstData));
     

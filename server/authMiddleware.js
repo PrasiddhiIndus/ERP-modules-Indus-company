@@ -185,6 +185,19 @@ export function hasCommercialPoR2Access(ctx) {
   );
 }
 
+/** IEV / Fire Tender costing documents (New Tender uploads). */
+export function hasFireTenderR2Access(ctx) {
+  if (isSuperAdminRole(ctx)) return true;
+  if (hasAssignedModuleOrSub(ctx, 'fireTender') || hasAssignedModuleOrSub(ctx, 'firetender')) return true;
+  return subModulesLower(ctx).some(
+    (s) =>
+      s === 'firetender' ||
+      s.startsWith('firetender.') ||
+      s === 'iev-config.selected' ||
+      s.startsWith('iev-config.')
+  );
+}
+
 function projectRefFromUrl(url) {
   const m = String(url || '').match(/https?:\/\/([^.]+)\.supabase\.co/i);
   return m ? m[1] : '';
@@ -549,5 +562,6 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     requireAdminPoliciesR2: middleware((ctx) => hasAdminPoliciesR2Access(ctx)),
     requireCommercialPoR2: middleware((ctx) => hasCommercialPoR2Access(ctx) || hasBillingAccess(ctx)),
     requireMarketingExpoR2: middleware((ctx) => hasMarketingExpoR2Access(ctx)),
+    requireFireTenderR2: middleware((ctx) => hasFireTenderR2Access(ctx)),
   };
 }

@@ -10,6 +10,7 @@ import { slug } from "./lib/formatters";
 import { inr } from "./lib/formatters";
 
 import { toast } from "../../lib/toast";
+import { confirmDialog } from "../../lib/dialog";
 const EMPTY = {
   name: "", code: "", service_type: "", work_order_no: "",
   contract_start: "", contract_end: "", status: "active",
@@ -59,7 +60,7 @@ export default function SitesMaster() {
 
   const remove = async (row) => {
     if (!permissions.canEditMasters) return;
-    if (!confirm(`Delete "${row.name}" and all related data?`)) return;
+    if (!(await confirmDialog({ title: "Delete site", message: `Delete "${row.name}" and all related data?`, confirmLabel: "Delete", tone: "danger" }))) return;
     try {
       await deleteSite(row.id);
       await refresh();

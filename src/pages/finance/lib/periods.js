@@ -218,3 +218,55 @@ export function expectedPeriods(site, uptoKey, months) {
   if (!start) return [];
   return periodKeysBetween(start, endKey);
 }
+
+/* ───────────── Multi-month / Financial-year helpers (Indian FY: Apr–Mar) ───────────── */
+
+/** FY start year for a period key — e.g. 2026-02 → 2025 (FY 2025-26). */
+export function financialYearOf(key) {
+  const p = parsePeriodKey(key);
+  if (!p) return null;
+  return p.month >= 4 ? p.year : p.year - 1;
+}
+
+export function fyLabel(fyStartYear) {
+  return `FY ${fyStartYear}-${String((fyStartYear + 1) % 100).padStart(2, "0")}`;
+}
+
+/** The 12 period keys of a financial year, Apr → Mar. */
+export function fyMonthKeys(fyStartYear) {
+  return periodKeysBetween(`${fyStartYear}-04`, `${fyStartYear + 1}-03`);
+}
+
+/**
+ * Deduplicate, validate and chronologically sort a month selection.
+ * Guarantees each period is counted once in multi-month aggregation.
+ */
+export function normalizeMonthSelection(keys) {
+  const seen = new Set();
+  (keys || []).forEach((k) => {
+    if (parsePeriodKey(k)) seen.add(k);
+  });
+  return [...seen].sort(comparePeriodKeys);
+}
+
+/** True when the (normalized) selection is an unbroken run of months. */
+export function isContiguousSelection(keys) {
+  const sel = normalizeMonthSelection(keys);
+  for (let i = 1; i < sel.length; i++) {
+    if (periodAbsoluteIndex(sel[i]) - periodAbsoluteIndex(sel[i - 1]) !== 1) return false;
+  }
+  return true;
+}
+
+/** Compact human label for a month selection: "Apr-25", "Apr-25 – Jun-25", "Apr-25, Jun-25 (+3)". */
+export function describeMonthSelection(keys, labelFn = monthLabelOf) {
+  const sel = normalizeMonthSelection(keys);
+  if (!sel.length) return "No months selected";
+  if (sel.length === 1) return labelFn(sel[0]);
+  const fy = financialYearOf(sel[0]);
+  const full = fyMonthKeys(fy);
+  if (sel.length === 12 && sel.every((k, i) => k === full[i])) return fyLabel(fy);
+  if (isContiguousSelection(sel)) return `${labelFn(sel[0])} – ${labelFn(sel[sel.length - 1])}`;
+  if (sel.length <= 4) return sel.map((k) => labelFn(k)).join(", ");
+  return `${sel.slice(0, 3).map((k) => labelFn(k)).join(", ")} (+${sel.length - 3} more)`;
+}

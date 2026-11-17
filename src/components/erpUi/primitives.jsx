@@ -68,7 +68,7 @@ export const TinyInput = ({ type, value, onChange, className = "", ...rest }) =>
       <FormDateInput
         value={value}
         onChange={onChange}
-        className={`h-9 ${className}`.trim()}
+        className={`h-9 border border-border rounded-control bg-surface shadow-sm ${className}`.trim()}
         compact
         {...rest}
       />

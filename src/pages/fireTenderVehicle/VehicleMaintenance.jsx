@@ -24,6 +24,7 @@ import {
   Eye
 } from 'lucide-react';
 import { toast } from '../../lib/toast';
+import { confirmDialog } from "../../lib/dialog";
 
 const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
   const [maintenance, setMaintenance] = useState([]);
@@ -194,7 +195,7 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this maintenance record?')) {
+    if (await confirmDialog({ title: "Delete maintenance record", message: 'Are you sure you want to delete this maintenance record?', confirmLabel: "Delete", tone: "danger" })) {
       try {
         const { error } = await supabase
           .from('operations_fire_tender_vehicle_maintenance')

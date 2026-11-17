@@ -7,6 +7,7 @@ import { inr } from "./lib/formatters";
 import { monthLabelOf, currentPeriodKey } from "./lib/periods";
 
 import { toast } from "../../lib/toast";
+import { confirmDialog } from "../../lib/dialog";
 const EMPTY = {
   site_id: "",
   child_head_id: "",
@@ -90,7 +91,7 @@ export default function CostAllocation() {
               render: (r) =>
                 permissions.isAdmin ? (
                   <button type="button" className="text-xs text-red-700" onClick={async () => {
-                    if (!confirm("Delete this spread?")) return;
+                    if (!(await confirmDialog({ title: "Delete spread", message: "Delete this spread?", confirmLabel: "Delete", tone: "danger" }))) return;
                     await deleteCostAllocation(r.id);
                     refresh();
                   }}>Delete</button>

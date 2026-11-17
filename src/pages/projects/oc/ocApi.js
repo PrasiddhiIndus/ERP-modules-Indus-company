@@ -123,7 +123,11 @@ export async function amFinance() {
 export async function fetchOcSignatureUrl(userId) {
   if (!userId) return "";
   const { data, error } = await supabase.rpc("employee_signature_file_for_user", { p_user_id: userId });
-  if (error || !data?.objectKey) return "";
+  if (error) {
+    console.warn("[PO At Glance] signature lookup failed", error);
+    return "";
+  }
+  if (!data?.objectKey) return "";
   const objectKey = String(data.objectKey);
   try {
     if (objectKey.startsWith("signature/")) {
@@ -139,9 +143,42 @@ export async function fetchOcSignatureUrl(userId) {
       objectKey,
       fileName: data.fileName,
     });
-  } catch {
+  } catch (e) {
+    console.warn("[PO At Glance] signature file URL failed", e);
     return "";
   }
+}
+
+/** Viewable URL of the signature used on a signed Projects PO stage ("" when none). */
+export async function pjStageSignatureUrl(ocId, slot) {
+  if (!ocId || !slot) return "";
+  try {
+    const res = await fetchApiWithAuth("/api/projects/oc/signature-file", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ocId, slot }),
+    });
+    return res.ok ? String(res.data?.url || "") : "";
+  } catch (e) {
+    console.warn("[PO At Glance] stage signature URL failed", slot, e);
+    return "";
+  }
+}
+
+/** Raw bytes of the signature used on a signed Projects PO stage (for Word export), or null. */
+export async function pjStageSignatureBytes(ocId, slot) {
+  if (!ocId || !slot) return null;
+  const res = await fetchApiWithAuth("/api/projects/oc/signature-file", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ocId, slot, bytes: true }),
+  });
+  const b64 = res.ok ? String(res.data?.base64 || "") : "";
+  if (!b64) return null;
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
 const PO_DOCUMENT_BUCKET = "projects-po-documents";

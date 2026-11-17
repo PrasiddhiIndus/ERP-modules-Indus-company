@@ -112,7 +112,7 @@ function ReportsBody({ data }) {
               <XAxis dataKey="label" tick={{ fontSize: 10, fill: "var(--text-secondary)" }} interval={0} angle={-20} textAnchor="end" height={48} />
               <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "var(--text-secondary)" }} />
               <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "var(--row-hover)" }} />
-              <Bar dataKey="reached" name="Reached stage" fill="var(--info)" radius={[4, 4, 0, 0]} maxBarSize={36} />
+              <Bar dataKey="reached" name="Reached stage" fill="var(--info-text)" radius={[4, 4, 0, 0]} maxBarSize={36} />
             </BarChart>
           </ResponsiveContainer>
         </div>

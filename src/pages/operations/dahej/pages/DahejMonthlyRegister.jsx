@@ -7,6 +7,7 @@ import { useOperations } from "../../contexts/OperationsContext";
 import { formatCurrency } from "../../data/mockOperationsData";
 import { exportDahejExcel } from "../utils/dahejExpenseExcel";
 import { formatDateDdMmYyyy, formatMonthYearLabel } from "../../../../utils/dateDisplay";
+import { confirmDialog } from "../../../../lib/dialog";
 
 
 function monthOptions() {
@@ -47,8 +48,8 @@ export default function DahejMonthlyRegister() {
         theme={theme}
         primaryAction={
           !monthClosed && monthEntries.length > 0 ? (
-            <PrimaryButton icon={Lock} onClick={() => {
-              if (window.confirm(`Close month ${monthLabel}? Register will become read-only.`)) closeMonth();
+            <PrimaryButton icon={Lock} onClick={async () => {
+              if (await confirmDialog({ title: "Close month", message: `Close month ${monthLabel}? Register will become read-only.`, confirmLabel: "Close month" })) closeMonth();
             }}>
               Close Month
             </PrimaryButton>

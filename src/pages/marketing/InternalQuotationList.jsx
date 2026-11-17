@@ -10,6 +10,7 @@ import {
 } from './utils/marketingQuotationUtils';
 
 import { toast } from "../../lib/toast";
+import { confirmDialog } from "../../lib/dialog";
 const InternalQuotationList = () => {
   const navigate = useNavigate();
   const [quotations, setQuotations] = useState([]);
@@ -95,7 +96,7 @@ const InternalQuotationList = () => {
   };
 
   const handleDeleteInternalQuotation = async (quotationId) => {
-    if (!confirm('Are you sure you want to delete this internal quotation data? This will clear the subject and terms data.')) {
+    if (!(await confirmDialog({ title: "Delete internal quotation data", message: 'Are you sure you want to delete this internal quotation data? This will clear the subject and terms data.', confirmLabel: "Delete", tone: "danger" }))) {
       return;
     }
 

@@ -7,6 +7,7 @@ import { calculateCtc, roundRupee, schemeLabel } from "./ctcEngine";
 import { resolveRuleVersion } from "./payrollRulesDb";
 import { dbFetchSalaryStructureMap, dbReviseSalaryStructure } from "./salaryDb";
 import { isAnnexureRecord, resultToStructurePayload, skillLabel, statusLabel } from "./annexureCtcRecord";
+import { confirmDialog } from "../../../lib/dialog";
 
 function fmtMoney(v) {
   if (v == null || !Number.isFinite(Number(v))) return "—";
@@ -154,9 +155,7 @@ export default function CtcRuleUpdatePanel({ ruleVersions }) {
       return;
     }
     if (
-      !window.confirm(
-        `Update the salary breakup for ${picked.length} employee(s) with the current payroll rules? Gross stays the same; the current CTC moves to history.`
-      )
+      !(await confirmDialog({ title: "Update salary breakup", message: `Update the salary breakup for ${picked.length} employee(s) with the current payroll rules? Gross stays the same; the current CTC moves to history.`, confirmLabel: "Update" }))
     ) {
       return;
     }

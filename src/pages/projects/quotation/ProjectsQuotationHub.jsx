@@ -31,10 +31,10 @@ const ProjectsQuotationHub = () => {
 
   const tabs = [
     { id: 'quotation-dashboard', label: 'Dashboard', component: QuotationDashboard },
-    { id: 'quotation-list', label: 'Total Quotations', component: QuotationMakerList },
     { id: 'quotation-entry', label: 'Make a Quotation', component: QuotationMaker },
+    { id: 'quotation-list', label: 'Quotation Master', component: QuotationMakerList },
     { id: 'quotation-board', label: 'Board', component: QuotationBoard },
-    { id: 'quotation-dropdown', label: 'Masters', component: QuotationDropdown },
+    { id: 'quotation-dropdown', label: 'Dropdown Master', component: QuotationDropdown },
     { id: 'quotation-templates', label: 'Templates', component: QuotationTemplates },
   ];
 

@@ -4,7 +4,7 @@ import React from "react";
 export default function FinanceDashboardStyles() {
   return (
     <style>{`
-    .fin-dash{--paper:var(--surface-raised);--surface:var(--surface);--ink:var(--text);--ink-soft:var(--text-secondary);--muted:var(--text-muted);--line:var(--border);--green:var(--accent);--profit:var(--success);--loss:var(--critical);--warn:var(--warning);--gold:var(--chart-3);--display:var(--font-sans);--body:var(--font-sans);--mono:var(--font-mono);font-family:var(--body);font-size:13px;color:var(--ink);background:var(--paper);}
+    .fin-dash{--paper:var(--surface-raised);--surface:var(--surface);--ink:var(--text);--ink-soft:var(--text-secondary);--muted:var(--text-muted);--line:var(--border);--green:var(--accent-text);--profit:var(--success-text);--loss:var(--critical-text);--warn:var(--warning-text);--gold:var(--chart-3);--display:var(--font-sans);--body:var(--font-sans);--mono:var(--font-mono);font-family:var(--body);font-size:13px;color:var(--ink);background:var(--paper);}
     .fin-dash *{box-sizing:border-box}
     .fin-topbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:16px 0 20px;border-bottom:1px solid var(--line);margin-bottom:18px;}
     .fin-topbar h1{font-family:var(--display);font-size:23px;font-weight:700;margin:0;letter-spacing:-.02em;}

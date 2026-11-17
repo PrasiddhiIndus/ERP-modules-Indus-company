@@ -338,8 +338,8 @@ export default function DbUsageQuotaPanel({ t, reducedMotion }) {
                   type="monotone"
                   dataKey="writes"
                   name="DB writes"
-                  stroke="var(--accent)"
-                  fill="var(--accent)"
+                  stroke="var(--accent-text)"
+                  fill="var(--accent-text)"
                   fillOpacity={0.15}
                   strokeWidth={2}
                   isAnimationActive={anim > 0}
@@ -349,8 +349,8 @@ export default function DbUsageQuotaPanel({ t, reducedMotion }) {
                   type="monotone"
                   dataKey="estimatedRt"
                   name="Est. Realtime msgs"
-                  stroke="#f59e0b"
-                  fill="#f59e0b"
+                  stroke="var(--warning-text)"
+                  fill="var(--warning-text)"
                   fillOpacity={0.1}
                   strokeWidth={2}
                   isAnimationActive={anim > 0}

@@ -7,6 +7,7 @@ import { exportToExcel } from './utils/excelExport';
 import ExcelCostingSheet from './components/ExcelCostingSheet';;
 import FormDateInput from "../../components/FormDateInput";
 import { toast } from '../../lib/toast';
+import { confirmDialog } from "../../lib/dialog";
 
 
 const FollowUpPlanner = () => {
@@ -614,7 +615,7 @@ const FollowUpPlanner = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this follow-up?')) return;
+    if (!(await confirmDialog({ title: "Delete follow-up", message: 'Are you sure you want to delete this follow-up?', confirmLabel: "Delete", tone: "danger" }))) return;
 
     try {
       const { error } = await supabase
@@ -1144,7 +1145,7 @@ const FollowUpPlanner = () => {
                             <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-900 whitespace-nowrap">
                               {visit.visit_date ? formatDateDdMmYyyy(visit.visit_date) : '-'}
                               {isToday && (
-                                <span className="ml-2 px-2 py-0.5 bg-yellow-400 text-yellow-900 text-xs font-semibold rounded-full">
+                                <span className="ml-2 px-2 py-0.5 bg-yellow-400 text-yellow-900 dark:text-white text-xs font-semibold rounded-full">
                                   Today
                                 </span>
                               )}

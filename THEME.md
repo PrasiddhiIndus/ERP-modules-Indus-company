@@ -144,6 +144,23 @@ Surface · 10px radius · divider header/footer · scrim `rgba(31,35,32,0.32)`.
 
 ---
 
+## Dark mode rules
+
+Dark mode is driven by `[data-theme="dark"]` on `<html>` (`ThemeContext`). Components must not carry their own dark palette — tokens switch for them.
+
+| Need | Use | Why |
+|------|-----|-----|
+| Coloured text / icons / active borders | `text-accent`, `text-red-600`, `border-blue-600`, … or `var(--accent-text)`, `var(--critical-text)`, … | Tailwind text/border/ring utilities map to the `--*-text` tokens: same as the fill in light, lifted to ≥ 4.5:1 in dark |
+| Solid fills with white text | `bg-accent`, `bg-red-600`, `bg-gray-800`, … (`var(--accent)`, `var(--solid-neutral-*)`) + `text-white` | Fill tokens stay deep enough for white text in both themes |
+| Inline styles / Recharts props | `UI_TOKENS`, `UI_FILLS`, `CHART_SERIES` from `src/theme/tokens.js` | CSS-variable strings, follow the theme live. `TOKENS` (static light hexes) is for PDF / Excel / persisted values only |
+| Document surfaces (invoice, payslip, statutory form, print preview) | add class `erp-paper` (white sheet) or `erp-light-scope` (own light palette) | Re-pins the light palette so the sheet stays white-with-dark-ink in dark mode |
+| One-off literal colour that needs a dark value | `bg-[#FFF9E6] dark:bg-warning-soft` | `dark:` variants follow the ERP theme switch |
+| html2canvas capture | pass `onclone: forceLightThemeOnClone` (`src/lib/captureLightTheme.js`) | Exports always render with the light palette |
+
+Global dark-only fixes (native controls, Recharts, `text-black`, docx-preview) live in the "Dark theme: global readability layer" block at the end of `src/index.css`.
+
+---
+
 ## Adding new UI
 
 1. Pick tokens from this doc — do not invent hexes.

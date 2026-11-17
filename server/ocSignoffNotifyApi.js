@@ -1,9 +1,20 @@
 /**
  * IEV PO At Glance — email the four sign-off assignees when a PO slot is signed.
- * From address: a Verified mailbox from CRM Outreach → Sender Mailboxes.
+ * From address: a Verified mailbox from CRM Outreach → Sender Mailboxes that the caller may use.
+ *
+ * Security (fix C3): nothing that ends up in the email is trusted from the request body.
+ *   - Stage emails: only slots the caller actually signed (signed_user_id in the sign-off table).
+ *   - Projects created / OC Number / revision emails: verified against the approval log / OC Number
+ *     audit written by the database, or (fallback) the caller must have the department's module access.
+ *   - Signer name, OC Number, date, remarks and "sent by" come from the database.
+ *   - Sender mailbox: personal mailboxes only for their owner (same rule as CRM Outreach).
+ *   - Each event is emailed once (public.oc_signoff_notify_log); a failed send can be retried.
  */
 import { isMailDispatchConfigured, sendOutboundMail, sendThreadedMail, MAIL_NOT_CONFIGURED_MESSAGE } from './mail/index.js';
+import { canUseSenderMailbox, senderNotAllowedMessage } from './mail/senderAccess.js';
 import { isValidEmployeeEmail, normalizeEmployeeEmail } from '../shared/crmInHouseMail.mjs';
+import { OC_DEPARTMENT_SCOPE, profileHasDataScope } from '../shared/erpDataScopes.mjs';
+import { claimOcNotify, completeOcNotify, failOcNotify } from './ocNotifyIdempotency.js';
 
 /** Per-department tables, box labels and wording. IEV is the default; Maintenance has its own records. */
 export const OC_NOTIFY_PROFILES = {
@@ -61,6 +72,24 @@ export const OC_NOTIFY_PROFILES = {
     configPath: 'R&M → PO At Glance Sign-off Assignment',
     assigneeCount: 'three',
   },
+  commercial: {
+    masterTable: 'cm_oc_master',
+    assigneesTable: 'cm_oc_signoff_assignees',
+    signoffTable: 'cm_oc_signoff',
+    slotLabels: {
+      CREATOR: 'OC Creator',
+      COMMERCIAL_MANAGER: 'Commercial Manager',
+      FINANCE: 'Finance / Accounts',
+      BILLING_IR_SALARY: 'Billing / IR / Salary',
+      HR_OPERATIONS: 'HR / Operations',
+      SAFETY_HEAD: 'Safety Head',
+    },
+    /** Only these assignment rows are emailed (older Commercial boxes stay in the table but are no longer used). */
+    activeSlots: ['COMMERCIAL_MANAGER', 'FINANCE', 'BILLING_IR_SALARY', 'HR_OPERATIONS', 'SAFETY_HEAD'],
+    reviewPath: 'Commercial → PO At Glance',
+    configPath: 'Commercial → PO At Glance Sign-off Assignment',
+    assigneeCount: 'Commercial approval',
+  },
 };
 
 function httpError(status, message) {
@@ -85,8 +114,11 @@ function slotLabel(profile, slot) {
   return profile.slotLabels[String(slot || '').toUpperCase()] || String(slot || 'Department');
 }
 
-/** Prefer IEV/PO-related verified mailbox; otherwise first verified outreach sender. */
-async function resolveOutreachSender(db, senderMailboxId) {
+/**
+ * Prefer IEV/PO-related verified mailbox; otherwise first verified outreach sender.
+ * Personal mailboxes are only used for their owner (callerEmails), same rule as CRM Outreach.
+ */
+export async function resolveOutreachSender(db, senderMailboxId, callerEmails = []) {
   if (senderMailboxId) {
     const { data, error } = await db
       .from('sender_mailboxes')
@@ -98,6 +130,9 @@ async function resolveOutreachSender(db, senderMailboxId) {
     if (data.status !== 'Verified') {
       throw httpError(400, `Sender ${data.mail} is not verified. Mark it Verified in Outreach → Sender Mailboxes.`);
     }
+    if (!canUseSenderMailbox(data.mail, callerEmails)) {
+      throw httpError(403, senderNotAllowedMessage(data.mail));
+    }
     return data;
   }
 
@@ -107,7 +142,7 @@ async function resolveOutreachSender(db, senderMailboxId) {
     .eq('status', 'Verified')
     .order('created_at', { ascending: true });
   if (error) throw httpError(500, 'Could not load sender mailboxes.');
-  const rows = data || [];
+  const rows = (data || []).filter((r) => canUseSenderMailbox(r.mail, callerEmails));
   if (!rows.length) return null;
 
   const preferred = rows.find((r) => {
@@ -296,56 +331,169 @@ async function saveProjectsMailThread(db, row) {
   if (error) throw httpError(500, 'Could not save the email thread.');
 }
 
+const NOT_ALLOWED_MESSAGE = 'You are not allowed to send notifications for this PO At Glance.';
+
+/**
+ * Decide whether the caller may send this notification, using only database records.
+ * Returns the verified email content and the idempotency key for the event.
+ */
+export async function verifyOcNotifyEvent({ db, department, mailEvent, master, signoffRows, requestedSlots, caller }) {
+  const userId = caller.userId;
+  const hasScope = profileHasDataScope(caller.profile, OC_DEPARTMENT_SCOPE[department]);
+  const base = `${department}:${master.id}:${mailEvent}`;
+
+  if (mailEvent === 'stage') {
+    // Only slots the caller signed themself (signed_user_id is stamped by the database trigger / RPC).
+    const signs = signoffRows
+      .filter((row) => requestedSlots.includes(String(row.slot || '').toUpperCase()))
+      .filter((row) => row.signed_user_id && row.signed_user_id === userId && String(row.signed_by || '').trim())
+      .map((row) => ({
+        slot: String(row.slot).toUpperCase(),
+        signed_by: String(row.signed_by).trim(),
+        signed_at: row.signed_at || '',
+      }))
+      // Keep the order the app sent (first signature names the signer in the email, as before).
+      .sort((a, b) => requestedSlots.indexOf(a.slot) - requestedSlots.indexOf(b.slot));
+    if (!signs.length) {
+      throw httpError(403, 'You can only send the notification for a stage you signed yourself.');
+    }
+    const keyParts = signs.map((s) => `${s.slot}@${s.signed_at}`).sort();
+    return {
+      signs,
+      signerName: signs[0].signed_by,
+      idempotencyKey: `${base}:${keyParts.join(',')}`,
+    };
+  }
+
+  if (mailEvent === 'created') {
+    const { data: log, error } = await db
+      .from('pj_oc_approval_log')
+      .select('id, actor_user_id')
+      .eq('oc_id', master.id)
+      .eq('action', 'CREATED')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw httpError(500, 'Could not load the approval log.');
+    if (log?.actor_user_id !== userId && !hasScope) throw httpError(403, NOT_ALLOWED_MESSAGE);
+    return { signs: [], idempotencyKey: base };
+  }
+
+  if (mailEvent === 'revision') {
+    const { data: log, error } = await db
+      .from('pj_oc_approval_log')
+      .select('id, actor_user_id, actor_name, remarks')
+      .eq('oc_id', master.id)
+      .eq('action', 'MODIFICATION_REQUESTED')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw httpError(500, 'Could not load the approval log.');
+    if (!log || log.actor_user_id !== userId) {
+      throw httpError(403, 'Only the person who sent this PO for revision can send the revision email.');
+    }
+    return {
+      signs: [],
+      remarks: log.remarks || '',
+      actorName: log.actor_name || '',
+      idempotencyKey: `${base}:${log.id}`,
+    };
+  }
+
+  if (mailEvent === 'oc_number') {
+    const { data: audit, error } = await db
+      .from('finance_oc_no_audit')
+      .select('id, changed_by, new_oc_no, new_oc_date')
+      .eq('department', department)
+      .eq('po_id', master.id)
+      .order('changed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw httpError(500, 'Could not load the OC Number history.');
+    if (audit && audit.changed_by === userId) {
+      return {
+        signs: [],
+        ocNo: audit.new_oc_no || master.oc_no || '',
+        ocDate: audit.new_oc_date || master.oc_date || '',
+        idempotencyKey: `${base}:${audit.id}`,
+      };
+    }
+    if (!hasScope && !profileHasDataScope(caller.profile, 'finance')) throw httpError(403, NOT_ALLOWED_MESSAGE);
+    return {
+      signs: [],
+      ocNo: master.oc_no || '',
+      ocDate: master.oc_date || '',
+      idempotencyKey: `${base}:${master.oc_no || ''}|${master.oc_date || ''}`,
+    };
+  }
+
+  throw httpError(400, 'Unknown notification type.');
+}
+
+/**
+ * @param {object} p
+ * @param {{ userId: string, profile: object, emails: string[] }} p.caller  authenticated user (from requireAuth)
+ * @param {Array<{slot: string}>} [p.signatures]  slots to notify about; names in the body are ignored
+ */
 export async function notifyOcSignoffAssignees({
   db,
   ocId,
   signatures,
   senderMailboxId,
-  signerName,
   department = 'iev',
   event = 'stage',
-  ocNo,
-  ocDate,
-  remarks,
-  actorName,
+  caller,
 }) {
   const profile = OC_NOTIFY_PROFILES[department];
   if (!profile) throw httpError(400, 'Unknown PO At Glance department.');
+  if (!caller?.userId) throw httpError(401, 'Sign in again to send the notification.');
   const id = String(ocId || '').trim();
   if (!id) throw httpError(400, 'PO At Glance id is missing.');
   const mailEvent = department === 'projects' && PROJECT_MAIL_EVENTS.has(event) ? event : 'stage';
 
-  const signs = (Array.isArray(signatures) ? signatures : [])
-    .map((s) => ({
-      slot: String(s?.slot || '').trim().toUpperCase(),
-      signed_by: String(s?.signed_by || '').trim(),
-    }))
-    .filter((s) => s.slot && s.signed_by);
-  if (mailEvent === 'stage' && !signs.length) throw httpError(400, 'No new signatures to notify about.');
+  const requestedSlots = [...new Set(
+    (Array.isArray(signatures) ? signatures : [])
+      .map((s) => String(s?.slot || '').trim().toUpperCase())
+      .filter(Boolean)
+  )];
+  if (mailEvent === 'stage' && !requestedSlots.length) throw httpError(400, 'No new signatures to notify about.');
 
   const { data: master, error: masterErr } = await db
     .from(profile.masterTable)
-    .select('id, oc_no, client_name, po_wo_no')
+    .select(department === 'projects' ? 'id, oc_no, oc_date, client_name, po_wo_no' : 'id, oc_no, client_name, po_wo_no')
     .eq('id', id)
     .maybeSingle();
   if (masterErr) throw httpError(500, 'Could not load the PO At Glance.');
-  if (!master) throw httpError(404, 'PO At Glance not found.');
-
-  const { data: assignees, error: aErr } = await db
-    .from(profile.assigneesTable)
-    .select('slot, employee_code, employee_name');
-  if (aErr) throw httpError(500, 'Could not load sign-off assignees.');
-  const rows = assignees || [];
+  if (!master) {
+    // Do not reveal whether an id exists to people outside the department.
+    const hasScope = profileHasDataScope(caller.profile, OC_DEPARTMENT_SCOPE[department]);
+    throw hasScope ? httpError(404, 'PO At Glance not found.') : httpError(403, NOT_ALLOWED_MESSAGE);
+  }
 
   let signoffRows = [];
   if (profile.signoffTable) {
     const { data: signedRows, error: sErr } = await db
       .from(profile.signoffTable)
-      .select('slot, signed_by, signed_user_id')
+      .select('slot, signed_by, signed_user_id, signed_at')
       .eq('oc_id', id);
     if (sErr) throw httpError(500, 'Could not load the sign-off.');
     signoffRows = signedRows || [];
   }
+
+  const verified = await verifyOcNotifyEvent({
+    db, department, mailEvent, master, signoffRows, requestedSlots, caller,
+  });
+  const signs = verified.signs;
+  const signerName = verified.signerName || '';
+
+  const { data: assignees, error: aErr } = await db
+    .from(profile.assigneesTable)
+    .select('slot, employee_code, employee_name');
+  if (aErr) throw httpError(500, 'Could not load sign-off assignees.');
+  const rows = (assignees || []).filter(
+    (r) => !profile.activeSlots || profile.activeSlots.includes(String(r.slot || '').toUpperCase())
+  );
+
   const signoffBySlot = new Map(signoffRows.map((row) => [String(row.slot || '').toUpperCase(), row]));
   const assigneeBySlot = new Map(rows.map((row) => [String(row.slot || '').toUpperCase(), row]));
   if (!rows.length) {
@@ -385,7 +533,44 @@ export async function notifyOcSignoffAssignees({
     throw httpError(503, MAIL_NOT_CONFIGURED_MESSAGE);
   }
 
-  const sender = await resolveOutreachSender(db, senderMailboxId);
+  const sender = await resolveOutreachSender(db, senderMailboxId, caller.emails || []);
+
+  const claim = await claimOcNotify(db, {
+    key: verified.idempotencyKey,
+    department,
+    ocId: master.id,
+    event: mailEvent,
+    userId: caller.userId,
+  });
+  if (claim.state === 'duplicate') {
+    console.info('[oc/signoff-notify] already sent', { key: verified.idempotencyKey });
+    return { ...(claim.result || { ok: true, sent: [], skipped: [], failed: [] }), duplicate: true };
+  }
+  if (claim.state === 'in_progress') {
+    throw httpError(409, 'This notification is already being sent. Try again in a minute if it does not arrive.');
+  }
+  if (claim.state === 'unavailable') {
+    console.warn('[oc/signoff-notify] oc_signoff_notify_log missing — sending without idempotency');
+  }
+  const idempotent = claim.state === 'claimed';
+
+  try {
+    const result = await sendOcNotification({
+      db, department, profile, master, mailEvent, signs, signerName, verified, sender,
+      recipients, skipped, signoffBySlot, assigneeBySlot,
+    });
+    if (idempotent) await completeOcNotify(db, verified.idempotencyKey, result);
+    return result;
+  } catch (err) {
+    if (idempotent) await failOcNotify(db, verified.idempotencyKey, err?.message);
+    throw err;
+  }
+}
+
+async function sendOcNotification({
+  db, department, profile, master, mailEvent, signs, signerName, verified, sender,
+  recipients, skipped, signoffBySlot, assigneeBySlot,
+}) {
   const signsWithEmployee = [];
   for (const sign of signs) {
     const recorded = signoffBySlot.get(sign.slot);
@@ -416,10 +601,10 @@ export async function notifyOcSignoffAssignees({
       event: mailEvent,
       signatures: signsWithEmployee,
       signerName,
-      ocNo,
-      ocDate,
-      remarks,
-      actorName,
+      ocNo: verified.ocNo,
+      ocDate: verified.ocDate,
+      remarks: verified.remarks,
+      actorName: verified.actorName,
     });
     try {
       const posted = await sendThreadedMail({

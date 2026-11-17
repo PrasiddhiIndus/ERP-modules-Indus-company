@@ -37,6 +37,7 @@ import {
   presignAdminPolicyR2Get,
   uploadAdminPolicyFileToR2,
 } from "../../../lib/adminPolicyR2";
+import { confirmDialog } from "../../../lib/dialog";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 const ACCEPT = ".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp";
@@ -214,7 +215,7 @@ export function EmployeePoliciesPage() {
     async (row, e) => {
       e?.stopPropagation?.();
       if (!row) return;
-      const ok = window.confirm(`Remove “${row.title}”? This also removes assignments.`);
+      const ok = await confirmDialog({ title: "Remove policy", message: `Remove “${row.title}”? This also removes assignments.`, confirmLabel: "Remove", tone: "danger" });
       if (!ok) return;
       setSaving(true);
       try {

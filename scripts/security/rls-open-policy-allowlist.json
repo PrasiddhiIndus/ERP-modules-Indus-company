@@ -1,0 +1,4 @@
+{
+  "note": "Read-only reference / lookup tables that may have FOR SELECT USING (true). Each entry needs a reason.",
+  "tables": []
+}

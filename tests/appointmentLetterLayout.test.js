@@ -132,7 +132,7 @@ function assertAppointmentFormat(xml) {
   expect(xml).not.toContain("{{EMPLOYEE_CODE}}");
   expect(xml).not.toContain("{{DOB}}");
   expect(text).toContain("11143");
-  expect(text).toMatch(/22-Jun-04/);
+  expect(text).toMatch(/22-Jun-2004/);
   expect(text).toContain("Employee Code");
   expect(text).toContain("Annexure - I");
   expect(text).toContain("Annexure II");
@@ -191,7 +191,7 @@ describe("appointment letter layout (local + production zip fill)", () => {
       "Shilpa Thakur",
       "Manager-Human Resources",
       "11143",
-      "22-Jun-04",
+      "22-Jun-2004",
       "Annexure - I",
       "Annexure II",
       "Indus Fire Safety Private Limited",
@@ -208,12 +208,28 @@ describe("appointment letter layout (local + production zip fill)", () => {
     const xml = documentXml(lo);
     const text = plainText(xml);
     expect(text).toContain("11143");
-    expect(text).toMatch(/22-Jun-04/);
+    expect(text).toMatch(/22-Jun-2004/);
     expect(text).toContain("Shilpa Thakur");
     expect(text).toContain("Manager-Human Resources");
     expect(text).not.toMatch(/\bCEO\b/);
     expect(emptyBodyParasBetweenNameAndAnnexure(xml)).toBe(0);
     expect((xml.match(/w:pageBreakBefore/g) || []).length).toBeGreaterThanOrEqual(1);
+
+    // LO-only chrome: cropped letterhead PNG (not EMF+cropright) + full-width footer
+    // (black line + address + red bar connected edge-to-edge).
+    const zip = new PizZip(lo);
+    const rels = zip.file("word/_rels/document.xml.rels")?.asText() || "";
+    expect(rels).toMatch(/image1\.png/i);
+    expect(zip.file("word/media/image1.png")).toBeTruthy();
+    const footer = zip.file("word/footer1.xml")?.asText() || "";
+    expect(footer).not.toMatch(/margin-left:-49\.2pt;margin-top:38/);
+    // Letter-width full footer (612pt), not A4 (595.3pt); footer distance stays 0 (no gap below red bar).
+    expect(footer).toMatch(/footer-full|612pt/);
+    expect(footer).not.toMatch(/595\.3pt/);
+    expect(footer).toMatch(/position:absolute/);
+    const body = zip.file("word/document.xml")?.asText() || "";
+    expect(body).toMatch(/<w:pgSz w:w="12240" w:h="15840"\/>/);
+    expect(body).toMatch(/w:footer="0"/);
   }, 120000);
 
   it("Word reports exactly 5 pages for production zip-filled letter (Benefits on page 2, no blank)", async () => {

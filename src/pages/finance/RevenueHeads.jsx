@@ -5,6 +5,7 @@ import { PageHeader, PrimaryButton, SectionCard, Modal, TinyInput, TinySelect, L
 import { upsertRevenueHead, deleteRevenueHead } from "../../services/financeApi";
 
 import { toast } from "../../lib/toast";
+import { confirmDialog } from "../../lib/dialog";
 const EMPTY = { label: "", sign: 1, sort_order: 0 };
 
 export default function RevenueHeads() {
@@ -61,7 +62,7 @@ export default function RevenueHeads() {
                   <span className="flex gap-1 justify-end">
                     <button type="button" className="text-xs text-blue-700" onClick={() => { setForm(r); setOpen(true); }}>Edit</button>
                     <button type="button" className="text-xs text-red-700" onClick={async () => {
-                      if (!confirm(`Delete "${r.label}"?`)) return;
+                      if (!(await confirmDialog({ title: "Delete revenue head", message: `Delete "${r.label}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
                       await deleteRevenueHead(r.id);
                       refresh();
                     }}>Delete</button>

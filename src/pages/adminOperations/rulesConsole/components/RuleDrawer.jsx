@@ -17,6 +17,7 @@ import {
   valueFor,
 } from "../rulesModel";
 import { RulesDrawer, Field, btnPrimary, btnSecondary, btnGhost, describedBy, inputClass } from "./RulesUi";
+import { confirmDialog } from "../../../../lib/dialog";
 
 const COMPANY = "";
 const INHERIT = "__inherit";
@@ -40,8 +41,8 @@ export default function RuleDrawer({ rule, values, departments, onClose, onSaved
   const targetHasOwn = target !== COMPANY && hasOwnValue(values, rule.rule_key, target, today);
   const dirty = formValue !== initialValue || reason.trim() !== "" || effectiveFrom !== today;
 
-  const pickTarget = (next) => {
-    if (dirty && !window.confirm("Discard the change you started?")) return;
+  const pickTarget = async (next) => {
+    if (dirty && !(await confirmDialog({ title: "Discard changes", message: "Discard the change you started?", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" }))) return;
     const own = next !== COMPANY && hasOwnValue(values, rule.rule_key, next, today);
     const current = valueFor(rule, values, { department: next || null, onDate: today });
     const start = next === COMPANY || own ? toFormValue(rule, current) : INHERIT;
@@ -57,9 +58,9 @@ export default function RuleDrawer({ rule, values, departments, onClose, onSaved
     setErrors({});
   }, [formValue, effectiveFrom, reason]);
 
-  const requestClose = () => {
+  const requestClose = async () => {
     if (saving) return;
-    if (dirty && !window.confirm("Discard the change you started?")) return;
+    if (dirty && !(await confirmDialog({ title: "Discard changes", message: "Discard the change you started?", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" }))) return;
     onClose();
   };
 

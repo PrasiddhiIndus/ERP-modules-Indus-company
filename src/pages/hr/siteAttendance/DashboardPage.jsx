@@ -141,7 +141,7 @@ export default function DashboardPage() {
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                 <Tooltip />
-                <Bar dataKey="value" fill="#2563eb" name="Count" />
+                <Bar dataKey="value" fill="var(--chart-1)" name="Count" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -154,8 +154,8 @@ export default function DashboardPage() {
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                 <Tooltip />
-                <Bar dataKey="onDuty" fill="#059669" name="On duty" />
-                <Bar dataKey="shortfall" fill="#d97706" name="Shortfall" />
+                <Bar dataKey="onDuty" fill="var(--chart-6)" name="On duty" />
+                <Bar dataKey="shortfall" fill="var(--chart-3)" name="Shortfall" />
               </BarChart>
             </ResponsiveContainer>
           </div>
