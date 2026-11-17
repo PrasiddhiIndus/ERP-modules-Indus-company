@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase';
 import { X, Plus, Edit2, Trash2, MoreVertical, Download, Calendar, Users, Eye, Upload, FileText, FileSpreadsheet } from 'lucide-react';
 import { marketingExpoFileLabel, openMarketingExpoFile, uploadMarketingExpoPdfToR2 } from '../../lib/marketingExpoR2';
 import { exportToExcel } from './utils/excelExport';
-import * as XLSX from 'xlsx';
+import { downloadSiteVisitTemplate, readSiteVisitSheet } from './utils/siteVisitTemplate';
 import { fetchActiveEmployeesForDropdown } from '../../utils/employeeDirectory';;
 import FormDateInput from "../../components/FormDateInput";
 import { toast } from '../../lib/toast';
@@ -348,12 +348,10 @@ const ExpoSeminar = () => {
       reader.onload = async (evt) => {
         try {
           const data = new Uint8Array(evt.target.result);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const sheetName = workbook.SheetNames[0];
-          const sheet = workbook.Sheets[sheetName];
-          const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+          const parsed = readSiteVisitSheet(data);
+          const rows = parsed.rows;
 
-          if (!rows || rows.length === 0) {
+          if (parsed.format !== 'new' && (!rows || rows.length === 0)) {
             toast.warning('No data found in Excel file.');
             setUploadingExcel(false);
             return;
@@ -369,7 +367,13 @@ const ExpoSeminar = () => {
           const siteVisitsToInsert = [];
           const errors = [];
 
-          for (let i = 0; i < rows.length; i++) {
+          if (parsed.format === 'new') {
+            parsed.records.forEach((record) => {
+              siteVisitsToInsert.push({ ...record, created_by: user.id });
+            });
+          }
+
+          for (let i = 0; parsed.format !== 'new' && i < rows.length; i++) {
             const row = rows[i];
             try {
               // Map Excel columns to form fields (case-insensitive matching)
@@ -457,7 +461,9 @@ const ExpoSeminar = () => {
           }
 
           if (siteVisitsToInsert.length === 0) {
-            toast.warning('No valid data found in Excel file. Please ensure at least one row has Visitor Name, Company Name, or Client Name.\n\nNote: Missing columns will be saved as empty values.');
+            toast.warning(parsed.format === 'new'
+              ? 'No site visits found in this file. Enter the visitor, the person who submitted the expense, or the client name.'
+              : 'No valid data found in Excel file. Please ensure at least one row has Visitor Name, Company Name, or Client Name.\n\nNote: Missing columns will be saved as empty values.');
             setUploadingExcel(false);
             return;
           }
@@ -502,31 +508,10 @@ const ExpoSeminar = () => {
   };
 
   const downloadExcelTemplate = () => {
-    // Create template data with headers and one example row
-    const templateData = [
-      {
-        'Executive Name': 'John Doe, Jane Smith',
-        'Visitor Name': 'Rajesh Kumar',
-        'Company Name': 'ABC Industries',
-        'Client Name': 'ABC Industries',
-        'Designation': 'Manager',
-        'Location': 'Mumbai, Maharashtra',
-        'Mobile Number': '9876543210',
-        'Email ID': 'rajesh@abc.com',
-        'Product Interest': 'Machinery',
-        'Discussion Note': 'Discussed pricing and delivery timeline',
-        'Visit Date': '2024-12-15',
-        'Status': 'Pending Paid',
-        'Purpose of Visit': 'Sales meeting',
-        'Travel Expenses': '500',
-        'Food Expenses': '300',
-        'Accommodation': '2000',
-        'Other Expenses': '200',
-        'Approved Amount': '3000'
-      }
-    ];
-
-    exportToExcel(templateData, 'Site_Visit_Template', 'Site Visit Template');
+    downloadSiteVisitTemplate().catch((error) => {
+      console.error('Error downloading site visit template:', error);
+      toast.error('Could not download the site visit template. Please try again.');
+    });
   };
 
   const handleSiteVisitSubmit = async (e) => {
@@ -973,7 +958,7 @@ const ExpoSeminar = () => {
                 </div>
               </div>
               <div className="mt-3 text-xs text-gray-600">
-                <p>💡 <strong>Note:</strong> Missing columns in your Excel file will be saved as empty values. Download the template to see the correct column format.</p>
+                <p>Yellow columns are typed in. Total expense and final settlement calculate themselves. Download the template and use that file for upload.</p>
               </div>
             </div>
             
