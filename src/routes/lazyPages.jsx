@@ -125,6 +125,7 @@ export const AdminOpsAlerts = lazy(() => import("../pages/adminOperations/AdminO
 export const AdminOpsReports = lazy(() => import("../pages/adminOperations/AdminOpsReports"));
 export const AdminOpsSettings = lazy(() => import("../pages/adminOperations/AdminOpsSettings"));
 
+export const IndusPayrollPage = lazy(() => import("../pages/hr/payroll/pages/PayrollPages"));
 export const SalaryManagementLayout = lazy(() => import("../pages/hr/payroll/salary/SalaryLayout"));
 export const SalaryManagementDashboard = lazyNamed(
   () => import("../pages/hr/payroll/salary/module/screens"),

@@ -952,7 +952,7 @@ export const NAV_MODULE_TREE = [
         })),
       },
       { value: "hr.attendance",          label: "Attendance",         pathPrefix: "/app/attendance" },
-      { value: "hr.salary-management",   label: "Salary Management",  pathPrefix: "/app/hr/payroll/salary" },
+      { value: "hr.salary-management",   label: "Payroll & compliance",  pathPrefix: "/app/hr/payroll/salary" },
       { value: "hr.people-management",   label: "People Management",  pathPrefix: "/app/people-management" },
       { value: "hr.site-attendance",     label: "Site Attendance",    pathPrefix: "/app/hr/site-attendance" },
     ],

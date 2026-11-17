@@ -25,15 +25,20 @@ export function salaryNavHref(itemOrSegment) {
 /** Main header link — Salary Management opens dashboard. */
 export const SALARY_NAV = [{ to: HR_SALARY_DASHBOARD, label: "Dashboard" }];
 
-/** Sidebar dropdown under Salary Management. Flat list — no section labels. */
+/** Sidebar under Payroll & compliance. Same order and labels as the payroll module. */
 export const SALARY_SUB_NAV = [
-  { to: "dashboard", label: "Dashboard" },
-  { to: "components", label: "Salary Components" },
-  { to: "sites", label: "Site Setup" },
-  { to: "process", label: "Process & Disburse" },
-  { to: "slips", label: "Salary Slip" },
-  { to: "revisions", label: "Salary Revision" },
-  { to: "reports", label: "Report" },
+  { to: "dashboard", label: "Dashboard", group: "Payroll", icon: "dashboard" },
+  { to: "process", label: "Process salary", icon: "process" },
+  { to: "employees", label: "Employee master", icon: "employees" },
+  { to: "held", label: "Held salary", icon: "held" },
+  { to: "loans", label: "Loans & recoveries", icon: "loans" },
+  { to: "revisions", label: "Increments & revisions", icon: "revisions" },
+  { to: "reports", label: "Reports", group: "Reports & compliance", icon: "reports" },
+  { to: "compliance", label: "Registers & files", icon: "compliance" },
+  { to: "masters", label: "Statutory masters", icon: "masters" },
+  { to: "setup", label: "Site setup", group: "Configuration", icon: "setup" },
+  { to: "components", label: "Salary components", icon: "components" },
+  { to: "formulas", label: "Formula master", icon: "formulas" },
 ];
 
 const DASHBOARD_HINTS = {

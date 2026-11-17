@@ -53,7 +53,6 @@ import {
   Attendance,
   StoreInventory,
   HR,
-  HrDashboard,
   HrEmployeeMaster,
   HrCallingMaster,
   HrCallingMasterCandidates,
@@ -112,16 +111,7 @@ import {
   AdminOpsAlerts,
   AdminOpsReports,
   // AdminOpsSettings, // NAV_HIDDEN
-  SalaryManagementLayout,
-  SalaryManagementDashboard,
-  SalaryComponentsPage,
-  SalarySiteSetupPage,
-  SalaryEmployeesPage,
-  SalaryEmployeeDetailPage,
-  SalaryProcessPage,
-  SalarySlipsPage,
-  SalaryRevisionsPage,
-  SalaryReportsPage,
+  IndusPayrollPage,
   EmployeeOnboardingPage,
   EmployeeFnfPage,
   EmployeePoliciesPage,
@@ -248,11 +238,6 @@ function ConnectionGuard({ children }) {
   }, []);
 
   return children;
-}
-
-function RedirectEmployeeMasterId() {
-  const { id } = useParams();
-  return <Navigate to={`/app/hr/payroll/salary/employees/${id}`} replace />;
 }
 
 /** Legacy salary-master/:id URLs → Employee Master CTC tab */
@@ -440,7 +425,7 @@ function App() {
             {/* Reorganized Module Routes */}
             
             {/* HR & Admin */}
-            <Route path="hr/dashboard" element={<HrDashboard />} />
+            <Route path="hr/dashboard" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
             <Route path="hr/calling-master" element={<HrCallingMaster />}>
               <Route index element={<HrCallingMasterEntry />} />
               <Route path="candidates" element={<HrCallingMasterCandidates />} />
@@ -466,51 +451,8 @@ function App() {
             <Route path="hr/payroll/entry" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
             <Route path="hr/payroll/year" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
             <Route path="hr/payroll/formula" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
-            <Route path="hr/payroll/salary" element={<SalaryManagementLayout />}>
-              <Route index element={<Navigate to="dashboard" replace />} />
-              <Route path="dashboard" element={<SalaryManagementDashboard />} />
-              <Route path="components" element={<SalaryComponentsPage />} />
-              <Route path="sites" element={<SalarySiteSetupPage />} />
-              <Route path="employees" element={<SalaryEmployeesPage />} />
-              <Route path="employees/:id" element={<SalaryEmployeeDetailPage />} />
-              <Route path="process" element={<SalaryProcessPage />} />
-              <Route path="slips" element={<SalarySlipsPage />} />
-              <Route path="revisions" element={<SalaryRevisionsPage />} />
-              <Route path="reports" element={<SalaryReportsPage />} />
-              <Route path="site-master" element={<Navigate to="../sites" replace />} />
-              <Route path="formula-library" element={<Navigate to="../components" replace />} />
-              <Route path="payroll-package-builder" element={<Navigate to="../sites" replace />} />
-              <Route path="people-master" element={<Navigate to="../employees" replace />} />
-              <Route path="people-master/new" element={<Navigate to="../employees" replace />} />
-              <Route path="people-master/:id" element={<RedirectEmployeeMasterId />} />
-              <Route path="attendance-integration" element={<Navigate to="../employees" replace />} />
-              <Route path="compliance-management" element={<Navigate to="../components" replace />} />
-              <Route path="compliance/pf" element={<Navigate to="../components" replace />} />
-              <Route path="compliance/esic" element={<Navigate to="../components" replace />} />
-              <Route path="compliance/pt" element={<Navigate to="../components" replace />} />
-              <Route path="compliance/tds" element={<Navigate to="../components" replace />} />
-              <Route path="compliance/loans" element={<Navigate to="../components" replace />} />
-              <Route path="payroll-processing" element={<Navigate to="../process" replace />} />
-              <Route path="payroll-approval" element={<Navigate to="../process" replace />} />
-              <Route path="payslips" element={<Navigate to="../slips" replace />} />
-              <Route path="reports-exports" element={<Navigate to="../reports" replace />} />
-              <Route path="employee-exit" element={<Navigate to="../employees" replace />} />
-              <Route path="full-final-settlement" element={<Navigate to="../revisions" replace />} />
-              <Route path="settings" element={<Navigate to="../dashboard" replace />} />
-              <Route path="employee-master" element={<Navigate to="../employees" replace />} />
-              <Route path="employee-master/new" element={<Navigate to="../employees" replace />} />
-              <Route path="employee-master/:id" element={<RedirectEmployeeMasterId />} />
-              <Route path="run" element={<Navigate to="../process" replace />} />
-              <Route path="site-formulas" element={<Navigate to="../components" replace />} />
-              <Route path="manual-inputs" element={<Navigate to="../employees" replace />} />
-              <Route path="pf" element={<Navigate to="../components" replace />} />
-              <Route path="esic" element={<Navigate to="../components" replace />} />
-              <Route path="pt" element={<Navigate to="../components" replace />} />
-              <Route path="tds" element={<Navigate to="../components" replace />} />
-              <Route path="loans" element={<Navigate to="../components" replace />} />
-              <Route path="register" element={<Navigate to="../reports" replace />} />
-              <Route path="outputs" element={<Navigate to="../slips" replace />} />
-            </Route>
+            <Route path="hr/payroll/salary" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
+            <Route path="hr/payroll/salary/*" element={<IndusPayrollPage />} />
             <Route path="hr/site-attendance" element={<HrSiteAttendance />}>
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<HrSiteAttendanceDashboard />} />
