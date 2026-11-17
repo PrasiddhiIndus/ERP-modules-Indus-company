@@ -209,7 +209,7 @@ export function FormDateTimeInput({
             type="date"
             tabIndex={-1}
             aria-hidden
-            className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+            className="erp-date-picker-overlay absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
             value={dateIso}
             min={min ? String(min).slice(0, 10) : DATE_INPUT_MIN}
             max={max ? String(max).slice(0, 10) : DATE_INPUT_MAX}

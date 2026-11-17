@@ -908,11 +908,14 @@ function fixAppointmentAnnexureIPagination(xml) {
 }
 
 /**
- * LibreOffice-only prep: compact No Spacing, annexure page break, strip blank name page, font remap.
- * Exported for regression tests. Does not change the stored Word template.
+ * LibreOffice-only prep: compact No Spacing, annexure page break, strip blank name page,
+ * letterhead/footer VML fixes, font remap. Exported for regression tests.
+ * Does not change the stored Word template or the Word/Graph PDF path.
  */
 export function prepareAppointmentDocxForLibreOffice(docxBuffer) {
-  return remapDocxFontsForLibreOffice(normalizeAppointmentLetterDocxLayout(docxBuffer));
+  return remapDocxFontsForLibreOffice(
+    fixLibreOfficeAppointmentChrome(normalizeAppointmentLetterDocxLayout(docxBuffer)),
+  );
 }
 
 /** Appointment-only layout fixes for Word-faithful PDF. Does not touch offer table/page logic. */
@@ -938,6 +941,8 @@ function normalizeAppointmentLetterDocxLayout(docxBuffer) {
     // Benefits on page 2 + tighten signature→Annexure gap (LibreOffice blank page).
     docXml = ensureAppointmentBenefitsPageBreak(docXml);
     docXml = fixAppointmentAnnexureIPagination(docXml);
+    // Empty trailing cell paragraphs inflate Annexure II row heights in LibreOffice.
+    docXml = stripTrailingEmptyTableCellParagraphs(docXml);
     docXml = pinAppointmentNoSpacingParagraphs(docXml);
 
     const stylesFile = zip.file('word/styles.xml');
@@ -953,6 +958,97 @@ function normalizeAppointmentLetterDocxLayout(docxBuffer) {
     console.warn('[admin-recruitment] appointment layout normalize skipped:', err?.message || err);
     return buf;
   }
+}
+
+/**
+ * LibreOffice ignores VML cropright on the letterhead EMF (full strip squeezed into a
+ * narrow box → overlapping letters) and mis-places absolute footer bars. Swap the EMF
+ * for a pre-cropped PNG and flatten the footer to inline content for the LO convert only.
+ */
+function fixLibreOfficeAppointmentChrome(docxBuffer) {
+  const buf = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
+  if (buf.length < 100) return buf;
+  try {
+    const zip = new PizZip(buf);
+    let changed = false;
+
+    const letterheadPngPath = path.join(__dirname, 'assets', 'appointment-letterhead-left.png');
+    if (fs.existsSync(letterheadPngPath)) {
+      const relsPath = 'word/_rels/document.xml.rels';
+      const rels = zip.file(relsPath)?.asText() || '';
+      if (/Target="media\/image1\.emf"/i.test(rels)) {
+        zip.file('word/media/image1.png', fs.readFileSync(letterheadPngPath));
+        zip.file(relsPath, rels.replace(/Target="media\/image1\.emf"/i, 'Target="media/image1.png"'));
+        try {
+          zip.remove('word/media/image1.emf');
+        } catch {
+          /* optional */
+        }
+        const docPath = 'word/document.xml';
+        const docXml = zip.file(docPath)?.asText() || '';
+        // Drop cropleft/cropright/etc so LO uses the already-cropped PNG as-is.
+        const nextDoc = docXml.replace(
+          /(<v:imagedata\b[^>]*r:id="rId7"[^>]*)(\/?>)/gi,
+          (_full, open, close) => `${open.replace(/\s+crop(?:left|right|top|bottom)="[^"]*"/gi, '')}${close}`,
+        );
+        if (nextDoc !== docXml) zip.file(docPath, nextDoc);
+        const ctPath = '[Content_Types].xml';
+        const ct = zip.file(ctPath)?.asText() || '';
+        if (ct && !/Extension="png"/i.test(ct)) {
+          zip.file(
+            ctPath,
+            ct.replace(
+              /<Types[^>]*>/,
+              (open) => `${open}<Default Extension="png" ContentType="image/png"/>`,
+            ),
+          );
+        }
+        changed = true;
+      }
+    }
+
+    const footerPath = 'word/footer1.xml';
+    const footerBefore = zip.file(footerPath)?.asText() || '';
+    if (footerBefore && /margin-left:-49/.test(footerBefore)) {
+      const footerAfter = rebuildLibreOfficeAppointmentFooter(footerBefore);
+      if (footerAfter && footerAfter !== footerBefore) {
+        zip.file(footerPath, footerAfter);
+        changed = true;
+      }
+    }
+
+    return changed ? zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }) : buf;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[admin-recruitment] LibreOffice chrome fix skipped:', err?.message || err);
+    return buf;
+  }
+}
+
+/** Flatten absolute VML footer bars into paragraph border + shaded bar (LibreOffice-safe). */
+function rebuildLibreOfficeAppointmentFooter(footerXml) {
+  const src = String(footerXml || '');
+  const nsMatch = src.match(/<w:ftr\b[^>]*>/);
+  if (!nsMatch) return src;
+  const decl = src.startsWith('<?xml') ? src.slice(0, src.indexOf('?>') + 2) + '\n' : '';
+  // Keep the address-strip image (rId1 → image4.png); drop absolute red rect + grey line.
+  return `${decl}${nsMatch[0]}<w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="8" w:space="6" w:color="333333"/></w:pBdr><w:jc w:val="center"/><w:spacing w:before="80" w:after="40" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:pict><v:shapetype id="_x0000_t75" coordsize="21600,21600" o:spt="75" o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f"><v:stroke joinstyle="miter"/><v:formulas><v:f eqn="if lineDrawn pixelLineWidth 0"/><v:f eqn="sum @0 1 0"/><v:f eqn="sum 0 0 @1"/><v:f eqn="prod @2 1 2"/><v:f eqn="prod @3 21600 pixelWidth"/><v:f eqn="prod @3 21600 pixelHeight"/><v:f eqn="sum @0 0 1"/><v:f eqn="prod @6 1 2"/><v:f eqn="prod @7 21600 pixelWidth"/><v:f eqn="sum @8 21600 0"/><v:f eqn="prod @7 21600 pixelHeight"/><v:f eqn="sum @10 21600 0"/></v:formulas><v:path o:extrusionok="f" gradientshapeok="t" o:connecttype="rect"/><o:lock v:ext="edit" aspectratio="t"/></v:shapetype><v:shape id="_x0000_i1027" type="#_x0000_t75" style="width:525pt;height:38.4pt"><v:imagedata r:id="rId1" o:title="11111"/></v:shape></w:pict></w:r></w:p><w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="80" w:lineRule="exact"/><w:shd w:val="clear" w:color="auto" w:fill="C00000"/></w:pPr><w:r><w:t xml:space="preserve"> </w:t></w:r></w:p></w:ftr>`;
+}
+
+/** Drop empty trailing paragraphs inside table cells (Annexure II Department row, etc.). */
+function stripTrailingEmptyTableCellParagraphs(xml) {
+  return String(xml || '').replace(/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/g, (tc) => {
+    const paras = [...tc.matchAll(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)];
+    if (paras.length < 2) return tc;
+    let out = tc;
+    for (let i = paras.length - 1; i >= 1; i -= 1) {
+      const p = paras[i][0];
+      if (paragraphPlainText(p)) break;
+      if (/w:pict|w:drawing|w:pageBreakBefore/.test(p)) break;
+      out = out.replace(p, '');
+    }
+    return out;
+  });
 }
 
 /**
