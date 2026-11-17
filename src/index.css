@@ -536,6 +536,25 @@ html[lang='en-GB'] input[type='date']::-webkit-datetime-edit-fields-wrapper {
   font-variant-numeric: tabular-nums;
 }
 
+/* DateInput / FormDateTimeInput: the native date picker is an invisible overlay on the
+   calendar icon. Ancestor `input` rules (e.g. `.erp-filter-bar input { position: relative }`,
+   table cell min-width, form-field padding) must not pull it into layout, or the icon
+   segment stretches to the native control's width and looks detached from the field. */
+input.erp-date-picker-overlay {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  flex: none !important;
+  opacity: 0 !important;
+}
+
 main.erp-app-shell .erp-freeze-pane-sticky-header > div > div:first-child .erp-freeze-pane-frozen {
   background-color: var(--surface-sunken);
 }

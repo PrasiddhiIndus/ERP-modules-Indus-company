@@ -680,9 +680,10 @@ function mergeLmsAndAdminLeaveRows(lmsRows, adminRows) {
       ...existing,
       leave_type_code: leaveTypeCodeFromRow(existing) || leaveTypeCodeFromRow(row),
       reason: existing.reason || row.reason || "",
-      from_date: existing.from_date || row.from_date,
-      to_date: existing.to_date || row.to_date,
-      days: existing.days ?? row.days,
+      // Indus One owns reschedule: prefer LMS from/to/days over a stale admin mirror.
+      from_date: row.from_date || existing.from_date,
+      to_date: row.to_date || existing.to_date,
+      days: row.days ?? existing.days,
       submitted_at: existing.submitted_at || row.submitted_at,
       user_id: existing.user_id || row.user_id,
       // Keep tier fields for isWithdrawnLeave (same as Indus One history mapping).
