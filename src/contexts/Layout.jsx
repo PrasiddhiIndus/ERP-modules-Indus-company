@@ -480,7 +480,6 @@ const Layout = () => {
   useEffect(() => {
     const canSeeRecruitmentNav =
       canSub("admin.recruitment") ||
-      canSub("admin.employee") ||
       hasAnyRecruitmentTabAccess(userProfile, accessibleModules, user?.user_metadata, "admin");
     if (!canSeeRecruitmentNav) {
       setPendingRequisitionCount(0);
@@ -820,7 +819,6 @@ const Layout = () => {
                   )}
 
                   {(canSub("admin.recruitment") ||
-                    canSub("admin.employee") ||
                     hasAnyRecruitmentTabAccess(userProfile, accessibleModules, user?.user_metadata, "admin")) && (
                   <NavLink
                     to={getRecruitmentLandingPath(userProfile, accessibleModules, user?.user_metadata, "admin").replace(

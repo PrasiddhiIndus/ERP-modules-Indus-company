@@ -43,6 +43,8 @@ import {
   NAV_MODULE_TREE,
   resolveTeamModuleKey,
   ALL_RECRUITMENT_TAB_KEYS,
+  ALL_ADMIN_RECRUITMENT_TAB_KEYS,
+  ADMIN_RECRUITMENT_SUBMODULE_KEY,
   toggleRecruitmentAccessKey,
   hasHrSectionScope,
 } from "../config/roles";
@@ -270,7 +272,9 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
 
             {fullChecked && hasSubs && (
               <p className="ml-9 mr-3 -mt-1 pb-2 text-[11px] text-gray-500">
-                Full access: includes every sub-module and page. Untick {mod.label} to choose sub-modules or pages
+                Full access: includes every sub-module and page except opt-in items
+                {mod.value === "admin" ? " (Recruitment, Rules Console)" : ""}. Untick {mod.label} to choose
+                sub-modules or pages
                 {mod.value === "admin" ? " (e.g. Employee Master only)" : ""}.
               </p>
             )}
@@ -292,6 +296,8 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
                           sub.value === EMPLOYEE_MASTER_SUBMODULE_KEY
                             ? false
                             : safeSubModules.includes(sub.value)
+                              || (sub.value === ADMIN_RECRUITMENT_SUBMODULE_KEY
+                                && ALL_ADMIN_RECRUITMENT_TAB_KEYS.some((k) => safeSubModules.includes(k)))
                         }
                         onChange={() => onToggleSubModule(sub.value)}
                         className="rounded border-gray-300 text-indigo-500 focus:ring-indigo-400 shrink-0"
@@ -299,7 +305,9 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
                       <span className="flex-1 text-xs text-gray-700">
                         {sub.value === EMPLOYEE_MASTER_SUBMODULE_KEY
                           ? "Employee Master only"
-                          : sub.label}
+                          : sub.value === ADMIN_RECRUITMENT_SUBMODULE_KEY
+                            ? "Recruitment Module"
+                            : sub.label}
                       </span>
                       <span className="text-[10px] text-indigo-500">
                         {sub.optIn ? "opt-in" : "replaces full Admin"}
@@ -1175,12 +1183,13 @@ const UserManagement = () => {
   const toggleModule = (value) => {
     setEditForm((prev) => {
       const willAdd = !prev.allowed_modules.includes(value);
-      // When granting a full module, remove ALL sub-module and tab keys that belong to it
-      // (including 3-segment hr.recruitment.* tab keys).
+      // When granting a full module, remove sub-module/tab keys for it — keep opt-in grants
+      // (Admin Recruitment, Rules Console, Master PO At Glance, HR recruitment tabs).
       const newSubModules = willAdd
         ? prev.allowed_sub_modules.filter(
             (s) =>
               OPT_IN_SUB_MODULE_KEYS.has(s) ||
+              ALL_ADMIN_RECRUITMENT_TAB_KEYS.includes(s) ||
               (!s.startsWith(`${value}.`) && !ALL_RECRUITMENT_TAB_KEYS.includes(s))
           )
         : prev.allowed_sub_modules;
@@ -2331,6 +2340,7 @@ const UserManagement = () => {
                               ? prev.allowed_sub_modules.filter(
                                   (s) =>
                                     OPT_IN_SUB_MODULE_KEYS.has(s) ||
+                                    ALL_ADMIN_RECRUITMENT_TAB_KEYS.includes(s) ||
                                     (!s.startsWith(`${value}.`) &&
                                       !ALL_RECRUITMENT_TAB_KEYS.includes(s))
                                 )

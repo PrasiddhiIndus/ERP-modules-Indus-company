@@ -102,6 +102,10 @@ export function getAccessibleSubModulePaths(profile, userMetadata = null) {
   if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) {
     paths.add(PROJECTS_ENQUIRY_KPI_PATH);
     paths.add(FINANCE_MASTER_PO_AT_GLANCE_PATH);
+    for (const tabKey of ADMIN_RECRUITMENT_WORKFLOW_KEYS) {
+      const tabPath = ADMIN_RECRUITMENT_TAB_PATHS[tabKey];
+      if (tabPath) paths.add(tabPath);
+    }
   }
   return paths;
 }
@@ -134,9 +138,13 @@ function collectSubModulePaths(profile, userMetadata = null) {
   } else if (hasFullHr && !restrictRecruitment) {
     keysToExpand = subMods.filter((s) => !String(s).startsWith("hr."));
   }
-  // Full Admin already covers /app/admin/* — only expand admin.* when Admin is section-scoped.
+  // Full Admin covers /app/admin/* except opt-in Recruitment — always expand admin.recruitment*.
   if (hasFullAdmin) {
-    keysToExpand = keysToExpand.filter((s) => !String(s).startsWith("admin."));
+    keysToExpand = keysToExpand.filter((s) => {
+      const key = String(s);
+      if (!key.startsWith("admin.")) return true;
+      return key === ADMIN_RECRUITMENT_SUBMODULE_KEY || key.startsWith(`${ADMIN_RECRUITMENT_SUBMODULE_KEY}.`);
+    });
   }
 
   if (!keysToExpand.length) return new Set();
@@ -167,19 +175,18 @@ function collectSubModulePaths(profile, userMetadata = null) {
     }
 
     // Skip if user has full top-level module access — already covered by MODULE_PATH_PREFIXES.
-    // Exception: HR/Admin recruitment tab restrictions (handled above / below).
+    // Exception: Admin Recruitment is opt-in and must expand even with full Admin.
     if (!hasFullHr && fullModuleKeys.has(moduleKey)) {
-      const allowAdminRecruitmentExpand =
-        moduleKey === "admin" && hasRecruitmentTabRestrictions(profile, userMetadata, "admin");
-      if (!allowAdminRecruitmentExpand) continue;
+      const isAdminRecruitmentGrant =
+        moduleKey === "admin"
+        && (subKey === ADMIN_RECRUITMENT_SUBMODULE_KEY || String(subKey).startsWith(`${ADMIN_RECRUITMENT_SUBMODULE_KEY}.`));
+      if (!isAdminRecruitmentGrant) continue;
     }
 
     // --- 3-segment tab key (hr.recruitment.<tab> or admin.recruitment.<tab>) ---
     if (parts.length === 3 && parts[1] === "recruitment" && (parts[0] === "hr" || parts[0] === "admin")) {
       if (parts[0] === "hr" && hasFullHr && !restrictRecruitment) continue;
-      if (parts[0] === "admin" && fullModuleKeys.has("admin") && !hasRecruitmentTabRestrictions(profile, userMetadata, "admin")) {
-        continue;
-      }
+      // Admin recruitment is opt-in — always expand granted tab paths.
       const tabPath =
         parts[0] === "admin" ? ADMIN_RECRUITMENT_TAB_PATHS[subKey] : RECRUITMENT_TAB_PATHS[subKey];
       if (tabPath) paths.add(tabPath);
@@ -197,11 +204,8 @@ function collectSubModulePaths(profile, userMetadata = null) {
       continue;
     }
 
-    // --- Parent recruitment key admin.recruitment (2-segment) ---
-    if (subKey === "admin.recruitment") {
-      if (fullModuleKeys.has("admin") && !hasRecruitmentTabRestrictions(profile, userMetadata, "admin")) {
-        continue;
-      }
+    // --- Parent recruitment key admin.recruitment (2-segment; opt-in, never implied by full Admin) ---
+    if (subKey === ADMIN_RECRUITMENT_SUBMODULE_KEY) {
       for (const tabKey of ADMIN_RECRUITMENT_WORKFLOW_KEYS) {
         const tabPath = ADMIN_RECRUITMENT_TAB_PATHS[tabKey];
         if (tabPath) paths.add(tabPath);
@@ -209,23 +213,11 @@ function collectSubModulePaths(profile, userMetadata = null) {
       continue;
     }
 
-    // Employee Administration includes Admin in-house recruitment (hire → Employee Master).
+    // Employee Administration — employee routes only (does not imply Recruitment).
     if (subKey === "admin.employee") {
-      if (fullModuleKeys.has("admin") && !hasRecruitmentTabRestrictions(profile, userMetadata, "admin")) {
-        const moduleDef = NAV_MODULE_TREE.find((m) => m.value === "admin");
-        const subDef = moduleDef?.subModules?.find((s) => s.value === subKey);
-        if (subDef?.pathPrefix) paths.add(subDef.pathPrefix);
-        continue;
-      }
       const moduleDef = NAV_MODULE_TREE.find((m) => m.value === "admin");
       const subDef = moduleDef?.subModules?.find((s) => s.value === subKey);
       if (subDef?.pathPrefix) paths.add(subDef.pathPrefix);
-      if (!hasRecruitmentTabRestrictions(profile, userMetadata, "admin")) {
-        for (const tabKey of ADMIN_RECRUITMENT_WORKFLOW_KEYS) {
-          const tabPath = ADMIN_RECRUITMENT_TAB_PATHS[tabKey];
-          if (tabPath) paths.add(tabPath);
-        }
-      }
       continue;
     }
 
@@ -316,6 +308,8 @@ export function canSeeSubModule(profile, accessibleModules, subModuleKey, userMe
   if (
     subModuleKey !== RULES_CONSOLE_SUBMODULE_KEY
     && subModuleKey !== FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY
+    && subModuleKey !== ADMIN_RECRUITMENT_SUBMODULE_KEY
+    && !String(subModuleKey || "").startsWith(`${ADMIN_RECRUITMENT_SUBMODULE_KEY}.`)
     && hasFullModuleAccess(accessibleModules, moduleKey)
   ) {
     return true;
@@ -367,6 +361,9 @@ export function isProbationReviewsAppPath(pathname) {
 
 /** Rules Console: granted only by its own key — a full Admin module does not imply it. */
 export const RULES_CONSOLE_SUBMODULE_KEY = "admin.rules-console";
+
+/** Admin In-house Recruitment: opt-in only — a full Admin module does not imply it. */
+export const ADMIN_RECRUITMENT_SUBMODULE_KEY = "admin.recruitment";
 
 /** Finance → Master PO At Glance: opt-in page (Super Admins always; otherwise User Management tick only). */
 export const FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY = "finance.po-at-glance";
@@ -652,8 +649,10 @@ export function hasHrSectionScope(profile, userMetadata = null) {
 function isAdminSectionScopeKey(key) {
   const k = String(key || "");
   if (!k.startsWith("admin.") || k === RULES_CONSOLE_SUBMODULE_KEY) return false;
+  // Recruitment is opt-in; ticking it alone must not shrink the rest of Admin for Admin-team users.
+  if (k === ADMIN_RECRUITMENT_SUBMODULE_KEY || k.startsWith(`${ADMIN_RECRUITMENT_SUBMODULE_KEY}.`)) return false;
   const adminSections = NAV_MODULE_TREE.find((m) => m.value === "admin")?.subModules || [];
-  return adminSections.some((s) => s.value === k) || ALL_RECRUITMENT_TAB_KEYS.includes(k);
+  return adminSections.some((s) => s.value === k && !s.optIn);
 }
 
 /**
@@ -741,6 +740,13 @@ export function canSeeRecruitmentTab(tabDef, profile, accessibleModules, userMet
   const subMods = getEffectiveAllowedSubModules(profile, userMetadata);
   const restricted = hasRecruitmentTabRestrictions(profile, userMetadata, scope);
 
+  // Admin In-house Recruitment is opt-in only — never implied by full Admin module.
+  if (scope === "admin") {
+    if (tabDef?.optIn) return subMods.includes(tabDef.value);
+    if (subMods.includes(family.parentKey)) return true;
+    return subMods.includes(tabDef?.value) || (tabDef?.legacyKeys || []).some((k) => subMods.includes(k));
+  }
+
   if (tabDef?.optIn) {
     if (accessibleModules?.has(family.moduleKey) && !restricted) return true;
     return subMods.includes(tabDef.value);
@@ -749,7 +755,6 @@ export function canSeeRecruitmentTab(tabDef, profile, accessibleModules, userMet
   if (accessibleModules?.has(family.moduleKey) && !restricted) return true;
 
   if (subMods.includes(family.parentKey)) return true;
-  if (scope === "admin" && subMods.includes("admin.employee") && !restricted) return true;
   return subMods.includes(tabDef?.value) || (tabDef?.legacyKeys || []).some((k) => subMods.includes(k));
 }
 
@@ -972,9 +977,10 @@ export const NAV_MODULE_TREE = [
     subModules: [
       { value: "admin.dashboard",        label: "Dashboard",                  pathPrefix: "/app/admin/dashboard" },
       {
-        value: "admin.recruitment",
-        label: "Recruitment",
-        pathPrefix: "/app/admin/recruitment",
+        value: ADMIN_RECRUITMENT_SUBMODULE_KEY,
+        label: "Recruitment Module",
+        pathPrefix: ADMIN_RECRUITMENT_INDEX_PATH,
+        optIn: true,
         tabModules: ADMIN_RECRUITMENT_TAB_KEYS.filter((t) => !t.adminOnly).map((t) => ({
           value: t.value,
           label: t.label,
@@ -1754,7 +1760,15 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
 
   const normalizedPath = normalizeAppPath(pathname);
 
-  // HR / Admin recruitment tab restrictions: calling-master routes use tab paths only,
+  // Hard gate: Admin In-house Recruitment is opt-in — never open via full Admin MODULE_PATH_PREFIXES.
+  if (isCallingMasterPath(normalizedPath, ADMIN_RECRUITMENT_INDEX_PATH)) {
+    for (const p of subModulePaths || []) {
+      if (recruitmentPathMatches(normalizedPath, p, ADMIN_RECRUITMENT_INDEX_PATH)) return true;
+    }
+    return false;
+  }
+
+  // HR recruitment tab restrictions: calling-master routes use tab paths only,
   // not the broad MODULE_PATH_PREFIXES grant (prevents tab bypass).
   if (
     isCallingMasterPath(normalizedPath) &&
@@ -1762,15 +1776,6 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
   ) {
     for (const p of subModulePaths) {
       if (recruitmentPathMatches(normalizedPath, p, RECRUITMENT_INDEX_PATH)) return true;
-    }
-    return false;
-  }
-  if (
-    isCallingMasterPath(normalizedPath, ADMIN_RECRUITMENT_INDEX_PATH) &&
-    subModulePathsIncludeRecruitment(subModulePaths, ADMIN_RECRUITMENT_INDEX_PATH)
-  ) {
-    for (const p of subModulePaths) {
-      if (recruitmentPathMatches(normalizedPath, p, ADMIN_RECRUITMENT_INDEX_PATH)) return true;
     }
     return false;
   }
