@@ -1122,7 +1122,15 @@ function applyAppointmentFullWidthFooter(zip) {
   //    text never runs under the footer (absolute shapes reserve nothing in LO and were
   //    anchored at the paragraph top, pushing most of the strip below the page);
   //  - negative indents = page margins so the strip spans the full Letter width;
-  //  - pgMar footer="0" + 1pt font so the strip's bottom (red bar) sits on the page edge.
+  //  - 1pt font so the strip's bottom (red bar) sits on the page edge.
+  // LibreOffice 24.2 quirk (reproduced in Docker, ubuntu:24.04 / LO 24.2.7): with pgMar
+  // footer="0" it DROPS inline footer content taller than the footer min-height (~14pt) —
+  // the whole strip vanished from the PDF. footer="1" (1 twip = 0.05pt) renders it at
+  // 741.4→791.8pt, matching Word's 741.6→792pt band. LO-only buffer; DOCX/Word untouched.
+  const docPath = 'word/document.xml';
+  const docXml = zip.file(docPath)?.asText() || '';
+  const docFixed = docXml.replace(/(<w:pgMar\b[^>]*\bw:footer=")0(")/g, '$11$2');
+  if (docFixed !== docXml) zip.file(docPath, docFixed);
   const tinyRun = '<w:rPr><w:sz w:val="2"/><w:szCs w:val="2"/></w:rPr>';
   const footerAfter = `${decl}${nsMatch[0]}<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:ind w:left="-${APPOINTMENT_LETTER_MARGIN_LEFT_TW}" w:right="-${APPOINTMENT_LETTER_MARGIN_RIGHT_TW}" w:firstLine="0"/><w:jc w:val="left"/>${tinyRun}</w:pPr><w:r>${tinyRun}<w:pict><v:shapetype id="_x0000_t75" coordsize="21600,21600" o:spt="75" o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f"><v:stroke joinstyle="miter"/><v:formulas><v:f eqn="if lineDrawn pixelLineWidth 0"/><v:f eqn="sum @0 1 0"/><v:f eqn="sum 0 0 @1"/><v:f eqn="prod @2 1 2"/><v:f eqn="prod @3 21600 pixelWidth"/><v:f eqn="prod @3 21600 pixelHeight"/><v:f eqn="sum @0 0 1"/><v:f eqn="prod @6 1 2"/><v:f eqn="prod @7 21600 pixelWidth"/><v:f eqn="sum @8 21600 0"/><v:f eqn="prod @7 21600 pixelHeight"/><v:f eqn="sum @10 21600 0"/></v:formulas><v:path o:extrusionok="f" gradientshapeok="t" o:connecttype="rect"/><o:lock v:ext="edit" aspectratio="t"/></v:shapetype><v:shape id="_x0000_i1027" type="#_x0000_t75" style="width:${APPOINTMENT_LETTER_FOOTER_WIDTH_PT}pt;height:${APPOINTMENT_LETTER_FOOTER_HEIGHT_PT}pt"><v:imagedata r:id="rId1" o:title="footer-full"/></v:shape></w:pict></w:r></w:p></w:ftr>`;
   zip.file(footerPath, footerAfter);

@@ -183,15 +183,13 @@ const MOBILE_RE = /^\+?[\d\s-]{7,16}$/;
 const pctOk = (v) => isBlank(v) || (Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100);
 const intOk = (v) => isBlank(v) || (Number.isInteger(Number(v)) && Number(v) >= 0);
 
-/** Returns { field-path: message }; empty object when the form can be saved. */
+/** Returns { field-path: message }; empty object when the form can be saved.
+ *  Business fields are optional; PO category stays required for the approval workflow.
+ */
 export function validateCmForm(form) {
   const e = {};
   if (!isBlank(form.oc_no) && String(form.oc_no).trim().length > 80) e.oc_no = "OC No. must be 80 characters or fewer.";
   if (isBlank(form.po_category)) e.po_category = "Choose the PO category.";
-  if (isBlank(form.client_name)) e.client_name = "Customer is required.";
-  if (isBlank(form.po_wo_no)) e.po_wo_no = "WO No. is required.";
-  if (isBlank(form.po_date)) e.po_date = "WO date is required.";
-  if (isBlank(form.project_description)) e.project_description = "Description of work is required.";
   if (!isBlank(form.duration_from) && !isBlank(form.duration_to) && form.duration_to < form.duration_from) {
     e.duration_to = "\"To\" must be on or after \"From\".";
   }
