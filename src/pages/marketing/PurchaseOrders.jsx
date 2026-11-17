@@ -34,6 +34,36 @@ function quotationNumberForContract(contract, quotations) {
   return quotationsForContext(quotations, contract.enquiry_id, contract.client_id)[0]?.quotation_number || '-';
 }
 
+const CONTRACT_NUMBER_PATTERN = /^CON\/(\d{4})\/(\d+)$/i;
+
+function formatContractNumber(year, sequence) {
+  return `CON/${year}/${String(sequence).padStart(4, '0')}`;
+}
+
+/** Next CON/year/sequence from the highest existing number, not the newest row. */
+function nextContractNumber(existingNumbers, now = new Date()) {
+  let bestYear = null;
+  let bestSequence = 0;
+  for (const value of existingNumbers || []) {
+    const match = String(value || '').trim().match(CONTRACT_NUMBER_PATTERN);
+    if (!match) continue;
+    const year = Number(match[1]);
+    const sequence = Number(match[2]);
+    if (!Number.isInteger(year) || !Number.isInteger(sequence)) continue;
+    if (bestYear == null || year > bestYear || (year === bestYear && sequence > bestSequence)) {
+      bestYear = year;
+      bestSequence = sequence;
+    }
+  }
+  if (bestYear == null) return formatContractNumber(now.getFullYear(), 1);
+  return formatContractNumber(bestYear, bestSequence + 1);
+}
+
+function isContractNumberConflict(error) {
+  const text = `${error?.code || ''} ${error?.message || ''} ${error?.details || ''}`;
+  return error?.code === '23505' && /contract_number/i.test(text);
+}
+
 const PurchaseOrders = () => {
   const [contracts, setContracts] = useState([]);
   const [quotations, setQuotations] = useState([]);
@@ -59,6 +89,7 @@ const PurchaseOrders = () => {
   });
   const [clientMailFile, setClientMailFile] = useState(null);
   const [poDocumentFile, setPoDocumentFile] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetchContracts();
@@ -134,28 +165,13 @@ const PurchaseOrders = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (saving) return;
+    setSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      
-      // Generate contract number
-      const { data: latest } = await supabase
-        .from('marketing_contracts')
-        .select('contract_number')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      let contractNumber = 'CON/2025/0001';
-      if (latest?.contract_number) {
-        const parts = latest.contract_number.split('/');
-        const year = parts[1];
-        const num = parseInt(parts[2]) + 1;
-        contractNumber = `CON/${year}/${String(num).padStart(4, '0')}`;
-      }
 
       const submitData = {
         ...formData,
-        contract_number: contractNumber,
         po_value: formData.po_value ? parseIndianNumber(formData.po_value.toString()) : null,
         quotation_id: formData.quotation_id || null,
         enquiry_id: formData.enquiry_id || null,
@@ -180,18 +196,45 @@ const PurchaseOrders = () => {
         if (error) throw error;
         contractId = data.id;
       } else {
-        const { data, error } = await supabase
+        const { data: existingNumbers, error: numberError } = await supabase
           .from('marketing_contracts')
-          .insert([{
-            ...submitData,
-            created_by: user.id,
-            updated_by: user.id,
-          }])
-          .select()
-          .single();
+          .select('contract_number')
+          .like('contract_number', 'CON/%')
+          .order('contract_number', { ascending: false })
+          .limit(100);
 
-        if (error) throw error;
-        contractId = data.id;
+        if (numberError) throw numberError;
+
+        let contractNumber = nextContractNumber(
+          (existingNumbers || []).map((row) => row.contract_number)
+        );
+        let created = null;
+        let lastError = null;
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          const { data, error } = await supabase
+            .from('marketing_contracts')
+            .insert([{
+              ...submitData,
+              contract_number: contractNumber,
+              created_by: user.id,
+              updated_by: user.id,
+            }])
+            .select()
+            .single();
+
+          if (!error) {
+            created = data;
+            break;
+          }
+          lastError = error;
+          if (!isContractNumberConflict(error)) throw error;
+          const match = String(contractNumber).match(CONTRACT_NUMBER_PATTERN);
+          const year = match ? Number(match[1]) : new Date().getFullYear();
+          const sequence = match ? Number(match[2]) + 1 : attempt + 2;
+          contractNumber = formatContractNumber(year, sequence);
+        }
+        if (!created) throw lastError;
+        contractId = created.id;
       }
 
       // Handle file uploads
@@ -250,7 +293,13 @@ const PurchaseOrders = () => {
       fetchContracts();
     } catch (error) {
       console.error('Error saving contract:', error);
-      toast.warning('Error saving contract: ' + error.message);
+      toast.warning(
+        isContractNumberConflict(error)
+          ? 'Could not assign a contract number. Please try again.'
+          : 'Could not save this purchase order. Please check the details and try again.'
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -706,9 +755,10 @@ const PurchaseOrders = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                  disabled={saving}
+                  className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {editingContract ? 'Update Contract' : 'Create Purchase Order'}
+                  {saving ? 'Saving...' : editingContract ? 'Update Contract' : 'Create Purchase Order'}
                 </button>
               </div>
             </form>
