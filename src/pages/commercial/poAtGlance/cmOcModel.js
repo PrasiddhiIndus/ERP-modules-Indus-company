@@ -54,6 +54,10 @@ export function emptyCmForm(slots = CM_OC_SIGNOFF_SLOTS) {
     po_wo_no: "",
     po_date: "",
     po_category: "",
+    customer_po_no: "",
+    customer_po_date: "",
+    customer_po_notes: "",
+    wo_documents: [],
     project_description: "",
     duration_text: "",
     duration_from: "",
@@ -88,12 +92,29 @@ const str = (v) => (v === null || v === undefined ? "" : String(v));
 const num = (v) => (v === null || v === undefined || v === "" ? "" : String(Number(v)));
 
 const TEXT_FIELDS = [
-  "cost_center_tally", "oc_no", "oc_date", "client_name", "client_address", "po_wo_no", "po_date", "po_category", "project_description",
+  "cost_center_tally", "oc_no", "oc_date", "client_name", "client_address", "po_wo_no", "po_date", "po_category",
+  "customer_po_no", "customer_po_date", "customer_po_notes", "project_description",
   "duration_text", "duration_from", "duration_to", "mobilization_date", "payment_terms", "insurance", "minimum_wage_rate",
   "relievers_scope", "duty_pattern", "accommodation_transport", "sd_release_period", "sd_pbg", "emd_details", "remarks",
 ];
 const NUMBER_FIELDS = ["gst_pct", "contract_value", "sd_ra_pct", ...CM_MANPOWER_FIELDS.map((f) => f.key)];
 const BOOL_FIELDS = ["is_sez", "gst_applicable", "sd_ra_applicable"];
+
+/** Work order attachments from the master row: [{ name, path, uploaded_at }]. */
+export function normalizeWoDocuments(masterOrDocs) {
+  const raw = Array.isArray(masterOrDocs)
+    ? masterOrDocs
+    : Array.isArray(masterOrDocs?.wo_documents)
+      ? masterOrDocs.wo_documents
+      : [];
+  return raw
+    .filter((d) => d && String(d.path || "").trim())
+    .map((d) => ({
+      name: String(d.name || "Work order").trim() || "Work order",
+      path: String(d.path).trim(),
+      uploaded_at: d.uploaded_at || null,
+    }));
+}
 
 /** Builds form state from the saved rows (see cmOcApi.loadCmOc). */
 export function cmFormFromRecord({ master, contacts = [], signoff = [] }, slots = CM_OC_SIGNOFF_SLOTS) {
@@ -105,6 +126,7 @@ export function cmFormFromRecord({ master, contacts = [], signoff = [] }, slots 
   form.currency = master.currency || "INR";
   form.created_by = master.created_by || null;
   form.updated_at = master.updated_at || null;
+  form.wo_documents = normalizeWoDocuments(master);
   form.extra_deployment = normalizeCmExtraDeployment(master.extra_deployment);
   form.contacts = [...contacts].sort((a, b) => a.seq - b.seq).map((c) => ({
     key: nextKey(), department: str(c.department), names: str(c.names),
