@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
 
-const DateRangeCalendar = ({ startDate, endDate, onDateRangeChange, className = '' }) => {
+const DateRangeCalendar = ({ startDate, endDate, onDateRangeChange, className = '', compact = false }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectingStart, setSelectingStart] = useState(true);
 
@@ -106,10 +106,13 @@ const DateRangeCalendar = ({ startDate, endDate, onDateRangeChange, className = 
   const days = getDaysInMonth(currentMonth);
 
   return (
-    <div className={`bg-gradient-to-br from-white to-gray-50 rounded-xl border border-gray-200 shadow-md max-w-[240px] mx-auto ${className}`}>
-      <div className="p-3">
+    <div className={compact
+      ? `flex h-full min-h-0 flex-col ${className}`
+      : `bg-gradient-to-br from-white to-gray-50 rounded-xl border border-gray-200 shadow-md max-w-[240px] mx-auto ${className}`
+    }>
+      <div className={compact ? 'flex h-full min-h-0 flex-col' : 'p-3'}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-2">
+        <div className={`flex items-center justify-between ${compact ? 'mb-1.5 shrink-0' : 'mb-2'}`}>
           <button
             onClick={goToPreviousMonth}
             className="p-1 hover:bg-purple-100 rounded-lg transition-colors group"
@@ -138,7 +141,7 @@ const DateRangeCalendar = ({ startDate, endDate, onDateRangeChange, className = 
         </div>
 
         {/* Day names */}
-        <div className="grid grid-cols-7 gap-1 mb-1">
+        <div className="grid grid-cols-7 gap-1 mb-1 shrink-0">
           {dayNames.map((day) => (
             <div key={day} className="text-center text-[10px] font-semibold text-gray-500 py-1">
               {day.substring(0, 1)}
@@ -147,10 +150,10 @@ const DateRangeCalendar = ({ startDate, endDate, onDateRangeChange, className = 
         </div>
 
         {/* Calendar grid */}
-        <div className="grid grid-cols-7 gap-1">
+        <div className={compact ? 'grid min-h-0 flex-1 grid-cols-7 auto-rows-fr gap-1' : 'grid grid-cols-7 gap-1'}>
           {days.map((date, index) => {
             if (!date) {
-              return <div key={`empty-${index}`} className="h-7" />;
+              return <div key={`empty-${index}`} className={compact ? 'min-h-0' : 'h-7'} />;
             }
 
             const dateStr = formatDate(date);
@@ -165,7 +168,7 @@ const DateRangeCalendar = ({ startDate, endDate, onDateRangeChange, className = 
                 key={dateStr}
                 onClick={() => handleDateClick(date)}
                 className={`
-                  h-7 w-7 text-xs rounded-md transition-all relative flex items-center justify-center font-medium
+                  ${compact ? 'h-full w-full min-h-[1.35rem] text-[11px]' : 'h-7 w-7 text-xs'} rounded-md transition-all relative flex items-center justify-center font-medium
                   ${inRange ? 'bg-purple-100 text-purple-900' : ''}
                   ${isStart && !sameDate ? 'bg-purple-600 text-white font-bold rounded-l-md shadow-sm' : ''}
                   ${isEnd && !sameDate ? 'bg-purple-600 text-white font-bold rounded-r-md shadow-sm' : ''}

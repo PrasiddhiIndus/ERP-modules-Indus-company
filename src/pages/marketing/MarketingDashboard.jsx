@@ -49,6 +49,7 @@ const MarketingDashboard = () => {
     totalQuotations: 0,
     totalClients: 0,
     totalProducts: 0,
+    convertedQuotations: 0,
   });
   const [dateRange, setDateRange] = useState({
     startDate: '',
@@ -100,18 +101,24 @@ const MarketingDashboard = () => {
 
   const fetchStats = async () => {
     try {
-      const [enquiries, quotations, clients, products] = await Promise.all([
+      const [enquiries, quotations, clients, products, contracts] = await Promise.all([
         supabase.from('marketing_enquiries').select('id', { count: 'exact', head: true }),
         supabase.from('marketing_quotations').select('id', { count: 'exact', head: true }),
         supabase.from('marketing_clients').select('id', { count: 'exact', head: true }),
         supabase.from('marketing_products').select('id', { count: 'exact', head: true }),
+        supabase.from('marketing_contracts').select('quotation_id').not('quotation_id', 'is', null),
       ]);
+
+      const convertedQuotations = contracts.error
+        ? 0
+        : new Set((contracts.data || []).map((row) => row.quotation_id).filter(Boolean)).size;
 
       setStats({
         totalEnquiries: enquiries.error ? 0 : enquiries.count || 0,
         totalQuotations: quotations.error ? 0 : quotations.count || 0,
         totalClients: clients.error ? 0 : clients.count || 0,
         totalProducts: products.error ? 0 : products.count || 0,
+        convertedQuotations,
       });
       setLoading(false);
     } catch (error) {
@@ -375,6 +382,14 @@ const MarketingDashboard = () => {
     max: Math.max(stats.totalEnquiries, 1),
   };
 
+  const businessConversion = {
+    value: stats.convertedQuotations,
+    max: Math.max(stats.totalQuotations, 1),
+    label: stats.totalQuotations
+      ? `${stats.convertedQuotations} / ${stats.totalQuotations}`
+      : 'No quotations',
+  };
+
   return (
     <div className="w-full min-h-screen overflow-y-auto bg-gradient-to-b from-slate-50/70 to-white px-4 sm:px-6 py-6">
       <div className="mb-6 rounded-2xl border border-slate-200 bg-white/95 shadow-sm p-4 sm:p-5">
@@ -549,28 +564,30 @@ const MarketingDashboard = () => {
         ))}
       </div>
 
-      {/* Charts */}
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+      {/* Charts — four equal columns, aligned with the KPI row */}
+      <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6 items-stretch">
         <ChartPanel
           title="Enquiry trend"
           subtitle={enquiriesInRange.length > 0 ? 'Selected date range' : 'Indicative, based on total enquiries'}
-          className="lg:col-span-2"
+          className="h-full"
           height={200}
         >
           <AreaTrendChart
             data={enquiryTrendData}
             series={[{ key: 'value', name: 'Enquiries', color: CHART_SERIES[0] }]}
             height={200}
+            yAxisWidth={36}
           />
         </ChartPanel>
         <ChartPanel
           title="Enquiry mix"
           subtitle={enquiriesInRange.length > 0 ? 'By status' : 'By record type'}
+          className="h-full"
           height={200}
         >
           <DonutChart data={statusMixData} centerLabel="Total" height={180} />
         </ChartPanel>
-        <ChartPanel title="Quotation conversion" subtitle="Quotations vs enquiries" height={200}>
+        <ChartPanel title="Quotation conversion" subtitle="Quotations vs enquiries" className="h-full" height={200}>
           <RadialScoreChart
             value={conversionScore.value}
             max={conversionScore.max}
@@ -579,15 +596,24 @@ const MarketingDashboard = () => {
             height={180}
           />
         </ChartPanel>
+        <ChartPanel title="Business conversion" subtitle="Quotations to purchase orders" className="h-full" height={200}>
+          <RadialScoreChart
+            value={businessConversion.value}
+            max={businessConversion.max}
+            label={businessConversion.label}
+            color={CHART_SERIES[5]}
+            height={180}
+          />
+        </ChartPanel>
       </div>
 
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-          {/* Navigation Cards */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
+      <div className="max-w-6xl mx-auto grid grid-cols-1 xl:grid-cols-4 gap-4 items-stretch">
+          {/* Navigation Cards — three columns, calendar keeps the fourth */}
+          <div className="xl:col-span-3 flex">
+            <div className="flex h-full w-full flex-col bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
               <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Quick actions</h2>
-              <p className="text-xs text-gray-500 mb-4">Click any action to open the relevant marketing page.</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <p className="text-xs text-gray-500 mb-3">Click any action to open the relevant marketing page.</p>
+              <div className="grid flex-1 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 content-start">
                 {dashboardCards.map((card, index) => {
                   const Icon = card.icon;
                   return (
@@ -612,23 +638,22 @@ const MarketingDashboard = () => {
             </div>
           </div>
 
-          {/* Calendar Widget */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-4 sm:p-5">
-            <div className="flex items-center gap-2 mb-3">
+          {/* Calendar Widget — same height as Quick actions */}
+          <div className="flex h-full min-h-0 flex-col bg-white rounded-2xl shadow-sm border border-slate-200/80 p-4 sm:p-5">
+            <div className="flex items-center gap-2 mb-2 shrink-0">
               <Calendar className="w-5 h-5 text-red-600" />
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900">Enquiry Calendar</h2>
+              <h2 className="text-base font-semibold text-gray-900">Enquiry Calendar</h2>
             </div>
-            <div className="space-y-3">
-              <div className="flex justify-center">
-                <DateRangeCalendar
-                  startDate={dateRange.startDate}
-                  endDate={dateRange.endDate}
-                  onDateRangeChange={setDateRange}
-                />
-              </div>
-              
-              {dateRange.startDate && dateRange.endDate ? (
-                loadingEnquiries ? (
+            <DateRangeCalendar
+              compact
+              className="min-h-0 flex-1"
+              startDate={dateRange.startDate}
+              endDate={dateRange.endDate}
+              onDateRangeChange={setDateRange}
+            />
+            {dateRange.startDate && dateRange.endDate ? (
+            <div className="mt-2 shrink-0">
+              {loadingEnquiries ? (
                   <div className="bg-gradient-to-r from-red-50 to-amber-50 border border-red-100/80 rounded-lg p-3 text-center">
                     <div className="animate-pulse flex items-center justify-center gap-2">
                       <div className="w-2 h-2 bg-red-600 rounded-full"></div>
@@ -647,7 +672,7 @@ const MarketingDashboard = () => {
                       </div>
                     </div>
                     
-                    <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(220, 38, 38, 0.45) var(--surface-sunken)' }}>
+                    <div className="max-h-28 overflow-y-auto space-y-1.5 pr-1" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(220, 38, 38, 0.45) var(--surface-sunken)' }}>
                       {enquiriesInRange.map((enquiry) => (
                         <div
                           key={enquiry.id}
@@ -699,13 +724,9 @@ const MarketingDashboard = () => {
                       No enquiries found from {formatDateDdMmYyyy(dateRange.startDate)} to {formatDateDdMmYyyy(dateRange.endDate)}
                     </p>
                   </div>
-                )
-              ) : (
-                <div className="bg-gradient-to-r from-slate-50 to-red-50/40 border border-slate-200/90 rounded-lg p-3 text-center">
-                  <p className="text-xs text-gray-500">Select a date range to view enquiries</p>
-                </div>
-              )}
+                )}
             </div>
+            ) : null}
           </div>
         </div>
     </div>
