@@ -132,7 +132,7 @@ function assertAppointmentFormat(xml) {
   expect(xml).not.toContain("{{EMPLOYEE_CODE}}");
   expect(xml).not.toContain("{{DOB}}");
   expect(text).toContain("11143");
-  expect(text).toMatch(/22-Jun-04/);
+  expect(text).toMatch(/22-Jun-2004/);
   expect(text).toContain("Employee Code");
   expect(text).toContain("Annexure - I");
   expect(text).toContain("Annexure II");
@@ -191,7 +191,7 @@ describe("appointment letter layout (local + production zip fill)", () => {
       "Shilpa Thakur",
       "Manager-Human Resources",
       "11143",
-      "22-Jun-04",
+      "22-Jun-2004",
       "Annexure - I",
       "Annexure II",
       "Indus Fire Safety Private Limited",
@@ -208,7 +208,7 @@ describe("appointment letter layout (local + production zip fill)", () => {
     const xml = documentXml(lo);
     const text = plainText(xml);
     expect(text).toContain("11143");
-    expect(text).toMatch(/22-Jun-04/);
+    expect(text).toMatch(/22-Jun-2004/);
     expect(text).toContain("Shilpa Thakur");
     expect(text).toContain("Manager-Human Resources");
     expect(text).not.toMatch(/\bCEO\b/);

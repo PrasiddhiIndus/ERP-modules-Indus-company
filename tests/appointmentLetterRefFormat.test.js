@@ -52,7 +52,7 @@ describe("appointment letter matches attached reference format", () => {
     expect(dearJoin).not.toMatch(/Dear Vijendra/); // not first-name-only
 
     expect(t.join(" ")).toContain("11144");
-    expect(t.join(" ")).toMatch(/01-Dec-01/);
+    expect(t.join(" ")).toMatch(/01-Dec-2001/);
     expect(t).toContain("Manager-Human Resources");
     expect(t.join(" ")).not.toMatch(/\bCEO\b/);
     expect(t.some((x) => /Navdurga Society/i.test(x))).toBe(true);
