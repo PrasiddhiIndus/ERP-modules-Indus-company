@@ -236,7 +236,9 @@ describe("appointment letter layout (local + production zip fill)", () => {
     const annexII = body.slice(body.lastIndexOf("<w:p ", body.indexOf("<w:t>Annexure II</w:t>")), body.indexOf("<w:t>Annexure II</w:t>"));
     expect(annexII).toMatch(/w:pageBreakBefore/);
     expect(body).toMatch(/<w:pgSz w:w="12240" w:h="15840"\/>/);
-    expect(body).toMatch(/w:footer="0"/);
+    // LO 24.2 drops inline footer content when footer distance is exactly 0 — 1 twip keeps it flush.
+    expect(body).toMatch(/w:footer="1"/);
+    expect(body).not.toMatch(/w:footer="0"/);
   }, 120000);
 
   it("Word reports exactly 5 pages for production zip-filled letter (Benefits on page 2, no blank)", async () => {
