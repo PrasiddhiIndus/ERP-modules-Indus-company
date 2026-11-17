@@ -215,14 +215,16 @@ describe("appointment letter layout (local + production zip fill)", () => {
     expect(emptyBodyParasBetweenNameAndAnnexure(xml)).toBe(0);
     expect((xml.match(/w:pageBreakBefore/g) || []).length).toBeGreaterThanOrEqual(1);
 
-    // LO-only chrome: cropped letterhead PNG (not EMF+cropright) + flattened footer bars.
+    // LO-only chrome: cropped letterhead PNG (not EMF+cropright) + full-width footer
+    // (black line + address + red bar connected edge-to-edge).
     const zip = new PizZip(lo);
     const rels = zip.file("word/_rels/document.xml.rels")?.asText() || "";
     expect(rels).toMatch(/image1\.png/i);
     expect(zip.file("word/media/image1.png")).toBeTruthy();
     const footer = zip.file("word/footer1.xml")?.asText() || "";
     expect(footer).not.toMatch(/margin-left:-49/);
-    expect(footer).toMatch(/w:fill="C00000"/);
+    expect(footer).toMatch(/footer-full|595\.3pt/);
+    expect(footer).toMatch(/w:ind w:left="-993"/);
   }, 120000);
 
   it("Word reports exactly 5 pages for production zip-filled letter (Benefits on page 2, no blank)", async () => {
