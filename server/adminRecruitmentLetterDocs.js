@@ -944,6 +944,7 @@ function normalizeAppointmentLetterDocxLayout(docxBuffer) {
     // Empty trailing cell paragraphs inflate Annexure II row heights in LibreOffice.
     docXml = stripTrailingEmptyTableCellParagraphs(docXml);
     docXml = pinAppointmentNoSpacingParagraphs(docXml);
+    docXml = ensureAppointmentAnnexureIIPageBreak(docXml);
 
     const stylesFile = zip.file('word/styles.xml');
     const beforeStyles = stylesFile?.asText() || '';
@@ -958,6 +959,23 @@ function normalizeAppointmentLetterDocxLayout(docxBuffer) {
     console.warn('[admin-recruitment] appointment layout normalize skipped:', err?.message || err);
     return buf;
   }
+}
+
+/**
+ * LibreOffice-only: Annexure I (Code of Conduct) fills its page in Word, so "Annexure II"
+ * always opens page 4. LO does not honour keepNext into the following table and could
+ * strand the heading at the bottom of page 3 — pin the break Word already produces.
+ */
+function ensureAppointmentAnnexureIIPageBreak(xml) {
+  const out = String(xml || '');
+  const idx = out.indexOf('<w:t>Annexure II</w:t>');
+  if (idx < 0) return out;
+  const para = paragraphAt(out, idx);
+  if (!para || /w:pageBreakBefore/.test(para.xml) || isInsideTableCell(out, para.start)) return out;
+  const fixed = /<w:pPr>/.test(para.xml)
+    ? para.xml.replace(/<w:pPr>/, '<w:pPr><w:pageBreakBefore/>')
+    : para.xml.replace(/<w:p\b[^>]*>/, (open) => `${open}<w:pPr><w:pageBreakBefore/></w:pPr>`);
+  return `${out.slice(0, para.start)}${fixed}${out.slice(para.end)}`;
 }
 
 /**
@@ -1026,7 +1044,15 @@ const APPOINTMENT_LETTER_PG_W = '12240';
 const APPOINTMENT_LETTER_PG_H = '15840';
 /** Full Letter width in points (matches template footer red bar 611.55pt ≈ 612pt). */
 const APPOINTMENT_LETTER_FOOTER_WIDTH_PT = '612';
-const APPOINTMENT_LETTER_FOOTER_HEIGHT_PT = '74.4';
+/**
+ * Height of Word's footer band: footer paragraph top (741.6pt) → page bottom (792pt).
+ * appointment-footer-full.png is that band rendered from Word (2550×210 px @ 300 dpi),
+ * so reserving exactly this height gives LibreOffice the same body area as Word.
+ */
+const APPOINTMENT_LETTER_FOOTER_HEIGHT_PT = '50.4';
+/** Template left/right page margins (twips) — negative indents take the footer to the page edges. */
+const APPOINTMENT_LETTER_MARGIN_LEFT_TW = 993;
+const APPOINTMENT_LETTER_MARGIN_RIGHT_TW = 758;
 
 /**
  * Pin every section to US Letter so Word/LibreOffice/Graph cannot fall back to A4.
@@ -1057,9 +1083,12 @@ function alignAppointmentFooterBarsToLetter(zip) {
   if (!footer || /o:title="footer-full"/i.test(footer)) return false;
   const before = footer;
   // Match the red bar's Letter full-bleed geometry.
+  // Red bar: template is top 38.9pt + 10.4pt = 49.3pt inside a 50.4pt footer band, leaving a
+  // ~1pt white strip under it in the PDF — extend it to the page edge (PDF only).
   footer = footer
     .replace(/margin-left:-48\.75pt/gi, 'margin-left:-49.2pt')
-    .replace(/width:607\.5pt/gi, 'width:611.55pt');
+    .replace(/width:607\.5pt/gi, 'width:611.55pt')
+    .replace(/(margin-top:38\.9pt;width:611\.55pt;)height:10\.4pt/gi, '$1height:11.6pt');
   if (footer === before) return false;
   zip.file(footerPath, footer);
   return true;
@@ -1087,11 +1116,15 @@ function applyAppointmentFullWidthFooter(zip) {
   const decl = footerBefore.startsWith('<?xml')
     ? `${footerBefore.slice(0, footerBefore.indexOf('?>') + 2)}\n`
     : '';
-  // 1275×155 px @ 150 dpi → 612pt × 74.4pt (US Letter). Negative indent reaches page edges
-  // (template margins: left 993 twips, right 758 twips). Keep pgMar footer="0" so the red
-  // bar sits on the page edge — raising footer distance leaves empty space below the bar.
-  // Absolute VML (like the Word template) anchors the strip to the bottom.
-  const footerAfter = `${decl}${nsMatch[0]}<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr><w:r><w:pict><v:shapetype id="_x0000_t75" coordsize="21600,21600" o:spt="75" o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f"><v:stroke joinstyle="miter"/><v:formulas><v:f eqn="if lineDrawn pixelLineWidth 0"/><v:f eqn="sum @0 1 0"/><v:f eqn="sum 0 0 @1"/><v:f eqn="prod @2 1 2"/><v:f eqn="prod @3 21600 pixelWidth"/><v:f eqn="prod @3 21600 pixelHeight"/><v:f eqn="sum @0 0 1"/><v:f eqn="prod @6 1 2"/><v:f eqn="prod @7 21600 pixelWidth"/><v:f eqn="sum @8 21600 0"/><v:f eqn="prod @7 21600 pixelHeight"/><v:f eqn="sum @10 21600 0"/></v:formulas><v:path o:extrusionok="f" gradientshapeok="t" o:connecttype="rect"/><o:lock v:ext="edit" aspectratio="t"/></v:shapetype><v:shape id="_x0000_i1027" type="#_x0000_t75" style="position:absolute;margin-left:-49.2pt;margin-top:0;width:${APPOINTMENT_LETTER_FOOTER_WIDTH_PT}pt;height:${APPOINTMENT_LETTER_FOOTER_HEIGHT_PT}pt;z-index:1" o:allowincell="f"><v:imagedata r:id="rId1" o:title="footer-full"/></v:shape></w:pict></w:r></w:p></w:ftr>`;
+  // Word's footer is one paragraph whose inline address image reserves 741.6→792pt; the bars
+  // float relative to it. Mirror that with ONE inline 612×50.4pt strip (Word-rendered band):
+  //  - inline (not position:absolute) so LO reserves the same footer height as Word and body
+  //    text never runs under the footer (absolute shapes reserve nothing in LO and were
+  //    anchored at the paragraph top, pushing most of the strip below the page);
+  //  - negative indents = page margins so the strip spans the full Letter width;
+  //  - pgMar footer="0" + 1pt font so the strip's bottom (red bar) sits on the page edge.
+  const tinyRun = '<w:rPr><w:sz w:val="2"/><w:szCs w:val="2"/></w:rPr>';
+  const footerAfter = `${decl}${nsMatch[0]}<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:ind w:left="-${APPOINTMENT_LETTER_MARGIN_LEFT_TW}" w:right="-${APPOINTMENT_LETTER_MARGIN_RIGHT_TW}" w:firstLine="0"/><w:jc w:val="left"/>${tinyRun}</w:pPr><w:r>${tinyRun}<w:pict><v:shapetype id="_x0000_t75" coordsize="21600,21600" o:spt="75" o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f"><v:stroke joinstyle="miter"/><v:formulas><v:f eqn="if lineDrawn pixelLineWidth 0"/><v:f eqn="sum @0 1 0"/><v:f eqn="sum 0 0 @1"/><v:f eqn="prod @2 1 2"/><v:f eqn="prod @3 21600 pixelWidth"/><v:f eqn="prod @3 21600 pixelHeight"/><v:f eqn="sum @0 0 1"/><v:f eqn="prod @6 1 2"/><v:f eqn="prod @7 21600 pixelWidth"/><v:f eqn="sum @8 21600 0"/><v:f eqn="prod @7 21600 pixelHeight"/><v:f eqn="sum @10 21600 0"/></v:formulas><v:path o:extrusionok="f" gradientshapeok="t" o:connecttype="rect"/><o:lock v:ext="edit" aspectratio="t"/></v:shapetype><v:shape id="_x0000_i1027" type="#_x0000_t75" style="width:${APPOINTMENT_LETTER_FOOTER_WIDTH_PT}pt;height:${APPOINTMENT_LETTER_FOOTER_HEIGHT_PT}pt"><v:imagedata r:id="rId1" o:title="footer-full"/></v:shape></w:pict></w:r></w:p></w:ftr>`;
   zip.file(footerPath, footerAfter);
   return true;
 }
