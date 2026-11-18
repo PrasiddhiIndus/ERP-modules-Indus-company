@@ -5,7 +5,6 @@ import { exportToExcel } from './utils/excelExport';
 import NumberInput from './components/NumberInput';
 import { parseIndianNumber } from './utils/numberFormat';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
-import { workingCostSheetLabel } from './utils/workingCostSheets';
 import FormDateInput from "../../components/FormDateInput";
 
 
@@ -27,11 +26,22 @@ function bestQuotationId(quotations, enquiryId, clientId) {
   return quotationsForContext(quotations, enquiryId, clientId)[0]?.id || '';
 }
 
-function businessCategoryForContract(contract, enquiries, quotations) {
-  const quotation = quotations.find((row) => row.id === contract.quotation_id);
-  const enquiryId = contract.enquiry_id || quotation?.enquiry_id || '';
-  const enquiry = enquiries.find((row) => row.id === enquiryId);
-  return workingCostSheetLabel(enquiry?.cost_sheet_type) || '-';
+function emptyContractForm() {
+  return {
+    quotation_id: '',
+    enquiry_id: '',
+    client_id: '',
+    business_category: '',
+    po_number: '',
+    po_date: new Date().toISOString().split('T')[0],
+    po_value: '',
+    delivery_address: '',
+    expected_delivery_date: '',
+    payment_terms: '',
+    status: 'Awarded',
+    awarded_date: new Date().toISOString().split('T')[0],
+    remarks: '',
+  };
 }
 
 function quotationNumberForContract(contract, quotations) {
@@ -81,20 +91,7 @@ const PurchaseOrders = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingContract, setEditingContract] = useState(null);
   const [menuOpen, setMenuOpen] = useState(null);
-  const [formData, setFormData] = useState({
-    quotation_id: '',
-    enquiry_id: '',
-    client_id: '',
-    po_number: '',
-    po_date: new Date().toISOString().split('T')[0],
-    po_value: '',
-    delivery_address: '',
-    expected_delivery_date: '',
-    payment_terms: '',
-    status: 'Awarded',
-    awarded_date: new Date().toISOString().split('T')[0],
-    remarks: '',
-  });
+  const [formData, setFormData] = useState(emptyContractForm);
   const [clientMailFile, setClientMailFile] = useState(null);
   const [poDocumentFile, setPoDocumentFile] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -149,17 +146,10 @@ const PurchaseOrders = () => {
 
   const fetchEnquiries = async () => {
     try {
-      let { data, error } = await supabase
+      const { data } = await supabase
         .from('marketing_enquiries')
-        .select('id, enquiry_number, client_id, cost_sheet_type')
+        .select('id, enquiry_number, client_id')
         .order('created_at', { ascending: false });
-      if (error && String(error.message || '').includes('cost_sheet_type')) {
-        const fallback = await supabase
-          .from('marketing_enquiries')
-          .select('id, enquiry_number, client_id')
-          .order('created_at', { ascending: false });
-        data = fallback.data;
-      }
       setEnquiries(data || []);
     } catch (error) {
       console.error('Error fetching enquiries:', error);
@@ -191,6 +181,7 @@ const PurchaseOrders = () => {
         quotation_id: formData.quotation_id || null,
         enquiry_id: formData.enquiry_id || null,
         client_id: formData.client_id || null,
+        business_category: formData.business_category.trim() || null,
         expected_delivery_date: formData.expected_delivery_date || null,
         awarded_date: formData.awarded_date || null,
       };
@@ -291,20 +282,7 @@ const PurchaseOrders = () => {
       setEditingContract(null);
       setClientMailFile(null);
       setPoDocumentFile(null);
-      setFormData({
-        quotation_id: '',
-        enquiry_id: '',
-        client_id: '',
-        po_number: '',
-        po_date: new Date().toISOString().split('T')[0],
-        po_value: '',
-        delivery_address: '',
-        expected_delivery_date: '',
-        payment_terms: '',
-        status: 'Awarded',
-        awarded_date: new Date().toISOString().split('T')[0],
-        remarks: '',
-      });
+      setFormData(emptyContractForm());
       fetchContracts();
     } catch (error) {
       console.error('Error saving contract:', error);
@@ -324,6 +302,7 @@ const PurchaseOrders = () => {
       quotation_id: contract.quotation_id || bestQuotationId(quotations, contract.enquiry_id, contract.client_id),
       enquiry_id: contract.enquiry_id || '',
       client_id: contract.client_id || '',
+      business_category: contract.business_category || '',
       po_number: contract.po_number || '',
       po_date: contract.po_date || new Date().toISOString().split('T')[0],
       po_value: contract.po_value || '',
@@ -364,7 +343,7 @@ const PurchaseOrders = () => {
       'PO Value (₹)': contract.po_value || 0,
       'Quotation Number': quotationNumberForContract(contract, quotations),
       'Client': contract.marketing_clients?.client_name || '-',
-      'Business Category': businessCategoryForContract(contract, enquiries, quotations),
+      'Business Category': contract.business_category || '-',
       'Status': contract.status,
       'Awarded Date': contract.awarded_date ? formatDateDdMmYyyy(contract.awarded_date) : '-',
       'Expected Delivery Date': contract.expected_delivery_date ? formatDateDdMmYyyy(contract.expected_delivery_date) : '-',
@@ -398,20 +377,7 @@ const PurchaseOrders = () => {
             <button
               onClick={() => {
                 setEditingContract(null);
-                setFormData({
-                  quotation_id: '',
-                  enquiry_id: '',
-                  client_id: '',
-                  po_number: '',
-                  po_date: new Date().toISOString().split('T')[0],
-                  po_value: '',
-                  delivery_address: '',
-                  expected_delivery_date: '',
-                  payment_terms: '',
-                  status: 'Awarded',
-                  awarded_date: new Date().toISOString().split('T')[0],
-                  remarks: '',
-                });
+                setFormData(emptyContractForm());
                 setClientMailFile(null);
                 setPoDocumentFile(null);
                 setShowForm(true);
@@ -466,7 +432,7 @@ const PurchaseOrders = () => {
                         {contract.marketing_clients?.client_name || '-'}
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-700">
-                        {businessCategoryForContract(contract, enquiries, quotations)}
+                        {contract.business_category || '-'}
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">
                         {contract.po_value ? `₹${parseFloat(contract.po_value).toLocaleString('en-IN')}` : '-'}
@@ -618,6 +584,17 @@ const PurchaseOrders = () => {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Business Category</label>
+                  <input
+                    type="text"
+                    value={formData.business_category}
+                    onChange={(e) => setFormData({ ...formData, business_category: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                    placeholder="Type the business category"
+                  />
                 </div>
 
                 <div className="md:col-span-2">

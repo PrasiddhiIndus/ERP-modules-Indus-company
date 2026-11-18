@@ -349,11 +349,11 @@ const ExpoSeminar = () => {
         try {
           const data = new Uint8Array(evt.target.result);
           const parsed = readSiteVisitSheet(data);
-          const rows = parsed.rows;
 
-          if (parsed.format !== 'new' && (!rows || rows.length === 0)) {
-            toast.warning('No data found in Excel file.');
+          if (parsed.format !== 'new') {
+            toast.warning('Upload the Site Visit template from Download Template. Other Excel layouts are not accepted.');
             setUploadingExcel(false);
+            e.target.value = '';
             return;
           }
 
@@ -364,106 +364,14 @@ const ExpoSeminar = () => {
             return;
           }
 
-          const siteVisitsToInsert = [];
+          const siteVisitsToInsert = parsed.records.map((record) => ({
+            ...record,
+            created_by: user.id,
+          }));
           const errors = [];
 
-          if (parsed.format === 'new') {
-            parsed.records.forEach((record) => {
-              siteVisitsToInsert.push({ ...record, created_by: user.id });
-            });
-          }
-
-          for (let i = 0; parsed.format !== 'new' && i < rows.length; i++) {
-            const row = rows[i];
-            try {
-              // Map Excel columns to form fields (case-insensitive matching)
-              const mapColumn = (possibleNames) => {
-                for (const name of possibleNames) {
-                  const key = Object.keys(row).find(k => 
-                    k.toLowerCase().trim() === name.toLowerCase().trim()
-                  );
-                  if (key) return row[key] || '';
-                }
-                return '';
-              };
-
-              // Map Excel columns to form fields (case-insensitive, handles missing columns gracefully)
-              // All fields default to empty string or appropriate default value if column is missing
-              const executiveNames = mapColumn(['Executive Name', 'Executive Names', 'Executive', 'Executive Name(s)']) || '';
-              const visitorName = mapColumn(['Visitor Name', 'Visitor', 'Name', 'Visitor Name']) || '';
-              const companyName = mapColumn(['Company Name', 'Company', 'Company Name']) || '';
-              const clientName = mapColumn(['Client Name', 'Client', 'Client Name']) || '';
-              const designation = mapColumn(['Designation', 'Designation', 'Position', 'Job Title']) || '';
-              const location = mapColumn(['Location', 'Site Location', 'City', 'Location', 'Address']) || '';
-              const mobileNumber = mapColumn(['Mobile Number', 'Mobile', 'Phone', 'Contact Number', 'Mobile No', 'Phone Number']) || '';
-              const emailId = mapColumn(['Email ID', 'Email', 'Email Address', 'Email Id', 'E-mail']) || '';
-              const productInterest = mapColumn(['Product Interest', 'Product', 'Interest', 'Product Interest', 'Products']) || '';
-              const discussionNote = mapColumn(['Discussion Note', 'Discussion', 'Notes', 'Note', 'Discussion Notes', 'Comments']) || '';
-              const visitDate = mapColumn(['Visit Date', 'Date', 'Visiting Date', 'Visit Date', 'Date of Visit']) || '';
-              const status = mapColumn(['Status', 'Approved Status', 'Status', 'Approval Status']) || 'Pending Paid';
-              const purposeOfVisit = mapColumn(['Purpose of Visit', 'Purpose', 'Purpose of Visit', 'Visit Purpose']) || '';
-              const travelExpenses = parseFloat(mapColumn(['Travel Expenses', 'Travel', 'Travel Cost', 'Travel Expense', 'Transportation'])) || 0;
-              const foodExpenses = parseFloat(mapColumn(['Food Expenses', 'Food', 'Food Cost', 'Food Expense', 'Meals'])) || 0;
-              const accommodation = parseFloat(mapColumn(['Accommodation', 'Accommodation Cost', 'Accommodation Expense', 'Hotel', 'Lodging'])) || 0;
-              const otherExpenses = parseFloat(mapColumn(['Other Expenses', 'Other', 'Other Cost', 'Other Expense', 'Miscellaneous'])) || 0;
-              const totalExpense = travelExpenses + foodExpenses + accommodation + otherExpenses;
-              const approvedAmount = parseFloat(mapColumn(['Approved Amount', 'Approved', 'Approved Amount', 'Approved Value'])) || null;
-
-              // Skip empty rows
-              if (!visitorName && !companyName && !clientName) {
-                continue;
-              }
-
-              // Parse visit date
-              let parsedDate = visitDate;
-              if (visitDate) {
-                // Try to parse Excel date or standard date format
-                if (typeof visitDate === 'number') {
-                  // Excel date serial number
-                  const excelEpoch = new Date(1899, 11, 30);
-                  parsedDate = new Date(excelEpoch.getTime() + visitDate * 86400000).toISOString().split('T')[0];
-                } else if (visitDate.includes('/') || visitDate.includes('-')) {
-                  // Try to parse as date string
-                  const dateObj = new Date(visitDate);
-                  if (!isNaN(dateObj.getTime())) {
-                    parsedDate = dateObj.toISOString().split('T')[0];
-                  }
-                }
-              } else {
-                parsedDate = new Date().toISOString().split('T')[0];
-              }
-
-              siteVisitsToInsert.push({
-                executive_names: executiveNames,
-                visitor_name: visitorName,
-                company_name: companyName,
-                client_name: clientName,
-                designation: designation,
-                site_location: location,
-                mobile_number: mobileNumber,
-                email_id: emailId,
-                product_interest: productInterest,
-                discussion_note: discussionNote,
-                visit_date: parsedDate,
-                purpose_of_visit: purposeOfVisit,
-                travel_expenses: travelExpenses,
-                food_expenses: foodExpenses,
-                accommodation: accommodation,
-                other_expenses: otherExpenses,
-                total_expense: totalExpense,
-                approved_amount: approvedAmount,
-                status: status || 'Pending Paid',
-                created_by: user.id,
-              });
-            } catch (rowError) {
-              errors.push(`Row ${i + 2}: ${rowError.message}`);
-            }
-          }
-
           if (siteVisitsToInsert.length === 0) {
-            toast.warning(parsed.format === 'new'
-              ? 'No site visits found in this file. Enter the visitor, the person who submitted the expense, or the client name.'
-              : 'No valid data found in Excel file. Please ensure at least one row has Visitor Name, Company Name, or Client Name.\n\nNote: Missing columns will be saved as empty values.');
+            toast.warning('No site visits found in this template. Enter the visitor, the person who submitted the expense, or the client name.');
             setUploadingExcel(false);
             return;
           }
@@ -487,7 +395,7 @@ const ExpoSeminar = () => {
           if (errors.length > 0) {
             toast.warning(`Uploaded ${inserted} records. Some errors occurred:\n${errors.join('\n')}`);
           } else {
-            toast.success(`Successfully uploaded ${inserted} site visit record(s)!\n\nNote: Missing columns in your Excel file were saved as empty values.`);
+            toast.success(`Uploaded ${inserted} site visit${inserted === 1 ? '' : 's'} from the template.`);
           }
 
           fetchSiteVisits();
@@ -495,7 +403,7 @@ const ExpoSeminar = () => {
           e.target.value = ''; // Reset file input
         } catch (error) {
           console.error('Error processing Excel:', error);
-          toast.error('Error processing Excel file: ' + error.message + '\n\nPlease ensure your Excel file follows the correct format. You can download the template for reference.');
+          toast.error('Could not read this file. Download the Site Visit template and upload that file.');
           setUploadingExcel(false);
         }
       };
@@ -958,7 +866,7 @@ const ExpoSeminar = () => {
                 </div>
               </div>
               <div className="mt-3 text-xs text-gray-600">
-                <p>Yellow columns are typed in. Total expense and final settlement calculate themselves. Download the template and use that file for upload.</p>
+                <p>Only the downloaded Site Visit template is accepted. Yellow columns are typed in. Total expense and final settlement calculate themselves.</p>
               </div>
             </div>
             
