@@ -166,8 +166,26 @@ function columnIndex(matrix, headerRow, label) {
   return -1;
 }
 
+const TEMPLATE_HEADERS = [
+  'Date of Expense Submission',
+  'From (Date)',
+  'To (Date)',
+  'Site Expense Submitted By',
+  'Site Visited By (Name)',
+  'Client Name',
+  'Fare',
+  'Daily Allowance',
+  'Lodging',
+  'Conveyance',
+  'Other Expense',
+  'Total Expense',
+  'Less Advance Taken',
+  'Final Settlement Amount',
+];
+
 function isNewSiteVisitMatrix(matrix) {
-  return matrix.some((row) => row.some((cell) => /date of expense submission/i.test(text(cell))));
+  const flat = matrix.slice(0, 4).flat().map((cell) => text(cell).toLowerCase());
+  return TEMPLATE_HEADERS.every((header) => flat.includes(header.toLowerCase()));
 }
 
 function parseNewSiteVisitMatrix(matrix) {
@@ -242,12 +260,8 @@ export function readSiteVisitSheet(data) {
   const workbook = XLSX.read(data, { type: 'array' });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
-  if (isNewSiteVisitMatrix(matrix)) {
-    return { format: 'new', records: parseNewSiteVisitMatrix(matrix), rows: [] };
+  if (!isNewSiteVisitMatrix(matrix)) {
+    return { format: 'invalid', records: [] };
   }
-  return {
-    format: 'legacy',
-    records: [],
-    rows: XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false }),
-  };
+  return { format: 'new', records: parseNewSiteVisitMatrix(matrix) };
 }
