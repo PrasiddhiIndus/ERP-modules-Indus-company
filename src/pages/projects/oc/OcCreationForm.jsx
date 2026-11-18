@@ -11,7 +11,7 @@ import {
 } from "./ocModel";
 import {
   amFinance, fetchOcSignatureUrl, friendlyOcError, listEmployeeOptions, loadOc, loadSignoffAssignees,
-  pjStageSignatureUrl,
+  ocStageSignatureUrl, pjStageSignatureUrl,
   loadProjectApprovalLog, myEmployeeCode, notifyOcSignoff, projectPoDocumentUrl, requestProjectOcModification, saveOc,
   clearProjectPoDocument, removeProjectPoDocument, setProjectPoRemarks,
   signProjectOcStage, uploadProjectPoDocuments,
@@ -31,7 +31,14 @@ const headingCls = "md:col-span-4 flex items-center justify-between gap-2 border
 const smallBtn =
   "inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50";
 const freezeCls =
-  "[&_*]:pointer-events-none [&_button]:opacity-60 [&_input]:bg-slate-100 [&_input]:text-slate-500 [&_select]:bg-slate-100 [&_select]:text-slate-500 [&_textarea]:bg-slate-100 [&_textarea]:text-slate-500 [&_[data-active]]:pointer-events-auto [&_[data-active]]:opacity-100";
+  "[&_*]:pointer-events-none [&_button]:opacity-60 [&_input]:bg-slate-100 [&_input]:text-slate-500 [&_select]:bg-slate-100 [&_select]:text-slate-500 [&_textarea]:bg-slate-100 [&_textarea]:text-slate-500 [&_[role=radio][aria-checked=false]]:bg-slate-100 [&_[data-active]]:pointer-events-auto [&_[data-active]]:opacity-100";
+/**
+ * Master PO At Glance (Finance preview): one grey look for every field Finance cannot change, on every PO type.
+ * Disabled / read-only inputs otherwise keep `disabled:bg-slate-50` (near white), which outranks the freeze rule.
+ * Fields Finance can edit (OC No. once unlocked, Cost Center in Tally on Projects / Maintenance, its own sign-off) stay white.
+ */
+const financeReadOnlyCls =
+  "[&_input:disabled]:!bg-slate-100 [&_input:disabled]:!text-slate-500 [&_input[readonly]]:!bg-slate-100 [&_input[readonly]]:!text-slate-500 [&_textarea:disabled]:!bg-slate-100 [&_textarea:disabled]:!text-slate-500 [&_textarea[readonly]]:!bg-slate-100 [&_textarea[readonly]]:!text-slate-500 [&_select:disabled]:!bg-slate-100 [&_select:disabled]:!text-slate-500";
 
 /** Finance preview uses tighter spacing. Department PO screens stay on the regular density. */
 const OcDensityContext = React.createContext(false);
@@ -42,6 +49,14 @@ function useDense() {
 /** Keeps grid placement (`display: contents`) while greying a block for the Finance preview. */
 function Freeze({ on, children, className = "" }) {
   return <div className={`${on ? `contents ${freezeCls}` : "contents"} ${className}`}>{children}</div>;
+}
+
+/** Blank value ("—"). In the Finance preview it is drawn as a grey read-only field, like every other locked value. */
+function EmptyValue({ children = "—" }) {
+  const dense = useDense();
+  return dense
+    ? <span className="block rounded border border-slate-300 bg-slate-100 px-2 py-1 text-xs text-slate-500">{children}</span>
+    : <span className="text-xs text-slate-400">{children}</span>;
 }
 
 function FieldError({ msg }) {
@@ -97,12 +112,15 @@ const STAGE_CHIP = {
 function SignatureBox({
   label, value, onChange, disabled, assignee, locked, onRequestSign, assigneeCount, status, signatureUrl, caption, note,
   oneClickSign = false, canSign = false, onSign, signing = false, signBlockedReason = "", mySignatureUrl = "",
+  previewUrl = "", previewMissing = false,
 }) {
   const dense = useDense();
   const pending = signoffPending(value);
   const signedAt = !pending && !isBlank(value.signed_by) ? formatSignedAt(value.signed_at) : "";
   const signName = assignee?.employee_name;
   const showOneClickSign = oneClickSign && canSign && isBlank(value.saved_by);
+  // Typed sign-off: preview of the signer's own Indus One signature until the box is saved.
+  const showPreview = !oneClickSign && pending;
 
   return (
     <div className={`flex flex-col border-b border-r border-slate-300 ${dense ? "gap-1 p-2" : "gap-2 p-3"} ${locked && !showOneClickSign ? "bg-slate-100" : ""}`}>
@@ -118,8 +136,19 @@ function SignatureBox({
         {locked && !showOneClickSign && <Lock className="h-3 w-3 shrink-0" />}
         {caption || (assignee ? `Assigned to ${assignee.employee_name} (${assignee.employee_code})` : "No one assigned yet")}
       </p>
-      {signatureUrl && (
-        <img src={signatureUrl} alt="" className={`object-contain object-left ${dense ? "h-10 max-w-[140px]" : "h-16 max-w-[180px]"}`} />
+      {signatureUrl && !pending && (
+        <img src={signatureUrl} alt={`Signature of ${value.signed_by}`} className={`object-contain object-left ${dense ? "h-10 max-w-[140px]" : "h-16 max-w-[180px]"}`} />
+      )}
+      {showPreview && previewUrl && (
+        <div className="rounded border border-dashed border-amber-300 bg-amber-50/60 px-2 py-1" data-testid="signature-preview">
+          <p className="text-[10px] font-medium text-amber-800">Signature preview — placed on the PO when you save</p>
+          <img src={previewUrl} alt="Your digital signature (preview)" className={`object-contain object-left ${dense ? "h-10 max-w-[140px]" : "h-12 max-w-[170px]"}`} />
+        </div>
+      )}
+      {showPreview && !previewUrl && previewMissing && (
+        <p className="text-[11px] text-amber-800">
+          No Indus One signature was found for your login. The PO will show your name and the signing date only.
+        </p>
       )}
       <label className="text-[11px] text-slate-500">
         Name (digital signature)
@@ -185,10 +214,15 @@ function SignatureBox({
 }
 
 /** Confirm sign-off + show email result to the assigned users. */
-function SignNotifyModal({ state, onClose, onConfirmSign, assigneeCount }) {
+function SignNotifyModal({ state, onClose, onConfirmSign, assigneeCount, ownSignatureUrl = "", ownSignatureLoaded = false }) {
   if (!state?.open) return null;
   const mode = state.mode || "result";
   const signs = state.signatures || [];
+  // Typed sign-off ("Sign as …"): preview the signer's own Indus One signature before it is applied.
+  const typedConfirm = mode === "confirm" && !state.direct;
+  const previewUrl = state.signatureUrl || (typedConfirm ? ownSignatureUrl : "");
+  const previewMissing = typedConfirm && ownSignatureLoaded && !previewUrl;
+  const previewLoading = typedConfirm && !ownSignatureLoaded && !previewUrl;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true">
@@ -219,11 +253,23 @@ function SignNotifyModal({ state, onClose, onConfirmSign, assigneeCount }) {
             </ul>
           ) : null}
 
-          {mode === "confirm" && state.signatureUrl ? (
+          {mode === "confirm" && previewUrl ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-              <p className="text-[11px] text-slate-500">Your digital signature (from Indus One)</p>
-              <img src={state.signatureUrl} alt="Your digital signature" className="mt-1 h-16 max-w-[200px] object-contain object-left" />
+              <p className="text-[11px] text-slate-500">
+                Signature preview — your digital signature (from Indus One)
+                {signs[0]?.label ? ` for the ${signs[0].label} box` : ""}
+              </p>
+              <img src={previewUrl} alt="Your digital signature" className="mt-1 h-16 max-w-[200px] object-contain object-left" />
             </div>
+          ) : previewMissing ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              No Indus One signature was found for your login. The PO will show your name and the signing date only.
+              Upload your signature in Indus One to have it printed on the PO.
+            </p>
+          ) : previewLoading ? (
+            <p className="flex items-center gap-1.5 text-xs text-slate-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading your signature preview…
+            </p>
           ) : null}
 
           {mode === "confirm" && state.direct ? (
@@ -414,9 +460,10 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     };
   }, [department.autoCreatorSlot, autoSignedUserId, form.created_by, form.id, user?.id]);
 
-  // Projects: the logged-in employee's own signature, fetched from Indus One by their employee code.
+  // The logged-in employee's own signature, fetched from Indus One by their employee code:
+  // Projects one-click Sign, and the signature preview shown before a typed sign-off is saved.
   useEffect(() => {
-    if (!oneClickSign || !user?.id) return undefined;
+    if (!user?.id) return undefined;
     let alive = true;
     setMySignatureLoaded(false);
     fetchOcSignatureUrl(user.id).then((url) => {
@@ -427,22 +474,23 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     return () => {
       alive = false;
     };
-  }, [oneClickSign, user?.id]);
+  }, [user?.id]);
 
-  // Projects: each signed stage shows the signature of the login that signed it.
-  const signedStageKey = oneClickSign
-    ? SIGNOFF_SLOTS.filter(({ slot }) => slot !== department.autoCreatorSlot)
-      .map(({ slot }) => `${slot}:${form.signoff?.[slot]?.saved_by ? form.signoff[slot].signed_user_id || "" : ""}`)
-      .join("|")
-    : "";
+  // Every saved sign-off box (all departments, and the Finance preview) shows the signature of the login that signed it.
+  const signedStageKey = SIGNOFF_SLOTS.filter(({ slot }) => slot !== department.autoCreatorSlot)
+    .map(({ slot }) => `${slot}:${form.signoff?.[slot]?.saved_by ? form.signoff[slot].signed_user_id || "" : ""}`)
+    .join("|");
   useEffect(() => {
-    if (!signedStageKey) return undefined;
-    let alive = true;
     const pairs = signedStageKey.split("|").map((p) => p.split(":")).filter(([, uid]) => uid);
+    if (!pairs.length) {
+      setSlotSignatureUrls({});
+      return undefined;
+    }
+    let alive = true;
     const ocId = form.id;
     Promise.all(
       pairs.map(async ([slot, uid]) => {
-        let url = ocId ? await pjStageSignatureUrl(ocId, slot) : "";
+        let url = ocId ? await ocStageSignatureUrl(ocId, slot, department) : "";
         if (!url && uid) url = await fetchOcSignatureUrl(uid);
         return [slot, url || ""];
       }),
@@ -450,7 +498,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     return () => {
       alive = false;
     };
-  }, [signedStageKey, form.id]);
+  }, [signedStageKey, form.id, department]);
 
   useEffect(() => {
     const slot = department.autoCreatorSlot;
@@ -547,17 +595,15 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   const openReturn = showApprovalAudit ? openModificationRequest(approvalLog) : null;
   const iAmOcCreator = Boolean(form.created_by) && form.created_by === user?.id;
   const projectsPo = department.key === "projects";
-  const maintenancePo = department.key === "maintenance";
-  /** Finance may set Cost Center in Tally on Projects and Maintenance from Master PO At Glance. */
-  const financeTallyDept = projectsPo || maintenancePo;
   // Assigned signers (Execution / Dept Head / Finance) may remark + sign without editing PO details.
   const isAssignedReviewer = ["PLANNING", "VERTICAL_HEAD", "FINANCE"].some((slot) => !isLockedFor(slot));
   const projectsRemarksOnly = projectsPo && !financeReview && !isFinance && isAssignedReviewer;
   const reviewerGatePending = projectsPo && !financeReview && !isFinance && (!codeLoaded || !assigneesLoaded);
   const fieldsLocked = (readOnly && !financeReview) || projectsRemarksOnly || reviewerGatePending;
   const canChangeFields = canEdit && !projectsRemarksOnly && !reviewerGatePending;
-  // Projects: Finance-owned. Maintenance: editable by dept on their screen, and by Finance in review.
-  const tallyEditable = projectsPo ? financeReview || isFinance : maintenancePo ? true : !financeReview;
+  // Finance-owned on every PO type: Master PO At Glance (Finance review), or a Finance Department login on the department screen.
+  // Everyone else sees it locked; the database rejects changes from non-Finance users (cost-center guard trigger).
+  const tallyEditable = financeReview || isFinance;
   const revisionStage = !projectsPo || isBlank(form.signoff?.PROJECT_USER?.saved_by)
     ? null
     : ["PLANNING", "VERTICAL_HEAD", "FINANCE"].find((slot) => isBlank(form.signoff?.[slot]?.saved_by)) || "FINANCE";
@@ -841,8 +887,8 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     const savedForm = JSON.parse(initial);
     const ocChanged = String(form.oc_no || "").trim() !== String(savedForm.oc_no || "").trim()
       || String(form.oc_date || "") !== String(savedForm.oc_date || "");
-    const tallyChanged = financeTallyDept
-      && String(form.cost_center_tally || "").trim() !== String(savedForm.cost_center_tally || "").trim();
+    // Finance sets Cost Center in Tally on every PO type (finance_po_set_cost_center).
+    const tallyChanged = String(form.cost_center_tally || "").trim() !== String(savedForm.cost_center_tally || "").trim();
     if (!signaturePending && !ocChanged && !tallyChanged) return;
     if (ocChanged && !ocUnlocked) {
       toast.error("OC Number stays locked until every other required signatory has signed.");
@@ -1150,38 +1196,29 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
 
         <fieldset
           disabled={readOnly && !financeReview && !projectsRemarksOnly}
-          className={`${financeReview ? "min-w-0 [&_input]:!py-1 [&_input]:!text-xs [&_select]:!py-1 [&_select]:!text-xs [&_textarea]:!py-1 [&_textarea]:!text-xs" : "min-w-0"}${projectsRemarksOnly ? " po-remarks-only" : ""}`}
+          className={`${financeReview ? `min-w-0 [&_input]:!py-1 [&_input]:!text-xs [&_select]:!py-1 [&_select]:!text-xs [&_textarea]:!py-1 [&_textarea]:!text-xs ${financeReadOnlyCls}` : "min-w-0"}${projectsRemarksOnly ? " po-remarks-only" : ""}`}
         >
           <div className="grid grid-cols-1 border-l border-slate-300 md:grid-cols-[minmax(9rem,18%)_1fr_minmax(9rem,16%)_1fr]">
             {/* Section 1 */}
-            {financeTallyDept ? (
-              <>
-                <Label>Cost Center in Tally</Label>
-                <Value full>
-                  <input
-                    className={`${inputCls} read-only:bg-slate-100 read-only:text-slate-500`}
-                    value={form.cost_center_tally}
-                    readOnly={!tallyEditable}
-                    placeholder={tallyEditable ? "" : "Filled by Finance"}
-                    onChange={(e) => {
-                      if (tallyEditable) set("cost_center_tally", e.target.value);
-                    }}
-                  />
-                  {!tallyEditable && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">
-                      <Lock className="h-3 w-3" /> Only the Finance Department can fill or change this.
-                    </p>
-                  )}
-                </Value>
-              </>
-            ) : (
-              <Freeze on={financeReview}>
-                <Label>Cost Center in Tally</Label>
-                <Value full>
-                  <input className={inputCls} value={form.cost_center_tally} onChange={(e) => set("cost_center_tally", e.target.value)} />
-                </Value>
-              </Freeze>
-            )}
+            {/* Cost Center in Tally: Finance Department only, on every PO type (department screen and Master PO At Glance). */}
+            <Label>Cost Center in Tally</Label>
+            <Value full>
+              <input
+                className={`${inputCls} read-only:bg-slate-100 read-only:text-slate-500`}
+                value={form.cost_center_tally}
+                readOnly={!tallyEditable}
+                placeholder={tallyEditable ? "" : "Filled by Finance"}
+                title={tallyEditable ? undefined : "Only the Finance Department can fill or change Cost Center in Tally."}
+                onChange={(e) => {
+                  if (tallyEditable) set("cost_center_tally", e.target.value);
+                }}
+              />
+              {!tallyEditable && (
+                <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">
+                  <Lock className="h-3 w-3" /> Only the Finance Department can fill or change this.
+                </p>
+              )}
+            </Value>
 
             <Label>OC No.</Label>
             <Value>
@@ -1250,7 +1287,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                     return (
                       <div className="space-y-2">
                         {!hasAny && (
-                          <span className="text-xs text-slate-500">No original purchase order uploaded.</span>
+                          <EmptyValue>No original purchase order uploaded.</EmptyValue>
                         )}
                         {pendingPoFiles.map((p, index) => (
                           <div key={`pending-${p.file.name}-${index}`} className="flex flex-wrap items-center gap-2">
@@ -1442,7 +1479,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                   </label>
                 </div>
               ) : (
-                <span className="text-xs text-slate-400">—</span>
+                <EmptyValue />
               )}
             </Value>
 
@@ -1523,7 +1560,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                   <FieldError msg={err("emd.release_or_adjust") || err("emd.release_date")} />
                 </div>
               ) : (
-                <span className="text-xs text-slate-400">—</span>
+                <EmptyValue />
               )}
             </Value>
 
@@ -1538,7 +1575,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                   <input className={cls("dlp.detail_text")} value={form.dlp.detail_text} onChange={(e) => setIn("dlp", "detail_text", e.target.value)} />
                   <FieldError msg={err("dlp.detail_text")} />
                 </>
-              ) : <span className="text-xs text-slate-400">—</span>}
+              ) : <EmptyValue />}
             </Value>
 
             <Label>Warranty</Label>
@@ -1552,7 +1589,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                   <input className={cls("warranty.detail_text")} value={form.warranty.detail_text} onChange={(e) => setIn("warranty", "detail_text", e.target.value)} />
                   <FieldError msg={err("warranty.detail_text")} />
                 </>
-              ) : <span className="text-xs text-slate-400">—</span>}
+              ) : <EmptyValue />}
             </Value>
 
             <Label>RTO / Insurance</Label>
@@ -1663,10 +1700,10 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
                 signatureUrl={
                   auto
                     ? (stageUnsigned ? "" : creatorSignatureUrl)
-                    : oneClickSign
-                      ? slotSignatureUrls[slot] || ""
-                      : ""
+                    : stageUnsigned ? "" : slotSignatureUrls[slot] || ""
                 }
+                previewUrl={mySignatureUrl}
+                previewMissing={mySignatureLoaded && !mySignatureUrl}
                 oneClickSign={oneClickSign}
                 canSign={stageCanSign}
                 signing={signingSlot === slot}
@@ -1751,6 +1788,8 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
       <SignNotifyModal
         state={signNotify}
         assigneeCount={department.assigneeCount}
+        ownSignatureUrl={mySignatureUrl}
+        ownSignatureLoaded={mySignatureLoaded}
         onClose={() => {
           setSignNotify(null);
           setPendingSignSlot(null);

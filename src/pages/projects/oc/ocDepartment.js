@@ -30,5 +30,12 @@ export const IEV_OC_DEPARTMENT = {
   accessDeniedMessage: "You do not have access to IEV PO At Glance.",
   canEdit: ocCanEdit,
   canDelete: ocCanDelete,
-  buildDocx: (form) => import("./ocWordExport").then((m) => m.buildOcDocx(form)),
+  /** Word export with every saved box's own signature image, name, and signing date and time. */
+  buildDocx: async (form) => {
+    const [{ buildOcDocx }, { loadOcSignatureImages }] = await Promise.all([
+      import("./ocWordExport"),
+      import("./ocSignatureImages"),
+    ]);
+    return buildOcDocx(form, { signatures: await loadOcSignatureImages(form, IEV_OC_DEPARTMENT) });
+  },
 };

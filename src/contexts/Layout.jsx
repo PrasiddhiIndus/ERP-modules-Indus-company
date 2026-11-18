@@ -673,43 +673,88 @@ const Layout = () => {
         } lg:translate-x-0 fixed inset-y-0 left-0 z-50 ${sidebarWidthClass} bg-sidebar border-r border-sidebar-border transition-[transform,width] duration-theme-slow ease-theme shadow-[4px_0_24px_rgba(23,29,53,0.12)]`}
       >
         <div className="flex flex-col h-full">
-          {/* Logo + Close */}
+          {/* Logo + Close / expand (collapsed rail: logo → expand icon on hover) */}
           <div className="flex items-center justify-between px-3 py-3.5 border-b border-sidebar-border gap-2 bg-sidebar-elevated/40 min-h-topbar">
-            <div className={`flex items-center gap-2.5 min-w-0 flex-1 ${sidebarCollapsed ? "lg:justify-center" : ""}`}>
-              <img
-                src={INDUS_LOGO_SRC}
-                alt=""
-                className="h-9 w-9 object-contain shrink-0 rounded-full ring-2 ring-sidebar-accent/40 bg-sidebar-elevated"
-                width={36}
-                height={36}
-              />
-              {!sidebarCollapsed ? (
-                <div className="min-w-0">
-                  <h1 className="type-card-title text-sidebar-strong type-truncate tracking-tight">INDUS OS</h1>
-                  <p className="type-mono-micro text-sidebar-muted type-truncate">Enterprise ERP</p>
+            {sidebarCollapsed ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNavFilter("");
+                    setSidebarCollapsed(false);
+                  }}
+                  className="sidebar-rail-logo-btn group relative hidden lg:inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full mx-auto text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-accent/40"
+                  aria-label="Expand sidebar"
+                  title="Expand sidebar"
+                >
+                  <img
+                    src={INDUS_LOGO_SRC}
+                    alt=""
+                    className="pointer-events-none absolute left-1/2 top-1/2 h-9 w-9 -translate-x-1/2 -translate-y-1/2 object-contain rounded-full ring-2 ring-sidebar-accent/40 bg-sidebar-elevated transition-opacity duration-200 ease-theme opacity-100 group-hover:opacity-0 group-focus-visible:opacity-0"
+                    width={36}
+                    height={36}
+                  />
+                  <PanelLeft
+                    className="pointer-events-none absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-200 ease-theme opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
+                    aria-hidden
+                  />
+                </button>
+                <div className="flex min-w-0 flex-1 items-center gap-2.5 lg:hidden">
+                  <img
+                    src={INDUS_LOGO_SRC}
+                    alt=""
+                    className="h-9 w-9 object-contain shrink-0 rounded-full ring-2 ring-sidebar-accent/40 bg-sidebar-elevated"
+                    width={36}
+                    height={36}
+                  />
+                  <h1 className="type-card-title text-sidebar-strong type-truncate">INDUS OS</h1>
                 </div>
-              ) : (
-                <h1 className="type-card-title text-sidebar-strong type-truncate lg:hidden">INDUS OS</h1>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setNavFilter("");
-                setSidebarCollapsed((v) => !v);
-              }}
-              className="hidden lg:inline-flex p-1.5 rounded-control text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-strong border border-transparent"
-              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {sidebarCollapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
-            </button>
-            <button
-              onClick={() => setSidebarOpen(false)}
-              className="lg:hidden p-1 rounded-control hover:bg-sidebar-hover text-sidebar-muted"
-            >
-              ×
-            </button>
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(false)}
+                  className="lg:hidden p-1 rounded-control hover:bg-sidebar-hover text-sidebar-muted"
+                  aria-label="Close menu"
+                >
+                  ×
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                  <img
+                    src={INDUS_LOGO_SRC}
+                    alt=""
+                    className="h-9 w-9 object-contain shrink-0 rounded-full ring-2 ring-sidebar-accent/40 bg-sidebar-elevated"
+                    width={36}
+                    height={36}
+                  />
+                  <div className="min-w-0">
+                    <h1 className="type-card-title text-sidebar-strong type-truncate tracking-tight">INDUS OS</h1>
+                    <p className="type-mono-micro text-sidebar-muted type-truncate">Enterprise ERP</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNavFilter("");
+                    setSidebarCollapsed(true);
+                  }}
+                  className="hidden lg:inline-flex p-1.5 rounded-control text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-strong border border-transparent"
+                  aria-label="Collapse sidebar"
+                  title="Collapse sidebar"
+                >
+                  <PanelLeftClose className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(false)}
+                  className="lg:hidden p-1 rounded-control hover:bg-sidebar-hover text-sidebar-muted"
+                  aria-label="Close menu"
+                >
+                  ×
+                </button>
+              </>
+            )}
           </div>
 
           {!sidebarCollapsed ? (

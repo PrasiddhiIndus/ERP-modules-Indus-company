@@ -159,11 +159,17 @@ function clauseRows(label, value, prompt, detail) {
   ];
 }
 
-function signatureCell(slot, form, i) {
+/**
+ * One sign-off box: the signer's signature image (saved boxes only, when given), name, and signing date and time.
+ * `signatures[slot]` = { data, type, width, height } from ../../projects/oc/ocSignatureImages.js.
+ */
+function signatureCell(slot, form, i, signatures = {}) {
   const s = form.signoff[slot] || {};
   const signedAt = formatSignedAt(s.signed_at);
+  const img = s.saved_by && s.signed_by ? signatures[slot] : null;
   const kids = s.signed_by
     ? [
+      ...(img ? [para([new ImageRun({ type: img.type, data: img.data, transformation: { width: img.width, height: img.height } })], { align: AlignmentType.CENTER })] : []),
       para([run(s.signed_by, { bold: true, size: 18 })], { align: AlignmentType.CENTER }),
       para([run(signedAt ? `Digitally signed on ${signedAt}` : "", { italics: true, size: 14 })], { align: AlignmentType.CENTER }),
     ]
@@ -173,9 +179,9 @@ function signatureCell(slot, form, i) {
 
 /**
  * @param {object} form  PO At Glance form state (ocModel shape, R&M sign-off slots)
- * @param {{ logo?: ArrayBuffer|Uint8Array|null }} [opts]  Indus Fire Safety logo (JPEG) for the header
+ * @param {{ logo?: ArrayBuffer|Uint8Array|null, signatures?: object }} [opts]  Indus Fire Safety logo (JPEG) for the header; signature images by slot
  */
-export function buildRmOcDocument(form, { logo = null } = {}) {
+export function buildRmOcDocument(form, { logo = null, signatures = {} } = {}) {
   const sec = rmSecurity(form);
   const otherInfo = [
     ...String(form.other_information || "").split("\n").filter(Boolean),
@@ -261,7 +267,7 @@ export function buildRmOcDocument(form, { logo = null } = {}) {
   const signTable = table(SIGN, [
     row([cell([para([run(OC_SIGNOFF_HEADING, { bold: true })])], { cols: SIGN, span: 3 })], 19.65),
     row(RM_OC_SIGNOFF_SLOTS.map((s, i) => cell(s.label, { cols: SIGN, from: i, align: AlignmentType.CENTER })), 12.3),
-    row(RM_OC_SIGNOFF_SLOTS.map((s, i) => signatureCell(s.slot, form, i)), 44.05),
+    row(RM_OC_SIGNOFF_SLOTS.map((s, i) => signatureCell(s.slot, form, i, signatures)), 44.05),
   ]);
 
   const header = new Header({
@@ -311,5 +317,6 @@ async function loadLogo() {
   }
 }
 
-export const buildRmOcDocx = async (form) => Packer.toBlob(buildRmOcDocument(form, { logo: await loadLogo() }));
+export const buildRmOcDocx = async (form, { signatures = {} } = {}) =>
+  Packer.toBlob(buildRmOcDocument(form, { logo: await loadLogo(), signatures }));
 export const buildRmOcDocxBuffer = (form, opts) => Packer.toBuffer(buildRmOcDocument(form, opts));

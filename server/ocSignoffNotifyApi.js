@@ -375,7 +375,11 @@ export async function verifyOcNotifyEvent({ db, department, mailEvent, master, s
       .limit(1)
       .maybeSingle();
     if (error) throw httpError(500, 'Could not load the approval log.');
-    if (log?.actor_user_id !== userId && !hasScope) throw httpError(403, NOT_ALLOWED_MESSAGE);
+    const actorOk =
+      (log?.actor_user_id && log.actor_user_id === userId) ||
+      (!log?.actor_user_id && master.created_by && master.created_by === userId) ||
+      hasScope;
+    if (!actorOk) throw httpError(403, NOT_ALLOWED_MESSAGE);
     return { signs: [], idempotencyKey: base };
   }
 
@@ -460,7 +464,11 @@ export async function notifyOcSignoffAssignees({
 
   const { data: master, error: masterErr } = await db
     .from(profile.masterTable)
-    .select(department === 'projects' ? 'id, oc_no, oc_date, client_name, po_wo_no' : 'id, oc_no, client_name, po_wo_no')
+    .select(
+      department === 'projects'
+        ? 'id, oc_no, oc_date, client_name, po_wo_no, created_by'
+        : 'id, oc_no, client_name, po_wo_no'
+    )
     .eq('id', id)
     .maybeSingle();
   if (masterErr) throw httpError(500, 'Could not load the PO At Glance.');
@@ -617,28 +625,47 @@ async function sendOcNotification({
         conversationId: thread?.conversation_id || null,
         mailboxHint: thread?.mailbox || null,
       });
-      if (!posted?.messageId) {
+      // Threaded Graph draft may be denied; sendMail fallback still delivers (no conversation id).
+      if (posted?.messageId) {
+        await saveProjectsMailThread(db, {
+          oc_id: master.id,
+          mailbox: posted.mailbox || thread?.mailbox || sender?.mail || 'unknown',
+          latest_message_id: posted.messageId,
+          conversation_id: posted.conversationId || thread?.conversation_id || null,
+          subject,
+          recipients: threadRecipients,
+        });
+      } else if (!posted?.fallback) {
         throw httpError(502, 'Mail was accepted but the conversation id was not returned.');
       }
-      await saveProjectsMailThread(db, {
-        oc_id: master.id,
-        mailbox: posted.mailbox || thread?.mailbox || sender?.mail || 'unknown',
-        latest_message_id: posted.messageId,
-        conversation_id: posted.conversationId || thread?.conversation_id || null,
-        subject,
-        recipients: threadRecipients,
-      });
       for (const row of threadRecipients) sent.push(row.email);
       console.info('[oc/signoff-notify] projects thread', {
         ocId: master.id,
         event: mailEvent,
         threaded: Boolean(posted.threaded),
+        fallback: posted.fallback || null,
         conversationId: posted.conversationId || null,
       });
     } catch (err) {
       const detail = String(err?.message || err || 'Send failed').trim() || 'Send failed';
-      failed.push({ email: threadRecipients.map((r) => r.email).join(', '), error: detail });
-      console.warn('[oc/signoff-notify] thread send failed', detail);
+      console.warn('[oc/signoff-notify] thread send failed — trying direct send', detail);
+      // Last resort: same content via sendMail so the concerned departments still get notified.
+      for (const r of uniqueEmails) {
+        try {
+          await sendOutboundMail({
+            from: sender?.mail || undefined,
+            fromName: sender?.display_name || undefined,
+            to: r.email,
+            subject,
+            html,
+          });
+          sent.push(r.email);
+        } catch (sendErr) {
+          failed.push({ email: r.email, error: sendErr?.message || detail });
+          console.warn('[oc/signoff-notify] projects fallback send failed', r.email, sendErr?.message || sendErr);
+        }
+      }
+      if (!sent.length) failed.push({ email: threadRecipients.map((r) => r.email).join(', '), error: detail });
     }
   } else {
     const { subject, html } = buildEmail({ profile, master, signatures: signsWithEmployee, signerName });
