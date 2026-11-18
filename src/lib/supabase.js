@@ -182,7 +182,23 @@ function shortenVal(v, max = 72) {
   if (v == null || v === '') return ''
   if (typeof v === 'boolean') return v ? 'true' : 'false'
   if (typeof v === 'number') return String(v)
-  if (typeof v === 'object') return '…'
+  if (typeof v === 'object') {
+    if (Array.isArray(v)) {
+      if (!v.length) return '[empty list]'
+      try {
+        const s = JSON.stringify(v)
+        return s.length > max ? `[${v.length} items] ${s.slice(0, Math.max(24, max - 16))}…` : s
+      } catch {
+        return `[${v.length} items]`
+      }
+    }
+    try {
+      const s = JSON.stringify(v)
+      return s.length > max ? `${s.slice(0, max - 1)}…` : s
+    } catch {
+      return '(details)'
+    }
+  }
   const str = String(v).trim().replace(/\s+/g, ' ')
   return str.length > max ? `${str.slice(0, max - 2)}…` : str
 }
@@ -267,22 +283,23 @@ function describeWorkflowSignals(obj, entityLower) {
 }
 
 /** Short “what fields changed?” line — values only when short / non-sensitive */
-function summarizePatchChanges(obj, maxParts = 4) {
+function summarizePatchChanges(obj, maxParts = 12) {
   if (!obj || typeof obj !== 'object') return ''
   const parts = []
   for (const key of Object.keys(obj)) {
     if (PATCH_KEY_HIDE_VALUE.has(key)) {
-      parts.push(`${key}`)
+      parts.push(`${key.replace(/_/g, ' ')} (hidden)`)
       continue
     }
     const val = obj[key]
-    const sv = shortenVal(val, 64)
-    if (!sv || sv === '…') parts.push(`${key}`)
-    else parts.push(`${key} → ${sv}`)
+    const sv = shortenVal(val, 96)
+    if (!sv) parts.push(key.replace(/_/g, ' '))
+    else parts.push(`${key.replace(/_/g, ' ')} → ${sv}`)
     if (parts.length >= maxParts) break
   }
   if (!parts.length) return ''
-  return parts.join('; ')
+  const extra = Object.keys(obj).length - parts.length
+  return extra > 0 ? `${parts.join('; ')}; +${extra} more` : parts.join('; ')
 }
 
 /**
@@ -296,19 +313,38 @@ function summarizePatchChanges(obj, maxParts = 4) {
  * @param {unknown} rawBody request body
  * @param {unknown} [responseRow] parsed response row (first element if array)
  */
-/** Field-level new values from the request body (sensitive fields kept as name only). */
-function structuredChanges(obj, max = 25) {
+/**
+ * Field-level values from the request body (sensitive fields kept as name only).
+ * Flattens one level of nested objects so the audit UI can show exact what/where detail.
+ */
+function structuredChanges(obj, max = 80) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return []
   const out = []
+  const push = (field, value) => {
+    if (out.length >= max) return
+    if (PATCH_KEY_HIDE_VALUE.has(field) || PATCH_KEY_HIDE_VALUE.has(String(field).split('.').pop())) {
+      out.push({ field, new: '(hidden)' })
+      return
+    }
+    const sv = shortenVal(value, 240)
+    out.push({ field, new: sv || '(empty)' })
+  }
   for (const key of Object.keys(obj)) {
     if (out.length >= max) break
     if (key === 'updated_at' || key === 'created_at') continue
-    if (PATCH_KEY_HIDE_VALUE.has(key)) {
-      out.push({ field: key, new: '(hidden)' })
-      continue
+    const val = obj[key]
+    if (val != null && typeof val === 'object' && !Array.isArray(val)) {
+      const nestedKeys = Object.keys(val)
+      if (nestedKeys.length && nestedKeys.length <= 12) {
+        for (const nk of nestedKeys) {
+          if (out.length >= max) break
+          if (nk === 'updated_at' || nk === 'created_at') continue
+          push(`${key}.${nk}`, val[nk])
+        }
+        continue
+      }
     }
-    const sv = shortenVal(obj[key], 120)
-    out.push({ field: key, new: sv === '…' ? '(complex value)' : sv || '(empty)' })
+    push(key, val)
   }
   return out
 }
@@ -344,13 +380,18 @@ function buildActivityDetails(method, entity, route, fullUrl, rawBody, responseR
     responseRow && typeof responseRow === 'object' ? responseRow : tryParseJsonBody(responseRow)
   )
 
+  const fieldChanges =
+    actionKey === 'UPDATE' || actionKey === 'INSERT' || actionKey === 'RPC'
+      ? structuredChanges(safeReq)
+      : []
+
   const common = {
     entity_label: entityLabel,
     screen: pageLabel,
     module: moduleLabel,
     module_source: moduleSource,
     record_id: rowRef?.full || null,
-    changes: actionKey === 'UPDATE' || actionKey === 'INSERT' ? structuredChanges(safeReq) : [],
+    changes: fieldChanges,
     http_method: m,
   }
 
@@ -360,9 +401,11 @@ function buildActivityDetails(method, entity, route, fullUrl, rawBody, responseR
       const formatted = formatter(safeReq, safeRes, route)
       if (formatted?.summary) {
         const detailLine =
-          actionKey === 'UPDATE' || actionKey === 'DELETE'
-            ? summarizePatchChanges(safeReq, 5)
-            : ''
+          actionKey === 'UPDATE' || actionKey === 'DELETE' || actionKey === 'INSERT'
+            ? summarizePatchChanges(safeReq, 12)
+            : actionKey === 'RPC'
+              ? summarizePatchChanges(safeReq, 12)
+              : ''
         let detail = detailLine || null
         if (rowRef && (actionKey === 'UPDATE' || actionKey === 'DELETE') && !formatted.record_ref) {
           detail = detail ? `${detail} · row ${rowRef.short}` : `Row ${rowRef.short}`
@@ -387,16 +430,17 @@ function buildActivityDetails(method, entity, route, fullUrl, rawBody, responseR
   let badge = 'CHANGED'
   let summaryCore = ''
   let detailLine = ''
-  const payload = actionKey === 'UPDATE' ? safeReq : null
+  const payload = actionKey === 'UPDATE' || actionKey === 'INSERT' || actionKey === 'RPC' ? safeReq : null
 
   if (e.startsWith('rpc:')) {
     const fn = e.replace(/^rpc:/, '').replace(/_/g, ' ')
+    const rpcDetail = summarizePatchChanges(safeReq, 12)
     return {
       ...common,
       action: 'CALL',
       badge: 'RPC',
       summary: `ran server function “${fn}”`,
-      detail: '',
+      detail: rpcDetail || '',
       record_ref: null,
     }
   }

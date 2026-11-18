@@ -65,5 +65,12 @@ export const RM_OC_DEPARTMENT = {
   accessDeniedMessage: "You do not have access to R&M PO At Glance.",
   canEdit: rmOcCanEdit,
   canDelete: rmOcCanDelete,
-  buildDocx: (form) => import("./rmWordExport").then((m) => m.buildRmOcDocx(form)),
+  /** Word export with every saved box's own signature image, name, and signing date and time. */
+  buildDocx: async (form) => {
+    const [{ buildRmOcDocx }, { loadOcSignatureImages }] = await Promise.all([
+      import("./rmWordExport"),
+      import("../../projects/oc/ocSignatureImages"),
+    ]);
+    return buildRmOcDocx(form, { signatures: await loadOcSignatureImages(form, RM_OC_DEPARTMENT) });
+  },
 };

@@ -1,112 +1,27 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ERP_TIMEZONE } from '../utils/dateDisplay';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Clock, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Clock, ChevronLeft, ChevronRight, ExternalLink, X } from 'lucide-react';
+import {
+  ACTIVITY_LOG_PATH,
+  activityBadge,
+  activityOutcome,
+  actorLabel,
+  badgeToneClass,
+  changeLines,
+  fetchActivityActors,
+  formatActivityTime,
+  moduleOf,
+  operationalImpact,
+  recordRefOf,
+  summaryOf,
+} from '../lib/activityLogView';
 
 const PAGE_SIZE = 25;
 
 function isoSinceHoursAgo(hours) {
   const d = new Date(Date.now() - hours * 60 * 60 * 1000);
   return d.toISOString();
-}
-
-/** Audit timestamps always in IST (dd/mm/yyyy HH:mm:ss), independent of the viewer's device zone. */
-const IST_PARTS = new Intl.DateTimeFormat('en-GB', {
-  timeZone: ERP_TIMEZONE,
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
-
-function fmtTime(ts) {
-  if (!ts) return '';
-  const dt = new Date(ts);
-  if (Number.isNaN(dt.getTime())) return String(ts);
-  const p = Object.fromEntries(IST_PARTS.formatToParts(dt).map((x) => [x.type, x.value]));
-  return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}:${p.second} IST`;
-}
-
-function outcomeOf(r) {
-  const o = String(r?.details?.outcome || '').toLowerCase();
-  if (o) return o;
-  if (r?.success === false) return r?.status_code === 401 || r?.status_code === 403 ? 'denied' : 'failed';
-  return 'success';
-}
-
-/** Resolve user_id → profile (email, employee code) → employee master (full name). */
-async function fetchActors(userIds) {
-  const ids = [...new Set(userIds.filter(Boolean))];
-  if (!ids.length) return {};
-  const out = {};
-  try {
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, email, username, employee_code')
-      .in('id', ids);
-    const codes = [...new Set((profiles || []).map((p) => String(p.employee_code || '').trim()).filter(Boolean))];
-    let names = {};
-    if (codes.length) {
-      const { data: emps } = await supabase
-        .from('admin_ifsp_employee_master')
-        .select('employee_code, full_name')
-        .in('employee_code', codes);
-      names = Object.fromEntries((emps || []).map((e) => [String(e.employee_code).trim(), e.full_name]));
-    }
-    for (const p of profiles || []) {
-      const code = String(p.employee_code || '').trim() || null;
-      out[p.id] = {
-        name: (code && names[code]) || p.username || null,
-        code,
-        email: p.email || null,
-      };
-    }
-  } catch {
-    /* identity enrichment is optional — raw user_email still shown */
-  }
-  return out;
-}
-
-function friendlyUserNameFromEmail(email) {
-  const e = String(email || '').trim();
-  if (!e.includes('@')) return 'Someone';
-  const local = e.split('@')[0] || '';
-  const raw = (local.split('.')[0] || local).trim();
-  if (!raw) return 'Someone';
-  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
-}
-
-function badgeFromRow(r) {
-  const b = String(r.details?.badge || '').trim().toUpperCase();
-  if (b) return b;
-  const a = String(r.action || '').toUpperCase();
-  if (a === 'INSERT') return 'CREATED';
-  if (a === 'UPDATE') return 'UPDATED';
-  if (a === 'DELETE') return 'DELETED';
-  return a || 'ACTIVITY';
-}
-
-function badgeToneClass(code) {
-  const c = String(code || '').toUpperCase();
-  if (c === 'CREATED' || c === 'DRAFT') return 'bg-emerald-100 text-emerald-900 ring-1 ring-emerald-200/70';
-  if (c === 'UPDATED' || c === 'CHANGED') return 'bg-sky-100 text-sky-900 ring-1 ring-sky-200/70';
-  if (c === 'DELETED') return 'bg-rose-100 text-rose-900 ring-1 ring-rose-200/70';
-  if (c === 'APPROVED') return 'bg-green-100 text-green-900 ring-1 ring-green-200/70';
-  if (c === 'REJECTED') return 'bg-red-100 text-red-900 ring-1 ring-red-200/70';
-  if (c === 'SUBMITTED') return 'bg-indigo-100 text-indigo-900 ring-1 ring-indigo-200/70';
-  if (c === 'RPC' || c === 'CALL') return 'bg-violet-100 text-violet-900 ring-1 ring-violet-200/70';
-  return 'bg-slate-100 text-slate-800 ring-1 ring-slate-200/70';
-}
-
-function moduleOf(r) {
-  return String(r?.module || r?.details?.module || r?.details?.screen || '').trim() || null;
-}
-
-function recordRefOf(r) {
-  return String(r?.record_ref || r?.details?.record_ref || '').trim() || null;
 }
 
 export default function ActivityLogDrawer({ open, onClose }) {
@@ -183,7 +98,7 @@ export default function ActivityLogDrawer({ open, onClose }) {
       const raw = e?.message || String(e || '');
       const hint =
         /relation|does not exist|permission denied|PGRST|schema/i.test(raw)
-          ? ' Run `supabase/erp_activity_log_schema.sql` on your project and confirm RLS allows authenticated insert/select.'
+          ? ' Activity history is not available right now.'
           : '';
       setError(`${raw}${hint}`);
     } finally {
@@ -254,7 +169,7 @@ export default function ActivityLogDrawer({ open, onClose }) {
     const missing = [...new Set(rows.map((r) => r?.user_id).filter((id) => id && !(id in actors)))];
     if (!missing.length) return undefined;
     let cancelled = false;
-    void fetchActors(missing).then((found) => {
+    void fetchActivityActors(missing).then((found) => {
       if (cancelled) return;
       setActors((prev) => {
         const next = { ...prev };
@@ -278,7 +193,7 @@ export default function ActivityLogDrawer({ open, onClose }) {
           <Clock className="w-4 h-4 text-slate-600" />
           <div className="min-w-0">
             <p className="text-sm font-semibold text-slate-900 truncate">Activity log</p>
-            <p className="text-[11px] text-slate-500 truncate">Showing last 1 hour · stored permanently in Supabase</p>
+            <p className="text-[11px] text-slate-500 truncate">Showing last 1 hour · full history available</p>
           </div>
         </div>
         <button
@@ -289,6 +204,17 @@ export default function ActivityLogDrawer({ open, onClose }) {
         >
           <X className="w-4 h-4" />
         </button>
+      </div>
+
+      <div className="px-3 py-2 border-b border-slate-100">
+        <Link
+          to={ACTIVITY_LOG_PATH}
+          onClick={onClose}
+          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-800 hover:text-slate-950"
+        >
+          View full activity history
+          <ExternalLink className="w-3 h-3" />
+        </Link>
       </div>
 
       {filterChips.length > 0 ? (
@@ -337,23 +263,13 @@ export default function ActivityLogDrawer({ open, onClose }) {
 
         <ul className="divide-y divide-slate-100">
           {rows.map((r) => {
-            const badge = badgeFromRow(r);
-            const actor = r.user_id ? actors[r.user_id] : null;
-            const email = actor?.email || r.user_email || '';
-            const whoLabel =
-              actor?.name ||
-              (email
-                ? friendlyUserNameFromEmail(email)
-                : r.user_id
-                  ? `User ${String(r.user_id).slice(0, 8)}…`
-                  : 'Unknown user');
-            const summary =
-              r.details?.summary ||
-              `${String(r.details?.verb || '').trim() || badge.toLowerCase()} · ${String(r.entity || 'record')}`.trim();
+            const badge = activityBadge(r);
+            const { who, email, code } = actorLabel(r, actors);
+            const summary = summaryOf(r);
             const ref = recordRefOf(r);
             const mod = moduleOf(r);
-            const outcome = outcomeOf(r);
-            const changes = Array.isArray(r.details?.changes) ? r.details.changes : null;
+            const outcome = activityOutcome(r);
+            const changes = changeLines(r);
             const isAuto = r.details?.trigger === 'automatic';
             const moduleFromPage = r.details?.module_source === 'page';
             return (
@@ -372,7 +288,7 @@ export default function ActivityLogDrawer({ open, onClose }) {
                     {outcome !== 'success' ? (
                       <span
                         className="inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-red-600 text-white"
-                        title={`HTTP ${r.status_code || '—'} — the database did not apply this change`}
+                        title="This change was not saved"
                       >
                         {outcome === 'denied' ? 'Denied' : 'Failed'}
                       </span>
@@ -386,13 +302,13 @@ export default function ActivityLogDrawer({ open, onClose }) {
                       </span>
                     ) : null}
                   </div>
-                  <span className="text-[11px] text-slate-500 shrink-0 tabular-nums">{fmtTime(r.created_at)}</span>
+                  <span className="text-[11px] text-slate-500 shrink-0 tabular-nums">{formatActivityTime(r.created_at)}</span>
                 </div>
                 <p className="text-xs text-slate-900 mt-1.5 leading-snug">
                   <span className="font-semibold text-slate-950" title={email || undefined}>
-                    {whoLabel}
+                    {who}
                   </span>
-                  {actor?.code ? <span className="text-slate-500"> ({actor.code})</span> : null}{' '}
+                  {code ? <span className="text-slate-500"> ({code})</span> : null}{' '}
                   <span className="text-slate-800">{summary}</span>
                   {ref ? (
                     <span className="ml-1.5 inline-flex align-middle px-1.5 py-0.5 rounded bg-slate-100 text-[9px] font-semibold text-slate-700 ring-1 ring-slate-200/80">
@@ -401,7 +317,7 @@ export default function ActivityLogDrawer({ open, onClose }) {
                   ) : null}
                 </p>
                 {email ? <p className="text-[10px] text-slate-500 mt-0.5 truncate">{email}</p> : null}
-                {changes?.length ? (
+                {changes.length ? (
                   <details className="mt-1.5 group">
                     <summary className="text-[11px] text-slate-600 cursor-pointer list-none inline-flex items-center gap-1 hover:text-slate-800">
                       <span className="font-medium text-slate-700">Changes ({changes.length})</span>
@@ -409,15 +325,9 @@ export default function ActivityLogDrawer({ open, onClose }) {
                       <span className="text-slate-400 hidden group-open:inline">hide</span>
                     </summary>
                     <ul className="mt-1 space-y-0.5">
-                      {changes.map((c, i) => (
-                        <li key={`${c.field}-${i}`} className="text-[11px] text-slate-600 break-words">
-                          <span className="font-mono text-slate-700">{c.field}</span>:{' '}
-                          {c.old !== undefined ? (
-                            <>
-                              <span className="line-through text-slate-400">{String(c.old)}</span> →{' '}
-                            </>
-                          ) : null}
-                          <span className="text-slate-800">{String(c.new)}</span>
+                      {changes.map((line, i) => (
+                        <li key={i} className="text-[11px] text-slate-600 break-words">
+                          {line}
                         </li>
                       ))}
                     </ul>
@@ -425,19 +335,11 @@ export default function ActivityLogDrawer({ open, onClose }) {
                       <p className="text-[10px] text-slate-400 mt-0.5">Previous values were not recorded for this entry.</p>
                     ) : null}
                   </details>
-                ) : r.details?.detail ? (
-                  <details className="mt-1.5 group">
-                    <summary className="text-[11px] text-slate-600 cursor-pointer list-none inline-flex items-center gap-1 hover:text-slate-800">
-                      <span className="font-medium text-slate-700">Changes</span>
-                      <span className="text-slate-400 group-open:hidden">show</span>
-                      <span className="text-slate-400 hidden group-open:inline">hide</span>
-                    </summary>
-                    <p className="text-[11px] text-slate-600 mt-1 leading-snug break-words" title={r.details.detail}>
-                      {r.details.detail}
-                    </p>
-                  </details>
                 ) : null}
-                <div className="text-[10px] text-slate-500 mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5">
+                <p className={`text-[10px] mt-1.5 ${outcome === 'success' ? 'text-slate-500' : 'text-red-700'}`}>
+                  {operationalImpact(r)}
+                </p>
+                <div className="text-[10px] text-slate-500 mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
                   {r.details?.entity_label ? <span>Type: {r.details.entity_label}</span> : null}
                   {mod ? (
                     <span
@@ -451,33 +353,7 @@ export default function ActivityLogDrawer({ open, onClose }) {
                       {moduleFromPage ? 'Sent from page' : 'Module'}: <span className="text-slate-600">{mod}</span>
                     </span>
                   ) : null}
-                  {r.entity ? (
-                    <span>
-                      Record: <span className="font-mono text-slate-600">{r.entity}</span>
-                      {r.details?.record_id ? (
-                        <span className="font-mono text-slate-400" title={r.details.record_id}>
-                          {' '}
-                          #{String(r.details.record_id).slice(0, 8)}
-                        </span>
-                      ) : null}
-                    </span>
-                  ) : null}
                 </div>
-                {r.route ? (
-                  <p className="text-[10px] text-slate-500 mt-1 truncate" title={r.route}>
-                    Page path: <span className="font-mono text-slate-600">{r.route}</span>
-                  </p>
-                ) : null}
-                {import.meta.env.DEV ? (
-                  <p className="text-[9px] text-slate-400 mt-0.5 truncate font-mono" title={r.details?.path}>
-                    REST: {r.details?.path || '—'}
-                  </p>
-                ) : null}
-                {outcome !== 'success' ? (
-                  <p className="mt-1 text-[11px] text-red-700">
-                    {outcome === 'denied' ? 'Permission denied' : 'Failed'} (HTTP {r.status_code || '—'}) — not applied
-                  </p>
-                ) : null}
               </li>
             );
           })}

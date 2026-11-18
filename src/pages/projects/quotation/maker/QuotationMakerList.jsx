@@ -611,7 +611,7 @@ export default function QuotationMakerList() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onImported={() => {
-          setImportOpen(false);
+          // Refresh the grid; leave the modal open so skipped-row details stay visible.
           void load();
         }}
       />

@@ -1,13 +1,13 @@
 import * as XLSX from 'xlsx';
 import { normalizeToIsoDate } from '../../../utils/dateDisplay';
-import { normalizeQuotationPayload } from '../../../services/quotationApi';
+import { normalizeQuotationMasterPatch } from '../../../services/quotationApi';
 
 /**
  * Import columns — same headers and order as the "Offer Database" sheet
  * (Sarath Business Analytics B9.xlsm). Quarter is calculated in the ERP and is ignored on import.
  */
 export const IMPORT_COLUMNS = [
-  { key: 'offer_no', label: 'Offer No', type: 'text', hint: 'e.g. IFSPL/P/SRE/ABC/11-322/26-27' },
+  { key: 'offer_no', label: 'Offer No', required: true, type: 'text', hint: 'Required — e.g. IFSPL/P/SRE/ABC/11-322/26-27' },
   { key: 'offer_date', label: 'Date', type: 'date', hint: 'Excel date, DD-MM-YYYY or DD.MM.YYYY' },
   { key: 'client_name', label: 'Client Name', required: true, type: 'text', hint: 'Required' },
   { key: 'location', label: 'Location', type: 'text' },
@@ -51,7 +51,7 @@ const IMPORT_NOTES = [
   [''],
   ['1. You can import the Offer Database workbook as it is — the header row ("Offer No", "Client Name", …) is found automatically,'],
   ['   even when summary tables sit above it. Every sheet that has this header row is imported (e.g. "Offer Database" and "25-26").'],
-  ['2. Client Name is required — rows without it are skipped.'],
+  ['2. Offer No and Client Name are required — rows without either are skipped.'],
   ['3. Dates: Excel dates, DD-MM-YYYY, DD/MM/YYYY or DD.MM.YYYY.'],
   ['4. Offer Status (either spelling works):'],
   ["   Order Converted  ·  Order lost  ·  Awaiting for client's response  ·  Client has hold inquiry  ·  Budgetary offer"],
@@ -60,7 +60,7 @@ const IMPORT_NOTES = [
   ['6. Offer Link: a URL, or a cell hyperlinked to the offer (e.g. "View Offer").'],
   ['7. Order Coverted Date is saved for converted offers only. Quarter is calculated by the ERP and ignored on import.'],
   ['8. Quoted Rate: numbers only (₹ and commas are removed).'],
-  ['9. Max 500 rows per import file.'],
+  ['9. Max 2000 rows per import file.'],
 ];
 
 /** Sheet status wording → ERP offer status. */
@@ -206,6 +206,10 @@ export async function readQuotationExcelRows(file) {
   return out;
 }
 
+/**
+ * Master Excel → insert row for projects.quotations.
+ * Uses Master fields only (not the fat Offer-Format payload). Offer No is required by the DB.
+ */
 export function parseQuotationImportRows(excelRows) {
   const payloads = [];
   const skipped = [];
@@ -247,28 +251,29 @@ export function parseQuotationImportRows(excelRows) {
     }
 
     const offerNo = String(normalized.offer_no || '').trim();
-    if (offerNo) {
-      const key = offerNo.toLowerCase();
-      if (seenOfferNos.has(key)) {
-        skipped.push({ ...where, reason: `Duplicate Offer No in file (${offerNo})` });
-        continue;
-      }
-      seenOfferNos.add(key);
+    // Live schema: offer_no text NOT NULL + UNIQUE — blank/null cannot be inserted.
+    if (!offerNo) {
+      skipped.push({ ...where, reason: 'Missing Offer No' });
+      continue;
     }
+    const offerKey = offerNo.toLowerCase();
+    if (seenOfferNos.has(offerKey)) {
+      skipped.push({ ...where, reason: `Duplicate Offer No in file (${offerNo})` });
+      continue;
+    }
+    seenOfferNos.add(offerKey);
 
-    const payload = normalizeQuotationPayload({
+    const payload = normalizeQuotationMasterPatch({
       offer_date: today,
       ...normalized,
+      offer_no: offerNo,
+      client_name: clientName,
       offer_status: normalized.offer_status || 'Draft',
     });
-    // Ensure blank offer numbers are null (unique constraint allows many nulls, not many '').
-    payload.offer_no = offerNo || null;
-
-    // Order Converted Date (projects.quotations.order_converted_date, migration 20261113180000).
-    // The sheet repeats the offer date in this column for every status, so it is only kept for
-    // converted offers. The key is left out when empty so imports still work before the migration.
-    const convertedDate = /converted/i.test(payload.offer_status) ? normalized.order_converted_date : null;
-    if (convertedDate) payload.order_converted_date = convertedDate;
+    // Inserts use DB defaults for timestamps; Master patch is for updates.
+    delete payload.updated_at;
+    // Omit empty converted date so older DBs without the column still accept the batch.
+    if (!payload.order_converted_date) delete payload.order_converted_date;
 
     payloads.push({ payload, excelRow: where.row, sheet: where.sheet });
   }
