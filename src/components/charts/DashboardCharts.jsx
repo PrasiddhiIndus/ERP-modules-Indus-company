@@ -7,6 +7,7 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
+  LabelList,
   Legend,
   Line,
   Pie,
@@ -271,6 +272,10 @@ export function BarCompareChart({
   activeName = null,
   /** When set, horizontal charts grow with row count so category labels do not collide. */
   rowHeight = 0,
+  /** Draw numeric end labels on bars (uses formatter when provided). */
+  showValues = false,
+  /** Optional per-row fill: (row, seriesIndex) => color */
+  getBarColor = null,
 }) {
   const horizontal = layout === "horizontal";
   const highlight = activeName != null && series.length === 1;
@@ -282,6 +287,11 @@ export function BarCompareChart({
   const axisTick = compact ? { ...AXIS, fontSize: 10 } : AXIS;
   const catTick = (v) => truncateLabel(v, horizontal ? (compact ? 12 : 16) : 12);
   const yWidth = horizontal ? Math.max(categoryWidth, compact ? 72 : categoryWidth) : 58;
+  const valueLabel = (v) => {
+    if (v == null || v === "") return "";
+    return formatter ? String(formatter(v)) : String(v);
+  };
+  const useCells = Boolean(getBarColor) || Boolean(series.some((s) => s.fade)) || highlight;
 
   return (
     <ResponsiveContainer width="100%" height={chartHeight} minWidth={0}>
@@ -291,8 +301,8 @@ export function BarCompareChart({
         barCategoryGap={horizontal ? "18%" : "12%"}
         margin={
           horizontal
-            ? { top: 4, right: 12, left: 4, bottom: 2 }
-            : { top: 8, right: 12, left: 4, bottom: 4 }
+            ? { top: 4, right: showValues ? 36 : 12, left: 4, bottom: 2 }
+            : { top: showValues ? 16 : 8, right: 12, left: 4, bottom: 4 }
         }
       >
         <CartesianGrid strokeDasharray="3 6" stroke={GRID} horizontal={!horizontal} vertical={horizontal} />
@@ -336,42 +346,45 @@ export function BarCompareChart({
           content={<ChartTooltip formatter={formatter} />}
         />
         {series.length > 1 ? <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} /> : null}
-        {series.map((s, i) => (
-          <Bar
-            key={s.key}
-            dataKey={s.key}
-            name={s.name || s.key}
-            fill={s.color || resolveChartSeries()[i % resolveChartSeries().length]}
-            radius={horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]}
-            stackId={stacked ? "a" : undefined}
-            isAnimationActive
-            animationDuration={750}
-            maxBarSize={horizontal ? 18 : 36}
-            cursor={onBarClick ? "pointer" : "default"}
-            onClick={(entry) => onBarClick?.(entry?.payload || entry)}
-          >
-            {s.fade
-              ? data.map((_, di) => {
-                  const steps = Math.max(data.length - 1, 1);
-                  return (
-                    <Cell
-                      key={di}
-                      fill={s.color || resolveChartSeries()[i % resolveChartSeries().length]}
-                      fillOpacity={1 - (di / steps) * 0.4}
-                    />
-                  );
-                })
-              : highlight
-                ? data.map((d, di) => (
-                    <Cell
-                      key={di}
-                      fill={s.color || resolveChartSeries()[i % resolveChartSeries().length]}
-                      fillOpacity={d[xKey] === activeName ? 1 : 0.3}
-                    />
-                  ))
+        {series.map((s, i) => {
+          const baseFill = s.color || resolveChartSeries()[i % resolveChartSeries().length];
+          return (
+            <Bar
+              key={s.key}
+              dataKey={s.key}
+              name={s.name || s.key}
+              fill={baseFill}
+              radius={horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]}
+              stackId={stacked ? "a" : undefined}
+              isAnimationActive
+              animationDuration={750}
+              maxBarSize={horizontal ? 18 : 36}
+              cursor={onBarClick ? "pointer" : "default"}
+              onClick={(entry) => onBarClick?.(entry?.payload || entry)}
+            >
+              {useCells
+                ? data.map((d, di) => {
+                    let fill = getBarColor ? getBarColor(d, i) || baseFill : baseFill;
+                    let fillOpacity = 1;
+                    if (s.fade) {
+                      const steps = Math.max(data.length - 1, 1);
+                      fillOpacity = 1 - (di / steps) * 0.4;
+                    }
+                    if (highlight && d[xKey] !== activeName) fillOpacity = 0.3;
+                    return <Cell key={di} fill={fill} fillOpacity={fillOpacity} />;
+                  })
                 : null}
-          </Bar>
-        ))}
+              {showValues ? (
+                <LabelList
+                  dataKey={s.key}
+                  position={horizontal ? "right" : "top"}
+                  formatter={valueLabel}
+                  style={{ fill: UI_TOKENS.textSecondary, fontSize: 10, fontFamily: AXIS.fontFamily }}
+                />
+              ) : null}
+            </Bar>
+          );
+        })}
       </BarChart>
     </ResponsiveContainer>
   );
@@ -503,14 +516,21 @@ export function ComposedTrendChart({
   onPointClick,
   showLegend = true,
   compact = false,
+  /** Optional Y-axis unit caption shown in tooltips/legend context (e.g. "%"). */
+  yUnit = "",
 }) {
   const gid = useId().replace(/:/g, "");
   const axis = compact ? { ...AXIS, fontSize: 10 } : AXIS;
+  const tipFormatter = (v, name, p) => {
+    if (formatter) return formatter(v, name, p);
+    if (yUnit) return `${v}${yUnit}`;
+    return v;
+  };
   return (
     <ResponsiveContainer width="100%" height={height} minWidth={0}>
       <ComposedChart
         data={data}
-        margin={compact ? { top: 4, right: 8, left: 0, bottom: 0 } : { top: 8, right: 12, left: 4, bottom: 8 }}
+        margin={compact ? { top: 8, right: 10, left: 0, bottom: 0 } : { top: 8, right: 12, left: 4, bottom: 8 }}
       >
         <defs>
           {areas.map((s, i) => (
@@ -526,12 +546,20 @@ export function ComposedTrendChart({
           tick={axis}
           axisLine={false}
           tickLine={false}
-          width={compact ? 42 : 58}
+          width={compact ? 44 : 58}
           tickFormatter={yTickFormatter}
           tickMargin={compact ? 2 : 6}
+          domain={[0, "auto"]}
+          allowDecimals={false}
         />
-        <Tooltip content={<ChartTooltip formatter={formatter} />} />
-        {showLegend ? <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} /> : null}
+        <Tooltip content={<ChartTooltip formatter={tipFormatter} />} />
+        {showLegend ? (
+          <Legend
+            wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
+            iconType="circle"
+            iconSize={8}
+          />
+        ) : null}
         {areas.map((s, i) => (
           <Area
             key={s.key}
@@ -540,7 +568,7 @@ export function ComposedTrendChart({
             name={s.name || s.key}
             stroke={s.color || resolveChartSeries()[i % resolveChartSeries().length]}
             fill={`url(#cmp-${gid}-${i})`}
-            strokeWidth={2}
+            strokeWidth={2.25}
             activeDot={
               onPointClick
                 ? { r: 5, cursor: "pointer", onClick: (_, p) => onPointClick(p?.payload) }
@@ -567,8 +595,9 @@ export function ComposedTrendChart({
             dataKey={s.key}
             name={s.name || s.key}
             stroke={s.color || resolveChartSeries()[(i + 1) % resolveChartSeries().length]}
-            strokeWidth={s.width || 2}
-            dot={compact ? false : { r: 3 }}
+            strokeWidth={s.width || 2.5}
+            strokeDasharray={s.dash}
+            dot={compact ? { r: 2.5, strokeWidth: 0 } : { r: 3.5, strokeWidth: 0 }}
             activeDot={
               onPointClick
                 ? { r: 5, cursor: "pointer", onClick: (_, p) => onPointClick(p?.payload) }

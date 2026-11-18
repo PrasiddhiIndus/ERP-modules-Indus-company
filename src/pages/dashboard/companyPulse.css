@@ -508,17 +508,20 @@
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1.1fr) minmax(0, 0.95fr);
-  gap: 2px;
-  padding: 4px 6px 8px;
+  /* Legend + trend hug content; bottom split absorbs leftover height (no dead gap). */
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 0;
+  padding: 2px 6px 6px;
 }
 
 .cp-books-split {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.85fr);
-  gap: 8px;
-  min-height: 148px;
+  gap: 6px;
+  min-height: 0;
   align-items: stretch;
+  border-top: 1px solid var(--divider);
+  padding-top: 2px;
 }
 
 .cp-chart-sites,
@@ -538,6 +541,13 @@
 .cp-chart-block {
   min-height: 0;
   overflow: hidden;
+  align-self: stretch;
+}
+
+.cp-books-body > .cp-chart-block {
+  /* Keep the trend chart from stretching and inventing whitespace below the plot. */
+  align-self: start;
+  line-height: 0;
 }
 
 .cp-chart-sites {
@@ -547,12 +557,13 @@
 }
 
 .cp-mini-label {
-  margin: 2px 6px 0;
+  margin: 0 6px 2px;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-muted);
+  line-height: 1.2;
 }
 
 .cp-note {

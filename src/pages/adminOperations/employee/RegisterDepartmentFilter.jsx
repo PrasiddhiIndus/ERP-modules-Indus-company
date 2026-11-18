@@ -42,6 +42,15 @@ export function RegisterDepartmentFilter({
   onChange,
   listSort = "asc",
   onListSortChange,
+  allLabel = "All departments",
+  panelTitle = "Filter by department",
+  panelHint = "None selected shows all · export uses this filter",
+  searchPlaceholder = "Search departments…",
+  emptyLabel = "No departments match",
+  pluralLabel = "departments",
+  listSortAscLabel = "Dept A–Z",
+  listSortDescLabel = "Dept Z–A",
+  listSortTitle = "Sort department list",
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -112,10 +121,10 @@ export function RegisterDepartmentFilter({
 
   const triggerLabel =
     selected.length === 0
-      ? "All departments"
+      ? allLabel
       : selected.length === 1
         ? selected[0]
-        : `${selected.length} departments`;
+        : `${selected.length} ${pluralLabel}`;
 
   const panel =
     open && panelStyle
@@ -136,8 +145,8 @@ export function RegisterDepartmentFilter({
             }}
           >
             <div className="shrink-0 border-b border-gray-100 bg-gradient-to-r from-accent/8 to-sky-50/80 px-3 py-2">
-              <p className="text-[11px] font-semibold text-gray-800">Filter by department</p>
-              <p className="text-[10px] text-gray-500 mt-0.5">None selected shows all · export uses this filter</p>
+              <p className="text-[11px] font-semibold text-gray-800">{panelTitle}</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">{panelHint}</p>
             </div>
 
             {options.length > 4 && (
@@ -146,7 +155,7 @@ export function RegisterDepartmentFilter({
                   type="search"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search departments…"
+                  placeholder={searchPlaceholder}
                   className="w-full h-7 rounded-md border border-gray-200 px-2 text-[11px] placeholder:text-gray-400 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
                 />
               </div>
@@ -177,10 +186,10 @@ export function RegisterDepartmentFilter({
                   onChange={(e) => onListSortChange(e.target.value)}
                   onMouseDown={(e) => e.stopPropagation()}
                   className="h-6 ml-auto rounded-md border border-gray-200 bg-white px-1.5 text-[10px] font-semibold text-gray-700"
-                  title="Sort department list"
+                  title={listSortTitle}
                 >
-                  <option value="asc">Dept A–Z</option>
-                  <option value="desc">Dept Z–A</option>
+                  <option value="asc">{listSortAscLabel}</option>
+                  <option value="desc">{listSortDescLabel}</option>
                 </select>
               ) : null}
             </div>
@@ -208,7 +217,7 @@ export function RegisterDepartmentFilter({
                   );
                 })
               ) : (
-                <li className="px-3 py-4 text-center text-[11px] text-gray-500">No departments match</li>
+                <li className="px-3 py-4 text-center text-[11px] text-gray-500">{emptyLabel}</li>
               )}
             </ul>
 

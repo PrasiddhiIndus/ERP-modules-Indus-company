@@ -18,12 +18,13 @@ export const CM_OC_FORM_TITLE = "ORDER CONFIRMATION";
 export const CM_OC_SIGNOFF_HEADING = "WO/PO disseminated to concerned departments";
 export const CM_OC_APPROVAL_HEADING = "Approval workflow";
 
-/** PO categories; each one picks its approval workflow (cm_oc_category_stages, migration 20261116160000). */
+/** PO categories; each one picks its approval workflow (cm_oc_category_stages). */
 export const CM_PO_CATEGORIES = [
   { value: "FIRE", label: "Fire" },
   { value: "SAFETY", label: "Safety" },
   { value: "FT_RENTAL", label: "FT on Rental" },
   { value: "FT_CREW_RENTAL", label: "FT with Crew on Rental" },
+  { value: "TRAINING", label: "Training" },
 ];
 export const cmCategoryLabel = (v) => CM_PO_CATEGORIES.find((c) => c.value === v)?.label || "";
 
@@ -35,6 +36,7 @@ export const CM_OC_STAGES = [
   { slot: "BILLING_IR_SALARY", label: "Billing / IR / Salary" },
   { slot: "HR_OPERATIONS", label: "HR / Operations" },
   { slot: "SAFETY_HEAD", label: "Safety Head" },
+  { slot: "TRAINING_MANAGER", label: "Manager – Training" },
 ];
 const STAGE = Object.fromEntries(CM_OC_STAGES.map((s) => [s.slot, s]));
 const BASE_STAGES = ["CREATOR", "COMMERCIAL_MANAGER", "FINANCE", "BILLING_IR_SALARY"];
@@ -43,6 +45,7 @@ const CATEGORY_STAGES = {
   SAFETY: [...BASE_STAGES, "SAFETY_HEAD"],
   FT_RENTAL: BASE_STAGES,
   FT_CREW_RENTAL: [...BASE_STAGES, "HR_OPERATIONS"],
+  TRAINING: [...BASE_STAGES, "TRAINING_MANAGER"],
 };
 
 /** Ordered stages for a PO category (mirrors cm_oc_category_stages); [] when no category is chosen. */

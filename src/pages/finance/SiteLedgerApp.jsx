@@ -4314,7 +4314,7 @@ const FIN_MEASURES = [
 /** Report presets whose period is driven by the multi-month filter. */
 const MULTI_MONTH_PRESETS = new Set(["pnl", "ie", "bva", "under", "exp"]);
 const REPORT_PRESETS = [
-  { id: "pnl", name: "Portfolio P&L Summary", desc: "Every site's revenue, expense, profit & margin for the selected months.", cfg: { dim: "site", measures: ["revenue", "expense", "profit", "margin"], scope: "all", periodMode: "multi", filter: "none" } },
+  { id: "pnl", name: "Portfolio P&L Summary", desc: "One table: each site's revenue, expense, profit & margin by month, with site and portfolio totals.", cfg: { dim: "site", measures: ["revenue", "expense", "profit", "margin"], scope: "all", periodMode: "multi", filter: "none" } },
   { id: "ie", name: "Income – Expenditure (All Sites)", desc: "Consolidated site-wise income, expenditure & P/L — estimate vs actual with variance.", cfg: { dim: "site", measures: ["estRevenue", "revenue", "revVar", "revVarPct", "estExpense", "expense", "expVar", "expVarPct", "estProfit", "profit", "profitVar", "profitVarPct"], scope: "all", periodMode: "multi", filter: "none", includeEmpty: true } },
   { id: "bva", name: "Budget vs Actual (by site)", desc: "Actual vs estimate — revenue, expense & profit variance per site for the selected months.", cfg: { dim: "site", measures: ["estRevenue", "revenue", "estExpense", "expense", "estProfit", "profit", "profitVar", "profitVarPct", "margin"], scope: "all", periodMode: "multi", filter: "none" } },
   { id: "trend", name: "Monthly Consolidated Trend", desc: "Portfolio revenue, expense & profit month by month.", cfg: { dim: "month", measures: ["revenue", "expense", "profit", "margin"], scope: "all", periodMode: "range", filter: "none" } },
@@ -4369,6 +4369,104 @@ function aggPairs(pairs, records) {
   const expVarPct = he && eE !== 0 ? (exp - eE) / Math.abs(eE) * 100 : null;
   return { rev, exp, profit, margin, estRev: he ? eR : null, estExp: he ? eE : null, estProfit: he ? eP : null, profitVar, profitVarPct, revVar, revVarPct, expVar, expVarPct, he, n: pairs.length };
 }
+
+/** `scope`: "all" | siteId | siteId[] — empty array means all. */
+function resolveScopeSites(sites, scope) {
+  if (scope == null || scope === "all") return sites;
+  if (Array.isArray(scope)) {
+    if (!scope.length) return sites;
+    const ids = new Set(scope);
+    return sites.filter((s) => ids.has(s.id));
+  }
+  return sites.filter((s) => s.id === scope);
+}
+
+function describeSiteScope(scope, sites, showHistorical) {
+  const list = resolveScopeSites(sites, scope);
+  if (!Array.isArray(scope) && scope !== "all" && scope != null) {
+    return sites.find((s) => s.id === scope)?.name || "1 site";
+  }
+  if (Array.isArray(scope) && scope.length) {
+    if (scope.length === 1) return sites.find((s) => s.id === scope[0])?.name || "1 site";
+    return `${scope.length} sites selected`;
+  }
+  return showHistorical ? `All ${sites.length} site versions` : `All ${sites.length} active sites`;
+}
+
+/** Site × month matrix for Portfolio P&L Summary (same calc basis as buildReport / aggPairs). */
+function buildPortfolioPnlMatrix({ sites, records, scope, mks }) {
+  const scopeSites = resolveScopeSites(sites, scope);
+  const months = normalizeMonthSelection(mks).map((mk) => ({
+    mk,
+    label: periodMonthLabelOf(mk, MONTHS),
+  }));
+  const rows = scopeSites.map((s) => {
+    const byMonth = months.map(({ mk }) => {
+      const has = !!records[`${s.id}__${mk}`];
+      return { mk, has, a: has ? aggPairs([[s, mk]], records) : null };
+    });
+    const pairs = byMonth.filter((m) => m.has).map((m) => [s, m.mk]);
+    return {
+      id: s.id,
+      label: s.name,
+      siteType: siteTypeLabel(s),
+      inactive: !isSiteActive(s),
+      empty: pairs.length === 0,
+      byMonth,
+      total: aggPairs(pairs, records),
+    };
+  }).filter((r) => !r.empty);
+
+  const monthTotals = months.map(({ mk }) => {
+    const pairs = scopeSites.filter((s) => records[`${s.id}__${mk}`]).map((s) => [s, mk]);
+    return { mk, a: aggPairs(pairs, records) };
+  });
+  const grandPairs = months.flatMap(({ mk }) =>
+    scopeSites.filter((s) => records[`${s.id}__${mk}`]).map((s) => [s, mk]),
+  );
+  return { months, rows, monthTotals, grand: aggPairs(grandPairs, records) };
+}
+
+function portfolioPnlExportGrid(matrix) {
+  if (!matrix) return [];
+  const metrics = ["Revenue", "Expenses", "Profit", "Margin %"];
+  const head = [
+    "Site",
+    "Site Type",
+    ...matrix.months.flatMap((m) => metrics.map((lab) => `${m.label} ${lab}`)),
+    ...metrics.map((lab) => `Total ${lab}`),
+  ];
+  const money = (a, key) => (a ? Math.round(a[key] * 10) / 10 : "");
+  const body = matrix.rows.map((r) => [
+    r.label,
+    r.siteType || "",
+    ...r.byMonth.flatMap((m) => [
+      m.has ? money(m.a, "rev") : "",
+      m.has ? money(m.a, "exp") : "",
+      m.has ? money(m.a, "profit") : "",
+      m.has ? Math.round(m.a.margin * 10) / 10 : "",
+    ]),
+    money(r.total, "rev"),
+    money(r.total, "exp"),
+    money(r.total, "profit"),
+    Math.round(r.total.margin * 10) / 10,
+  ]);
+  const tot = [
+    "Portfolio total",
+    "",
+    ...matrix.monthTotals.flatMap((m) => [
+      money(m.a, "rev"),
+      money(m.a, "exp"),
+      money(m.a, "profit"),
+      Math.round(m.a.margin * 10) / 10,
+    ]),
+    money(matrix.grand, "rev"),
+    money(matrix.grand, "exp"),
+    money(matrix.grand, "profit"),
+    Math.round(matrix.grand.margin * 10) / 10,
+  ];
+  return [head, ...body, tot];
+}
 function measureCell(key, a) {
   const m = FIN_MEASURES.find((x) => x.key === key);
   let raw = null;
@@ -4404,7 +4502,7 @@ function aggHeads(sites, mks, records, level) {
 
 function buildReport(cfg) {
   const { sites, records, dim, measures, scope, periodMode, month, from, to, filter, expandPendingHistory, selMonths, includeEmpty } = cfg;
-  const scopeSites = scope === "all" ? sites : sites.filter((s) => s.id === scope);
+  const scopeSites = resolveScopeSites(sites, scope);
   // Multi-month: every selected month is counted exactly once (normalized → de-duplicated + sorted).
   let mks;
   if (periodMode === "multi") mks = normalizeMonthSelection(selMonths);
@@ -4503,7 +4601,7 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
   const [tab, setTab] = useState("standard");
   const [dim, setDim] = useState("site");
   const [measures, setMeasures] = useState(["revenue", "expense", "profit", "margin"]);
-  const [scope, setScope] = useState("all");
+  const [scope, setScope] = useState("all"); // "all" | siteId | siteId[]
   const [periodMode, setPeriodMode] = useState("multi");
   const [month, setMonth] = useState(defaultMonth);
   const [selMonths, setSelMonths] = useState(() => [defaultMonth || currentPeriodKey()]);
@@ -4515,8 +4613,20 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
   const [activePreset, setActivePreset] = useState("pnl");
   const [expandPendingHistory, setExpandPendingHistory] = useState(false);
   const [exporting, setExporting] = useState(null);
+  const [sitePickerOpen, setSitePickerOpen] = useState(false);
+  const [siteQuery, setSiteQuery] = useState("");
+  const sitePickerRef = useRef(null);
 
   useEffect(() => { setMonth(defaultMonth || currentPeriodKey()); }, [defaultMonth]);
+
+  useEffect(() => {
+    if (!sitePickerOpen) return undefined;
+    const onDoc = (e) => {
+      if (sitePickerRef.current && !sitePickerRef.current.contains(e.target)) setSitePickerOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [sitePickerOpen]);
 
   const choose = (p) => {
     setActivePreset(p.id);
@@ -4527,6 +4637,7 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
     setFilter(p.cfg.filter);
     setTitle(p.name);
     setBreakdown("combined");
+    setSitePickerOpen(false);
     if (p.cfg.periodMode === "single" && p.cfg.dim !== "month") setMonth(defaultMonth);
     if (p.cfg.dim === "month") { setFrom(fM); setTo(lM); }
   };
@@ -4580,17 +4691,60 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
   const periodText = isAsOf
     ? `as of ${monthLabelOf(month)}`
     : isMulti
-      ? `${describeMonthSelection(sel)}${sel.length > 1 ? ` (${sel.length} months${monthwise ? ", month-wise" : ", combined"})` : ""}`
+      ? `${describeMonthSelection(sel)}${sel.length > 1 ? ` (${sel.length} months${activePreset === "pnl" ? ", site × month" : monthwise ? ", month-wise" : ", combined"})` : ""}`
       : periodMode === "range"
         ? `${monthLabelOf(from)} – ${monthLabelOf(to)}`
         : monthLabelOf(month);
-  const scopeText = scope === "all"
-    ? (showHistorical ? `All ${sites.length} site versions` : `All ${sites.length} active sites`)
-    : sites.find((s) => s.id === scope)?.name;
+  const scopeText = describeSiteScope(scope, sites, showHistorical);
   const inactiveSites = useMemo(() => (sitesAll || sites).filter((s) => !isSiteActive(s)), [sitesAll, sites]);
-  const showTotals = !(reportDim === "site" && activePreset === "pnl" && (isMulti ? sel.length <= 1 : periodMode === "single"));
+  // Always show the portfolio / period total row so single-month picks still show totals.
+  const showTotals = true;
+  const isPnl = activePreset === "pnl";
+  const selectedSiteIds = useMemo(() => {
+    if (scope === "all" || scope == null) return [];
+    if (Array.isArray(scope)) return scope;
+    return [scope];
+  }, [scope]);
+  const allSitesSelected = selectedSiteIds.length === 0;
+  const sitePickerList = useMemo(() => {
+    const q = siteQuery.trim().toLowerCase();
+    if (!q) return sites;
+    return sites.filter((s) => `${s.name} ${versionLabel(s)} ${s.siteType || ""}`.toLowerCase().includes(q));
+  }, [sites, siteQuery]);
+  const pnlMatrix = useMemo(() => {
+    if (!isPnl || !sel.length) return null;
+    return buildPortfolioPnlMatrix({ sites, records, scope, mks: sel });
+  }, [isPnl, sites, records, scope, sel]);
+
+  const markCustomSitesIfBuilder = () => {
+    if (tab === "custom") {
+      setActivePreset(null);
+      setTitle("Custom Report");
+    }
+  };
+  const toggleSiteId = (id) => {
+    markCustomSitesIfBuilder();
+    setScope((prev) => {
+      const cur = prev === "all" || prev == null ? [] : Array.isArray(prev) ? [...prev] : [prev];
+      if (!cur.length) {
+        // Was "all" — start from all ids then uncheck this one
+        return sites.map((s) => s.id).filter((x) => x !== id);
+      }
+      if (cur.includes(id)) {
+        const next = cur.filter((x) => x !== id);
+        return next.length ? next : cur; // keep at least one site selected
+      }
+      const next = [...cur, id];
+      return next.length >= sites.length ? "all" : next;
+    });
+  };
+  const selectAllSites = () => {
+    markCustomSitesIfBuilder();
+    setScope("all");
+  };
 
   const grid = useMemo(() => {
+    if (pnlMatrix) return portfolioPnlExportGrid(pnlMatrix);
     if (report.cols) return [report.cols, ...report.rows];
     const withSiteType = !!report.showSiteType;
     const firstLabel = report.kind === "head" ? "Expense head" : reportDim === "month" ? "Month" : "Site";
@@ -4608,7 +4762,7 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
       ? [report.totals.label, "", ...report.totals.cells.map((c) => c.raw)]
       : [report.totals.label, ...report.totals.cells.map((c) => c.raw)];
     return [head, ...body, tot];
-  }, [report, showTotals, reportDim]);
+  }, [report, showTotals, reportDim, pnlMatrix]);
 
   const csv = useMemo(
     () => grid.map((row) => row.map((v) => {
@@ -4640,17 +4794,21 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
       `Sites: ${scopeText}`,
       `Period: ${periodText}`,
       ...(isMulti && sel.length > 1 ? [`Months: ${sel.map((k) => periodMonthLabelOf(k, MONTHS)).join(", ")}`] : []),
-      ...(filterLabel && !monthwise ? [`Filter: ${filterLabel}`] : []),
-      ...(report.kind === "fin" ? ["Estimates are counted only for months that have actual entries (same basis as Site Ledger)."] : []),
+      ...(filterLabel && !monthwise && !isPnl ? [`Filter: ${filterLabel}`] : []),
+      ...(isPnl
+        ? ["Site × month Revenue / Expenses / Profit / Margin. Totals use the same basis as Site Ledger."]
+        : report.kind === "fin"
+          ? ["Estimates are counted only for months that have actual entries (same basis as Site Ledger)."]
+          : []),
     ];
-    const hasTotals = showTotals && !report.cols;
+    const hasTotals = !!pnlMatrix || (showTotals && !report.cols);
     const head = [grid[0]];
     const body = hasTotals ? grid.slice(1, -1) : grid.slice(1);
     const foot = hasTotals ? grid[grid.length - 1] : undefined;
     const offset = report.showSiteType ? 2 : 1;
     const green = [21, 128, 61];
     const red = [185, 28, 28];
-    const colorFor = report.kind === "fin"
+    const colorFor = !pnlMatrix && report.kind === "fin"
       ? (ri, ci) => {
         const cell = report.rows[ri]?.cells[ci - offset];
         if (!cell) return null;
@@ -4677,24 +4835,28 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
 
   const downloadSiteTypeCsv = (siteType, reportName) => {
     const typedSites = sites.filter((s) => s.siteType === siteType);
-    const typedReport = buildReport({
-      sites: typedSites,
-      records,
-      dim: "site",
-      measures: ["revenue", "expense", "profit", "margin"],
-      scope: "all",
-      periodMode: isMulti ? "multi" : "single",
-      month,
-      from,
-      to,
-      filter: "none",
-      expandPendingHistory: false,
-      selMonths: sel,
-    });
-    const head = ["Site", "Site Type", ...typedReport.columns.map((c) => c.label)];
-    const body = typedReport.rows.map((r) => [r.label, r.siteType || siteTypeLabel(siteType), ...r.cells.map((c) => c.raw)]);
-    const tot = [typedReport.totals.label, "", ...typedReport.totals.cells.map((c) => c.raw)];
-    const typedGrid = [head, ...body, tot];
+    const typedGrid = isPnl
+      ? portfolioPnlExportGrid(buildPortfolioPnlMatrix({ sites: typedSites, records, scope: "all", mks: sel }))
+      : (() => {
+        const typedReport = buildReport({
+          sites: typedSites,
+          records,
+          dim: "site",
+          measures: ["revenue", "expense", "profit", "margin"],
+          scope: "all",
+          periodMode: isMulti ? "multi" : "single",
+          month,
+          from,
+          to,
+          filter: "none",
+          expandPendingHistory: false,
+          selMonths: sel,
+        });
+        const head = ["Site", "Site Type", ...typedReport.columns.map((c) => c.label)];
+        const body = typedReport.rows.map((r) => [r.label, r.siteType || siteTypeLabel(siteType), ...r.cells.map((c) => c.raw)]);
+        const tot = [typedReport.totals.label, "", ...typedReport.totals.cells.map((c) => c.raw)];
+        return [head, ...body, tot];
+      })();
     const typedCsv = typedGrid.map((row) => row.map((v) => {
       const s = String(v ?? "");
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -4728,14 +4890,71 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
     { k: "pending", l: "Data Status" },
   ];
 
-  const sitesSelect = (onChange) => (
-    <label className="ov-filter">
+  const sitesSelect = (
+    <div className="ov-filter site-ms" ref={sitePickerRef}>
       <span>Sites</span>
-      <select value={scope} onChange={onChange}>
-        <option value="all">{showHistorical ? "All site versions" : "All active sites"}</option>
-        {sites.map((s) => <option key={s.id} value={s.id}>{s.name} · {versionLabel(s)}{!isSiteActive(s) ? " (inactive)" : ""}</option>)}
-      </select>
-    </label>
+      <button
+        type="button"
+        className={"site-ms-btn" + (sitePickerOpen ? " open" : "")}
+        aria-haspopup="listbox"
+        aria-expanded={sitePickerOpen}
+        onClick={() => setSitePickerOpen((o) => !o)}
+      >
+        <span className="site-ms-label">{allSitesSelected ? (showHistorical ? "All site versions" : "All active sites") : scopeText}</span>
+        <ChevronDown size={14} />
+      </button>
+      {sitePickerOpen && (
+        <div className="site-ms-panel" role="listbox" aria-multiselectable="true">
+          <div className="site-ms-tools">
+            <input
+              type="search"
+              className="site-ms-search"
+              placeholder="Search sites…"
+              value={siteQuery}
+              onChange={(e) => setSiteQuery(e.target.value)}
+              autoFocus
+            />
+            <button type="button" className="site-ms-link" onClick={selectAllSites}>Select all</button>
+          </div>
+                          <label className={"site-ms-row site-ms-all" + (allSitesSelected ? " on" : "")}>
+            <input
+              type="checkbox"
+              checked={allSitesSelected}
+              onChange={(e) => {
+                if (e.target.checked) selectAllSites();
+                else if (sites[0]) {
+                  markCustomSitesIfBuilder();
+                  setScope([sites[0].id]);
+                }
+              }}
+            />
+            <span>{showHistorical ? "All site versions" : "All active sites"}</span>
+            <span className="muted-s">{sites.length}</span>
+          </label>
+          <div className="site-ms-list">
+            {sitePickerList.length === 0 ? (
+              <div className="site-ms-empty">No sites match.</div>
+            ) : sitePickerList.map((s) => {
+              const checked = allSitesSelected || selectedSiteIds.includes(s.id);
+              return (
+                <label key={s.id} className={"site-ms-row" + (checked ? " on" : "")}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleSiteId(s.id)}
+                  />
+                  <span className="site-ms-name" title={s.name}>
+                    {s.name}
+                    <small> · {versionLabel(s)}{!isSiteActive(s) ? " · inactive" : ""}</small>
+                  </span>
+                  <span className="muted-s">{siteTypeLabel(s)}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 
   const breakdownToggle = isMulti && dim === "site" && (
@@ -4748,15 +4967,21 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
     </label>
   );
 
+  // Standard reports: FY + date range only (no month-chip strip). Custom builder keeps chips.
   const multiMonthBlock = (
     <div className="ov-filter-full">
-      <MultiMonthFilter value={sel} onChange={setSelMonths} dataKeys={dataKeys} showMonths={!isIe} />
+      <MultiMonthFilter value={sel} onChange={setSelMonths} dataKeys={dataKeys} showMonths={false} />
+    </div>
+  );
+  const customMultiMonthBlock = (
+    <div className="ov-filter-full">
+      <MultiMonthFilter value={sel} onChange={setSelMonths} dataKeys={dataKeys} showMonths />
     </div>
   );
 
   const stdFilterBar = MULTI_MONTH_PRESETS.has(activePreset) && (
     <div className="ov-filters">
-      {sitesSelect((e) => setScope(e.target.value))}
+      {sitesSelect}
       {activePreset === "under" && (
         <label className="ov-filter">
           <span>Show only</span>
@@ -4777,7 +5002,7 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
           </select>
         </label>
       )}
-      {breakdownToggle}
+      {!isPnl && breakdownToggle}
       {multiMonthBlock}
     </div>
   );
@@ -4874,7 +5099,7 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
               </div>
             )}
             <div className="ov-filters rep-builder-filters">
-              {sitesSelect((e) => { setScope(e.target.value); setActivePreset(null); setTitle("Custom Report"); })}
+              {sitesSelect}
               {isAsOf ? (
                 <label className="ov-filter">
                   <span>As of month</span>
@@ -4912,7 +5137,7 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
                 </label>
               )}
               {breakdownToggle}
-              {isMulti && multiMonthBlock}
+              {isMulti && customMultiMonthBlock}
             </div>
           </div>
         </Card>
@@ -4946,6 +5171,8 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
       >
         {noMonths ? (
           <div className="chart-empty">Select at least one month to build this report.</div>
+        ) : isPnl && pnlMatrix ? (
+          <PortfolioPnlTable matrix={pnlMatrix} onOpenSite={openSite} />
         ) : isIe ? (
           <IeReportTable report={report} dim={reportDim} onOpenSite={reportDim === "site" ? openSite : null} />
         ) : (
@@ -4958,13 +5185,94 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
           />
         )}
       </Card>
-      {report.kind === "fin" && !noMonths && (
+      {(isPnl || report.kind === "fin") && !noMonths && (
         <p className="rep-foot muted-s">
-          Estimates are summed only for months with actual entries, using the estimate version in force each month. Each selected month is counted once.
+          {isPnl
+            ? "Each selected month is counted once. Site totals and the Portfolio total use the same figures as Site Ledger for those months."
+            : "Estimates are summed only for months with actual entries, using the estimate version in force each month. Each selected month is counted once."}
           {isIe && " Sites with no entries in the selected months are listed with zero actuals."}
         </p>
       )}
     </>
+  );
+}
+
+function pnlMoneyCell(a, key) {
+  if (!a) return { text: "—", color: "var(--muted)", raw: "" };
+  const n = a[key];
+  const color = key === "profit" ? (n >= 0 ? "var(--profit)" : "var(--loss)") : undefined;
+  return { text: inr(n), color, raw: Math.round(n * 10) / 10 };
+}
+function pnlMarginCell(a) {
+  if (!a) return { text: "—", color: "var(--muted)", raw: "" };
+  return { text: pct(a.margin), color: undefined, raw: Math.round(a.margin * 10) / 10 };
+}
+
+/** Unified Portfolio P&L: sites × months (Rev / Exp / Profit / Margin) + site totals + portfolio total. */
+function PortfolioPnlTable({ matrix, onOpenSite }) {
+  if (!matrix?.rows?.length) {
+    return <div className="chart-empty">No data for this selection. Try a different month or scope.</div>;
+  }
+  const { months, rows, monthTotals, grand } = matrix;
+  const metricLabs = ["Rev", "Exp", "Profit", "Mar%"];
+  const blockCells = (a) => [
+    pnlMoneyCell(a, "rev"),
+    pnlMoneyCell(a, "exp"),
+    pnlMoneyCell(a, "profit"),
+    pnlMarginCell(a),
+  ];
+  return (
+    <div className="pnl-matrix-wrap">
+      <table className="tbl pnl-matrix erp-table-exempt">
+        <thead>
+          <tr className="pnl-g">
+            <th rowSpan={2} className="pnl-sticky pnl-sticky-site">Site</th>
+            <th rowSpan={2} className="pnl-sticky pnl-sticky-type">Type</th>
+            {months.map((m) => (
+              <th key={m.mk} colSpan={4} className="c pnl-gh">{m.label}</th>
+            ))}
+            <th colSpan={4} className="c pnl-gh pnl-total-h">Total</th>
+          </tr>
+          <tr>
+            {months.flatMap((m) => metricLabs.map((lab) => (
+              <th key={`${m.mk}-${lab}`} className="r pnl-sub">{lab}</th>
+            )))}
+            {metricLabs.map((lab) => (
+              <th key={`tot-${lab}`} className="r pnl-sub pnl-total-h">{lab}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td className="strong pnl-sticky pnl-sticky-site">
+                {onOpenSite ? (
+                  <button type="button" className="ie-site" onClick={() => onOpenSite(r.id)} title="Open site P&L">{r.label}</button>
+                ) : r.label}
+                {r.inactive && <span className="ie-tag">Inactive</span>}
+              </td>
+              <td className="muted-s pnl-sticky pnl-sticky-type">{r.siteType || "—"}</td>
+              {r.byMonth.flatMap((m) => blockCells(m.has ? m.a : null).map((c, i) => (
+                <td key={`${r.id}-${m.mk}-${i}`} className={"r mono" + (i === 0 ? " pnl-gs" : "")} style={{ color: c.color }}>{c.text}</td>
+              )))}
+              {blockCells(r.total).map((c, i) => (
+                <td key={`${r.id}-tot-${i}`} className={"r mono pnl-total-c" + (i === 0 ? " pnl-gs" : "")} style={{ color: c.color }}>{c.text}</td>
+              ))}
+            </tr>
+          ))}
+          <tr className="vtot green">
+            <td className="pnl-sticky pnl-sticky-site">Portfolio total</td>
+            <td className="pnl-sticky pnl-sticky-type" />
+            {monthTotals.flatMap((m) => blockCells(m.a).map((c, i) => (
+              <td key={`pt-${m.mk}-${i}`} className={"r mono" + (i === 0 ? " pnl-gs" : "")} style={{ color: c.color }}>{c.text}</td>
+            )))}
+            {blockCells(grand).map((c, i) => (
+              <td key={`pt-tot-${i}`} className={"r mono pnl-total-c" + (i === 0 ? " pnl-gs" : "")} style={{ color: c.color }}>{c.text}</td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -6046,9 +6354,58 @@ function Styles() {
     .rs-s{font-size:11.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 8px;}
     .rs-var{font-family:var(--mono);font-weight:600;color:var(--ink-soft);}
     .rs-var.pos{color:var(--profit);}.rs-var.neg{color:var(--loss);}
+    /* Portfolio P&L unified site × month matrix — sticky Site/Type only; opaque so scroll cols never bleed through */
+    .pnl-matrix-wrap{overflow:auto;max-width:100%;max-height:min(70vh,720px);-webkit-overflow-scrolling:touch;position:relative;isolation:isolate;}
+    .pnl-matrix{font-size:11.5px;border-collapse:separate !important;border-spacing:0;min-width:max-content;width:max-content;}
+    .pnl-matrix th,.pnl-matrix td{padding:6px 8px;white-space:nowrap;background-clip:padding-box;}
+    .pnl-matrix thead th:not(.pnl-sticky){position:static;left:auto;z-index:auto;}
+    .pnl-matrix th.c{text-align:center;}
+    .pnl-matrix tr.pnl-g th{border-bottom:none;padding-bottom:2px;}
+    .pnl-matrix th.pnl-gh{color:var(--ink);font-weight:700;border-bottom:2px solid var(--line);background:var(--surface-raised);}
+    .pnl-matrix th.pnl-sub{font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--surface-raised);}
+    .pnl-matrix .pnl-gs{border-left:1px solid var(--line);}
+    .pnl-matrix .pnl-total-h,.pnl-matrix .pnl-total-c{background:color-mix(in srgb, var(--accent-soft) 55%, var(--surface));}
+    .pnl-matrix th.pnl-sticky,.pnl-matrix td.pnl-sticky{position:sticky;z-index:3;background-color:var(--surface) !important;box-sizing:border-box;}
+    .pnl-matrix .pnl-sticky-site{left:0;width:11rem;min-width:11rem;max-width:11rem;overflow:hidden;text-overflow:ellipsis;}
+    .pnl-matrix .pnl-sticky-type{left:11rem;width:4.75rem;min-width:4.75rem;max-width:4.75rem;z-index:3;box-shadow:2px 0 5px -2px rgba(15,23,42,.18);}
+    .pnl-matrix thead th.pnl-sticky{z-index:6;background-color:var(--surface-raised) !important;vertical-align:middle;}
+    .pnl-matrix thead th.pnl-sticky-type{z-index:6;}
+    .pnl-matrix tbody td.pnl-sticky{z-index:3;}
+    .pnl-matrix tr.vtot td{background-color:var(--surface-sunken);}
+    .pnl-matrix tr.vtot td.pnl-sticky{background-color:var(--surface-sunken) !important;z-index:4;}
+    .pnl-matrix tr.vtot td.pnl-total-c{background:color-mix(in srgb, var(--accent-soft) 55%, var(--surface-sunken));}
+    .pnl-matrix tbody tr:hover td{background:color-mix(in srgb, var(--accent-soft) 35%, var(--surface));}
+    .pnl-matrix tbody tr:hover td.pnl-sticky{background-color:color-mix(in srgb, var(--accent-soft) 35%, var(--surface)) !important;}
+    .pnl-matrix tbody tr.vtot:hover td,.pnl-matrix tbody tr.vtot:hover td.pnl-sticky{background-color:var(--surface-sunken) !important;}
+    .pnl-matrix tbody tr.vtot:hover td.pnl-total-c{background:color-mix(in srgb, var(--accent-soft) 55%, var(--surface-sunken)) !important;}
     .rep-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
     .rep-actions .link:disabled{opacity:.5;cursor:not-allowed;}
     .rep-foot{margin:8px 2px 0;font-size:11px;}
+    .ov-filters{gap:12px 16px;padding:12px 14px;}
+    .ov-meta{margin:0 0 12px;font-size:12.5px;color:var(--ink-soft);}
+    .rep-cards{gap:10px;margin-bottom:14px;}
+    .rep-card{padding:13px 14px;border-radius:12px;}
+    .rc-name{font-size:14px;margin-bottom:4px;}
+    .rc-desc{font-size:11.5px;line-height:1.4;}
+    /* Multi-select sites */
+    .site-ms{position:relative;min-width:220px;}
+    .site-ms-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-width:220px;max-width:320px;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font-size:12.5px;font-weight:500;font-family:var(--body);cursor:pointer;}
+    .site-ms-btn:hover,.site-ms-btn.open{border-color:var(--border-strong);}
+    .site-ms-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;}
+    .site-ms-panel{position:absolute;top:calc(100% + 4px);left:0;z-index:40;width:min(360px,92vw);max-height:320px;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(15,23,42,.12);}
+    .site-ms-tools{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line);}
+    .site-ms-search{flex:1;min-width:0;height:28px;padding:0 8px;border:1px solid var(--line);border-radius:7px;background:var(--paper);font-size:12px;font-family:var(--body);color:var(--ink);}
+    .site-ms-link{border:none;background:none;color:var(--accent-text);font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:var(--body);padding:0;}
+    .site-ms-link:hover{text-decoration:underline;}
+    .site-ms-list{overflow:auto;padding:4px 0 8px;max-height:240px;}
+    .site-ms-row{display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;font-size:12.5px;color:var(--ink);margin:0;}
+    .site-ms-row:hover{background:var(--paper);}
+    .site-ms-row.on{background:color-mix(in srgb, var(--accent-soft) 55%, var(--surface));}
+    .site-ms-row input{accent-color:var(--accent-text);flex-shrink:0;}
+    .site-ms-all{border-bottom:1px solid var(--line);font-weight:600;}
+    .site-ms-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .site-ms-name small{color:var(--muted);font-weight:500;}
+    .site-ms-empty{padding:12px;font-size:12px;color:var(--muted);text-align:center;}
     .ie-wrap{overflow-x:auto;max-width:100%;}
     .tbl-ie{font-size:12px;}
     .tbl-ie th,.tbl-ie td{padding:7px 8px;white-space:nowrap;}

@@ -3,8 +3,10 @@
  */
 
 import {
+  ATTENDANCE_REGISTER_TABLE,
   isRegisterNhphMark,
   normalizeAttendanceEmpCode,
+  normalizeDbDate,
   normalizeRegisterMarkForDb,
   registerPresentDayCredit,
 } from "./attendanceDaily";
@@ -41,6 +43,48 @@ export const REGISTER_MARK_DAY_FRACTION = {
   "LWP/SL": 0.5,
   "LWP/CL": 0.5,
 };
+
+/** Marks that can contribute to annual leave-limit alerts (keep in sync with leaveLimitTypeForMark). */
+export const LEAVE_LIMIT_REGISTER_MARKS = Object.freeze([
+  ...new Set([...Object.keys(REGISTER_LEAVE_ANNUAL_LIMITS), ...Object.keys(REGISTER_MARK_DAY_FRACTION), "PTL"]),
+]);
+
+const LEAVE_LIMIT_MARK_FETCH_PAGE = 1000;
+
+/**
+ * Year register rows that matter for leave-limit alerts only.
+ * One paged query filtered by leave marks — far cheaper than fetchRegisterMarksForYear.
+ */
+export async function fetchLeaveLimitRegisterMarksForYear(supabase, year) {
+  const y = Number(year) || new Date().getFullYear();
+  const fromDate = `${y}-01-01`;
+  const toDate = `${y}-12-31`;
+  const marks = LEAVE_LIMIT_REGISTER_MARKS;
+  const rows = [];
+
+  for (let from = 0; from < 50_000; from += LEAVE_LIMIT_MARK_FETCH_PAGE) {
+    const { data, error } = await supabase
+      .from(ATTENDANCE_REGISTER_TABLE)
+      .select("employee_code,register_date,mark")
+      .gte("register_date", fromDate)
+      .lte("register_date", toDate)
+      .in("mark", marks)
+      .order("register_date", { ascending: true })
+      .range(from, from + LEAVE_LIMIT_MARK_FETCH_PAGE - 1);
+    if (error) throw error;
+    const batch = data || [];
+    for (const row of batch) {
+      rows.push({
+        employee_code: row.employee_code,
+        register_date: String(normalizeDbDate(row.register_date) || "").slice(0, 10),
+        mark: row.mark,
+      });
+    }
+    if (batch.length < LEAVE_LIMIT_MARK_FETCH_PAGE) break;
+  }
+
+  return rows;
+}
 
 export const LEAVE_LIMIT_ALERTS_STORAGE_KEY = "adminAttendance.leaveLimitSeen";
 
