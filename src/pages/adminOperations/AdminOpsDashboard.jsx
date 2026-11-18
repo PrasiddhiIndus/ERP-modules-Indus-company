@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useNavigate } from "react-router-dom";
 import { RefreshCw, Sparkles, X } from "lucide-react";
 import { supabase } from "../../lib/supabase";
-import { fetchLeaveStatusCounts, fetchLeaveRequests, subscribeLeaveWorkflowRealtime } from "../../lib/adminLeaveRequests";
-import { fetchTourStatusCounts, fetchTourRequests, subscribeTourWorkflowRealtime } from "../../lib/adminTourRequests";
-import { fetchRegisterMarksForYear, fetchActiveEmployees } from "../../lib/attendanceDaily";
-import { buildLeaveLimitNotifications } from "../../lib/attendanceLeaveLimits";
+import { fetchLeaveRequests, subscribeLeaveWorkflowRealtime } from "../../lib/adminLeaveRequests";
+import { fetchTourRequests, subscribeTourWorkflowRealtime } from "../../lib/adminTourRequests";
+import { mapMasterEmployee, normalizeAttendanceEmpCode } from "../../lib/attendanceDaily";
+import {
+  buildLeaveLimitNotifications,
+  fetchLeaveLimitRegisterMarksForYear,
+} from "../../lib/attendanceLeaveLimits";
 import { buildDailyAttendanceReportRows } from "../../lib/attendanceReports";
+import { ensureAttendanceRulesLoaded } from "../../lib/attendanceRules";
 import { isSupabaseRealtimeEnabled } from "../../lib/supabaseConfig";
 import {
   employeesWithBirthdayToday,
@@ -14,8 +18,7 @@ import {
   employeesWithWorkAnniversaryToday,
   computeWorkAnniversaryYears,
 } from "../../utils/employeeMasterReminders";
-import { BarCompareChart, ComposedTrendChart } from "../../components/charts/DashboardCharts";
-import { TOKENS } from "../../theme/tokens";
+import { UI_TOKENS } from "../../theme/tokens";
 import {
   PageTaskHeader,
   SectionCard,
@@ -25,17 +28,22 @@ import {
   TinySelect,
   KpiTile,
 } from "../../components/erpUi";
-import { getDashboardSummary } from "./recruitment/recruitmentService";
-import {
-  buildAttendanceBehaviourInsights,
-  buildModuleCoverage,
-  severityChip,
-} from "./adminOpsInsights";
+import { getAdminOpsHiringSummary } from "./recruitment/recruitmentService";
+import { buildAttendanceBehaviourInsights } from "./adminOpsInsights";
 import AdminOpsDetailModal from "./AdminOpsDetailModal";
 
+const ComposedTrendChart = lazy(() =>
+  import("../../components/charts/DashboardCharts").then((m) => ({ default: m.ComposedTrendChart }))
+);
+const BarCompareChart = lazy(() =>
+  import("../../components/charts/DashboardCharts").then((m) => ({ default: m.BarCompareChart }))
+);
+
 const REALTIME_DEBOUNCE_MS = 450;
+const DATE_FILTER_DEBOUNCE_MS = 280;
 const EMPLOYEE_PAGE_SIZE = 1000;
 const MAX_EMPLOYEE_PAGES = 20;
+const PENDING_PAGE_SIZE = 120;
 
 const ROUTES = {
   employeeMaster: "/app/admin/employee/master",
@@ -97,15 +105,20 @@ function filterActiveEmployees(rows) {
   return (rows || []).filter((e) => String(e?.status || "").trim().toLowerCase() !== "inactive");
 }
 
-async function fetchAllEmployees() {
+function isConsultantEmploymentType(value) {
+  return String(value || "").trim().toLowerCase() === "consultant";
+}
+
+async function fetchDashboardEmployees() {
   const rows = [];
   for (let page = 0; page < MAX_EMPLOYEE_PAGES; page += 1) {
     const from = page * EMPLOYEE_PAGE_SIZE;
     const { data, error } = await supabase
       .from("admin_ifsp_employee_master")
       .select(
-        "id, full_name, employee_code, employee_id, date_of_birth, date_of_anniversary, date_of_joining, status, department, birthday_reminder, anniversary_reminder"
+        "id, full_name, employee_code, employee_id, date_of_birth, date_of_anniversary, date_of_joining, status, department, birthday_reminder, anniversary_reminder, designation, date_of_leaving, employee_type"
       )
+      .not("status", "ilike", "inactive")
       .order("id", { ascending: true })
       .range(from, from + EMPLOYEE_PAGE_SIZE - 1);
     if (error) throw error;
@@ -113,7 +126,11 @@ async function fetchAllEmployees() {
     rows.push(...batch);
     if (batch.length < EMPLOYEE_PAGE_SIZE) break;
   }
-  return rows;
+  return filterActiveEmployees(rows);
+}
+
+function toAttendanceEmployees(masterRows) {
+  return (masterRows || []).map(mapMasterEmployee).filter((e) => e.employeeId || e.empCode);
 }
 
 function employeeDetailPath(id) {
@@ -146,18 +163,27 @@ const PERSON_COLS = [
 
 export default function AdminOpsDashboard() {
   const navigate = useNavigate();
+  const [, startTransition] = useTransition();
 
   const [fromDate, setFromDate] = useState(() => daysAgoIso(21));
   const [toDate, setToDate] = useState(todayIso);
   const [department, setDepartment] = useState("all");
+  const [debouncedFrom, setDebouncedFrom] = useState(() => daysAgoIso(21));
+  const [debouncedTo, setDebouncedTo] = useState(todayIso);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [attendanceLoading, setAttendanceLoading] = useState(true);
   const [chartsReady, setChartsReady] = useState(false);
   const [realtimeLive, setRealtimeLive] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [shellKey, setShellKey] = useState(0);
+  const [rangeKey, setRangeKey] = useState(0);
+  const [shellReady, setShellReady] = useState(false);
   const refreshDebounceRef = useRef(null);
+  const dateDebounceRef = useRef(null);
   const initialLoadRef = useRef(true);
+  const attendanceEmployeesRef = useRef([]);
+  const loadGenRef = useRef({ shell: 0, range: 0 });
 
   const [leaveCounts, setLeaveCounts] = useState({ pending: 0 });
   const [tourCounts, setTourCounts] = useState({ pending: 0 });
@@ -170,10 +196,38 @@ export default function AdminOpsDashboard() {
   const [detailSpec, setDetailSpec] = useState(null);
 
   useEffect(() => {
-    setChartsReady(true);
+    // Defer Recharts until after first paint so the shell paints sooner.
+    let cancelled = false;
+    let idleId = null;
+    let timeoutId = null;
+    const enable = () => {
+      if (!cancelled) setChartsReady(true);
+    };
+    if (typeof requestIdleCallback === "function") {
+      idleId = requestIdleCallback(enable, { timeout: 900 });
+    } else {
+      timeoutId = setTimeout(enable, 0);
+    }
+    return () => {
+      cancelled = true;
+      if (idleId != null && typeof cancelIdleCallback === "function") cancelIdleCallback(idleId);
+      if (timeoutId != null) clearTimeout(timeoutId);
+    };
   }, []);
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    if (dateDebounceRef.current) clearTimeout(dateDebounceRef.current);
+    dateDebounceRef.current = setTimeout(() => {
+      setDebouncedFrom(fromDate);
+      setDebouncedTo(toDate);
+    }, DATE_FILTER_DEBOUNCE_MS);
+    return () => {
+      if (dateDebounceRef.current) clearTimeout(dateDebounceRef.current);
+    };
+  }, [fromDate, toDate]);
+
+  const loadShell = useCallback(async () => {
+    const gen = ++loadGenRef.current.shell;
     setRefreshing(true);
     if (initialLoadRef.current) {
       setLoading(true);
@@ -181,68 +235,117 @@ export default function AdminOpsDashboard() {
     }
     try {
       const year = new Date().getFullYear();
-      const from = fromDate || daysAgoIso(21);
-      const to = toDate || todayIso();
 
-      const [leaveStatus, tourStatus, leaves, tours, empRes, registerRows, activeEmps, punches, hiring] =
-        await Promise.all([
-          fetchLeaveStatusCounts().catch(() => ({ pending: 0 })),
-          fetchTourStatusCounts().catch(() => ({ pending: 0 })),
-          fetchLeaveRequests({ status: "pending", page: 1, pageSize: 200 }).catch(() => ({ rows: [] })),
-          fetchTourRequests({ status: "pending", page: 1, pageSize: 200 }).catch(() => ({ rows: [] })),
-          fetchAllEmployees()
-            .then((data) => ({ data, error: null }))
-            .catch((error) => ({ data: null, error })),
-          fetchRegisterMarksForYear(supabase, year).catch(() => []),
-          fetchActiveEmployees(supabase).catch(() => []),
-          buildDailyAttendanceReportRows(supabase, { fromDate: from, toDate: to }).catch(() => []),
-          getDashboardSummary().catch(() => null),
-        ]);
+      // Warm attendance rules once; shared by punch pairing below.
+      ensureAttendanceRulesLoaded(supabase).catch(() => {});
 
-      setLeaveCounts(leaveStatus);
-      setTourCounts(tourStatus);
-      setPendingLeaves(leaves.rows || []);
-      setPendingTours(tours.rows || []);
-      setPunchRows(punches || []);
-      setRecruitment(hiring);
+      const [leaves, tours, empRows, registerRows, hiring] = await Promise.all([
+        fetchLeaveRequests({ status: "pending", page: 1, pageSize: PENDING_PAGE_SIZE }).catch(() => ({
+          rows: [],
+          statusCounts: { pending: 0 },
+        })),
+        fetchTourRequests({ status: "pending", page: 1, pageSize: PENDING_PAGE_SIZE }).catch(() => ({
+          rows: [],
+          total: 0,
+        })),
+        fetchDashboardEmployees().catch((error) => {
+          console.warn("[AdminOpsDashboard] employee master", error);
+          return [];
+        }),
+        fetchLeaveLimitRegisterMarksForYear(supabase, year).catch(() => []),
+        getAdminOpsHiringSummary().catch(() => null),
+      ]);
+
+      if (gen !== loadGenRef.current.shell) return;
+
+      const activeEmployees = empRows || [];
+      attendanceEmployeesRef.current = toAttendanceEmployees(activeEmployees);
 
       const employeeNameByCode = {};
-      for (const e of activeEmps || []) {
+      for (const e of attendanceEmployeesRef.current) {
         if (e.empCode) employeeNameByCode[e.empCode] = e.employeeName || e.empCode;
       }
-      setLeaveLimitAlerts(
-        buildLeaveLimitNotifications({ registerRows: registerRows || [], employeeNameByCode, year })
-      );
 
-      if (empRes.error) {
-        console.warn("[AdminOpsDashboard] employee master", empRes.error);
-        setEmployees([]);
-      } else {
-        setEmployees(filterActiveEmployees(empRes.data || []));
-      }
+      startTransition(() => {
+        setLeaveCounts({ pending: leaves.statusCounts?.pending ?? (leaves.rows || []).length });
+        setTourCounts({ pending: tours.total ?? (tours.rows || []).length });
+        setPendingLeaves(leaves.rows || []);
+        setPendingTours(tours.rows || []);
+        setEmployees(activeEmployees);
+        setRecruitment(hiring);
+        setLeaveLimitAlerts(
+          buildLeaveLimitNotifications({
+            registerRows: registerRows || [],
+            employeeNameByCode,
+            year,
+          })
+        );
+        setShellReady(true);
+      });
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (gen === loadGenRef.current.shell) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }, [fromDate, toDate]);
+  }, []);
 
-  const scheduleRefresh = useCallback(() => {
+  const loadAttendance = useCallback(async () => {
+    const gen = ++loadGenRef.current.range;
+    setAttendanceLoading(true);
+    setRefreshing(true);
+    try {
+      const from = debouncedFrom || daysAgoIso(21);
+      const to = debouncedTo || todayIso();
+      const employeesForPunches =
+        attendanceEmployeesRef.current.length > 0
+          ? attendanceEmployeesRef.current
+          : null;
+
+      const punches = await buildDailyAttendanceReportRows(supabase, {
+        fromDate: from,
+        toDate: to,
+        employees: employeesForPunches,
+      }).catch(() => []);
+
+      if (gen !== loadGenRef.current.range) return;
+      startTransition(() => setPunchRows(punches || []));
+    } finally {
+      if (gen === loadGenRef.current.range) {
+        setAttendanceLoading(false);
+        setRefreshing(false);
+      }
+    }
+  }, [debouncedFrom, debouncedTo]);
+
+  const scheduleShellRefresh = useCallback(() => {
     if (refreshDebounceRef.current) clearTimeout(refreshDebounceRef.current);
-    refreshDebounceRef.current = setTimeout(() => setRefreshKey((k) => k + 1), REALTIME_DEBOUNCE_MS);
+    refreshDebounceRef.current = setTimeout(() => {
+      setShellKey((k) => k + 1);
+      setRangeKey((k) => k + 1);
+    }, REALTIME_DEBOUNCE_MS);
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load, refreshKey]);
+    loadShell();
+  }, [loadShell, shellKey]);
 
   useEffect(() => {
-    const unsubs = [subscribeLeaveWorkflowRealtime(scheduleRefresh), subscribeTourWorkflowRealtime(scheduleRefresh)];
+    if (!shellReady) return;
+    loadAttendance();
+  }, [loadAttendance, rangeKey, shellReady]);
+
+  useEffect(() => {
+    const unsubs = [
+      subscribeLeaveWorkflowRealtime(scheduleShellRefresh),
+      subscribeTourWorkflowRealtime(scheduleShellRefresh),
+    ];
     let empChannel = null;
     if (isSupabaseRealtimeEnabled()) {
       setRealtimeLive(true);
       empChannel = supabase
         .channel("admin-dash-saas")
-        .on("postgres_changes", { event: "*", schema: "public", table: "admin_ifsp_employee_master" }, scheduleRefresh)
+        .on("postgres_changes", { event: "*", schema: "public", table: "admin_ifsp_employee_master" }, scheduleShellRefresh)
         .subscribe();
     }
     return () => {
@@ -250,11 +353,36 @@ export default function AdminOpsDashboard() {
       if (empChannel) supabase.removeChannel(empChannel);
       if (refreshDebounceRef.current) clearTimeout(refreshDebounceRef.current);
     };
-  }, [scheduleRefresh]);
+  }, [scheduleShellRefresh]);
 
   const behaviour = useMemo(
     () => buildAttendanceBehaviourInsights(punchRows, { department }),
     [department, punchRows]
+  );
+
+  /** Consultants are excluded from Late Arrivals only (KPI, lists, late charts). */
+  const consultantEmpCodes = useMemo(() => {
+    const codes = new Set();
+    for (const e of employees) {
+      if (!isConsultantEmploymentType(e?.employee_type)) continue;
+      const code = normalizeAttendanceEmpCode(e?.employee_code);
+      if (code) codes.add(code);
+      const alt = normalizeAttendanceEmpCode(e?.employee_id);
+      if (alt) codes.add(alt);
+    }
+    return codes;
+  }, [employees]);
+
+  const latePunchRows = useMemo(() => {
+    if (!consultantEmpCodes.size) return punchRows;
+    return (punchRows || []).filter(
+      (row) => !consultantEmpCodes.has(normalizeAttendanceEmpCode(row?.empCode))
+    );
+  }, [consultantEmpCodes, punchRows]);
+
+  const lateBehaviour = useMemo(
+    () => buildAttendanceBehaviourInsights(latePunchRows, { department }),
+    [department, latePunchRows]
   );
 
   const departments = useMemo(() => {
@@ -266,17 +394,47 @@ export default function AdminOpsDashboard() {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [punchRows]);
 
-  const coverage = useMemo(
-    () =>
-      buildModuleCoverage({
-        leavePending: leaveCounts.pending || 0,
-        tourPending: tourCounts.pending || 0,
-        recruitment,
-        leaveAlerts: leaveLimitAlerts.length,
-        activeEmployees: employees.length,
-        lateRate: behaviour.totals.lateRate,
-      }),
-    [behaviour.totals.lateRate, employees.length, leaveCounts.pending, leaveLimitAlerts.length, recruitment, tourCounts.pending]
+  const hiringFollowUps = useMemo(() => {
+    const r = recruitment || {};
+    return (
+      (r.pendingRequisitions || 0) +
+      (r.offersPending || 0) +
+      (r.documentsToReview || 0) +
+      (r.interviewsToEvaluate || 0)
+    );
+  }, [recruitment]);
+
+  const chartColors = lateBehaviour.chartColors;
+
+  const activeEmployeeKeys = useMemo(() => {
+    const codes = new Set();
+    const masterIds = new Set();
+    for (const e of employees) {
+      if (e?.id != null) masterIds.add(String(e.id));
+      const code = normalizeAttendanceEmpCode(e?.employee_code);
+      if (code) codes.add(code);
+      const alt = normalizeAttendanceEmpCode(e?.employee_id);
+      if (alt) codes.add(alt);
+    }
+    return { codes, masterIds };
+  }, [employees]);
+
+  const isActiveAttentionEmployee = useCallback(
+    ({ empCode, masterId, employee } = {}) => {
+      const status = String(employee?.status || "").trim().toLowerCase();
+      if (status === "inactive") return false;
+
+      const code = normalizeAttendanceEmpCode(empCode || employee?.employee_code || employee?.employee_id);
+      if (code && activeEmployeeKeys.codes.has(code)) return true;
+
+      const id = masterId != null ? String(masterId) : employee?.id != null ? String(employee.id) : "";
+      if (id && activeEmployeeKeys.masterIds.has(id)) return true;
+
+      // Roster loaded: unknown / inactive codes stay out of the attention queue.
+      if (activeEmployeeKeys.codes.size > 0 || activeEmployeeKeys.masterIds.size > 0) return false;
+      return false;
+    },
+    [activeEmployeeKeys]
   );
 
   const actionItems = useMemo(() => {
@@ -284,6 +442,15 @@ export default function AdminOpsDashboard() {
     const items = [];
 
     for (const row of pendingLeaves) {
+      if (
+        !isActiveAttentionEmployee({
+          empCode: row.employee_code,
+          masterId: row.employee_master_id,
+          employee: row.employee,
+        })
+      ) {
+        continue;
+      }
       const due = String(row.from_date || row.submitted_at || "").slice(0, 10) || today;
       const submitted = String(row.submitted_at || row.created_at || due).slice(0, 10);
       items.push({
@@ -301,6 +468,15 @@ export default function AdminOpsDashboard() {
     }
 
     for (const row of pendingTours) {
+      if (
+        !isActiveAttentionEmployee({
+          empCode: row.employee_code,
+          masterId: row.employee_master_id,
+          employee: row.employee,
+        })
+      ) {
+        continue;
+      }
       const due = String(row.from_date || row.start_date || row.submitted_at || "").slice(0, 10) || today;
       const submitted = String(row.submitted_at || row.created_at || due).slice(0, 10);
       items.push({
@@ -320,6 +496,7 @@ export default function AdminOpsDashboard() {
     for (const alert of leaveLimitAlerts) {
       const severity = mapAlertSeverity(alert.severity || "warning");
       if (severity === "info") continue;
+      if (!isActiveAttentionEmployee({ empCode: alert.empCode })) continue;
       items.push({
         id: `alert-${alert.key}`,
         type: "Policy",
@@ -334,7 +511,8 @@ export default function AdminOpsDashboard() {
       });
     }
 
-    for (const e of behaviour.habitualLateAll.slice(0, 8)) {
+    for (const e of lateBehaviour.habitualLateAll.slice(0, 8)) {
+      if (!isActiveAttentionEmployee({ empCode: e.empCode })) continue;
       items.push({
         id: `habit-${e.empCode}`,
         type: "Late pattern",
@@ -394,7 +572,14 @@ export default function AdminOpsDashboard() {
     }
 
     return items.sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || b.age - a.age);
-  }, [behaviour.habitualLateAll, employees, leaveLimitAlerts, pendingLeaves, pendingTours]);
+  }, [
+    employees,
+    isActiveAttentionEmployee,
+    lateBehaviour.habitualLateAll,
+    leaveLimitAlerts,
+    pendingLeaves,
+    pendingTours,
+  ]);
 
   const needsDecision = useMemo(
     () => actionItems.filter((r) => r.type === "Leave" || r.type === "Tour" || r.type === "Policy"),
@@ -433,7 +618,7 @@ export default function AdminOpsDashboard() {
       {
         key: "lateRate",
         label: "Late %",
-        render: (row) => <span className="tabular-nums font-semibold text-warning">{row.lateRate}%</span>,
+        render: (row) => <span className="tabular-nums font-semibold text-info">{row.lateRate}%</span>,
       },
       {
         key: "late",
@@ -459,7 +644,11 @@ export default function AdminOpsDashboard() {
       {
         key: "otRate",
         label: "Long-day %",
-        render: (row) => <span className="tabular-nums font-semibold text-critical">{row.otRate}%</span>,
+        render: (row) => (
+          <span className="tabular-nums font-semibold" style={{ color: UI_TOKENS.accentViolet }}>
+            {row.otRate}%
+          </span>
+        ),
       },
       {
         key: "ot",
@@ -490,12 +679,16 @@ export default function AdminOpsDashboard() {
       {
         key: "lateRate",
         label: "Late %",
-        render: (row) => <span className="tabular-nums text-warning font-semibold">{row.lateRate}%</span>,
+        render: (row) => <span className="tabular-nums text-info font-semibold">{row.lateRate}%</span>,
       },
       {
         key: "otRate",
         label: "Long-day %",
-        render: (row) => <span className="tabular-nums text-critical font-semibold">{row.otRate}%</span>,
+        render: (row) => (
+          <span className="tabular-nums font-semibold" style={{ color: UI_TOKENS.accentViolet }}>
+            {row.otRate}%
+          </span>
+        ),
       },
       {
         key: "avgHours",
@@ -516,12 +709,16 @@ export default function AdminOpsDashboard() {
       {
         key: "lateRate",
         label: "Late %",
-        render: (row) => <span className="tabular-nums text-warning font-semibold">{row.lateRate}%</span>,
+        render: (row) => <span className="tabular-nums text-info font-semibold">{row.lateRate}%</span>,
       },
       {
         key: "otRate",
         label: "Long-day %",
-        render: (row) => <span className="tabular-nums">{row.otRate}%</span>,
+        render: (row) => (
+          <span className="tabular-nums" style={{ color: UI_TOKENS.accentViolet }}>
+            {row.otRate}%
+          </span>
+        ),
       },
       {
         key: "late",
@@ -539,10 +736,10 @@ export default function AdminOpsDashboard() {
   const openLateDetail = useCallback(
     (focusDept) => {
       const people = focusDept
-        ? behaviour.peopleStats.filter((p) => p.department === focusDept)
-        : behaviour.habitualLateAll.length
-          ? behaviour.habitualLateAll
-          : behaviour.peopleStats.filter((p) => p.late > 0).sort((a, b) => b.lateRate - a.lateRate);
+        ? lateBehaviour.peopleStats.filter((p) => p.department === focusDept)
+        : lateBehaviour.habitualLateAll.length
+          ? lateBehaviour.habitualLateAll
+          : lateBehaviour.peopleStats.filter((p) => p.late > 0).sort((a, b) => b.lateRate - a.lateRate);
       openDetail({
         id: focusDept ? `late-dept-${focusDept}` : "late",
         title: focusDept ? `Late arrivals · ${focusDept}` : "Late arrivals",
@@ -558,16 +755,16 @@ export default function AdminOpsDashboard() {
           { value: "department", label: "Department" },
         ],
         summary: [
-          { label: "Late rate", value: `${behaviour.totals.lateRate}%` },
-          { label: "Late punch-days", value: behaviour.totals.lateDays },
-          { label: "People seen", value: behaviour.totals.employeesSeen },
-          { label: "If trend holds", value: `~${behaviour.totals.lateForecast}%` },
+          { label: "Late rate", value: `${lateBehaviour.totals.lateRate}%` },
+          { label: "Late punch-days", value: lateBehaviour.totals.lateDays },
+          { label: "People seen", value: lateBehaviour.totals.employeesSeen },
+          { label: "If trend holds", value: `~${lateBehaviour.totals.lateForecast}%` },
         ],
         columns: peopleLateCols,
         rows: people,
       });
     },
-    [behaviour, openDetail, peopleLateCols]
+    [lateBehaviour, openDetail, peopleLateCols]
   );
 
   const openOtDetail = useCallback(() => {
@@ -711,7 +908,7 @@ export default function AdminOpsDashboard() {
       ],
       summary: [
         { label: "Open roles", value: r.openRequisitions || 0 },
-        { label: "Follow-ups", value: coverage.find((c) => c.id === "hiring")?.value ?? 0 },
+        { label: "Follow-ups", value: hiringFollowUps },
       ],
       columns: [
         { key: "name", label: "Item" },
@@ -726,7 +923,7 @@ export default function AdminOpsDashboard() {
         ? rows
         : [{ id: "none", name: "No open follow-ups", value: 0, detail: "Hiring looks clear right now" }],
     });
-  }, [coverage, openDetail, recruitment]);
+  }, [hiringFollowUps, openDetail, recruitment]);
 
   const openPeopleDetail = useCallback(() => {
     const today = todayIso();
@@ -840,9 +1037,9 @@ export default function AdminOpsDashboard() {
         return (b.lateRate || 0) - (a.lateRate || 0);
       },
       columns: deptCols,
-      rows: behaviour.deptBarsAll,
+      rows: lateBehaviour.deptBarsAll,
     });
-  }, [behaviour.deptBarsAll, deptCols, openDetail]);
+  }, [deptCols, lateBehaviour.deptBarsAll, openDetail]);
 
   const openActionQueueDetail = useCallback(
     (seedRows) => {
@@ -899,12 +1096,25 @@ export default function AdminOpsDashboard() {
   );
 
   const t = behaviour.totals;
-  const pendingTotal = (leaveCounts.pending || 0) + (tourCounts.pending || 0);
-  const previewQueue = actionItems.slice(0, 8);
+  const lateT = lateBehaviour.totals;
+  const pendingDecisions =
+    (leaveCounts.pending || 0) + (tourCounts.pending || 0) + leaveLimitAlerts.length;
+  // Late / long-day people already have dedicated sections — keep the queue for decisions + today notes.
+  const previewQueue = actionItems.filter((r) => r.type !== "Late pattern").slice(0, 8);
   const dateHint =
     department === "all" ? `${fromDate} → ${toDate}` : `${fromDate} → ${toDate} · ${department}`;
 
   const hasDateFilter = fromDate !== daysAgoIso(21) || toDate !== todayIso() || department !== "all";
+
+  const deptBarColor = useCallback(
+    (row) => {
+      const rate = Number(row?.lateRate) || 0;
+      if (rate >= 20) return chartColors.lateHot;
+      if (rate >= 12) return chartColors.lateWarm;
+      return chartColors.lateOk;
+    },
+    [chartColors]
+  );
 
   return (
     <div className="space-y-4 max-w-[1500px] mx-auto">
@@ -921,11 +1131,14 @@ export default function AdminOpsDashboard() {
         {refreshing && !loading ? <span className="type-meta text-ink-muted">Updating…</span> : null}
         <button
           type="button"
-          onClick={() => setRefreshKey((k) => k + 1)}
+          onClick={() => {
+            setShellKey((k) => k + 1);
+            setRangeKey((k) => k + 1);
+          }}
           className="erp-btn-secondary h-9 px-3 inline-flex items-center gap-1.5"
           disabled={loading}
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading || refreshing ? "animate-spin" : ""}`} />
+          <RefreshCw className={`w-3.5 h-3.5 ${loading || refreshing || attendanceLoading ? "animate-spin" : ""}`} />
           Refresh
         </button>
       </PageTaskHeader>
@@ -973,40 +1186,40 @@ export default function AdminOpsDashboard() {
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         <KpiTile
           label="Late arrivals"
-          value={loading ? "…" : `${t.lateRate}%`}
+          value={attendanceLoading ? "…" : `${lateT.lateRate}%`}
           sub={
-            t.lateSlope > 0.2
-              ? `Rising · next ~${t.lateForecast}%`
-              : t.lateSlope < -0.2
-                ? `Improving · next ~${t.lateForecast}%`
-                : `${t.lateDays} late punch-days`
+            lateT.lateSlope > 0.2
+              ? `Rising · next ~${lateT.lateForecast}%`
+              : lateT.lateSlope < -0.2
+                ? `Improving · next ~${lateT.lateForecast}%`
+                : `${lateT.lateDays} late punch-days`
           }
           onClick={() => openLateDetail()}
-          tone={t.lateRate >= 20 ? "border-critical-border" : t.lateRate >= 12 ? "border-warning-border" : "border-border/80"}
+          tone={lateT.lateRate >= 20 ? "border-critical-border" : lateT.lateRate >= 12 ? "border-warning-border" : "border-border/80"}
         />
         <KpiTile
           label="Long days"
-          value={loading ? "…" : `${t.otRate}%`}
+          value={attendanceLoading ? "…" : `${t.otRate}%`}
           sub={`${t.otDays} days over 9 hours`}
           onClick={openOtDetail}
           tone={t.otRate >= 18 ? "border-critical-border" : "border-border/80"}
         />
         <KpiTile
           label="Avg hours / day"
-          value={loading ? "…" : t.avgHours ? `${t.avgHours}h` : "—"}
+          value={attendanceLoading ? "…" : t.avgHours ? `${t.avgHours}h` : "—"}
           sub={`${t.employeesSeen} people with punches`}
           onClick={openHoursDetail}
         />
         <KpiTile
           label="Waiting on you"
-          value={loading ? "…" : pendingTotal}
-          sub={`${leaveCounts.pending || 0} leave · ${tourCounts.pending || 0} tour`}
+          value={loading ? "…" : pendingDecisions}
+          sub={`${leaveCounts.pending || 0} leave · ${tourCounts.pending || 0} tour · ${leaveLimitAlerts.length} policy`}
           onClick={() => openApprovalsDetail("all")}
-          tone={pendingTotal > 0 ? "border-warning-border" : "border-border/80"}
+          tone={pendingDecisions > 0 ? "border-warning-border" : "border-border/80"}
         />
         <KpiTile
           label="Hiring follow-ups"
-          value={loading ? "…" : coverage.find((c) => c.id === "hiring")?.value ?? 0}
+          value={loading ? "…" : hiringFollowUps}
           sub={recruitment ? `${recruitment.openRequisitions || 0} open roles` : "Recruitment"}
           onClick={openHiringDetail}
         />
@@ -1016,34 +1229,6 @@ export default function AdminOpsDashboard() {
           sub="Employee master"
           onClick={openPeopleDetail}
         />
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
-        {coverage.map((mod) => (
-          <button
-            key={mod.id}
-            type="button"
-            onClick={() => {
-              if (mod.id === "workforce") openPeopleDetail();
-              else if (mod.id === "attendance") openLateDetail();
-              else if (mod.id === "leave") openApprovalsDetail("leave");
-              else if (mod.id === "tour") openApprovalsDetail("tour");
-              else if (mod.id === "policy") openApprovalsDetail("policy");
-              else if (mod.id === "hiring") openHiringDetail();
-            }}
-            className="text-left rounded-xl border border-border bg-surface px-3 py-2.5 hover:bg-row-hover transition-colors"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="type-mono-caption text-ink-muted uppercase">{mod.label}</span>
-              <StatusChip
-                label={mod.tone === "ok" ? "OK" : mod.tone === "critical" ? "Act" : "Watch"}
-                severity={severityChip(mod.tone)}
-              />
-            </div>
-            <p className="type-figure text-ink-strong mt-1 tabular-nums">{loading ? "…" : mod.value}</p>
-            <p className="type-meta text-ink-muted mt-0.5 truncate">{mod.hint}</p>
-          </button>
-        ))}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
@@ -1056,21 +1241,39 @@ export default function AdminOpsDashboard() {
           }
           className="xl:col-span-2"
         >
+          <p className="px-4 pt-1 type-meta text-ink-muted">Share of punch-ins that were late vs days over 9 hours</p>
           <button type="button" className="w-full text-left px-2 pb-2 min-h-[240px]" onClick={openTrendDetail}>
             {chartsReady && behaviour.trend.length ? (
-              <ComposedTrendChart
-                data={behaviour.trend}
-                areas={[{ key: "lateRate", name: "Late %", color: TOKENS.warning, fillOpacity: 0.16 }]}
-                lines={[{ key: "otRate", name: "Long-day %", color: TOKENS.critical, width: 2.25 }]}
-                height={240}
-                showLegend
-                compact
-                formatter={(v) => `${v}%`}
-                yTickFormatter={(v) => `${Math.round(Number(v) || 0)}%`}
-              />
+              <Suspense fallback={<p className="text-sm text-ink-muted text-center py-16">Loading chart…</p>}>
+                <ComposedTrendChart
+                  data={behaviour.trend}
+                  areas={[
+                    {
+                      key: "lateRate",
+                      name: "Late arrivals %",
+                      color: chartColors.late,
+                      fillOpacity: 0.2,
+                    },
+                  ]}
+                  lines={[
+                    {
+                      key: "otRate",
+                      name: "Long days %",
+                      color: chartColors.ot,
+                      width: 2.5,
+                    },
+                  ]}
+                  height={240}
+                  showLegend
+                  compact
+                  yUnit="%"
+                  formatter={(v) => `${Number(v).toFixed(Number(v) % 1 ? 1 : 0)}%`}
+                  yTickFormatter={(v) => `${Math.round(Number(v) || 0)}%`}
+                />
+              </Suspense>
             ) : (
               <p className="text-sm text-ink-muted text-center py-16">
-                {loading ? "Loading attendance…" : "No punch data in this range."}
+                {attendanceLoading ? "Loading attendance…" : "No punch data in this range."}
               </p>
             )}
           </button>
@@ -1085,7 +1288,9 @@ export default function AdminOpsDashboard() {
             </span>
           }
         >
-          {behaviour.notes.length === 0 ? (
+          {attendanceLoading ? (
+            <p className="px-4 py-8 text-center type-meta text-ink-muted">Loading attendance…</p>
+          ) : behaviour.notes.length === 0 ? (
             <p className="px-4 py-8 text-center type-meta text-ink-muted">Nothing unusual in this window.</p>
           ) : (
             <ul className="divide-y divide-border">
@@ -1125,21 +1330,29 @@ export default function AdminOpsDashboard() {
             </button>
           }
         >
+          <p className="px-4 pt-1 type-meta text-ink-muted">Late % of punch-ins by department</p>
           <div className="px-2 pb-2 min-h-[220px]">
-            {chartsReady && behaviour.deptBars.length ? (
-              <BarCompareChart
-                data={behaviour.deptBars}
-                layout="horizontal"
-                xKey="name"
-                series={[{ key: "lateRate", name: "Late %", color: TOKENS.warning }]}
-                height={210}
-                categoryWidth={96}
-                formatter={(v) => `${v}%`}
-                yTickFormatter={(v) => `${Math.round(Number(v) || 0)}%`}
-                onBarClick={(payload) => openLateDetail(payload?.fullName || payload?.name)}
-              />
+            {chartsReady && lateBehaviour.deptBars.length ? (
+              <Suspense fallback={<p className="text-sm text-ink-muted text-center py-14">Loading chart…</p>}>
+                <BarCompareChart
+                  data={lateBehaviour.deptBars}
+                  layout="horizontal"
+                  xKey="name"
+                  series={[{ key: "lateRate", name: "Late arrivals %", color: chartColors.late }]}
+                  height={210}
+                  categoryWidth={96}
+                  rowHeight={26}
+                  showValues
+                  getBarColor={deptBarColor}
+                  formatter={(v) => `${Number(v).toFixed(Number(v) % 1 ? 1 : 0)}%`}
+                  yTickFormatter={(v) => `${Math.round(Number(v) || 0)}%`}
+                  onBarClick={(payload) => openLateDetail(payload?.fullName || payload?.name)}
+                />
+              </Suspense>
             ) : (
-              <p className="text-sm text-ink-muted text-center py-14">No department signal yet.</p>
+              <p className="text-sm text-ink-muted text-center py-14">
+                {attendanceLoading ? "Loading attendance…" : "No department signal yet."}
+              </p>
             )}
           </div>
         </SectionCard>
@@ -1152,7 +1365,9 @@ export default function AdminOpsDashboard() {
             </button>
           }
         >
-          {behaviour.habitualLate.length === 0 ? (
+          {attendanceLoading ? (
+            <p className="px-4 py-10 text-center type-meta text-ink-muted">Loading…</p>
+          ) : behaviour.habitualLate.length === 0 ? (
             <p className="px-4 py-10 text-center type-meta text-ink-muted">No repeated late pattern in range.</p>
           ) : (
             <ul className="divide-y divide-border max-h-[240px] overflow-y-auto">
@@ -1170,7 +1385,7 @@ export default function AdminOpsDashboard() {
                       </span>
                     </span>
                     <span className="shrink-0 text-right">
-                      <span className="block type-num text-warning font-semibold">{row.lateRate}%</span>
+                      <span className="block type-num text-info font-semibold tabular-nums">{row.lateRate}%</span>
                       <span className="block type-meta text-ink-muted">
                         {row.late}/{row.days} days
                       </span>
@@ -1190,7 +1405,9 @@ export default function AdminOpsDashboard() {
             </button>
           }
         >
-          {behaviour.otHeavy.length === 0 ? (
+          {attendanceLoading ? (
+            <p className="px-4 py-10 text-center type-meta text-ink-muted">Loading…</p>
+          ) : behaviour.otHeavy.length === 0 ? (
             <p className="px-4 py-10 text-center type-meta text-ink-muted">No heavy overtime pattern in range.</p>
           ) : (
             <ul className="divide-y divide-border max-h-[240px] overflow-y-auto">
@@ -1208,7 +1425,9 @@ export default function AdminOpsDashboard() {
                       </span>
                     </span>
                     <span className="shrink-0 text-right">
-                      <span className="block type-num text-critical font-semibold">{row.otRate}%</span>
+                      <span className="block type-num font-semibold tabular-nums" style={{ color: chartColors.ot }}>
+                        {row.otRate}%
+                      </span>
                       <span className="block type-meta text-ink-muted">
                         {row.ot}/{row.days} long
                       </span>
@@ -1227,9 +1446,9 @@ export default function AdminOpsDashboard() {
           <button
             type="button"
             className="type-meta text-accent hover:underline"
-            onClick={() => openActionQueueDetail()}
+            onClick={() => openActionQueueDetail(actionItems.filter((r) => r.type !== "Late pattern"))}
           >
-            Open full list ({actionItems.length})
+            Open full list ({actionItems.filter((r) => r.type !== "Late pattern").length})
           </button>
         }
       >

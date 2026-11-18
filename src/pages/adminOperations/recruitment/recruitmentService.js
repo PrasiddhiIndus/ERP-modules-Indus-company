@@ -527,6 +527,50 @@ export async function getNavBadges() {
   return { requisitions, documents, conversion };
 }
 
+/**
+ * Lightweight hiring KPIs for Admin Ops dashboard (head counts only).
+ * Avoids getDashboardSummary's full candidate/interview/document scans.
+ */
+export async function getAdminOpsHiringSummary() {
+  const head = (table, build) =>
+    build(supabase.from(table).select("id", { count: "exact", head: true }))
+      .then(({ count, error }) => {
+        if (error) {
+          console.warn("[recruitment] hiring summary count failed:", error.message || error);
+          return 0;
+        }
+        return count || 0;
+      })
+      .catch((err) => {
+        console.warn("[recruitment] hiring summary count failed:", err?.message || err);
+        return 0;
+      });
+
+  const [
+    openRequisitions,
+    pendingRequisitions,
+    offersPending,
+    documentsToReview,
+    interviewsToEvaluate,
+  ] = await Promise.all([
+    head(T.requisitions, (q) => q.in("status", ["approved", "open"])),
+    head(T.requisitions, (q) => q.eq("status", "pending_approval")),
+    head(T.offers, (q) => q.in("status", ["generated", "sent", "viewed", "draft"])),
+    head(T.overview, (q) =>
+      q.is("outcome", null).in("stage", ["documents", "ready_to_join"]).gt("docs_to_review", 0)
+    ),
+    head(T.interviews, (q) => q.eq("status", "attended")),
+  ]);
+
+  return {
+    openRequisitions,
+    pendingRequisitions,
+    offersPending,
+    documentsToReview,
+    interviewsToEvaluate,
+  };
+}
+
 export async function listCandidates() {
   const rows = await selectAll(T.overview, "*", (q) => q.order("last_activity_at", { ascending: false }));
   return rows.map(mapCandidate);

@@ -61,15 +61,16 @@ export function isOvertimeRow(row) {
   return m != null && m > WORKING_HOURS_LONG_THRESHOLD_MIN;
 }
 
-export async function buildDailyAttendanceReportRows(supabase, { fromDate, toDate, empCode = "ALL" }) {
-  const [punches, employees] = await Promise.all([
+export async function buildDailyAttendanceReportRows(supabase, { fromDate, toDate, empCode = "ALL", employees = null }) {
+  const needsEmployees = !Array.isArray(employees);
+  const [punches, resolvedEmployees] = await Promise.all([
     fetchAttendancePunchesInRange(supabase, { fromDate, toDate, empCode }),
-    fetchActiveEmployees(supabase),
+    needsEmployees ? fetchActiveEmployees(supabase) : Promise.resolve(employees),
     ensureAttendanceRulesLoaded(supabase),
   ]);
   let rows = pairPunchesToDailyRows(punches);
-  rows = attachMasterFields(rows, employees);
-  rows = attachDepartments(rows, employees);
+  rows = attachMasterFields(rows, resolvedEmployees);
+  rows = attachDepartments(rows, resolvedEmployees);
   return rows.map((r) => ({
     ...r,
     lateInAfter9: isLatePunchInRow(r) ? "Yes" : "No",
