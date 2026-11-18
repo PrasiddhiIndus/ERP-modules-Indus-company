@@ -264,6 +264,7 @@ function resolveWorkspaceContext(pathname) {
     [/\/app\/commercial|\/app\/manpower/, "Commercial", "Manpower & training"],
     [/\/app\/marketing/, "Go-to-market", "Marketing"],
     [/\/app\/crm-outreach/, "Internal Utilities", "Mail Outreach"],
+    [/\/app\/activity-history/, "Internal Utilities", "Activity history"],
     [/\/app\/maintenance/, "Service", "Maintenance"],
     [/\/app\/projects-billing/, "Projects", "Billing"],
     [/\/app\/billing/, "Finance", "Billing"],
@@ -656,6 +657,7 @@ const Layout = () => {
     can("userManagement") ||
     can("settings") ||
     can("itIs") ||
+    canSeeActivityLog ||
     userProfile?.role === ROLES.SUPER_ADMIN ||
     userProfile?.role === ROLES.SUPER_ADMIN_PRO;
 
@@ -2101,6 +2103,13 @@ const Layout = () => {
             </NavLink>
             )}
 
+            {canSeeActivityLog && (
+            <NavLink to="activity-history" className={topNavClass} title="Activity history">
+              <Clock className="w-4 h-4 shrink-0" />
+              <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Activity history</span>
+            </NavLink>
+            )}
+
             {can("settings") && (
             <NavLink to="settings" className={topNavClass}>
               <Settings className="w-4 h-4 shrink-0" />
@@ -2214,7 +2223,8 @@ const Layout = () => {
                   type="button"
                   onClick={() => setActivityLogOpen(true)}
                   className="inline-flex items-center gap-2 rounded-control border border-border bg-surface shadow-sm px-2.5 sm:px-3 h-9 type-body-medium text-ink hover:border-accent-border hover:bg-accent-soft/50 transition-[background-color,border-color] duration-theme"
-                  aria-label="Open activity log"
+                  aria-label="Open recent activity log"
+                  title="Recent activity (last hour). Open Activity history for the full log."
                 >
                   <Clock className="w-4 h-4 text-ink-muted" strokeWidth={1.5} />
                   <span className="hidden sm:inline">Activity</span>
