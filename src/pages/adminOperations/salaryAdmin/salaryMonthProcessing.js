@@ -282,6 +282,10 @@ export function salaryPresentDaysFromDayMarks(dayMarks, year, month, department)
  * P.Days by employee code for the selected pay month.
  * Uses Daily Attendance Register “Total present” for that same calendar month
  * (every day in the month, same rules as the register column).
+ *
+ * Indexed by attendance employee_code only — never by employee_id / badge number.
+ * Badge ids like 00002 normalize onto short codes like 2 and would steal another
+ * person’s Total present (e.g. Smitha code 2 ← Bijal id 00002).
  */
 export async function fetchPresentDaysByEmployeeCode(year, month) {
   const y = Number(year);
@@ -293,10 +297,7 @@ export async function fetchPresentDaysByEmployeeCode(year, month) {
     const result = await fetchMonthlyRegisterPayrollTotals(supabase, monthValue);
     for (const row of result.rows || []) {
       const value = presentDaysFromRegisterTotal(row.summary?.totalPresent);
-      const variants = [
-        ...attendanceEmpCodeLookupVariants(row.empCode),
-        ...attendanceEmpCodeLookupVariants(row.employeeId),
-      ];
+      const variants = attendanceEmpCodeLookupVariants(row.empCode);
       if (!variants.length) continue;
       for (const variant of variants) {
         map[variant] = value;
@@ -330,7 +331,8 @@ export function presentDaysFromRegisterMap(presentMap, empCode, fallbackDays = 0
 
 function lookupPresentDays(presentMap, emp) {
   if (!presentMap || typeof presentMap !== "object") return null;
-  return presentDaysFromRegisterMap(presentMap, [emp?.employee_code, emp?.employee_id], 0);
+  // Register Total present is keyed by employee_code only (see fetchPresentDaysByEmployeeCode).
+  return presentDaysFromRegisterMap(presentMap, emp?.employee_code, 0);
 }
 
 const LINE_DB_COLUMNS = [
@@ -794,14 +796,12 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
     const esicEligible = basicFull > 0 && !mediclaimApplicable(basicFull);
     empEsic = esicEligible ? round0((gross * 0.75) / 100) : 0;
   }
+  // P Tax on this month’s Gross W: ₹0 when Gross ≤ ₹11,999; ₹200 when Gross ≥ ₹12,000.
+  // Always derived from earned gross (not the CTC annexure PT flag), unless Admin typed PT.
   const pt =
     options.keepPt && line.pt_amount != null && line.pt_amount !== ""
       ? round0(line.pt_amount)
-      : annexure
-        ? K <= 0
-          ? 0
-          : round0(annexure.pt_full)
-        : defaultPtForGross(gross);
+      : defaultPtForGross(gross);
   const loan = round0(line.loan);
   const salAdv = round0(line.sal_adv);
   const unpaid = round0(line.unpaid_paid);

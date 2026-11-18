@@ -2,13 +2,16 @@ import { describe, it, expect } from "vitest";
 import {
   capPresentDaysToWorkingDays,
   presentDaysExceedWorkingDays,
+  presentDaysFromRegisterMap,
   presentDaysFromRegisterTotal,
   resolveSalaryMonthWorkingDays,
   salaryPresentDaysFromDayMarks,
   workingDaysMonToSat,
 } from "../src/pages/adminOperations/salaryAdmin/salaryMonthProcessing.js";
+import { defaultPtForGross } from "../src/pages/adminOperations/salaryAdmin/salaryData.js";
 import {
   attachRegisterRowSummaries,
+  attendanceEmpCodeLookupVariants,
   buildMonthlyRegisterGrid,
   mergeApprovedLeaveMarksIntoManualMarks,
   normalizeRegisterMarkForDb,
@@ -125,6 +128,40 @@ describe("salary P.Days from register Total present", () => {
     );
     expect(row.summary.totalPresent).toBe(28);
     expect(presentDaysFromRegisterTotal(row.summary.totalPresent)).toBe(28);
+  });
+
+  it("does not let another employee’s badge id overwrite a short employee_code", () => {
+    // Smitha code 2 (27) must not pick up Bijal badge 00002 (22.5).
+    const rows = [
+      { empCode: "2", employeeId: "00215", totalPresent: 27 },
+      { empCode: "10199", employeeId: "00002", totalPresent: 22.5 },
+      { empCode: "97", employeeId: "00009", totalPresent: 27 },
+      { empCode: "8995", employeeId: "00097", totalPresent: 7 },
+      { empCode: "272", employeeId: "00030", totalPresent: 27 },
+      { empCode: "A-00011", employeeId: "00272", totalPresent: 3 },
+    ];
+    const map = {};
+    for (const row of rows) {
+      const value = presentDaysFromRegisterTotal(row.totalPresent);
+      for (const variant of attendanceEmpCodeLookupVariants(row.empCode)) {
+        map[variant] = value;
+      }
+    }
+    expect(presentDaysFromRegisterMap(map, "2")).toBe(27);
+    expect(presentDaysFromRegisterMap(map, "97")).toBe(27);
+    expect(presentDaysFromRegisterMap(map, "272")).toBe(27);
+    expect(presentDaysFromRegisterMap(map, "10199")).toBe(22.5);
+    expect(presentDaysFromRegisterMap(map, "8995")).toBe(7);
+    expect(presentDaysFromRegisterMap(map, "A-00011")).toBe(3);
+  });
+});
+
+describe("salary processing P Tax on Gross W", () => {
+  it("is ₹0 at ₹11,999 and ₹200 from ₹12,000 upward", () => {
+    expect(defaultPtForGross(0)).toBe(0);
+    expect(defaultPtForGross(11999)).toBe(0);
+    expect(defaultPtForGross(12000)).toBe(200);
+    expect(defaultPtForGross(45000)).toBe(200);
   });
 });
 
