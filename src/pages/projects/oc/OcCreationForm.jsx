@@ -288,6 +288,7 @@ function SignNotifyModal({ state, onClose, onConfirmSign, assigneeCount }) {
  * PO At Glance form (create / edit). Field order and grid follow the paper form.
  * `financeReview` is the Finance Master PO preview: every department field stays grey,
  * Finance may sign their own box, and OC No. unlocks only after the other signatories have signed.
+ * Cost Center in Tally stays editable for Finance on Projects and Maintenance.
  * Department create/edit is unchanged when this flag is omitted.
  * @param {{ ocId: string|null, canEdit: boolean, onBack: () => void, onSaved: (id: string) => void, department?: object, financeReview?: boolean }} props
  */
@@ -546,13 +547,17 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
   const openReturn = showApprovalAudit ? openModificationRequest(approvalLog) : null;
   const iAmOcCreator = Boolean(form.created_by) && form.created_by === user?.id;
   const projectsPo = department.key === "projects";
+  const maintenancePo = department.key === "maintenance";
+  /** Finance may set Cost Center in Tally on Projects and Maintenance from Master PO At Glance. */
+  const financeTallyDept = projectsPo || maintenancePo;
   // Assigned signers (Execution / Dept Head / Finance) may remark + sign without editing PO details.
   const isAssignedReviewer = ["PLANNING", "VERTICAL_HEAD", "FINANCE"].some((slot) => !isLockedFor(slot));
   const projectsRemarksOnly = projectsPo && !financeReview && !isFinance && isAssignedReviewer;
   const reviewerGatePending = projectsPo && !financeReview && !isFinance && (!codeLoaded || !assigneesLoaded);
   const fieldsLocked = (readOnly && !financeReview) || projectsRemarksOnly || reviewerGatePending;
   const canChangeFields = canEdit && !projectsRemarksOnly && !reviewerGatePending;
-  const tallyEditable = projectsPo ? financeReview || isFinance : !financeReview;
+  // Projects: Finance-owned. Maintenance: editable by dept on their screen, and by Finance in review.
+  const tallyEditable = projectsPo ? financeReview || isFinance : maintenancePo ? true : !financeReview;
   const revisionStage = !projectsPo || isBlank(form.signoff?.PROJECT_USER?.saved_by)
     ? null
     : ["PLANNING", "VERTICAL_HEAD", "FINANCE"].find((slot) => isBlank(form.signoff?.[slot]?.saved_by)) || "FINANCE";
@@ -836,7 +841,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
     const savedForm = JSON.parse(initial);
     const ocChanged = String(form.oc_no || "").trim() !== String(savedForm.oc_no || "").trim()
       || String(form.oc_date || "") !== String(savedForm.oc_date || "");
-    const tallyChanged = projectsPo
+    const tallyChanged = financeTallyDept
       && String(form.cost_center_tally || "").trim() !== String(savedForm.cost_center_tally || "").trim();
     if (!signaturePending && !ocChanged && !tallyChanged) return;
     if (ocChanged && !ocUnlocked) {
@@ -883,6 +888,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
       }
       if (tallyChanged) {
         const savedTally = await setFinancePoCostCenter({
+          department: department.key,
           id: form.id,
           costCenter: String(form.cost_center_tally || "").trim(),
         });
@@ -1148,7 +1154,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
         >
           <div className="grid grid-cols-1 border-l border-slate-300 md:grid-cols-[minmax(9rem,18%)_1fr_minmax(9rem,16%)_1fr]">
             {/* Section 1 */}
-            {projectsPo ? (
+            {financeTallyDept ? (
               <>
                 <Label>Cost Center in Tally</Label>
                 <Value full>

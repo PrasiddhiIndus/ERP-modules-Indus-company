@@ -8,6 +8,7 @@ import { getProviderForFile, IMPORT_ACCEPT_ATTR } from "../../../../lib/siteAtte
 import { MARK_DICTIONARY_VERSION, describeMarkDictionary } from "../../../../lib/siteAttendance/import/markDictionary";
 import { CELL_STATUS, buildImportPreview } from "../../../../lib/siteAttendance/import/buildImportPreview";
 import { findCommittedImport, parseCommitErrorDetails, saveImportBatch } from "../../../../lib/siteAttendance/import/importApi";
+import { downloadSampleAttendanceImportSheet } from "../../../../lib/siteAttendance/import/sampleAttendanceSheet";
 
 const STATUS_CLASS = {
   [CELL_STATUS.NEW]: "bg-emerald-50 text-emerald-900",
@@ -193,7 +194,7 @@ export default function AttendanceImportModal({ open, onClose, onSaved, grid }) 
   );
 
   return (
-    <Modal open={open} title="Import attendance" onClose={stage === "saving" ? () => {} : onClose} widthClass="max-w-[96vw]" footer={footer}>
+    <Modal open={open} title="Import Excel" onClose={stage === "saving" ? () => {} : onClose} widthClass="max-w-[96vw]" footer={footer}>
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <StatusChip label={site?.site_name || "Site"} severity="neutral" />
@@ -208,19 +209,41 @@ export default function AttendanceImportModal({ open, onClose, onSaved, grid }) 
             <p className="type-meta mb-4">
               The file is read on this computer. You will see a preview first; attendance is only saved when you click Save.
             </p>
-            <label className="erp-btn-primary rounded-control px-3.5 py-2 text-xs cursor-pointer inline-block">
-              {stage === "parsing" ? "Reading…" : "Choose file"}
-              <input
-                type="file"
-                accept={IMPORT_ACCEPT_ATTR}
-                className="hidden"
-                disabled={stage === "parsing"}
-                onChange={(e) => {
-                  handleFile(e.target.files?.[0]);
-                  e.target.value = "";
-                }}
-              />
-            </label>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <label className="erp-btn-primary rounded-control px-3.5 py-2 text-xs cursor-pointer inline-block">
+                {stage === "parsing" ? "Reading…" : "Choose file"}
+                <input
+                  type="file"
+                  accept={IMPORT_ACCEPT_ATTR}
+                  className="hidden"
+                  disabled={stage === "parsing"}
+                  onChange={(e) => {
+                    handleFile(e.target.files?.[0]);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="erp-btn-secondary rounded-control px-3.5 py-2 text-xs"
+                disabled={stage === "parsing" || !days?.length}
+                onClick={() =>
+                  downloadSampleAttendanceImportSheet({
+                    site,
+                    days,
+                    range,
+                    employees,
+                    month,
+                    year,
+                  })
+                }
+              >
+                Download sample Excel
+              </button>
+            </div>
+            <p className="type-meta mt-3 max-w-xl mx-auto">
+              Sample sheet uses this site&apos;s cycle dates and roster codes so you can fill marks (P/A/B/C/G, L, WO, HD) and import with preview.
+            </p>
             {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
           </div>
         ) : null}

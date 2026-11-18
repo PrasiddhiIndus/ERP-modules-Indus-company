@@ -247,6 +247,7 @@ function RegisterAttendanceTableSkeleton({ rowCount = 10, daysInMonth = 31 }) {
               <th className="px-2 py-2 w-28"><div className="h-3 bg-gray-200 rounded animate-pulse" /></th>
               <th className="px-2 py-2 w-36"><div className="h-3 bg-gray-200 rounded animate-pulse" /></th>
               <th className="px-2 py-2 w-28"><div className="h-3 bg-gray-200 rounded animate-pulse" /></th>
+              <th className="px-2 py-2 w-28"><div className="h-3 bg-gray-200 rounded animate-pulse" /></th>
               {Array.from({ length: dayCols }, (_, i) => (
                 <th key={i} className="px-1 py-2 w-12">
                   <div className="h-3 bg-gray-100 rounded animate-pulse mx-auto w-8" />
@@ -266,6 +267,7 @@ function RegisterAttendanceTableSkeleton({ rowCount = 10, daysInMonth = 31 }) {
                 <td className="px-2 py-2"><div className="h-4 bg-gray-100 rounded animate-pulse w-16" /></td>
                 <td className="px-2 py-2"><div className="h-4 bg-gray-100 rounded animate-pulse w-20" /></td>
                 <td className="px-2 py-2"><div className="h-4 bg-gray-100 rounded animate-pulse w-32" /></td>
+                <td className="px-2 py-2"><div className="h-4 bg-gray-100 rounded animate-pulse w-24" /></td>
                 <td className="px-2 py-2"><div className="h-4 bg-gray-100 rounded animate-pulse w-24" /></td>
                 {Array.from({ length: dayCols }, (_, dayIdx) => (
                   <td key={dayIdx} className="px-1 py-1">
@@ -290,6 +292,7 @@ export function EmployeeAttendanceDailyPage() {
   const [monthValue, setMonthValue] = useState(isoMonthToday());
   const [search, setSearch] = useState("");
   const [selectedDepartments, setSelectedDepartments] = useState([]);
+  const [selectedDesignations, setSelectedDesignations] = useState([]);
   const [punches, setPunches] = useState([]);
   const [manualMarks, setManualMarks] = useState({});
   const [manualMarkSources, setManualMarkSources] = useState({});
@@ -1161,10 +1164,19 @@ export function EmployeeAttendanceDailyPage() {
       ) {
         return false;
       }
+      if (
+        selectedDesignations.length > 0 &&
+        !selectedDesignations.includes(row.designation || "")
+      ) {
+        return false;
+      }
       if (!needle) return true;
-      return [row.employeeId, row.empCode, row.employeeName, row.department].join(" ").toLowerCase().includes(needle);
+      return [row.employeeId, row.empCode, row.employeeName, row.department, row.designation]
+        .join(" ")
+        .toLowerCase()
+        .includes(needle);
     });
-  }, [gridRows, search, selectedDepartments]);
+  }, [gridRows, search, selectedDepartments, selectedDesignations]);
 
   const bulkDayNumber = useMemo(() => {
     if (!monthMeta?.monthKey || !bulkDateFrom?.startsWith(monthMeta.monthKey)) return null;
@@ -1238,6 +1250,7 @@ export function EmployeeAttendanceDailyPage() {
     search,
     monthValue,
     selectedDepartments,
+    selectedDesignations,
     tableDayAttendanceFilter,
     bulkDateFrom,
     registerSort.field,
@@ -1283,7 +1296,7 @@ export function EmployeeAttendanceDailyPage() {
 
   useEffect(() => {
     setTableDayAttendanceFilter(null);
-  }, [bulkDateFrom, bulkDateTo, monthValue, selectedDepartments, search]);
+  }, [bulkDateFrom, bulkDateTo, monthValue, selectedDepartments, selectedDesignations, search]);
 
   const handleExportExcel = async () => {
     if (!monthMeta || !rowsWithSummary.length) return;
@@ -1647,6 +1660,14 @@ export function EmployeeAttendanceDailyPage() {
     return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [gridRows]);
 
+  const designationOptions = useMemo(() => {
+    const values = new Set();
+    for (const row of gridRows) {
+      if (row.designation) values.add(row.designation);
+    }
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
+  }, [gridRows]);
+
   const summaryColumnDefs = useMemo(
     () =>
       SUMMARY_COLUMNS.map((col) => ({
@@ -1687,6 +1708,12 @@ export function EmployeeAttendanceDailyPage() {
         label: "Department",
         headerRender: () => registerSortableHeader("department", "Department"),
         render: (row) => row.department || "?",
+      },
+      {
+        key: "designation",
+        label: "Designation",
+        headerRender: () => registerSortableHeader("designation", "Designation"),
+        render: (row) => row.designation || "—",
       },
     ];
     const monthKey = monthMeta?.monthKey || "";
@@ -1883,6 +1910,22 @@ export function EmployeeAttendanceDailyPage() {
               options={departmentOptions}
               selected={selectedDepartments}
               onChange={setSelectedDepartments}
+            />
+          </label>
+          <label className="text-[11px] text-gray-600 inline-flex items-center">
+            Designation
+            <RegisterDepartmentFilter
+              options={designationOptions}
+              selected={selectedDesignations}
+              onChange={setSelectedDesignations}
+              allLabel="All designations"
+              panelTitle="Filter by designation"
+              searchPlaceholder="Search designations…"
+              emptyLabel="No designations match"
+              pluralLabel="designations"
+              listSortAscLabel="Desig A–Z"
+              listSortDescLabel="Desig Z–A"
+              listSortTitle="Sort designation list"
             />
           </label>
           <TinySelect value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="w-[100px]">
@@ -2214,8 +2257,8 @@ export function EmployeeAttendanceDailyPage() {
           <DenseTable
             columns={columns}
             rows={pagedRows}
-            frozenColumnCount={4}
-            frozenColumnWidths={[96, 116, 220, 140]}
+            frozenColumnCount={5}
+            frozenColumnWidths={[96, 116, 220, 140, 140]}
             serialOffset={(currentPage - 1) * pageSize}
             stickyHeader
             scrollMaxHeight="calc(100dvh - 22rem)"
@@ -2360,6 +2403,7 @@ export function EmployeeAttendanceDailyPage() {
                 <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Employee code</th>
                 <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Employee name</th>
                 <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Department</th>
+                <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Designation</th>
                 <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Status</th>
                 <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Mark</th>
               </tr>
@@ -2371,6 +2415,7 @@ export function EmployeeAttendanceDailyPage() {
                     <td className="px-2 py-1.5 tabular-nums text-gray-800">{row.empCode || "—"}</td>
                     <td className="px-2 py-1.5 text-gray-800">{row.employeeName || "—"}</td>
                     <td className="px-2 py-1.5 text-gray-600">{row.department || "—"}</td>
+                    <td className="px-2 py-1.5 text-gray-600">{row.designation || "—"}</td>
                     <td className="px-2 py-1.5">
                       <StatusChip
                         label={registerMarkStatusLabel(row.dayMark)}
@@ -2382,7 +2427,7 @@ export function EmployeeAttendanceDailyPage() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="px-2 py-6 text-center text-gray-500">
+                  <td colSpan={6} className="px-2 py-6 text-center text-gray-500">
                     No employees in this list for the selected date.
                   </td>
                 </tr>

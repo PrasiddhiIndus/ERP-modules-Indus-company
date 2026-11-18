@@ -10,12 +10,13 @@ import {
 } from "./cmOcDepartment";
 import {
   CM_CURRENCIES, CM_MANPOWER_FIELDS, blankCmContact, blankCmDeploymentItem, cmApprovalProgress,
-  cmExportFileName, cmFormFromRecord, contractValueInWords, durationDays, emptyCmForm, formatSignedAt, isBlank,
+  cmExportFileName, cmFormFromRecord, contractValueInWords, durationDays, emptyCmForm, formatCmDate, formatSignedAt, isBlank,
   normalizeWoDocuments, toCmSavePayload, validateCmForm,
 } from "./cmOcModel";
 import {
   amFinance, clearCmWoDocuments, cmStageSignatureUrl, cmWoDocumentUrl, friendlyCmError, loadCmAssignees, loadCmOc,
-  myCmSignatureUrl, myEmployeeCode, notifyCmSignoff, removeCmWoDocument, saveCmOc, signCmStage, uploadCmWoDocuments,
+  loadCmPoHistory, myCmSignatureUrl, myEmployeeCode, notifyCmSignoff, removeCmWoDocument, saveCmOc, signCmStage,
+  uploadCmWoDocuments,
 } from "./cmOcApi";
 
 const DEPT = COMMERCIAL_OC_DEPARTMENT;
@@ -226,6 +227,8 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
   const [hiddenManpowerKeys, setHiddenManpowerKeys] = useState(() => new Set());
   const [pendingWoFiles, setPendingWoFiles] = useState([]);
   const [uploadingWo, setUploadingWo] = useState(false);
+  const [poHistory, setPoHistory] = useState([]);
+  const [poHistoryOpen, setPoHistoryOpen] = useState(false);
   const topRef = useRef(null);
 
   useEffect(() => {
@@ -259,6 +262,7 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
       setForm(blank);
       setInitial(JSON.stringify(blank));
       setHiddenManpowerKeys(new Set());
+      setPoHistory([]);
       setPendingWoFiles((prev) => {
         prev.forEach((p) => p?.url && URL.revokeObjectURL(p.url));
         return [];
@@ -268,13 +272,14 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
     }
     let alive = true;
     setLoading(true);
-    loadCmOc(ocId)
-      .then((bundle) => {
+    Promise.all([loadCmOc(ocId), loadCmPoHistory(ocId)])
+      .then(([bundle, history]) => {
         if (!alive) return;
         const f = cmFormFromRecord(bundle, SLOTS);
         setForm(f);
         setInitial(JSON.stringify(f));
         setHiddenManpowerKeys(new Set());
+        setPoHistory(history || []);
         setPendingWoFiles((prev) => {
           prev.forEach((p) => p?.url && URL.revokeObjectURL(p.url));
           return [];
@@ -368,6 +373,12 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
   const err = (k) => errors[k];
   const cls = (k) => `${inputCls} ${errors[k] ? errCls : ""}`;
   const digits = (v) => v.replace(/[^\d]/g, "");
+  /** Grow deployment fields sideways with content (single line; no vertical wrap). */
+  const deploymentFieldStyle = (value, minCh = 4) => ({
+    width: `${Math.max(minCh, String(value ?? "").length + 2)}ch`,
+  });
+  const deploymentTextareaCls =
+    "w-auto max-w-none resize-none overflow-x-auto overflow-y-hidden whitespace-nowrap [field-sizing:content]";
 
   const dropPendingWoFiles = () => {
     pendingWoFiles.forEach((p) => {
@@ -480,9 +491,11 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
   };
 
   const reload = async (id) => {
-    const f = cmFormFromRecord(await loadCmOc(id), SLOTS);
+    const [bundle, history] = await Promise.all([loadCmOc(id), loadCmPoHistory(id)]);
+    const f = cmFormFromRecord(bundle, SLOTS);
     setForm(f);
     setInitial(JSON.stringify(f));
+    setPoHistory(history || []);
     return f;
   };
 
@@ -735,6 +748,56 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
               />
             </Value>
 
+            <Label>PO history</Label>
+            <Value full>
+              {!form.id ? (
+                <p className="text-xs text-slate-500">Saved when you enter or amend PO details.</p>
+              ) : poHistory.length === 0 ? (
+                <p className="text-xs text-slate-500">No PO versions recorded yet. Enter a PO No., date, or notes and save.</p>
+              ) : (
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    className={smallBtn}
+                    data-active
+                    onClick={() => setPoHistoryOpen((v) => !v)}
+                  >
+                    {poHistoryOpen ? "Hide" : "View"} {poHistory.length} version{poHistory.length === 1 ? "" : "s"}
+                  </button>
+                  {poHistoryOpen && (
+                    <div className="overflow-x-auto rounded border border-slate-200">
+                      <table className="min-w-full text-left text-xs text-slate-700">
+                        <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          <tr>
+                            <th className="px-2 py-1.5">Ver.</th>
+                            <th className="px-2 py-1.5">Event</th>
+                            <th className="px-2 py-1.5">PO No.</th>
+                            <th className="px-2 py-1.5">PO Date</th>
+                            <th className="px-2 py-1.5">Notes</th>
+                            <th className="px-2 py-1.5">Recorded</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {poHistory.map((row) => (
+                            <tr key={row.id} className="align-top">
+                              <td className="px-2 py-1.5 font-mono text-slate-900">v{row.revision_no}</td>
+                              <td className="px-2 py-1.5 capitalize">{row.event_kind === "entered" ? "Entered" : "Amended"}</td>
+                              <td className="px-2 py-1.5">{row.customer_po_no || "—"}</td>
+                              <td className="px-2 py-1.5">{formatCmDate(row.customer_po_date) || "—"}</td>
+                              <td className="max-w-[14rem] whitespace-pre-wrap break-words px-2 py-1.5">{row.customer_po_notes || "—"}</td>
+                              <td className="px-2 py-1.5 text-slate-500">
+                                {row.recorded_at ? formatSignedAt(row.recorded_at) : "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Value>
+
             <Label>WO documents</Label>
             <Value full>
               {(() => {
@@ -870,11 +933,11 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
                 </button>
               )}
             </div>
-            <div className="md:col-span-4 grid grid-cols-2 border-b border-r border-slate-300 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
+            <div className="md:col-span-4 flex flex-wrap items-stretch overflow-x-auto border-b border-r border-slate-300">
               {visibleManpowerFields.map(({ key, label }) => (
-                <div key={key} className="relative min-w-0 border-r border-slate-200 px-3 py-2 last:border-r-0">
+                <div key={key} className="relative w-max min-w-[6.5rem] shrink-0 border-r border-slate-200 px-3 py-2">
                   <div className="flex items-start justify-between gap-1">
-                    <span className="break-words text-[11px] font-semibold leading-snug text-slate-700">{label}</span>
+                    <span className="whitespace-nowrap text-[11px] font-semibold leading-snug text-slate-700">{label}</span>
                     {canEdit && (
                       <button
                         type="button"
@@ -891,7 +954,8 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
                     inputMode="numeric"
                     placeholder="-"
                     aria-label={label}
-                    className={`${cls(key)} mt-1 resize-y overflow-hidden whitespace-pre-wrap break-words text-center [field-sizing:content]`}
+                    className={`${cls(key)} ${deploymentTextareaCls} mt-1 text-center`}
+                    style={deploymentFieldStyle(form[key], 4)}
                     value={form[key]}
                     onChange={(e) => set(key, digits(e.target.value))}
                     disabled={!canEdit}
@@ -900,11 +964,12 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
                 </div>
               ))}
               {(form.extra_deployment || []).map((row, i) => (
-                <div key={row.key} className="relative min-w-0 border-r border-slate-200 px-3 py-2 last:border-r-0">
+                <div key={row.key} className="relative w-max min-w-[7.5rem] shrink-0 border-r border-slate-200 px-3 py-2">
                   <div className="flex items-start gap-1">
                     <textarea
                       rows={1}
-                      className={`${cls(`extra_deployment.${i}.label`)} min-w-0 flex-1 resize-y overflow-hidden whitespace-pre-wrap break-words border-slate-200 px-1 py-0.5 text-[11px] font-semibold leading-snug text-slate-700 [field-sizing:content]`}
+                      className={`${cls(`extra_deployment.${i}.label`)} ${deploymentTextareaCls} border-slate-200 px-1 py-0.5 text-[11px] font-semibold leading-snug text-slate-700`}
+                      style={deploymentFieldStyle(row.label || "e.g. Driver", 10)}
                       placeholder="e.g. Driver"
                       aria-label="Deployment name"
                       value={row.label}
@@ -927,7 +992,8 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
                     inputMode="numeric"
                     placeholder="-"
                     aria-label={`${row.label || "Deployment"} quantity`}
-                    className={`${cls(`extra_deployment.${i}.count`)} mt-1 resize-y overflow-hidden whitespace-pre-wrap break-words text-center [field-sizing:content]`}
+                    className={`${cls(`extra_deployment.${i}.count`)} ${deploymentTextareaCls} mt-1 text-center`}
+                    style={deploymentFieldStyle(row.count, 4)}
                     value={row.count}
                     onChange={(e) => setDeploymentItem(i, { count: digits(e.target.value) })}
                     disabled={!canEdit}

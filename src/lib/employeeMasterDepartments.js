@@ -91,6 +91,24 @@ export function mergeEmployeeMasterDepartments(dbDepartments = []) {
   );
 }
 
+/**
+ * Distinct department values for filters — same rules as Employee Master
+ * department dropdown (`departmentsFromData`): trimmed raw labels from records,
+ * case-insensitive de-dupe keeping first spelling, sorted.
+ */
+export function distinctDepartmentsFromRows(rows = []) {
+  const seen = new Map();
+  for (const row of rows || []) {
+    const value = String(row?.department ?? row ?? '').trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (!seen.has(key)) seen.set(key, value);
+  }
+  return Array.from(seen.values()).sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' })
+  );
+}
+
 /** Departments actually used in Employee Master (canonical labels, sorted, no curated defaults). */
 export async function fetchEmployeeMasterDepartmentsInUse(supabase) {
   const { data, error } = await supabase.from(EMPLOYEE_MASTER_TABLE).select('department');
@@ -108,6 +126,16 @@ export async function fetchEmployeeMasterDepartmentsInUse(supabase) {
   return Array.from(seen.values()).sort((a, b) =>
     a.localeCompare(b, undefined, { sensitivity: 'base' })
   );
+}
+
+/**
+ * Same option list as Employee Master → Department filter.
+ * Raw distinct departments from employee master (not merged with curated defaults).
+ */
+export async function fetchEmployeeMasterDepartmentFilterValues(supabase) {
+  const { data, error } = await supabase.from(EMPLOYEE_MASTER_TABLE).select('department');
+  if (error) throw error;
+  return distinctDepartmentsFromRows(data);
 }
 
 export async function fetchEmployeeMasterDepartments(supabase) {

@@ -73,8 +73,8 @@ export const EMPLOYEE_MASTER_TABLE = "admin_ifsp_employee_master";
 /** DB column: eTimeOffice punch / attendance join key (not employee_id). */
 export const EMPLOYEE_MASTER_CODE_COL = "employee_code";
 export const REGISTER_MARK_UPSERT_CHUNK = 200;
-/** Fixed columns before day 1 in register export (S.No, Machine ID, Emp code, Name, Dept). */
-export const REGISTER_EXPORT_DAY_COL_OFFSET = 5;
+/** Fixed columns before day 1 in register export (S.No, Machine ID, Emp code, Name, Dept, Designation). */
+export const REGISTER_EXPORT_DAY_COL_OFFSET = 6;
 export const PUNCH_FETCH_CHUNK = 1000;
 export const REGISTER_FETCH_CHUNK = 1000;
 export const REGISTER_FETCH_TIMEOUT_MS = 60000;
@@ -1309,6 +1309,7 @@ export function buildMonthlyRegisterGrid(
       employeeId: emp.employeeId || "",
       employeeName: emp.employeeName,
       department: emp.department || "",
+      designation: emp.designation || "",
       dateOfLeaving,
       dayMarks,
     };
@@ -4252,6 +4253,7 @@ export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { 
       employeeId: row.employeeId,
       employeeName: row.employeeName,
       department: row.department,
+      designation: row.designation,
       summary: row.summary,
       dayMarks: row.dayMarks,
     })),
@@ -4402,9 +4404,10 @@ export const REGISTER_EMPLOYEE_SORT_KEYS = new Set([
   "empCode",
   "employeeName",
   "department",
+  "designation",
 ]);
 
-/** Sort register grid rows by fixed employee columns (Machine ID, code, name, dept). */
+/** Sort register grid rows by fixed employee columns (Machine ID, code, name, dept, designation). */
 export function compareRegisterEmployeeSort(a, b, field, direction = "asc") {
   if (!REGISTER_EMPLOYEE_SORT_KEYS.has(field)) return 0;
   const asc = direction === "asc";
@@ -4437,18 +4440,30 @@ export function buildMonthlyRegisterCsv(rows, daysInMonth, monthKey) {
     "Employee code",
     "Employee Name",
     "Department",
+    "Designation",
     ...(dayHeaders.length ? dayHeaders : Array.from({ length: daysInMonth }, (_, i) => `d${i + 1}`)),
     ...REGISTER_SUMMARY_HEADERS,
   ];
   const lines = rows.map((row, rowIdx) => {
     const days = Array.from({ length: daysInMonth }, (_, i) => row.dayMarks[i + 1] || "");
-    return [rowIdx + 1, row.employeeId, row.empCode, row.employeeName, row.department || "", ...days, ...summaryCellsForRow(row)]
+    return [
+      rowIdx + 1,
+      row.employeeId,
+      row.empCode,
+      row.employeeName,
+      row.department || "",
+      row.designation || "",
+      ...days,
+      ...summaryCellsForRow(row),
+    ]
       .map(csvEscape)
       .join(",");
   });
   const footer = computeRegisterSummaryFooter(rows);
   const footerLine = [
     "Total",
+    "",
+    "",
     "",
     "",
     "",
@@ -4623,6 +4638,7 @@ async function downloadMonthlyRegisterExcelWithPunchWrap(rows, daysInMonth, mont
     "Employee code",
     "Employee Name",
     "Department",
+    "Designation",
     ...dayHeaders,
     ...REGISTER_SUMMARY_HEADERS,
   ];
@@ -4641,6 +4657,7 @@ async function downloadMonthlyRegisterExcelWithPunchWrap(rows, daysInMonth, mont
       row.empCode,
       row.employeeName,
       row.department || "",
+      row.designation || "",
       ...Array.from({ length: daysInMonth }, (_, i) =>
         resolveRegisterExportDayCell(row, i + 1, monthKey, punchByEmpDate, {
           includePunchDetail: true,
@@ -4677,6 +4694,8 @@ async function downloadMonthlyRegisterExcelWithPunchWrap(rows, daysInMonth, mont
     "",
     "",
     "",
+    "",
+    "",
     ...Array(daysInMonth).fill(""),
     footer.leave,
     footer.weekoff,
@@ -4693,6 +4712,7 @@ async function downloadMonthlyRegisterExcelWithPunchWrap(rows, daysInMonth, mont
     { width: 14 },
     { width: 22 },
     { width: 16 },
+    { width: 18 },
     ...Array.from({ length: daysInMonth }, () => ({ width: 14 })),
     ...Array.from({ length: REGISTER_SUMMARY_HEADERS.length }, () => ({ width: 12 })),
   ];
@@ -4731,6 +4751,7 @@ export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey, 
     "Employee code",
     "Employee Name",
     "Department",
+    "Designation",
     ...dayHeaders,
     ...REGISTER_SUMMARY_HEADERS,
   ];
@@ -4740,6 +4761,7 @@ export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey, 
     row.empCode,
     row.employeeName,
     row.department || "",
+    row.designation || "",
     ...Array.from({ length: daysInMonth }, (_, i) =>
       resolveRegisterExportDayCell(row, i + 1, monthKey, punchByEmpDate, {
         includePunchDetail: false,
@@ -4750,6 +4772,8 @@ export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey, 
   const footer = computeRegisterSummaryFooter(rows);
   data.push([
     "Total",
+    "",
+    "",
     "",
     "",
     "",

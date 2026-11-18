@@ -4,7 +4,7 @@
  */
 
 import { isLatePunchInRow, isOvertimeRow } from "../../lib/attendanceReports";
-import { TOKENS } from "../../theme/tokens";
+import { CHART_SERIES, UI_TOKENS } from "../../theme/tokens";
 
 function round1(n) {
   return Math.round((Number(n) || 0) * 10) / 10;
@@ -303,10 +303,14 @@ export function buildAttendanceBehaviourInsights(punchRows = [], filters = {}) {
     anomalyDays,
     notes,
     chartColors: {
-      present: TOKENS.accent,
-      late: TOKENS.warning,
-      ot: TOKENS.critical,
-      hours: TOKENS.teal,
+      // Cool vs warm series so late % and long-day % stay visually distinct.
+      present: CHART_SERIES[0],
+      late: UI_TOKENS.info,
+      ot: UI_TOKENS.accentViolet,
+      hours: UI_TOKENS.teal,
+      lateHot: UI_TOKENS.critical,
+      lateWarm: UI_TOKENS.warning,
+      lateOk: UI_TOKENS.info,
     },
   };
 }
