@@ -74,15 +74,21 @@ function paymentTermsText(form) {
   return out.length ? out : "";
 }
 
-function signoffCell(slot, form, width) {
+/**
+ * One sign-off box: the signer's signature image (saved boxes only, when given), name, and signing date and time.
+ * `signatures[slot]` = { data, type, width, height } from ocSignatureImages.js.
+ */
+function signoffCell(slot, form, width, signatures = {}) {
   const s = form.signoff[slot] || {};
   const signedAt = formatSignedAt(s.signed_at);
   const para = (children) => new Paragraph({ spacing: { before: 0, after: 40 }, children });
+  const img = s.saved_by && s.signed_by ? signatures[slot] : null;
   return new TableCell({
     width: { size: width, type: WidthType.DXA },
     margins: MARGINS,
     verticalAlign: VerticalAlign.TOP,
     children: [
+      ...(img ? [para([new ImageRun({ type: img.type, data: img.data, transformation: { width: img.width, height: img.height } })])] : []),
       para([run("Name: ", { bold: true }), run(s.signed_by || "")]),
       para(signedAt ? [run("Digitally signed", { size: 14, italics: true })] : [run(" ")]),
       para([run("Date & time: ", { bold: true }), run(signedAt)]),
@@ -92,9 +98,9 @@ function signoffCell(slot, form, width) {
 
 /**
  * @param {object} form  OC form state (ocModel shape)
- * @param {{ logo?: ArrayBuffer|Uint8Array|null }} [opts]  Indus logo (PNG) for the header
+ * @param {{ logo?: ArrayBuffer|Uint8Array|null, signatures?: object }} [opts]  Indus logo (PNG) for the header; signature images by slot
  */
-export function buildOcDocument(form, { logo = null } = {}) {
+export function buildOcDocument(form, { logo = null, signatures = {} } = {}) {
   const security = form.security_items.filter((r) => !securityRowBlank(r));
   const securityRows = (security.length ? security : [null, null]).map((r) => (r
     ? plain4([
@@ -164,7 +170,7 @@ export function buildOcDocument(form, { logo = null } = {}) {
       full("Date", formatOcDate(form.remarks_date)),
       heading(OC_SIGNOFF_HEADING),
       head4(SIGNOFF_SLOTS.map((s) => s.label)),
-      row(SIGNOFF_SLOTS.map((s, i) => signoffCell(s.slot, form, GRID[i])), 900),
+      row(SIGNOFF_SLOTS.map((s, i) => signoffCell(s.slot, form, GRID[i], signatures)), 900),
     ],
   });
 
@@ -193,5 +199,6 @@ async function loadIndusLogo() {
   }
 }
 
-export const buildOcDocx = async (form) => Packer.toBlob(buildOcDocument(form, { logo: await loadIndusLogo() }));
+export const buildOcDocx = async (form, { signatures = {} } = {}) =>
+  Packer.toBlob(buildOcDocument(form, { logo: await loadIndusLogo(), signatures }));
 export const buildOcDocxBuffer = (form, opts) => Packer.toBuffer(buildOcDocument(form, opts));

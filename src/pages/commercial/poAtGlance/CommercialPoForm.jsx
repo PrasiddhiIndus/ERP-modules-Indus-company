@@ -667,7 +667,21 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
 
             <Label>Cost Center in Tally</Label>
             <Value full>
-              <input className={inputCls} value={form.cost_center_tally} onChange={(e) => set("cost_center_tally", e.target.value)} />
+              {/* Finance Department only (the database rejects changes from anyone else). */}
+              <input
+                className={`${inputCls} read-only:bg-slate-100 read-only:text-slate-500`}
+                value={form.cost_center_tally}
+                readOnly={!isFinance}
+                placeholder={isFinance ? "" : "Filled by Finance"}
+                onChange={(e) => {
+                  if (isFinance) set("cost_center_tally", e.target.value);
+                }}
+              />
+              {!isFinance && canEdit && (
+                <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">
+                  <Lock className="h-3 w-3" /> Only the Finance Department can fill or change Cost Center in Tally.
+                </p>
+              )}
             </Value>
 
             <Label>OC No.</Label>

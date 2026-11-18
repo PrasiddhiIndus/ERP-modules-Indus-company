@@ -11,7 +11,7 @@ export function friendlyOcError(error, fallback = "Something went wrong. Please 
   console.error("[PO At Glance]", error);
   const msg = String(error.message || error);
   const code = String(error.code || "");
-  if (/^Only the Finance Department can fill or change the OC No\./.test(msg)) return msg;
+  if (/^Only the Finance Department can fill or change the (OC No\.|Cost Center in Tally\.)/.test(msg)) return msg;
   if (/can sign only after the previous stage|Only the person who created this OC|cannot be removed while a later stage/.test(msg)) {
     return msg;
   }
@@ -179,6 +179,45 @@ export async function pjStageSignatureBytes(ocId, slot) {
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
   return out;
+}
+
+function bytesFromBase64(b64) {
+  if (!b64) return null;
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** IEV / Maintenance / R&M: request body for the shared PO At Glance signature endpoint. */
+const deptSignatureRequest = (dept, ocId, slot, bytes) => ({
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ department: dept.key, ocId, slot, ...(bytes ? { bytes: true } : {}) }),
+});
+
+/**
+ * Viewable URL of the signature used on a saved sign-off box of any PO At Glance department ("" when none).
+ * Projects keeps its own endpoint; IEV, Maintenance and R&M use /api/po-at-glance/signature-file.
+ */
+export async function ocStageSignatureUrl(ocId, slot, dept = IEV_OC_DEPARTMENT) {
+  if (!ocId || !slot) return "";
+  if (dept.key === "projects") return pjStageSignatureUrl(ocId, slot);
+  try {
+    const res = await fetchApiWithAuth("/api/po-at-glance/signature-file", deptSignatureRequest(dept, ocId, slot, false));
+    return res.ok ? String(res.data?.url || "") : "";
+  } catch (e) {
+    console.warn("[PO At Glance] sign-off signature URL failed", slot, e);
+    return "";
+  }
+}
+
+/** Raw bytes of the signature used on a saved sign-off box (for Word export), or null. */
+export async function ocStageSignatureBytes(ocId, slot, dept = IEV_OC_DEPARTMENT) {
+  if (!ocId || !slot) return null;
+  if (dept.key === "projects") return pjStageSignatureBytes(ocId, slot);
+  const res = await fetchApiWithAuth("/api/po-at-glance/signature-file", deptSignatureRequest(dept, ocId, slot, true));
+  return res.ok ? bytesFromBase64(String(res.data?.base64 || "")) : null;
 }
 
 const PO_DOCUMENT_BUCKET = "projects-po-documents";

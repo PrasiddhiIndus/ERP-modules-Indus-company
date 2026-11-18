@@ -599,6 +599,54 @@ export async function sendThreadedMail({
       code: detail.code || null,
       message: detail.message,
     });
+
+    // Creating a draft needs broader mailbox rights than sendMail. If Graph denies
+    // draft/create, still deliver so PO At Glance departments get the notification.
+    const draftDenied =
+      detail.status === 403 ||
+      /Access is denied|AccessDenied|ErrorAccessDenied|ErrorSendAsDenied|MailboxNotEnabledForRESTAPI/i.test(
+        `${detail.code} ${detail.message}`
+      );
+    if (draftDenied) {
+      logMailInfo('graph.thread.root_fallback_sendMail', {
+        mailbox,
+        toCount: recipients.length,
+        subject: messageSubject.slice(0, 120),
+      });
+      // Prefer the original From; if that mailbox also cannot send, use the app notification mailbox.
+      const fallbackFrom = [mailbox, config.notificationEmail].filter(Boolean);
+      let deliveredVia = mailbox;
+      for (const row of recipients) {
+        let delivered = false;
+        let lastSendErr = null;
+        for (const fromAddr of fallbackFrom) {
+          try {
+            await sendMail({
+              from: fromAddr,
+              fromName,
+              to: row.email,
+              subject: messageSubject,
+              html: htmlBody,
+            });
+            deliveredVia = fromAddr;
+            delivered = true;
+            break;
+          } catch (sendErr) {
+            lastSendErr = sendErr;
+          }
+        }
+        if (!delivered) throw lastSendErr || httpError(detail.message, detail.status >= 400 ? detail.status : 502);
+      }
+      return {
+        ok: true,
+        messageId: null,
+        conversationId: null,
+        mailbox: deliveredVia,
+        threaded: false,
+        fallback: 'sendMail',
+      };
+    }
+
     throw httpError(detail.message, detail.status >= 400 ? detail.status : 502);
   }
 }

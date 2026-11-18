@@ -65,5 +65,12 @@ export const MAINTENANCE_OC_DEPARTMENT = {
   accessDeniedMessage: "You do not have access to Maintenance PO At Glance.",
   canEdit: mmOcCanEdit,
   canDelete: mmOcCanDelete,
-  buildDocx: (form) => import("./mmWordExport").then((m) => m.buildMmOcDocx(form)),
+  /** Word export with every saved box's own signature image, name, and signing date and time. */
+  buildDocx: async (form) => {
+    const [{ buildMmOcDocx }, { loadOcSignatureImages }] = await Promise.all([
+      import("./mmWordExport"),
+      import("../../projects/oc/ocSignatureImages"),
+    ]);
+    return buildMmOcDocx(form, { signatures: await loadOcSignatureImages(form, MAINTENANCE_OC_DEPARTMENT) });
+  },
 };
