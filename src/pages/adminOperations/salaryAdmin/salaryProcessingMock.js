@@ -628,12 +628,7 @@ export async function mockProcessSalaryMonth({
     }
     for (const emp of toProcess) {
       const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
-      const present = presentDaysFromRegisterMap(
-        presentMap,
-        [emp.employee_code, emp.employee_id],
-        0,
-        days
-      );
+      const present = presentDaysFromRegisterMap(presentMap, emp.employee_code, 0);
       let line = buildSheetLineFromSources({
         employee: emp,
         structure,
