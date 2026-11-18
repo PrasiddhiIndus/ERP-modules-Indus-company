@@ -1367,11 +1367,11 @@ export default function AdminOpsDashboard() {
         >
           {attendanceLoading ? (
             <p className="px-4 py-10 text-center type-meta text-ink-muted">Loading…</p>
-          ) : behaviour.habitualLate.length === 0 ? (
+          ) : lateBehaviour.habitualLate.length === 0 ? (
             <p className="px-4 py-10 text-center type-meta text-ink-muted">No repeated late pattern in range.</p>
           ) : (
             <ul className="divide-y divide-border max-h-[240px] overflow-y-auto">
-              {behaviour.habitualLate.map((row) => (
+              {lateBehaviour.habitualLate.map((row) => (
                 <li key={row.empCode}>
                   <button
                     type="button"

@@ -97,7 +97,7 @@ export function MultiMonthFilter({ value, onChange, dataKeys, labelFn = monthLab
           <button type="button" className="mmf-btn ghost" onClick={clearAll} disabled={!selected.length}><XSquare size={13} /> Clear selection</button>
         </div>
       </div>
-      {showMonths && (
+      {showMonths ? (
       <div className="mmf-months" role="group" aria-label={`Months of ${fyLabel(fy)}`}>
         {fyKeys.map((k) => {
           const m = Number(k.slice(5, 7));
@@ -117,13 +117,11 @@ export function MultiMonthFilter({ value, onChange, dataKeys, labelFn = monthLab
           );
         })}
       </div>
-      )}
-      {showMonths && (
+      ) : null}
       <div className="mmf-sum">
         <b>{selected.length}</b> month{selected.length === 1 ? "" : "s"} selected · {describeMonthSelection(selected, labelFn)}
         {outsideFy > 0 && <span className="muted-s"> · {outsideFy} outside {fyLabel(fy)}</span>}
       </div>
-      )}
     </div>
   );
 }

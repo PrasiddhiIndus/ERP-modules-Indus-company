@@ -19,17 +19,18 @@ const FREEZE_HEAD =
   "att-daily-freeze att-daily-freeze-head sticky top-0 border-b border-r border-divider box-border";
 const FREEZE_BODY = "att-daily-freeze att-daily-freeze-body sticky border-b border-r border-divider box-border";
 const COL_NUM = "left-0 w-9 min-w-[2.25rem] max-w-[2.25rem]";
-const COL_NAME = "left-9 w-44 min-w-[11rem] max-w-[11rem]";
-const COL_DESIG = "left-[13.25rem] w-[7.5rem] min-w-[7.5rem] max-w-[7.5rem] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.18)]";
+const COL_NAME = "left-9 w-48 min-w-[12rem] max-w-[12rem]";
+const COL_DESIG = "left-[14.25rem] w-32 min-w-[8rem] max-w-[8rem] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.18)]";
 
+/** Attendance mark cell tones — Present green, Leave/Absent red, Week-off yellow. */
 function codeClass(code) {
   const c = String(code || "").toUpperCase();
-  if (["P", "A", "B", "C", "G"].includes(c)) return "bg-emerald-50 text-emerald-800";
-  if (c === "HD") return "bg-amber-50 text-amber-900";
-  if (c === "L") return "bg-orange-50 text-orange-900";
-  if (c === "WO") return "bg-sky-50 text-sky-800";
-  if (c === "NH-PH") return "bg-violet-50 text-violet-800";
-  if (c === "CO") return "bg-teal-50 text-teal-800";
+  if (c === "P" || ["A", "B", "C", "G"].includes(c)) return "att-mark att-mark-present";
+  if (c === "L") return "att-mark att-mark-absent";
+  if (c === "WO") return "att-mark att-mark-wo";
+  if (c === "HD") return "att-mark att-mark-hd";
+  if (c === "NH-PH") return "att-mark att-mark-nh";
+  if (c === "CO") return "att-mark att-mark-co";
   return "";
 }
 
@@ -102,43 +103,6 @@ export default function AttendanceEntryPage({ readOnly = false }) {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Attendance");
     XLSX.writeFile(wb, `Attendance_${g.site.site_name}_${g.month}_${g.year}.xlsx`);
-  };
-
-  const importExcel = async (file) => {
-    if (!file || readOnly) return;
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: "array" });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-    if (!data.length) return;
-    const header = data[0].map((h) => String(h || ""));
-    const codeIdx = header.findIndex((h) => /code/i.test(h));
-    if (codeIdx < 0) {
-      toast.error("Could not find a Code column.");
-      return;
-    }
-    let saved = 0;
-    for (let i = 1; i < data.length; i++) {
-      const row = data[i];
-      const code = String(row[codeIdx] || "").trim();
-      const employee = g.employees.find((e) => String(e.unique_code).trim() === code);
-      if (!employee) continue;
-      for (const [di, day] of g.days.entries()) {
-        const col = 3 + di;
-        const attCode = String(row[col] || "").trim().toUpperCase();
-        if (!attCode) continue;
-        const gridRow = g.gridRows.find((r) => (r.person_id || r.id) === employee.id);
-        const ok = await g.persistCell({
-          personId: employee.id,
-          dateString: day.dateString,
-          gridDesignation: gridRow?.grid_designation || employee.designation,
-          attCode,
-          silent: true,
-        });
-        if (ok) saved++;
-      }
-    }
-    toast.success(`Imported marks for ${saved} cells.`);
   };
 
   const bulkDates = () => {
@@ -237,15 +201,9 @@ export default function AttendanceEntryPage({ readOnly = false }) {
         {g.site ? (
           <button type="button" className="erp-btn-secondary rounded-control px-3 py-1.5 text-xs" onClick={exportExcel}>Export Excel</button>
         ) : null}
-        {g.site && !readOnly && !g.locked ? (
-          <label className="text-xs erp-btn-secondary rounded-control px-3 py-1.5 cursor-pointer">
-            Import Excel
-            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => importExcel(e.target.files?.[0])} />
-          </label>
-        ) : null}
         {g.site && canSmartImport && !g.locked && g.days.length > 0 ? (
           <button type="button" className="erp-btn-secondary rounded-control px-3 py-1.5 text-xs" onClick={() => setSmartImportOpen(true)}>
-            Import with preview
+            Import Excel
           </button>
         ) : null}
       </FilterBar>
@@ -316,25 +274,25 @@ export default function AttendanceEntryPage({ readOnly = false }) {
               which makes sticky Name/Desig collide with scrolling date headers.
               Freeze cells use .att-daily-freeze-* (opaque bg + z-index above shell sticky rule).
             */}
-            <table className="erp-table-exempt att-daily-grid text-[11px] border-separate border-spacing-0 min-w-max">
+            <table className="erp-table-exempt att-daily-grid text-xs border-separate border-spacing-0 min-w-max">
               <thead>
                 <tr>
-                  <th className={`${FREEZE_HEAD} ${COL_NUM} px-1 py-1.5 text-center`}>#</th>
-                  <th className={`${FREEZE_HEAD} ${COL_NAME} px-2 py-1.5 text-left`}>Name</th>
-                  <th className={`${FREEZE_HEAD} ${COL_DESIG} px-2 py-1.5 text-left`}>Desig.</th>
+                  <th className={`${FREEZE_HEAD} ${COL_NUM} px-1.5 py-2 text-center text-[11px] font-semibold tracking-wide`}>#</th>
+                  <th className={`${FREEZE_HEAD} ${COL_NAME} px-2.5 py-2 text-left text-[11px] font-semibold tracking-wide`}>Name</th>
+                  <th className={`${FREEZE_HEAD} ${COL_DESIG} px-2.5 py-2 text-left text-[11px] font-semibold tracking-wide`}>Desig.</th>
                   {g.days.map((d) => (
                     <th
                       key={d.dateString}
-                      className={`att-daily-date-head sticky top-0 border-b border-r border-divider px-1 py-1 text-center min-w-[52px] ${g.isNhPh(d.dateString) ? "att-daily-date-head--nh" : ""}`}
+                      className={`att-daily-date-head sticky top-0 border-b border-r border-divider px-1.5 py-1.5 text-center min-w-[3.25rem] ${g.isNhPh(d.dateString) ? "att-daily-date-head--nh" : ""}`}
                     >
-                      <div>{d.day}{g.range && !isCalendarMonth(g.range.startDay, g.range.endDay) ? ` ${d.monthShort}` : ""}</div>
-                      <div className="text-[10px] text-ink-muted">{d.date.toLocaleDateString("en-GB", { weekday: "short" })}</div>
+                      <div className="text-[12px] font-semibold tabular-nums leading-tight">{d.day}{g.range && !isCalendarMonth(g.range.startDay, g.range.endDay) ? ` ${d.monthShort}` : ""}</div>
+                      <div className="text-[10px] text-ink-muted font-medium leading-tight mt-0.5">{d.date.toLocaleDateString("en-GB", { weekday: "short" })}</div>
                     </th>
                   ))}
-                  <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1">P</th>
-                  <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1">L</th>
-                  <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1">WO</th>
-                  <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1">OT</th>
+                  <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1.5 py-1.5 text-[11px] font-semibold min-w-[2.25rem]">P</th>
+                  <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1.5 py-1.5 text-[11px] font-semibold min-w-[2.25rem]">L</th>
+                  <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1.5 py-1.5 text-[11px] font-semibold min-w-[2.25rem]">WO</th>
+                  <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1.5 py-1.5 text-[11px] font-semibold min-w-[2.25rem]">OT</th>
                 </tr>
               </thead>
               <tbody>
@@ -346,12 +304,12 @@ export default function AttendanceEntryPage({ readOnly = false }) {
                   return (
                     <React.Fragment key={`${personId}-${desig}-${idx}`}>
                       <tr>
-                        <td className={`${FREEZE_BODY} ${COL_NUM} ${freezeTone} px-1 text-center`}>{idx + 1}</td>
-                        <td className={`${FREEZE_BODY} ${COL_NAME} ${freezeTone} px-2 whitespace-nowrap overflow-hidden text-ellipsis text-left`}>
-                          <span className="align-middle">{row.full_name}{row.isDefaultDesignationRow ? " *" : ""}</span>
+                        <td className={`${FREEZE_BODY} ${COL_NUM} ${freezeTone} px-1.5 py-0.5 text-center tabular-nums text-ink-muted`}>{idx + 1}</td>
+                        <td className={`${FREEZE_BODY} ${COL_NAME} ${freezeTone} px-2.5 py-0.5 whitespace-nowrap overflow-hidden text-ellipsis text-left`}>
+                          <span className="align-middle font-medium text-[12px] text-ink" title={row.full_name}>{row.full_name}{row.isDefaultDesignationRow ? " *" : ""}</span>
                           {g.multi && !readOnly ? (
                             <select
-                              className="ml-1 h-6 max-w-[4.5rem] text-[10px] border rounded align-middle"
+                              className="ml-1 h-6 max-w-[4.5rem] text-[10px] border border-border rounded align-middle bg-surface"
                               defaultValue=""
                               onChange={(e) => {
                                 if (e.target.value) g.copyToDesignation(personId, e.target.value);
@@ -365,20 +323,20 @@ export default function AttendanceEntryPage({ readOnly = false }) {
                             </select>
                           ) : null}
                         </td>
-                        <td className={`${FREEZE_BODY} ${COL_DESIG} ${freezeTone} px-2 whitespace-nowrap overflow-hidden text-ellipsis text-left`} title={desig}>{desig}</td>
+                        <td className={`${FREEZE_BODY} ${COL_DESIG} ${freezeTone} px-2.5 py-0.5 whitespace-nowrap overflow-hidden text-ellipsis text-left text-[11px] text-ink-muted`} title={desig}>{desig}</td>
                         {g.days.map((d) => {
                           const rec = g.getRecord(personId, d.dateString, desig);
                           const disabled = g.isCellDisabled(row, d.dateString);
                           return (
                             <td
                               key={d.dateString}
-                              className={`border-b border-r border-divider p-0 ${g.isNhPh(d.dateString) ? "bg-amber-50" : "bg-surface"} ${codeClass(rec?.att_code)} ${rec?._selfie ? "ring-1 ring-inset ring-sky-400" : ""}`}
+                              className={`att-daily-mark-cell border-b border-r border-divider p-0 ${g.isNhPh(d.dateString) && !rec?.att_code ? "bg-amber-50" : ""} ${codeClass(rec?.att_code)} ${rec?._selfie ? "ring-1 ring-inset ring-sky-400" : ""}`}
                               title={rec?._selfie ? `Selfie punch — In ${formatPunchTime(rec._selfie.in)} · Out ${formatPunchTime(rec._selfie.out)}${rec._selfie.address ? `
 ${rec._selfie.address}` : ""}
 Change to override.` : undefined}
                             >
                               <select
-                                className="w-full h-7 bg-transparent text-[11px] text-center"
+                                className="att-daily-mark-select w-full h-8 bg-transparent text-[12px] font-semibold text-center"
                                 disabled={disabled}
                                 value={rec?.att_code || ""}
                                 onChange={(e) => g.persistCell({ personId, dateString: d.dateString, gridDesignation: desig, attCode: e.target.value, clear: e.target.value === "" })}
@@ -390,14 +348,14 @@ Change to override.` : undefined}
                             </td>
                           );
                         })}
-                        <td className="border-b border-r border-divider px-1 text-center tabular-nums bg-surface">{tot.totalPresent ?? 0}</td>
-                        <td className="border-b border-r border-divider px-1 text-center tabular-nums bg-surface">{tot.totalLeave ?? 0}</td>
-                        <td className="border-b border-r border-divider px-1 text-center tabular-nums bg-surface">{tot.appliedWeekoff ?? 0}</td>
-                        <td className="border-b border-r border-divider px-1 text-center tabular-nums bg-surface">{tot.totalOT ?? 0}</td>
+                        <td className="border-b border-r border-divider px-1.5 text-center tabular-nums text-[12px] font-medium bg-surface">{tot.totalPresent ?? 0}</td>
+                        <td className="border-b border-r border-divider px-1.5 text-center tabular-nums text-[12px] font-medium bg-surface">{tot.totalLeave ?? 0}</td>
+                        <td className="border-b border-r border-divider px-1.5 text-center tabular-nums text-[12px] font-medium bg-surface">{tot.appliedWeekoff ?? 0}</td>
+                        <td className="border-b border-r border-divider px-1.5 text-center tabular-nums text-[12px] font-medium bg-surface">{tot.totalOT ?? 0}</td>
                       </tr>
                       <tr>
                         <td className={`${FREEZE_BODY} ${COL_NUM} ${freezeTone}`} />
-                        <td className={`${FREEZE_BODY} ${COL_NAME} ${freezeTone} text-[10px] text-ink-muted px-2 text-left`}>OT</td>
+                        <td className={`${FREEZE_BODY} ${COL_NAME} ${freezeTone} text-[10px] font-medium uppercase tracking-wide text-ink-muted px-2.5 text-left`}>OT</td>
                         <td className={`${FREEZE_BODY} ${COL_DESIG} ${freezeTone}`} />
                         {g.days.map((d) => {
                           const rec = g.getRecord(personId, d.dateString, desig);
@@ -409,7 +367,7 @@ Change to override.` : undefined}
                                 min="0"
                                 max="16"
                                 disabled={disabled}
-                                className="w-full h-6 text-center text-[11px] bg-transparent"
+                                className="w-full h-7 text-center text-[11px] tabular-nums bg-transparent"
                                 key={`${personId}-${d.dateString}-${desig}-${rec?.ot_hours || 0}`}
                                 defaultValue={rec?.ot_hours || ""}
                                 onBlur={(e) => g.persistOt({ personId, dateString: d.dateString, gridDesignation: desig, otHours: e.target.value })}

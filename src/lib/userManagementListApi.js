@@ -121,23 +121,34 @@ export async function fetchEmployeeCodesMatchingName(supabase, searchTerm) {
   if (!term || !supabase) return [];
 
   const pattern = escapeIlikePattern(term);
-  const { data, error } = await supabase
+  // Match display name or emp identifiers on Employee Master (User Management shows master names).
+  let result = await supabase
     .from(EMPLOYEE_MASTER_TABLE)
     .select("employee_code")
-    .ilike("full_name", `%${pattern}%`)
+    .or(`full_name.ilike.%${pattern}%,employee_code.ilike.%${pattern}%,employee_id.ilike.%${pattern}%`)
     .not("employee_code", "is", null)
     .neq("employee_code", "")
     .limit(NAME_MATCH_CODE_LIMIT);
 
-  if (error) {
-    // Fall back to profile-only search if Employee Master is unavailable.
-    console.warn("[user-mgmt] name search via Employee Master failed:", error.message || error);
+  if (result.error) {
+    // Older schemas may lack employee_id — fall back to name-only.
+    result = await supabase
+      .from(EMPLOYEE_MASTER_TABLE)
+      .select("employee_code")
+      .ilike("full_name", `%${pattern}%`)
+      .not("employee_code", "is", null)
+      .neq("employee_code", "")
+      .limit(NAME_MATCH_CODE_LIMIT);
+  }
+
+  if (result.error) {
+    console.warn("[user-mgmt] name search via Employee Master failed:", result.error.message || result.error);
     return [];
   }
 
   const codes = [];
   const seen = new Set();
-  for (const row of data || []) {
+  for (const row of result.data || []) {
     const code = String(row?.employee_code ?? "").trim();
     if (!code) continue;
     const key = code.toLowerCase();
@@ -152,35 +163,72 @@ function quotePostgrestValue(value) {
   return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
+/** Null or blank emp code (PostgREST). */
+const UNLINKED_EMP_CODE_OR = 'employee_code.is.null,employee_code.eq.""';
+
+/**
+ * Build search OR clauses for profiles (email / username / emp code / name-matched codes).
+ * Exported for unit tests.
+ */
+export function buildUserMgmtSearchOrParts(term, includeEmpCode, nameMatchCodes = []) {
+  const needle = String(term ?? "").trim();
+  if (!needle) return [];
+  const pattern = escapeIlikePattern(needle);
+  const parts = [`email.ilike.%${pattern}%`, `username.ilike.%${pattern}%`];
+  if (includeEmpCode) {
+    parts.push(`employee_code.ilike.%${pattern}%`);
+    const codes = (nameMatchCodes || [])
+      .map((c) => String(c ?? "").trim())
+      .filter(Boolean);
+    if (codes.length) {
+      parts.push(`employee_code.in.(${codes.map(quotePostgrestValue).join(",")})`);
+    }
+  }
+  return parts;
+}
+
+/**
+ * Apply list filters. Search + "missing emp code" are combined into a single `.or()`
+ * because PostgREST only keeps one top-level `or` query param (chained `.or()` overwrites).
+ */
 function applyFilters(query, filters, includeEmpCode, excludeProfileIds = [], nameMatchCodes = []) {
   let q = query;
-  if (excludeProfileIds.length) {
-    q = q.not("id", "in", `(${excludeProfileIds.join(",")})`);
+  const excludeIds = (excludeProfileIds || []).map((id) => String(id || "").trim()).filter(Boolean);
+  if (excludeIds.length) {
+    q = q.not("id", "in", `(${excludeIds.join(",")})`);
   }
+
   const term = String(filters.search ?? "").trim();
-  if (term) {
-    const pattern = escapeIlikePattern(term);
-    const parts = [`email.ilike.%${pattern}%`, `username.ilike.%${pattern}%`];
-    if (includeEmpCode) {
-      parts.push(`employee_code.ilike.%${pattern}%`);
-      if (nameMatchCodes.length) {
-        parts.push(`employee_code.in.(${nameMatchCodes.map(quotePostgrestValue).join(",")})`);
-      }
-    }
-    q = q.or(parts.join(","));
+  const searchParts = buildUserMgmtSearchOrParts(term, includeEmpCode, nameMatchCodes);
+  const wantUnlinked = includeEmpCode && filters.linkStatus === "unlinked";
+  const wantLinked = includeEmpCode && filters.linkStatus === "linked";
+
+  if (searchParts.length && wantUnlinked) {
+    // (match email|username|code) AND (code is null|blank) — expand to one OR of ANDs.
+    const expanded = searchParts
+      .map((part) => `and(${part},or(${UNLINKED_EMP_CODE_OR}))`)
+      .join(",");
+    q = q.or(expanded);
+  } else if (searchParts.length) {
+    q = q.or(searchParts.join(","));
+  } else if (wantUnlinked) {
+    q = q.or(UNLINKED_EMP_CODE_OR);
   }
 
-  if (filters.role) {
-    q = q.eq("role", filters.role);
-  }
-  if (filters.team) {
-    q = q.ilike("team", escapeIlikePattern(String(filters.team).trim()));
-  }
-
-  if (includeEmpCode && filters.linkStatus === "linked") {
+  if (wantLinked) {
     q = q.not("employee_code", "is", null).neq("employee_code", "");
-  } else if (includeEmpCode && filters.linkStatus === "unlinked") {
-    q = q.or("employee_code.is.null,employee_code.eq.");
+  }
+
+  const role = String(filters.role ?? "").trim();
+  if (role) {
+    // Case-insensitive exact match (legacy rows may differ in casing).
+    q = q.ilike("role", escapeIlikePattern(role));
+  }
+
+  const team = String(filters.team ?? "").trim();
+  if (team) {
+    // Case-insensitive exact match on the selected department label.
+    q = q.ilike("team", escapeIlikePattern(team));
   }
 
   return applySort(q, filters.sort || "created_desc", includeEmpCode);

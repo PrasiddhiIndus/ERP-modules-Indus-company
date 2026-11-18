@@ -50,10 +50,10 @@ export async function listFinancePos() {
 }
 
 /** Sets only the OC No. / OC date; rejected when the PO changed after `expectedUpdatedAt`. */
-/** Projects only: Finance fills Cost Center in Tally without changing the rest of the PO. */
-export async function setFinancePoCostCenter({ id, costCenter }) {
+/** Projects / Maintenance: Finance fills Cost Center in Tally without changing the rest of the PO. */
+export async function setFinancePoCostCenter({ department = "projects", id, costCenter }) {
   const { data, error } = await supabase.rpc("finance_po_set_cost_center", {
-    p_department: "projects",
+    p_department: department,
     p_id: id,
     p_cost_center: costCenter ?? "",
   });

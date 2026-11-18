@@ -21,6 +21,7 @@ import {
   setEmpCodeColumnSupported,
 } from "../lib/profileSelect";
 import { persistUserProfile } from "../lib/userManagementApi";
+import { resetUserPassword } from "../lib/userManagementResetPasswordApi";
 import {
   buildUserManagementExportRows,
   exportUserManagementToExcel,
@@ -51,6 +52,7 @@ import {
 import { EMPLOYEE_MASTER_SUBMODULE_KEY } from "./adminOperations/salaryAdmin/salaryAccess";
 import { ChevronDown as ChevronDownIcon } from "lucide-react";
 import {
+  fetchEmployeeMasterDepartmentFilterValues,
   fetchEmployeeMasterDepartmentsInUse,
   mergeEmployeeMasterDepartments,
 } from "../lib/employeeMasterDepartments";
@@ -62,6 +64,7 @@ import {
   X,
   Shield,
   Lock,
+  KeyRound,
   Plus,
   Trash2,
   Search,
@@ -713,6 +716,13 @@ const UserManagement = () => {
     l2_manager_name: "",
   });
   const [saving, setSaving] = useState(false);
+  const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
+  const [resetPasswordForm, setResetPasswordForm] = useState({
+    password: "",
+    confirmPassword: "",
+  });
+  const [resetPasswordError, setResetPasswordError] = useState("");
+  const [resetPasswordBusy, setResetPasswordBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
   const [createForm, setCreateForm] = useState({
@@ -771,15 +781,20 @@ const UserManagement = () => {
     (async () => {
       setTeamDepartmentsLoading(true);
       try {
-        const inUse = await fetchEmployeeMasterDepartmentsInUse(supabase);
+        // Filter dropdown = same values as Employee Master department filter.
+        // Edit/Create team select keeps merged curated + in-use list for assignment.
+        const [filterDepts, inUseCanonical] = await Promise.all([
+          fetchEmployeeMasterDepartmentFilterValues(supabase),
+          fetchEmployeeMasterDepartmentsInUse(supabase),
+        ]);
         if (!cancelled) {
-          setTeamFilterDepartments(inUse);
-          setTeamDepartments(mergeEmployeeMasterDepartments(inUse));
+          setTeamFilterDepartments(filterDepts);
+          setTeamDepartments(mergeEmployeeMasterDepartments(inUseCanonical));
         }
       } catch {
         if (!cancelled) {
           setTeamDepartments(mergeEmployeeMasterDepartments([]));
-          setTeamFilterDepartments(mergeEmployeeMasterDepartments([]));
+          setTeamFilterDepartments([]);
         }
       } finally {
         if (!cancelled) setTeamDepartmentsLoading(false);
@@ -791,13 +806,15 @@ const UserManagement = () => {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setSearchDebounced(searchInput.trim()), SEARCH_DEBOUNCE_MS);
+    const next = searchInput.trim();
+    // Debounce search + reset page in one timeout so React 18 batches both
+    // (avoids fetching page N with the new search before page is reset).
+    const timer = window.setTimeout(() => {
+      setSearchDebounced(next);
+      setPage(1);
+    }, SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [searchInput]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [searchDebounced]);
 
   const enrichProfilesWithHierarchy = useCallback(
     async (profiles) => {
@@ -978,12 +995,18 @@ const UserManagement = () => {
   const resetFilters = () => {
     setSearchInput("");
     setSearchDebounced("");
-    setFilters(DEFAULT_USER_MGMT_FILTERS);
+    setFilters({ ...DEFAULT_USER_MGMT_FILTERS });
     setPage(1);
+    setError("");
   };
 
   const updateFilter = (patch) => {
-    setFilters((prev) => ({ ...prev, ...patch }));
+    setFilters((prev) => {
+      const next = { ...prev, ...patch };
+      if (next.linkStatus == null || next.linkStatus === "") next.linkStatus = "all";
+      if (!next.sort) next.sort = DEFAULT_USER_MGMT_FILTERS.sort;
+      return next;
+    });
     setPage(1);
   };
 
@@ -1155,6 +1178,61 @@ const UserManagement = () => {
     setEditMasterLookup({ loading: false, name: "" });
     setEditBillingVerticals(emptyBillingVerticalState());
     setSaving(false);
+    setResetPasswordOpen(false);
+    setResetPasswordForm({ password: "", confirmPassword: "" });
+    setResetPasswordError("");
+    setResetPasswordBusy(false);
+  };
+
+  const openResetPasswordModal = () => {
+    setResetPasswordForm({ password: "", confirmPassword: "" });
+    setResetPasswordError("");
+    setResetPasswordBusy(false);
+    setResetPasswordOpen(true);
+  };
+
+  const closeResetPasswordModal = () => {
+    if (resetPasswordBusy) return;
+    setResetPasswordOpen(false);
+    setResetPasswordForm({ password: "", confirmPassword: "" });
+    setResetPasswordError("");
+  };
+
+  const submitResetPassword = async () => {
+    if (!editId || resetPasswordBusy) return;
+    const password = String(resetPasswordForm.password || "");
+    const confirmPassword = String(resetPasswordForm.confirmPassword || "");
+    if (!password || !confirmPassword) {
+      setResetPasswordError("Enter and confirm the new password.");
+      return;
+    }
+    if (password.length < 8) {
+      setResetPasswordError("Password must be at least 8 characters.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setResetPasswordError("New password and confirmation do not match.");
+      return;
+    }
+
+    setResetPasswordBusy(true);
+    setResetPasswordError("");
+    try {
+      const result = await resetUserPassword(supabase, { userId: editId, password });
+      if (!result.ok) {
+        setResetPasswordError(result.message || "Could not reset password.");
+        return;
+      }
+      setResetPasswordOpen(false);
+      setResetPasswordForm({ password: "", confirmPassword: "" });
+      setSaveNotice(
+        `Password updated for ${editForm.username || editForm.email || "user"}. Other user details were not changed.`
+      );
+    } catch (err) {
+      setResetPasswordError(err?.message || "Could not reset password.");
+    } finally {
+      setResetPasswordBusy(false);
+    }
   };
 
   const editHasBillingAccess = profileHasBillingModuleAccess(editForm);
@@ -1921,7 +1999,7 @@ const UserManagement = () => {
       {/* Edit modal */}
       {editId && (
         <div className="fixed inset-0 z-50 flex bg-black/50 p-2 sm:p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full h-full flex flex-col overflow-hidden">
+          <div className="relative bg-white rounded-xl shadow-xl w-full h-full flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 sm:px-6 border-b shrink-0">
               <div className="min-w-0">
                 <h2 className="text-lg font-semibold text-gray-900">Edit user access</h2>
@@ -1940,10 +2018,22 @@ const UserManagement = () => {
             </div>
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid gap-6 lg:grid-cols-[minmax(320px,440px)_1fr] items-start">
             <div className="space-y-4 lg:sticky lg:top-0">
-              <p className="text-sm text-gray-500 flex items-center gap-2">
-                <Lock className="w-4 h-4" />
-                Passwords cannot be changed here.
-              </p>
+              <div className="rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm text-gray-600 flex items-center gap-2 min-w-0">
+                    <Lock className="w-4 h-4 shrink-0" />
+                    <span>Auth password only — does not change access or profile fields.</span>
+                  </p>
+                  <button
+                    type="button"
+                    onClick={openResetPasswordModal}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-white text-sm font-semibold text-indigo-700 hover:bg-indigo-50"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                    Reset Password
+                  </button>
+                </div>
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Email (login)</label>
@@ -2185,6 +2275,104 @@ const UserManagement = () => {
               </button>
             </div>
           </div>
+
+          {resetPasswordOpen ? (
+            <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="reset-password-title"
+                className="w-full max-w-md rounded-xl bg-white shadow-xl border border-gray-200"
+              >
+                <div className="flex items-center justify-between px-4 py-3 border-b">
+                  <div className="min-w-0">
+                    <h3 id="reset-password-title" className="text-base font-semibold text-gray-900">
+                      Reset Password
+                    </h3>
+                    <p className="text-xs text-gray-500 truncate">
+                      {editForm.username || editForm.email || "User"}
+                      {editForm.employee_code ? ` · ${editForm.employee_code}` : ""}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeResetPasswordModal}
+                    disabled={resetPasswordBusy}
+                    className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 disabled:opacity-50"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="p-4 space-y-3">
+                  <p className="text-xs text-gray-500">
+                    Updates the sign-in password only. Roles, modules, team, and profile fields are not changed.
+                  </p>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+                    <input
+                      type="password"
+                      name="reset-new-password"
+                      autoComplete="new-password"
+                      value={resetPasswordForm.password}
+                      onChange={(e) =>
+                        setResetPasswordForm((prev) => ({ ...prev, password: e.target.value }))
+                      }
+                      disabled={resetPasswordBusy}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      placeholder="At least 8 characters"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Confirm New Password
+                    </label>
+                    <input
+                      type="password"
+                      name="reset-confirm-password"
+                      autoComplete="new-password"
+                      value={resetPasswordForm.confirmPassword}
+                      onChange={(e) =>
+                        setResetPasswordForm((prev) => ({
+                          ...prev,
+                          confirmPassword: e.target.value,
+                        }))
+                      }
+                      disabled={resetPasswordBusy}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      placeholder="Re-enter new password"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          submitResetPassword();
+                        }
+                      }}
+                    />
+                  </div>
+                  {resetPasswordError ? (
+                    <p className="text-sm text-red-700 whitespace-pre-wrap">{resetPasswordError}</p>
+                  ) : null}
+                </div>
+                <div className="flex items-center justify-end gap-2 px-4 py-3 border-t bg-gray-50 rounded-b-xl">
+                  <button
+                    type="button"
+                    onClick={closeResetPasswordModal}
+                    disabled={resetPasswordBusy}
+                    className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-white disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitResetPassword}
+                    disabled={resetPasswordBusy}
+                    className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {resetPasswordBusy ? "Resetting…" : "Reset Password"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 
