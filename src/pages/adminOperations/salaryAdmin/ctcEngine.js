@@ -28,12 +28,18 @@ export const CATEGORY_NEW_PROBATION = "new_probation";
 export const CATEGORY_NEW_EMPLOYEE_CONTRACT = "new_employee_contract";
 export const CATEGORY_NEW_JOINER_NEW_SCHEME = "new_joiner_new_scheme";
 export const CATEGORY_PROBATION_TO_CONFIRMED = "probation_to_confirmed";
+/** Create CTC — simplified Take Home / full CTC choice. */
+export const CATEGORY_VOUCHER_EMPLOYEE = "voucher_employee";
+export const CATEGORY_CONSULTANT = "consultant";
+export const CATEGORY_APPRENTICE = "apprentice";
 
 export const RETAIN_GROSS = "retain_gross";
 export const RETAIN_CTC = "retain_ctc";
 
 export const INPUT_GROSS = "gross";
 export const INPUT_CTC = "ctc";
+/** Create CTC Take Home path — net only, no statutory breakup. */
+export const INPUT_TAKE_HOME = "take_home";
 
 export const VALIDATION_ERROR_GROSS_BELOW_MIN = "error_gross_below_min";
 export const VALIDATION_CHECK_CTC_MISMATCH = "check_ctc_mismatch";

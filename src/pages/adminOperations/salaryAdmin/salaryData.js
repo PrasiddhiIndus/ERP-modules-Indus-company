@@ -1103,6 +1103,14 @@ export function defaultPtForGross(grossWages) {
   return Number(grossWages) >= PT_GROSS_MIN ? PT_AMOUNT : 0;
 }
 
+function structureIsTakeHomeOnly(structure) {
+  return (
+    structure?.structure_version === "take_home_net" ||
+    structure?.input_basis === "take_home" ||
+    Boolean(structure?.take_home_only)
+  );
+}
+
 /**
  * Monthly processing from saved CTC.
  * Part A amounts are read from the structure (not re-derived).
@@ -1120,6 +1128,35 @@ export function computeProcessingRow({
   tds = 0,
 } = {}) {
   const declared = Boolean(structure?.declared);
+  if (declared && structureIsTakeHomeOnly(structure)) {
+    const net = round0(structure.take_home_monthly ?? structure.gross_monthly ?? structure.ctc_monthly ?? 0);
+    const K = Number(presentDays);
+    const TotalDays = Number(totalDays) || DEFAULT_MONTH_DAYS;
+    return {
+      declared: true,
+      take_home_only: true,
+      salary_rate: net,
+      present_days: Number.isFinite(K) ? K : 0,
+      total_days: TotalDays,
+      pf_basic: 0,
+      pf_earned_basic: 0,
+      basic: 0,
+      basic_earned: 0,
+      hra: 0,
+      special_allowance: 0,
+      gross_wages: net,
+      emp_pf: 0,
+      emp_esic: 0,
+      pt: 0,
+      loan: 0,
+      sal_adv: 0,
+      unpaid_paid: 0,
+      tds: 0,
+      total_ded: 0,
+      net_salary: net,
+      bank: net,
+    };
+  }
   const basicN = declared ? round0(structure.basic_monthly) : 0;
   const specialStored = declared ? round0(structure.special_allowance_monthly) : 0;
   const hraStored = declared

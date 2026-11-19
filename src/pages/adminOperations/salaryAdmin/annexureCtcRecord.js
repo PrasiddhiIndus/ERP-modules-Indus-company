@@ -5,14 +5,19 @@
  */
 
 import {
+  CATEGORY_APPRENTICE,
+  CATEGORY_CONSULTANT,
   CATEGORY_EXISTING_CONFIRMED,
   CATEGORY_EXISTING_CONTRACT,
   CATEGORY_NEW_EMPLOYEE_CONTRACT,
   CATEGORY_NEW_JOINER_NEW_SCHEME,
   CATEGORY_NEW_PROBATION,
   CATEGORY_PROBATION_TO_CONFIRMED,
+  CATEGORY_VOUCHER_EMPLOYEE,
   EXTRA_PART_A,
+  INPUT_TAKE_HOME,
   STATUS_CONFIRMED,
+  STATUS_PROBATION,
   annexurePaValue,
   extraComponentKey,
   normalizeExtraComponents,
@@ -25,6 +30,8 @@ import {
 } from "./ctcEngine";
 
 export const ANNEXURE_STRUCTURE_VERSION = "annexure_2026";
+/** Simplified Create CTC — Net Salary only (voucher / consultant / apprentice). */
+export const TAKE_HOME_STRUCTURE_VERSION = "take_home_net";
 
 export const CATEGORY_OPTIONS = Object.freeze([
   { value: CATEGORY_EXISTING_CONFIRMED, label: "Existing / Confirmed" },
@@ -33,7 +40,29 @@ export const CATEGORY_OPTIONS = Object.freeze([
   { value: CATEGORY_NEW_EMPLOYEE_CONTRACT, label: "New Employee / Contract" },
   { value: CATEGORY_NEW_JOINER_NEW_SCHEME, label: "New Joiner / New Scheme" },
   { value: CATEGORY_PROBATION_TO_CONFIRMED, label: "Probation → Confirmed" },
+  { value: CATEGORY_VOUCHER_EMPLOYEE, label: "Voucher Employee" },
+  { value: CATEGORY_CONSULTANT, label: "Consultant" },
+  { value: CATEGORY_APPRENTICE, label: "Apprentice" },
 ]);
+
+export const TAKE_HOME_CATEGORIES = Object.freeze([
+  CATEGORY_VOUCHER_EMPLOYEE,
+  CATEGORY_CONSULTANT,
+  CATEGORY_APPRENTICE,
+]);
+
+export function isTakeHomeCategory(category) {
+  return TAKE_HOME_CATEGORIES.includes(category);
+}
+
+export function isTakeHomeStructure(row) {
+  if (!row) return false;
+  return (
+    row.structure_version === TAKE_HOME_STRUCTURE_VERSION ||
+    row.input_basis === INPUT_TAKE_HOME ||
+    Boolean(row.take_home_only)
+  );
+}
 
 export const REVISION_TYPE_OPTIONS = Object.freeze([
   { value: "initial", label: "Initial" },
@@ -61,7 +90,83 @@ export function skillLabel(skill) {
 }
 
 export function isAnnexureRecord(row) {
-  return row?.structure_version === ANNEXURE_STRUCTURE_VERSION;
+  return row?.structure_version === ANNEXURE_STRUCTURE_VERSION && !isTakeHomeStructure(row);
+}
+
+/**
+ * Create CTC → Take Home path. Stores Net Salary only; no statutory breakup.
+ * Used for Voucher Employee / Consultant / Apprentice when Take Home is selected.
+ */
+export function takeHomeToStructurePayload(netSalary, meta = {}) {
+  const net = round2(netSalary);
+  const category = meta.category || null;
+  return {
+    structure_version: TAKE_HOME_STRUCTURE_VERSION,
+    employee_level: "office",
+    basic_mode: "custom",
+    hra_mode: "custom",
+    emp_esic_mode: "custom",
+    er_esic_mode: "custom",
+    leave_encash_mode: "custom",
+    gratuity_mode: "custom",
+    gross_monthly: net,
+    basic_monthly: 0,
+    hra_monthly: 0,
+    special_allowance_monthly: 0,
+    conveyance_monthly: 0,
+    stat_bonus_monthly: 0,
+    medical_allowance_monthly: 0,
+    perf_incentive_enabled: false,
+    perf_incentive_monthly: 0,
+    extra_components_json: [],
+    emp_pf_monthly: 0,
+    pf_wage_monthly: 0,
+    pt_monthly: 0,
+    emp_esic_monthly: 0,
+    emp_esic_applicable: false,
+    take_home_monthly: net,
+    esic_enabled: false,
+    esic_ceiling: null,
+    esic_emp_rate_pct: null,
+    esic_er_rate_pct: null,
+    esic_eligible: false,
+    er_pf_monthly: 0,
+    er_esic_monthly: 0,
+    er_esic_applicable: false,
+    gratuity_monthly: 0,
+    leave_encash_monthly: 0,
+    mediclaim_enabled: false,
+    mediclaim_monthly: 0,
+    ex_gratia_monthly: 0,
+    lic_enabled: false,
+    lic_monthly: 0,
+    special_perf_bonus_enabled: false,
+    special_perf_bonus_monthly: 0,
+    bonus_monthly: 0,
+    total_b_monthly: 0,
+    ctc_monthly: net,
+    ctc_annual: round2(net * 12),
+    pa_overrides_json: {},
+    formula_overrides_json: {},
+    declared: true,
+    wef_date: meta.wefDate,
+    revision_reason: meta.reason || "Take Home net salary",
+    revision_type: meta.revisionType || null,
+    skill_category: normalizeSkill(meta.skill),
+    salary_scheme: normalizeScheme(meta.scheme),
+    employee_status: normalizeStatus(meta.status) || STATUS_PROBATION,
+    employee_category: category,
+    salary_band: null,
+    input_basis: INPUT_TAKE_HOME,
+    input_amount: net,
+    rule_version_id: null,
+    validation_status: null,
+    is_custom: false,
+    custom_overrides_json: {},
+    system_values_json: {},
+    date_of_birth: meta.employee?.date_of_birth || null,
+    date_of_joining: meta.employee?.date_of_joining || null,
+  };
 }
 
 function n(v) {
@@ -236,21 +341,27 @@ export function buildCtcHistory(structure) {
 }
 
 export function historyRowSummary(row) {
+  const takeHome = isTakeHomeStructure(row);
   const annex = isAnnexureRecord(row);
   return {
     key: row.__key,
     current: Boolean(row.__current),
     effective_from: row.effective_from,
     effective_to: row.effective_to,
-    revision_type: annex ? revisionTypeLabel(row.revision_type) : "Earlier structure",
+    revision_type: takeHome
+      ? "Take Home"
+      : annex
+        ? revisionTypeLabel(row.revision_type)
+        : "Earlier structure",
     gross: n(row.gross_monthly),
     ctc: n(row.ctc_monthly),
     take_home: n(row.take_home_monthly),
-    status: annex ? statusLabel(row.employee_status) : "—",
-    scheme: annex ? schemeLabel(row.salary_scheme) : "—",
+    status: takeHome || annex ? statusLabel(row.employee_status) : "—",
+    scheme: takeHome ? "Take Home" : annex ? schemeLabel(row.salary_scheme) : "—",
     band: annex ? row.salary_band : null,
     is_custom: annex && Boolean(row.is_custom),
     annexure: annex,
+    take_home_only: takeHome,
     reason: row.revision_reason || "",
     row,
   };

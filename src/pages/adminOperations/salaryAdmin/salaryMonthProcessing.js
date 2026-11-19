@@ -23,7 +23,7 @@ import {
   seedSalaryDeductionsMapFromDb,
 } from "../../admin/employeeMaster/deductions/deductionsDb";
 import { resolvePersonComponentsForPayroll } from "./salaryComponentsCatalog";
-import { annexureFromLine, annexureLineInputs } from "./annexureCtcRecord";
+import { annexureFromLine, annexureLineInputs, isTakeHomeStructure } from "./annexureCtcRecord";
 import {
   appendProcessBatch,
   applyRevisionToRunSheet,
@@ -532,8 +532,11 @@ export function buildSheetLineFromSources({
     ctc_monthly: structure?.ctc_monthly,
   };
 
-  const personComps = resolvePersonComponentsForPayroll(employee.id, structureLike);
-  const annexure = computed.declared ? annexureLineInputs(structure) : null;
+  const takeHomeOnly = Boolean(computed.take_home_only) || isTakeHomeStructure(structure);
+  const personComps = takeHomeOnly
+    ? { custom_earn_full: 0, custom_ded_full: 0, custom_employer_full: 0, items: [] }
+    : resolvePersonComponentsForPayroll(employee.id, structureLike);
+  const annexure = !takeHomeOnly && computed.declared ? annexureLineInputs(structure) : null;
   const pfBasicSeed = annexure ? annexure.pf_wage_full : computed.pf_basic;
 
   const snapshot = {
@@ -551,19 +554,20 @@ export function buildSheetLineFromSources({
     salary_rate: computed.salary_rate,
     ctc_monthly: structure?.ctc_monthly ?? null,
     wef_date: structure?.wef_date || null,
-    basic_full: basicFull,
-    hra_full: hraFull,
-    special_full: specialFull,
-    pf_basic: pfBasicSeed,
+    basic_full: takeHomeOnly ? 0 : basicFull,
+    hra_full: takeHomeOnly ? 0 : hraFull,
+    special_full: takeHomeOnly ? 0 : specialFull,
+    pf_basic: takeHomeOnly ? 0 : pfBasicSeed,
     present_days: payableDays,
-    loan: computed.loan,
-    sal_adv: computed.sal_adv,
-    unpaid_paid: computed.unpaid_paid,
-    tds: computed.tds,
-    pt_amount: computed.pt,
+    loan: takeHomeOnly ? 0 : computed.loan,
+    sal_adv: takeHomeOnly ? 0 : computed.sal_adv,
+    unpaid_paid: takeHomeOnly ? 0 : computed.unpaid_paid,
+    tds: takeHomeOnly ? 0 : computed.tds,
+    pt_amount: takeHomeOnly ? 0 : computed.pt,
     custom_earn_full: personComps.custom_earn_full,
     custom_ded_full: personComps.custom_ded_full,
     custom_components: personComps.items,
+    ...(takeHomeOnly ? { take_home_only: true } : {}),
     ...(annexure ? { annexure } : {}),
   };
 
@@ -612,6 +616,7 @@ export function buildSheetLineFromSources({
       custom_ded_full: personComps.custom_ded_full,
       custom_employer_full: personComps.custom_employer_full,
       custom_components: personComps.items,
+      ...(takeHomeOnly ? { take_home_only: true } : {}),
       ...(annexure ? { annexure } : {}),
     },
     line_revision_no: 1,
@@ -627,6 +632,7 @@ export function buildSheetLineFromSources({
       ...(recomputed.computed_json || {}),
       custom_components: personComps.items,
       custom_employer_full: personComps.custom_employer_full,
+      ...(takeHomeOnly ? { take_home_only: true } : {}),
       ...(annexure ? { annexure } : {}),
     },
   };
@@ -686,16 +692,74 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
   const rawPresent = line.present_days;
   const presentUnknown = rawPresent === "" || rawPresent == null;
   const K = presentUnknown ? 0 : presentDaysFromRegisterTotal(rawPresent);
-  const pfBasic = num(line.pf_basic);
-  const basicFull = num(line.basic_full);
-  const hraFull = num(line.hra_full);
-  const specialFull = num(line.special_full);
   const {
     extra_earnings: _staleCjEarn,
     extra_deductions: _staleCjDed,
     ...cj
   } = line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
   const snap = line.source_snapshot_json && typeof line.source_snapshot_json === "object" ? line.source_snapshot_json : {};
+  const takeHomeOnly = Boolean(
+    line.take_home_only || cj.take_home_only || snap.take_home_only || isTakeHomeStructure(cj) || isTakeHomeStructure(snap)
+  );
+  if (takeHomeOnly) {
+    const net = round0(
+      line.salary_rate != null && line.salary_rate !== ""
+        ? line.salary_rate
+        : cj.salary_rate ?? snap.salary_rate ?? line.net_salary ?? cj.net_salary ?? 0
+    );
+    return {
+      ...line,
+      present_days: presentUnknown ? rawPresent : K,
+      total_days: td,
+      salary_rate: net,
+      pf_basic: 0,
+      pf_earned_basic: 0,
+      basic_full: 0,
+      basic_earned: 0,
+      hra_full: 0,
+      hra_earned: 0,
+      special_full: 0,
+      special_allowance: 0,
+      custom_earn_full: 0,
+      custom_ded_full: 0,
+      custom_earn: 0,
+      custom_ded: 0,
+      gross_wages: net,
+      emp_pf: 0,
+      emp_esic: 0,
+      pt_amount: 0,
+      loan: 0,
+      sal_adv: 0,
+      unpaid_paid: 0,
+      tds: 0,
+      total_ded: 0,
+      net_salary: net,
+      bank_amount: net,
+      take_home_only: true,
+      computed_json: {
+        ...cj,
+        take_home_only: true,
+        salary_rate: net,
+        gross_wages: net,
+        emp_pf: 0,
+        emp_esic: 0,
+        pt: 0,
+        total_ded: 0,
+        net_salary: net,
+        bank: net,
+        custom_earn_full: 0,
+        custom_ded_full: 0,
+        custom_earn: 0,
+        custom_ded: 0,
+        custom_components: [],
+      },
+      source_snapshot_json: { ...snap, take_home_only: true, salary_rate: net },
+    };
+  }
+  const pfBasic = num(line.pf_basic);
+  const basicFull = num(line.basic_full);
+  const hraFull = num(line.hra_full);
+  const specialFull = num(line.special_full);
   const customEarnFull = num(
     line.custom_earn_full != null ? line.custom_earn_full : cj.custom_earn_full ?? snap.custom_earn_full
   );
