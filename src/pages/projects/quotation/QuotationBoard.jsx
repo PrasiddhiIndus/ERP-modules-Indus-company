@@ -60,7 +60,7 @@ export default function QuotationBoard() {
       setDraggingId(null);
       return;
     }
-    if (!canTransitionStatus(row.offer_status, targetStatus)) {
+    if (!canTransitionStatus(row.offer_status, targetStatus, userProfile)) {
       setError(`Cannot move from "${row.offer_status}" to "${targetStatus}".`);
       setDraggingId(null);
       return;

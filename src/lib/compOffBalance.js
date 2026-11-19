@@ -330,6 +330,12 @@ export function formatCompOffError(err) {
   if (/could not find the function.*set_comp_off_month_balance/i.test(msg)) {
     return "Month C/O balance is not set up yet. Apply migration 20261021140000_comp_off_set_month_balance_full_year.sql.";
   }
+  if (
+    /comp_off_manual_deduct_month_amount/i.test(msg) &&
+    (/does not exist/i.test(msg) || /could not find the function/i.test(msg))
+  ) {
+    return "Month C/O deduct helper is missing. Apply migration 20261119103000_comp_off_manual_deduct_month_amount_ensure.sql.";
+  }
   if (/could not find the function.*fetch_comp_off_credit_ledger/i.test(msg)) {
     return "C/O earned-date ledger is not set up yet. Apply migration 20261104130000_comp_off_earned_date_ledger_fetch.sql.";
   }

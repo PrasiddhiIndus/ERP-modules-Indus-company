@@ -754,8 +754,12 @@ export default function EnquiryDatabase() {
               <div className="p-12 text-center text-gray-500 text-sm">No enquiry records found.</div>
             ) : (
               <div className="overflow-auto max-h-[75vh]">
+                {/*
+                  erp-table-exempt + border-separate: shell border-collapse makes sticky
+                  Actions drift/overlap while scrolling horizontally.
+                */}
                 <table
-                  className="text-xs border-collapse enquiry-database-table"
+                  className="erp-table-exempt text-xs border-separate border-spacing-0 enquiry-database-table"
                   style={{ tableLayout: 'fixed', width: getEnquiryTableWidth(databaseFields, { withDaysLeft: hasTargetColumn }) }}
                 >
                   {/* Sticky is on each th (not thead) so Actions can stick top+right together. */}
@@ -812,9 +816,10 @@ export default function EnquiryDatabase() {
                           width: ACTIONS_COLUMN_WIDTH,
                           minWidth: ACTIONS_COLUMN_WIDTH,
                           maxWidth: ACTIONS_COLUMN_WIDTH,
+                          backgroundColor: 'var(--info-soft, #e8f2ff)',
                           boxShadow: '-6px 0 8px -6px rgba(15, 23, 42, 0.18), inset 1px 0 0 var(--border)',
                         }}
-                        className="sticky top-0 right-0 z-30 font-bold text-black border-b border-gray-200 bg-info-soft whitespace-nowrap leading-[1.15] text-center px-1.5 py-2 align-middle"
+                        className="enquiry-actions-col sticky top-0 right-0 z-30 font-bold text-black border-b border-gray-200 whitespace-nowrap leading-[1.15] text-center px-1.5 py-2 align-middle"
                       >
                         Actions
                       </th>
@@ -889,7 +894,7 @@ export default function EnquiryDatabase() {
                             );
                           })}
                           <td
-                            className="sticky right-0 z-20 py-2 whitespace-nowrap text-center border-l border-black/5 px-1.5 align-middle"
+                            className="enquiry-actions-col sticky right-0 z-20 py-2 whitespace-nowrap text-center border-l border-black/5 px-1.5 align-middle"
                             style={{
                               backgroundColor: bg,
                               width: ACTIONS_COLUMN_WIDTH,

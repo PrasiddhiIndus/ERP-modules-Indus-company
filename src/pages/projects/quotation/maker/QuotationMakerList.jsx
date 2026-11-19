@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowDown,
   ArrowUp,
@@ -46,6 +46,7 @@ import QuotationMasterImportModal from './QuotationMasterImportModal';
 import QuotationViewDrawer from './QuotationViewDrawer';
 import QuotationDeletionRequests from './QuotationDeletionRequests';
 import QuotationOrderLostRequests from './QuotationOrderLostRequests';
+import QuotationOrderLostMyStatus from './QuotationOrderLostMyStatus';
 import {
   deleteQuotationAsSuperAdmin,
   deletionErrorMessage,
@@ -54,6 +55,7 @@ import {
 } from '../quotationDeletionApi';
 import {
   ORDER_LOST_STATUS,
+  listMyOrderLostRequests,
   listPendingOrderLostRequests,
   needsOrderLostApproval,
   orderLostErrorMessage,
@@ -109,6 +111,7 @@ function isSuperAdminRole(profile) {
 
 export default function QuotationMakerList() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, userProfile } = useAuth();
   const canDeleteDirectly = isSuperAdminRole(userProfile);
   const [rows, setRows] = useState([]);
@@ -124,6 +127,7 @@ export default function QuotationMakerList() {
   const [importOpen, setImportOpen] = useState(false);
   const [deletionRequests, setDeletionRequests] = useState([]);
   const [orderLostRequests, setOrderLostRequests] = useState([]);
+  const [myOrderLostRequests, setMyOrderLostRequests] = useState([]);
   const [deleteAsk, setDeleteAsk] = useState(null);
   const [deleteReason, setDeleteReason] = useState('');
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -160,12 +164,28 @@ export default function QuotationMakerList() {
     void load();
   }, [load]);
 
+  /** Deep-link from quotation status notification → open View drawer. */
+  useEffect(() => {
+    const openId = location.state?.openQuotationId;
+    if (!openId || loading) return;
+    const exists = rows.some((r) => r.id === openId);
+    if (exists || rows.length > 0) {
+      if (exists) setViewingId(openId);
+      navigate(`${QUOTATION_BASE}/quotation-list`, { replace: true, state: {} });
+    }
+  }, [location.state, loading, rows, navigate]);
+
   useEffect(() => {
     void loadDeletionRequests();
   }, [loadDeletionRequests]);
 
   const loadOrderLostRequests = useCallback(async () => {
-    setOrderLostRequests(await listPendingOrderLostRequests());
+    const [pending, mine] = await Promise.all([
+      listPendingOrderLostRequests(),
+      listMyOrderLostRequests(),
+    ]);
+    setOrderLostRequests(pending);
+    setMyOrderLostRequests(mine);
   }, []);
 
   useEffect(() => {
@@ -173,8 +193,14 @@ export default function QuotationMakerList() {
   }, [loadOrderLostRequests]);
 
   const pendingOrderLostIds = useMemo(
-    () => new Set(orderLostRequests.map((r) => r.quotation_id).filter(Boolean)),
-    [orderLostRequests]
+    () =>
+      new Set(
+        [...orderLostRequests, ...myOrderLostRequests]
+          .filter((r) => r.status === 'pending' || !r.status)
+          .map((r) => r.quotation_id)
+          .filter(Boolean)
+      ),
+    [orderLostRequests, myOrderLostRequests]
   );
 
   /** L1 / admin queue — the requester's own pending items are flagged on the row instead. */
@@ -362,12 +388,16 @@ export default function QuotationMakerList() {
       const reason = String(statusReason || '').trim();
       const wantsOrderLost = patch.offer_status === ORDER_LOST_STATUS && previousStatus !== ORDER_LOST_STATUS;
       if (wantsOrderLost && !reason) throw new Error('Enter the reason for Order Lost.');
-      if (wantsOrderLost && previousStatus && !canTransitionStatus(previousStatus, ORDER_LOST_STATUS)) {
+      if (
+        wantsOrderLost &&
+        previousStatus &&
+        !canTransitionStatus(previousStatus, ORDER_LOST_STATUS, userProfile)
+      ) {
         throw new Error(`Cannot move from "${previousStatus}" to "${ORDER_LOST_STATUS}". Follow the offer workflow.`);
       }
 
       if (needsOrderLostApproval(previousStatus, patch.offer_status, userProfile)) {
-        // The offer status stays as it is until L1 approves; the follow-up date saves now.
+        // The offer status stays as it is until L1 approves; follow-up date + remark save now.
         try {
           await requestOrderLost(id, reason);
         } catch (err) {
@@ -376,7 +406,7 @@ export default function QuotationMakerList() {
         const saved = await updateQuotationMasterDetails(
           id,
           { ...patch, offer_status: previousStatus || patch.offer_status },
-          { previousStatus }
+          { previousStatus, profile: userProfile }
         );
         setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...saved } : r)));
         setEditing(null);
@@ -393,6 +423,7 @@ export default function QuotationMakerList() {
       const saved = await updateQuotationMasterDetails(id, patch, {
         previousStatus,
         statusRemark: patch.offer_status !== previousStatus ? reason : '',
+        profile: userProfile,
       });
       setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...saved } : r)));
       setEditing(null);
@@ -419,6 +450,10 @@ export default function QuotationMakerList() {
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-slate-900 m-0 leading-tight">Quotation Master</h2>
           <p className="text-xs text-slate-500 mt-0.5">Offer database — client, status and follow-up details for every quotation.</p>
+          <p className="text-xs text-slate-600 mt-1.5 m-0">
+            Quoted value:{' '}
+            <b className="text-slate-900 tabular-nums">₹ {formatMoneyIn(filteredValue)}</b>
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -459,6 +494,7 @@ export default function QuotationMakerList() {
 
       <QuotationDeletionRequests requests={actionableDeletionRequests} onDecided={handleDeletionDecided} />
       <QuotationOrderLostRequests requests={actionableOrderLostRequests} onDecided={handleOrderLostDecided} />
+      <QuotationOrderLostMyStatus requests={myOrderLostRequests} />
 
       {/* All / Overdue follow-up tabs */}
       <div className="flex items-center gap-1 border-b border-slate-200">
@@ -598,12 +634,12 @@ export default function QuotationMakerList() {
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="overflow-auto max-h-[calc(100vh-300px)] min-h-[240px]">
           <table
-            className="qm-master-table min-w-full text-[13px]"
+            className="qm-master-table w-max min-w-full text-[13px]"
             style={{ '--table-pad-y': '7px', '--table-pad-x': '10px' }}
           >
             <thead className="sticky top-0 z-20">
               <tr>
-                <th className="text-left whitespace-nowrap">
+                <th className="text-left whitespace-nowrap w-12">
                   SR No.
                 </th>
                 {GRID_COLUMNS.map((c) => {
@@ -612,7 +648,7 @@ export default function QuotationMakerList() {
                   return (
                     <th
                       key={c.key}
-                      className={`whitespace-nowrap ${
+                      className={`whitespace-nowrap ${c.width || ''} ${
                         c.type === 'money' ? 'text-right' : 'text-left'
                       }`}
                     >
@@ -628,7 +664,7 @@ export default function QuotationMakerList() {
                     </th>
                   );
                 })}
-                <th className="qm-sticky-col sticky right-0 z-30 text-center whitespace-nowrap">
+                <th className="qm-sticky-col sticky right-0 z-30 text-center whitespace-nowrap min-w-[168px] w-[168px]">
                   Actions
                 </th>
               </tr>
@@ -653,44 +689,52 @@ export default function QuotationMakerList() {
                   const fromMaker = Boolean(r.quotation_type);
                   return (
                     <tr key={r.id}>
-                      <td className="!min-w-0 w-12 text-slate-500 tabular-nums">
+                      <td className="w-12 text-slate-500 tabular-nums whitespace-nowrap">
                         {pageStart + i + 1}
                       </td>
                       {GRID_COLUMNS.map((c) => (
                         <td
                           key={c.key}
                           className={`${c.width || ''} ${
-                            c.nowrap || c.type === 'date' || c.type === 'money' || c.type === 'status' ? 'whitespace-nowrap' : ''
+                            c.nowrap || c.type === 'date' || c.type === 'money' ? 'whitespace-nowrap' : ''
                           } ${c.type === 'money' ? 'text-right tabular-nums' : ''} ${
                             c.strong ? 'font-medium text-slate-900' : 'text-slate-700'
                           }`}
                         >
-                          <Cell column={c} value={cellValue(r, c.key)} />
-                          {c.key === 'offer_status' && orderQuarterLabel(r) ? (
-                            <span className="ml-1 text-[11px] font-medium text-emerald-800" title="Financial quarter of the Order Status Date">
-                              {orderQuarterLabel(r)}
-                            </span>
-                          ) : null}
-                          {c.key === 'last_followup_date' && overdueDays.has(r.id) ? (
-                            <span
-                              className="ml-1 inline-block rounded-full border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700"
-                              title="Follow-up Date Exceeded"
-                            >
-                              {overdueDays.get(r.id)}d overdue
-                            </span>
-                          ) : null}
-                          {c.key === 'offer_status' && pendingOrderLostIds.has(r.id) ? (
-                            <span
-                              className="ml-1 inline-block rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
-                              title="Order Lost is waiting for L1 approval"
-                            >
-                              Lost: L1 pending
-                            </span>
-                          ) : null}
+                          <div className="inline-flex flex-wrap items-center gap-1 max-w-full">
+                            {c.key === 'client_name' ? (
+                              <span className="break-words whitespace-normal" title={String(cellValue(r, c.key) ?? '')}>
+                                <Cell column={c} value={cellValue(r, c.key)} />
+                              </span>
+                            ) : (
+                              <Cell column={c} value={cellValue(r, c.key)} />
+                            )}
+                            {c.key === 'offer_status' && orderQuarterLabel(r) ? (
+                              <span className="text-[11px] font-medium text-emerald-800 whitespace-nowrap" title="Financial quarter of the Order Status Date">
+                                {orderQuarterLabel(r)}
+                              </span>
+                            ) : null}
+                            {c.key === 'last_followup_date' && overdueDays.has(r.id) ? (
+                              <span
+                                className="inline-block rounded-full border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 whitespace-nowrap"
+                                title="Follow-up Date Exceeded"
+                              >
+                                {overdueDays.get(r.id)}d overdue
+                              </span>
+                            ) : null}
+                            {c.key === 'offer_status' && pendingOrderLostIds.has(r.id) ? (
+                              <span
+                                className="inline-block rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 whitespace-nowrap"
+                                title="Order Lost is waiting for L1 approval"
+                              >
+                                Lost: L1 pending
+                              </span>
+                            ) : null}
+                          </div>
                         </td>
                       ))}
-                      <td className="qm-sticky-col sticky right-0 z-10">
-                        <div className="flex items-center justify-center gap-1">
+                      <td className="qm-sticky-col sticky right-0 z-10 min-w-[168px] w-[168px]">
+                        <div className="flex items-center justify-center gap-1 flex-nowrap">
                           <IconBtn title="View" onClick={() => setViewingId(r.id)}>
                             <Eye className="h-3.5 w-3.5" />
                           </IconBtn>
@@ -730,19 +774,14 @@ export default function QuotationMakerList() {
           </table>
         </div>
 
-        {/* Footer: totals + pagination */}
+        {/* Footer: result count + pagination (Quoted value is in the page header) */}
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-t border-slate-200 bg-slate-50 text-xs text-slate-600">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span>
-              {sorted.length === 0
-                ? '0 results'
-                : `${pageStart + 1}–${Math.min(pageStart + pageSize, sorted.length)} of ${sorted.length}`}
-              {sorted.length !== merged.length ? ` (filtered from ${merged.length})` : ''}
-            </span>
-            <span>
-              Quoted value: <b className="text-slate-900 tabular-nums">₹ {formatMoneyIn(filteredValue)}</b>
-            </span>
-          </div>
+          <span>
+            {sorted.length === 0
+              ? '0 results'
+              : `${pageStart + 1}–${Math.min(pageStart + pageSize, sorted.length)} of ${sorted.length}`}
+            {sorted.length !== merged.length ? ` (filtered from ${merged.length})` : ''}
+          </span>
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1.5">
               Rows
@@ -984,11 +1023,10 @@ function EditDetailsModal({
       setLocalError(choosingOrderLost ? 'Enter the reason for Order Lost.' : 'Enter the reason for putting the offer on Hold.');
       return;
     }
-    // Only Offer Status and Last Follow-up Date can change; the current remark is kept for the reason note.
     const patch = {
       offer_status: form.offer_status,
       last_followup_date: form.last_followup_date,
-      remark: row.remark || '',
+      remark: form.remark ?? '',
     };
     try {
       await onSave(patch, needsReason ? lostReason.trim() : '');
@@ -1108,7 +1146,9 @@ function EditDetailsModal({
           </div>
         ) : null}
         <div className="px-4 py-2.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[11px] text-slate-500">Only Offer Status and Last Follow-up Date can be changed on an existing quotation.</p>
+          <p className="text-[11px] text-slate-500">
+            Offer Status, Last Follow-up Date, and Remark can be changed on an existing quotation.
+          </p>
           <div className="flex gap-2">
             <button
               type="button"
@@ -1124,7 +1164,13 @@ function EditDetailsModal({
               className="h-9 inline-flex items-center gap-1.5 px-4 rounded-lg bg-blue-600 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {saving ? 'Saving…' : 'Save'}
+              {saving
+                ? form.offer_status === ORDER_LOST_STATUS
+                  ? 'Sending…'
+                  : 'Saving…'
+                : form.offer_status === ORDER_LOST_STATUS
+                  ? 'Send for L1 Approval'
+                  : 'Save'}
             </button>
           </div>
         </div>

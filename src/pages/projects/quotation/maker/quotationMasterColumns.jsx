@@ -24,16 +24,30 @@ export const MASTER_COLUMNS = [
   { key: 'quarter', label: 'Quarter / FY', type: 'computed', nowrap: true },
 ];
 
-/** Quotation Master grid ("Master Sheet"), in this exact order after SR No. Other fields are in View. */
-export const GRID_COLUMNS = [
-  { key: 'client_name', label: 'Client Name', width: 'min-w-[240px]', maxW: 'max-w-[360px]', clamp: true, strong: true },
-  { key: 'offer_status', label: 'Offer Status', type: 'status' },
-  { key: 'quoted_rate', label: 'Order Value', type: 'money' },
-  { key: 'last_followup_date', label: 'Last Follow-up Date', type: 'date' },
+/**
+ * Quotation Master grid: primary columns stay first (same order as before);
+ * remaining Master fields follow and are reached by horizontal scroll.
+ */
+export const GRID_PRIMARY_COLUMNS = [
+  { key: 'client_name', label: 'Client Name', width: 'min-w-[220px]', strong: true },
+  { key: 'offer_status', label: 'Offer Status', type: 'status', width: 'min-w-[200px]' },
+  { key: 'quoted_rate', label: 'Order Value', type: 'money', width: 'min-w-[148px]', nowrap: true },
+  { key: 'last_followup_date', label: 'Last Follow-up Date', type: 'date', width: 'min-w-[168px]' },
 ];
 
-/** The only fields that can be changed when editing an existing quotation. */
-export const EDITABLE_DETAIL_KEYS = ['offer_status', 'last_followup_date'];
+const GRID_PRIMARY_KEYS = new Set(GRID_PRIMARY_COLUMNS.map((c) => c.key));
+
+/** Extra Master columns after the primary four (horizontal scroll). */
+export const GRID_EXTRA_COLUMNS = MASTER_COLUMNS.filter((c) => !GRID_PRIMARY_KEYS.has(c.key)).map((c) => ({
+  ...c,
+  // Prefer wrapping over hard clip so scrolled cells stay readable.
+  clamp: false,
+}));
+
+export const GRID_COLUMNS = [...GRID_PRIMARY_COLUMNS, ...GRID_EXTRA_COLUMNS];
+
+/** Fields that can be changed when editing an existing quotation (Edit details). */
+export const EDITABLE_DETAIL_KEYS = ['offer_status', 'last_followup_date', 'remark'];
 
 /** Fields editable from "Edit details" (sheet order; Quarter is derived). */
 export const DETAIL_FIELDS = [
