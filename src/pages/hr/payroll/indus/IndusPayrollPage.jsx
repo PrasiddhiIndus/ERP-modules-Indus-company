@@ -2,12 +2,16 @@ import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { useAuth } from "../../../../contexts/AuthContext";
+import { listAllSites } from "../../../../lib/siteAttendance/siteAttendanceApi";
 import { browserDownloads, openLocalPayrollDb } from "./payDb";
 import "./indusPayroll.css";
 import engineSource from "./runtime/engine.js?raw";
 import structureSource from "./runtime/structure.js?raw";
 import sitesSource from "./runtime/sites.js?raw";
 import appSource from "./runtime/app.js?raw";
+
+/** Must match `window.__indusPayrollBuild` in runtime/app.js — bump both when app.js changes. */
+const PAYROLL_APP_BUILD = 8;
 
 const BASE = "/app/hr/payroll/salary";
 
@@ -160,14 +164,24 @@ export function PayrollScreen({ view }) {
     if (!window.PayEngine) runClassic(engineSource);
     if (!window.STRUCT) runClassic(structureSource);
     if (!window.SITES) runClassic(sitesSource);
-    if (window.__indusPayrollBoot && window.__indusPayrollBuild !== 3) {
+    if (window.__indusPayrollBoot && window.__indusPayrollBuild !== PAYROLL_APP_BUILD) {
       window.location.reload();
       return;
     }
     if (!window.__indusPayrollBoot) runClassic(appSource);
-    if (!cancelled && window.__indusPayrollBoot) {
-      window.__indusPayrollBoot({ user: actor(), view: viewRef.current });
-    }
+
+    const bootPayroll = async () => {
+      const bootOpts = { user: actor(), view: viewRef.current, attendanceSites: [] };
+      try {
+        bootOpts.attendanceSites = await listAllSites();
+      } catch (err) {
+        console.error("Process salary could not load attendance sites", err);
+        bootOpts.attendanceSites = [];
+      }
+      if (cancelled) return;
+      if (window.__indusPayrollBoot) window.__indusPayrollBoot(bootOpts);
+    };
+    bootPayroll();
 
     return () => {
       cancelled = true;
@@ -178,6 +192,32 @@ export function PayrollScreen({ view }) {
   useEffect(() => {
     if (window.__indusPayrollSetView) window.__indusPayrollSetView(view);
   }, [view]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshAttendanceSites = async () => {
+      if (!window.__indusPayrollSetAttendanceSites) return;
+      try {
+        // Same source as Attendance / Site Master — every site added there appears here.
+        const attendanceSites = await listAllSites();
+        if (!cancelled) window.__indusPayrollSetAttendanceSites(attendanceSites);
+      } catch (err) {
+        console.error("Process salary could not refresh attendance sites", err);
+      }
+    };
+    refreshAttendanceSites();
+    const onFocus = () => refreshAttendanceSites();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshAttendanceSites();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [view, user?.id]);
 
   return <div ref={slotRef} className="indus-payroll-host" />;
 }
