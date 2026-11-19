@@ -6,7 +6,7 @@ import EnquiryDatabase from './EnquiryDatabase';
 import EnquiryDropdown from './EnquiryDropdown';
 import EnquiryKpi from './EnquiryKpi.jsx';
 import { useAuth } from '../../../contexts/AuthContext';
-import { getOpenableProjectsEnquiryTabs } from '../../../config/roles';
+import { getOpenableProjectsEnquiryTabs, isProjectsEnquiryViewOnly } from '../../../config/roles';
 
 const TAB_IDS = ['enquiry-dashboard', 'enquiry-database', 'enquiry-kpi', 'enquiry-dropdown'];
 /** Old Enquiry Entry links open the database with the Add Enquiry form. */
@@ -60,7 +60,14 @@ const ProjectsEnquiryHub = () => {
     <div className="min-h-screen bg-gray-50 projects-enquiry-hub">
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="px-6 py-4">
-          <h1 className="text-2xl font-bold text-gray-900">Projects — Enquiry Master</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Projects — Enquiry Master
+            {isProjectsEnquiryViewOnly(userProfile) ? (
+              <span className="ml-2 align-middle rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                View only
+              </span>
+            ) : null}
+          </h1>
           <p className="text-gray-600 mt-1">
             Dashboard analytics, enquiry register with Add Enquiry, and dropdown configuration.
           </p>

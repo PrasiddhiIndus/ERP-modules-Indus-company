@@ -74,8 +74,13 @@ export function addWorkingDays(value, days = TARGET_WORKING_DAYS) {
 }
 
 export function isClosedStatus(status) {
-  const s = String(status || '').toLowerCase();
-  return s === 'completed' || s === 'regret';
+  const s = String(status || '').trim().toLowerCase();
+  return s === 'completed' || s === 'regret' || s === 'order lost';
+}
+
+/** Enquiry status "Order Lost": closed like Regret (not overdue); Order Lost tracking lives on Quotation Dashboard. */
+export function isOrderLostStatus(status) {
+  return String(status || '').trim().toLowerCase() === 'order lost';
 }
 
 export function isCompletedStatus(status) {
@@ -98,10 +103,10 @@ export function isRegretStatus(status) {
   return String(status || '').trim().toLowerCase() === 'regret';
 }
 
-/** Work is done: status Completed, or a Completed Date has been entered (Regret excluded). */
+/** Work is done: status Completed, or a Completed Date has been entered (Regret / Order Lost excluded). */
 export function isWorkCompleted(row) {
   const status = getRowStatusValue(row);
-  if (isRegretStatus(status)) return false;
+  if (isRegretStatus(status) || isOrderLostStatus(status)) return false;
   return isCompletedStatus(status) || Boolean(getRecordedCompletionDate(row));
 }
 
@@ -154,13 +159,15 @@ export function isCompletedBeforeTarget(row) {
 }
 
 /**
- * Dashboard boxes: every enquiry lands in exactly one box, first match wins —
- * Regret, Overdue & Completed, Early Closer, Completed (on target), Overdue, Due soon,
+ * Dashboard boxes: every enquiry lands in exactly one bucket, first match wins —
+ * Regret, Order Lost (closed; not shown as an Enquiry KPI — tracked on Quotation),
+ * Overdue & Completed, Early Closer, Completed (on target), Overdue, Due soon,
  * Unassigned, Not Started, In Progress (any other open status).
  */
 export function dashboardBucket(row, today = startOfToday()) {
   const status = String(getRowStatusValue(row) || '').trim().toLowerCase();
   if (status === 'regret') return 'regret';
+  if (status === 'order lost') return 'orderLost';
   if (isWorkCompleted(row)) {
     if (isCompletedAfterTarget(row)) return 'completedLate';
     if (isCompletedBeforeTarget(row)) return 'earlyCloser';
@@ -198,6 +205,9 @@ export function daysLeftBadge(row, today = startOfToday()) {
       };
     }
     return { label: 'Completed on time', className: 'bg-emerald-100 text-emerald-800', title: 'Completed on the target date' };
+  }
+  if (isOrderLostStatus(getRowStatusValue(row))) {
+    return { label: 'Order Lost', className: 'bg-slate-100 text-slate-600', title: 'Enquiry closed — order not received' };
   }
   if (isClosedRow(row)) {
     return { label: 'Closed', className: 'bg-slate-100 text-slate-500', title: 'Enquiry is closed' };

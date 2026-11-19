@@ -12,7 +12,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { AlertTriangle, CheckCircle2, Clock3, FileText, Loader2, RefreshCw, Target } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock3, FileText, Loader2, RefreshCw, Target, XCircle } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { isSupabaseRealtimeEnabled } from '../../../lib/supabaseConfig';
 import { PROJECTS_SCHEMA } from '../../../services/projectsApi';
@@ -268,7 +268,7 @@ export default function QuotationDashboard() {
       )}
 
       {/* Headline tiles */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
         <StatTile
           icon={FileText}
           label="Total offers"
@@ -295,6 +295,13 @@ export default function QuotationDashboard() {
           label="Order converted"
           value={inrCompact(convertedTotal)}
           sub={`${summary.buckets.converted.count} orders`}
+        />
+        <StatTile
+          icon={XCircle}
+          iconColor={BUCKET_COLOR.lost}
+          label="Order Lost"
+          value={inrCompact(summary.buckets.lost.value)}
+          sub={`${summary.buckets.lost.count} offers · ${pct(summary.buckets.lost.count, summary.totalCount).toFixed(1)}% of total`}
         />
         <StatTile
           icon={Clock3}

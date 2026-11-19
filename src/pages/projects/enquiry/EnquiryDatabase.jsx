@@ -11,6 +11,7 @@ import {
 import { formatDateDdMmYyyy, normalizeToIsoDate } from '../../../utils/dateDisplay';
 import EnquiryExportModal from './EnquiryExportModal';
 import {
+  ACTIONS_COLUMN_WIDTH,
   DAYS_LEFT_COLUMN_WIDTH,
   displayTableCellValue,
   exportEnquiryDatabaseCsv,
@@ -40,6 +41,7 @@ import {
   requestEnquiryEdit,
 } from './enquiryEditApi';
 import { isEnquiryApprover } from './enquiryRoles';
+import { isProjectsEnquiryViewOnly } from '../../../config/roles';
 import { useAuth } from '../../../contexts/AuthContext';
 import { Modal } from '../../../components/erpUi';
 import {
@@ -86,6 +88,8 @@ export default function EnquiryDatabase() {
   const [savedNotice, setSavedNotice] = useState('');
   const { userProfile } = useAuth();
   const canApproveEdits = isEnquiryApprover(userProfile);
+  // View-only access (User Management): read records; L1 keeps Approve / Reject on requests.
+  const viewOnly = isProjectsEnquiryViewOnly(userProfile);
   const canDeleteDirectly = canApproveEdits;
   const [deletionRequests, setDeletionRequests] = useState([]);
   const [editRequests, setEditRequests] = useState([]);
@@ -252,6 +256,7 @@ export default function EnquiryDatabase() {
   }, [rows, search, statusFilter, sortConfig, databaseFields, dashboardIds]);
 
   const startEdit = (row) => {
+    if (viewOnly) return;
     const flat = flattenEnquiryRow(row);
     for (const f of databaseFields) {
       if (f.field_type === 'date' && flat[f.field_key]) {
@@ -337,6 +342,7 @@ export default function EnquiryDatabase() {
   };
 
   const deleteRow = async (row) => {
+    if (viewOnly) return;
     if (!canDeleteDirectly) {
       setDeleteReason('');
       setDeleteAsk(row);
@@ -407,7 +413,7 @@ export default function EnquiryDatabase() {
 
   const showEditRequests = canApproveEdits || editRequests.length > 0;
 
-  if (addOpen) {
+  if (addOpen && !viewOnly) {
     return (
       <div className="p-4 sm:p-6">
         <EnquiryEntry onSaved={handleEnquirySaved} onClose={closeAdd} />
@@ -480,12 +486,19 @@ export default function EnquiryDatabase() {
         </label>
       </Modal>
 
-      <EnquiryImportPanel
-        databaseFields={databaseFields}
-        allFields={fields}
-        onImported={fetchRows}
-        onError={setError}
-      />
+      {viewOnly ? (
+        <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          You have view-only access to Enquiry Master. You can view records but not add, edit, import or delete them.
+          {canApproveEdits ? ' You can still approve or reject requests sent to you.' : ''}
+        </div>
+      ) : (
+        <EnquiryImportPanel
+          databaseFields={databaseFields}
+          allFields={fields}
+          onImported={fetchRows}
+          onError={setError}
+        />
+      )}
 
       {/* Status legend */}
       <div className="flex flex-wrap items-center gap-3 mb-3 px-0.5">
@@ -557,6 +570,7 @@ export default function EnquiryDatabase() {
         </div>
 
         <div className="flex gap-2 ml-auto">
+          {!viewOnly && (
           <button
             type="button"
             onClick={() => { setSavedNotice(''); setAddOpen(true); }}
@@ -565,6 +579,7 @@ export default function EnquiryDatabase() {
             <Plus className="h-4 w-4" />
             Add Enquiry
           </button>
+          )}
           <button
             type="button"
             onClick={fetchRows}
@@ -626,7 +641,7 @@ export default function EnquiryDatabase() {
       />
 
       {/* Edit panel */}
-      {editingId && editDraft && (
+      {editingId && editDraft && !viewOnly && (
         <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/50 p-4">
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -740,10 +755,11 @@ export default function EnquiryDatabase() {
             ) : (
               <div className="overflow-auto max-h-[75vh]">
                 <table
-                  className="text-xs border-collapse"
+                  className="text-xs border-collapse enquiry-database-table"
                   style={{ tableLayout: 'fixed', width: getEnquiryTableWidth(databaseFields, { withDaysLeft: hasTargetColumn }) }}
                 >
-                  <thead className="sticky top-0 z-10">
+                  {/* Sticky is on each th (not thead) so Actions can stick top+right together. */}
+                  <thead>
                     <tr>
                       {databaseFields.map((col) => {
                         const layout = getTableColumnLayout(col);
@@ -753,7 +769,7 @@ export default function EnquiryDatabase() {
                           <React.Fragment key={col.id}>
                             <th
                               style={layout.style}
-                              className={`font-bold text-black border-b border-r border-gray-200 bg-info-soft ${layout.headerClass} ${
+                              className={`sticky top-0 z-10 font-bold text-black border-b border-r border-gray-200 bg-info-soft ${layout.headerClass} ${
                                 leftHeader ? 'text-left' : 'text-center'
                               }`}
                             >
@@ -775,7 +791,7 @@ export default function EnquiryDatabase() {
                                   minWidth: DAYS_LEFT_COLUMN_WIDTH,
                                   maxWidth: DAYS_LEFT_COLUMN_WIDTH,
                                 }}
-                                className="font-bold text-black border-b border-r border-gray-200 bg-info-soft whitespace-normal leading-[1.15] text-center px-1.5 py-2.5 align-middle"
+                                className="sticky top-0 z-10 font-bold text-black border-b border-r border-gray-200 bg-info-soft whitespace-normal leading-[1.15] text-center px-1.5 py-2.5 align-middle"
                               >
                                 <button
                                   type="button"
@@ -792,8 +808,13 @@ export default function EnquiryDatabase() {
                         );
                       })}
                       <th
-                        style={{ width: 96, minWidth: 96, maxWidth: 96 }}
-                        className="font-bold text-black border-b border-gray-200 bg-info-soft whitespace-normal leading-[1.15] break-words text-center px-1 py-2 align-middle"
+                        style={{
+                          width: ACTIONS_COLUMN_WIDTH,
+                          minWidth: ACTIONS_COLUMN_WIDTH,
+                          maxWidth: ACTIONS_COLUMN_WIDTH,
+                          boxShadow: '-6px 0 8px -6px rgba(15, 23, 42, 0.18), inset 1px 0 0 var(--border)',
+                        }}
+                        className="sticky top-0 right-0 z-30 font-bold text-black border-b border-gray-200 bg-info-soft whitespace-nowrap leading-[1.15] text-center px-1.5 py-2 align-middle"
                       >
                         Actions
                       </th>
@@ -819,8 +840,8 @@ export default function EnquiryDatabase() {
                             return (
                               <React.Fragment key={col.id}>
                               <td
-                                style={{ ...layout.style, backgroundColor: bg }}
-                                className={`py-2 align-top text-gray-800 border-r border-black/5 ${layout.cellClass} ${
+                                style={{ ...layout.style, backgroundColor: bg, maxWidth: layout.style?.maxWidth ?? layout.style?.width }}
+                                className={`py-2 align-top text-gray-800 border-r border-black/5 overflow-hidden ${layout.cellClass} ${
                                   (left && !compact) || wrapContent ? 'text-left' : 'text-center'
                                 }`}
                               >
@@ -868,20 +889,27 @@ export default function EnquiryDatabase() {
                             );
                           })}
                           <td
-                            className="py-2 whitespace-nowrap text-center border-l border-black/5 px-1"
-                            style={{ backgroundColor: bg, width: 96 }}
+                            className="sticky right-0 z-20 py-2 whitespace-nowrap text-center border-l border-black/5 px-1.5 align-middle"
+                            style={{
+                              backgroundColor: bg,
+                              width: ACTIONS_COLUMN_WIDTH,
+                              minWidth: ACTIONS_COLUMN_WIDTH,
+                              maxWidth: ACTIONS_COLUMN_WIDTH,
+                              boxShadow: '-6px 0 8px -6px rgba(15, 23, 42, 0.14), inset 1px 0 0 var(--divider, rgba(0,0,0,0.08))',
+                            }}
                           >
-                            <div className="inline-flex items-center justify-center gap-0.5">
+                            <div className="inline-flex w-full items-center justify-center gap-0.5">
                               <EnquiryChangeHistory
                                 enquiryId={row.id}
                                 serialNumber={row.serial_number}
                                 pendingChanges={pendingEdit?.changes}
                                 hasHistoryHint={Boolean(pendingEdit)}
                               />
+                              {!viewOnly && (<>
                               <button
                                 type="button"
                                 onClick={() => startEdit(row)}
-                                className="p-1 rounded text-blue-700 hover:bg-blue-100"
+                                className="p-1 rounded text-blue-700 hover:bg-blue-100 shrink-0"
                                 title={
                                   pendingEdit && !canApproveEdits
                                     ? 'Edit (pending request will be replaced)'
@@ -894,7 +922,7 @@ export default function EnquiryDatabase() {
                                 type="button"
                                 onClick={() => deleteRow(row)}
                                 disabled={!canDeleteDirectly && pendingDeletionIds.has(row.id)}
-                                className="p-1 rounded text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                                className="p-1 rounded text-rose-700 hover:bg-rose-100 shrink-0 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                                 title={
                                   pendingDeletionIds.has(row.id)
                                     ? 'Deletion waiting for manager approval'
@@ -905,6 +933,7 @@ export default function EnquiryDatabase() {
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
+                              </>)}
                             </div>
                           </td>
                         </tr>

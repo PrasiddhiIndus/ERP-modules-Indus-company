@@ -48,6 +48,12 @@ export function todayIsoDate() {
   return new Date().toISOString().split('T')[0];
 }
 
+/** Today in the user's local time zone (yyyy-mm-dd) — todayIsoDate() is the UTC date. */
+export function localTodayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function formatDisplayDate(value) {
   if (!value) return '—';
   return formatDateDdMmYyyy(value) || '—';
@@ -144,4 +150,33 @@ export function quarterOf(value) {
   const m = Number(iso.slice(5, 7));
   if (!Number.isFinite(m) || m < 1 || m > 12) return null;
   return Math.floor(((m + 8) % 12) / 3) + 1;
+}
+
+/**
+ * Financial quarter + year (April–March) of a date, e.g. 2026-11-05 → { quarter: 3, fy: '2026–27', label: 'Q3 FY 2026–27' }.
+ * Returns null for a missing / invalid date.
+ */
+export function financialQuarterOf(value) {
+  const q = quarterOf(value);
+  if (!q) return null;
+  const iso = normalizeToIsoDate(value);
+  const y = Number(iso.slice(0, 4));
+  const m = Number(iso.slice(5, 7));
+  const start = m >= 4 ? y : y - 1;
+  const fy = `${start}–${String(start + 1).slice(-2)}`;
+  return { quarter: q, fy, label: `Q${q} FY ${fy}` };
+}
+
+/** Order Converted (either variant) — the statuses that get a quarter. */
+export function isOrderConvertedStatus(status) {
+  return /converted/i.test(String(status || ''));
+}
+
+/**
+ * Quarter label for a quotation: only for Order Converted offers, from the Order Status Date
+ * (order_converted_date; the offer date is the fallback for older converted rows without one).
+ */
+export function orderQuarterLabel(row) {
+  if (!row || !isOrderConvertedStatus(row.offer_status)) return '';
+  return financialQuarterOf(row.order_converted_date || row.offer_date)?.label || '';
 }

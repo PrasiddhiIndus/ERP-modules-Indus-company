@@ -1,10 +1,14 @@
 // src/pages/maintenance/QuotationTrackerNavbar.jsx
 import React, { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { useNavAccess } from "../../hooks/useNavAccess";
 
 const QuotationTrackerNavbar = () => {
     const [isConfigOpen, setIsConfigOpen] = useState(false);
     const location = useLocation();
+    const { canSeePath } = useNavAccess();
+    // Templates opens Mail Templates — a separate page with its own permission.
+    const canSeeMailTemplates = canSeePath("/app/maintenance/mail-templates");
 
     const toggleConfigDropdown = () => {
         setIsConfigOpen(!isConfigOpen);
@@ -56,6 +60,7 @@ const QuotationTrackerNavbar = () => {
                     </Link>
 
                     {/* 🔽 Configuration Dropdown */}
+                    {canSeeMailTemplates && (
                     <div className="relative inline-block text-left">
                         <button
                             onClick={toggleConfigDropdown}
@@ -84,6 +89,7 @@ const QuotationTrackerNavbar = () => {
                             </>
                         )}
                     </div>
+                    )}
                 </div>
             </div>
         </div>

@@ -852,6 +852,46 @@ export const PROJECTS_ENQUIRY_PAGES = [
 export const PROJECTS_ENQUIRY_KPI_PATH = "/app/projects/enquiry/enquiry-kpi";
 
 /**
+ * Enquiry Master access level (User Management → "Enquiry Master access").
+ * Stored in allowed_sub_modules; they are not pages and open no routes.
+ *   - View only (View ticked, Edit not): open and read enquiry records; no create / edit / delete /
+ *     import / dropdown changes. L1 managers keep Approve / Reject.
+ *   - Edit ticked, or neither ticked: existing behaviour (unchanged for current users).
+ * Enforced in the database by migration 20261118182000 (projects.current_user_enquiry_view_only).
+ */
+export const PROJECTS_ENQUIRY_VIEW_KEY = "projects.enquiry.view";
+export const PROJECTS_ENQUIRY_EDIT_KEY = "projects.enquiry.edit";
+export const PROJECTS_ENQUIRY_ACCESS_LEVELS = [
+  { value: PROJECTS_ENQUIRY_VIEW_KEY, label: "View", hint: "Open and read enquiry records only." },
+  { value: PROJECTS_ENQUIRY_EDIT_KEY, label: "Edit", hint: "Create, update and delete as today (includes View)." },
+];
+
+/** True when the user may only view Enquiry Master records. Super Admins are never restricted. */
+export function isProjectsEnquiryViewOnly(profile) {
+  const role = normalizeAppRole(profile?.role);
+  if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) return false;
+  const subs = parseAllowedSubModules(profile?.allowed_sub_modules);
+  return subs.includes(PROJECTS_ENQUIRY_VIEW_KEY) && !subs.includes(PROJECTS_ENQUIRY_EDIT_KEY);
+}
+
+/**
+ * Toggle an Enquiry Master access-level key. Edit implies View; removing View removes Edit.
+ * @returns {string[]} new allowed_sub_modules
+ */
+export function toggleProjectsEnquiryAccessLevel(currentSubModules, key) {
+  const list = Array.isArray(currentSubModules) ? [...currentSubModules] : [];
+  const has = list.includes(key);
+  const without = (keys) => list.filter((k) => !keys.includes(k));
+  if (key === PROJECTS_ENQUIRY_EDIT_KEY) {
+    return has ? without([PROJECTS_ENQUIRY_EDIT_KEY]) : [...without([PROJECTS_ENQUIRY_VIEW_KEY, PROJECTS_ENQUIRY_EDIT_KEY]), PROJECTS_ENQUIRY_VIEW_KEY, PROJECTS_ENQUIRY_EDIT_KEY];
+  }
+  if (key === PROJECTS_ENQUIRY_VIEW_KEY) {
+    return has ? without([PROJECTS_ENQUIRY_VIEW_KEY, PROJECTS_ENQUIRY_EDIT_KEY]) : [...list, PROJECTS_ENQUIRY_VIEW_KEY];
+  }
+  return list;
+}
+
+/**
  * Enquiry Master tab ids the user may open.
  * Full Projects module, Enquiry Master sub-item, or no page keys at all → every standard tab (unchanged behaviour).
  * Otherwise only the ticked pages. Opt-in pages (KPI) need their own tick in every case.
@@ -1842,4 +1882,63 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
   }
 
   return false;
+}
+
+/**
+ * Navigation pages (NAV_MODULE_TREE sub-module keys) that own an /app path — the longest
+ * pathPrefix wins; pages sharing that prefix (e.g. Client / In-House Mail Outreach) are all returned.
+ */
+function getNavPageKeysForPath(pathname) {
+  const path = normalizeAppPath(String(pathname || "").split(/[?#]/)[0]);
+  let bestLen = -1;
+  let keys = [];
+  for (const mod of NAV_MODULE_TREE) {
+    for (const sub of mod.subModules || []) {
+      const prefix = sub.pathPrefix ? normalizeAppPath(sub.pathPrefix) : "";
+      if (!prefix || (path !== prefix && !path.startsWith(`${prefix}/`))) continue;
+      if (prefix.length > bestLen) {
+        bestLen = prefix.length;
+        keys = [sub.value];
+      } else if (prefix.length === bestLen) {
+        keys.push(sub.value);
+      }
+    }
+  }
+  return keys;
+}
+
+/** Navigation page that owns an /app path (most specific), or null. */
+export function getNavPageKeyForPath(pathname) {
+  return getNavPageKeysForPath(pathname)[0] ?? null;
+}
+
+/**
+ * Menu / tab / card visibility for an in-app link — the same rule the sidebar uses.
+ * A link is shown only when its navigation page is granted (canSeeSubModule) AND the
+ * route guard opens the path (isPathAllowed). Recruitment pages follow their per-tab rules.
+ * Paths no navigation page owns fall back to the route guard alone.
+ * Read-only: never changes what the route guard allows.
+ */
+export function canSeeNavPath(pathname, { profile, accessibleModules, subModulePaths, userMetadata = null } = {}) {
+  const mods = accessibleModules || new Set();
+  const email = userMetadata?.email || profile?.email || "";
+  const identity = { ...(profile || {}), email };
+  const meta = { ...(userMetadata || {}), email };
+  const path = String(pathname || "").split(/[?#]/)[0];
+  if (!isPathAllowed(path, mods, subModulePaths, identity)) return false;
+  const keys = getNavPageKeysForPath(path);
+  if (!keys.length) return true;
+  return keys.some((key) => {
+    if (key === HR_RECRUITMENT_FAMILY.parentKey) return hasAnyRecruitmentTabAccess(profile, mods, meta, "hr");
+    if (key === ADMIN_RECRUITMENT_FAMILY.parentKey) return hasAnyRecruitmentTabAccess(profile, mods, meta, "admin");
+    // Same rule as canAccessRulesConsole (rulesConsoleAccess.js), which the sidebar uses.
+    if (key === RULES_CONSOLE_SUBMODULE_KEY) {
+      const role = normalizeAppRole(profile?.role);
+      return (
+        getEffectiveAllowedSubModules(profile).includes(RULES_CONSOLE_SUBMODULE_KEY) ||
+        ([ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUPER_ADMIN_PRO].includes(role) && mods.has("admin"))
+      );
+    }
+    return canSeeSubModule(profile, mods, key, meta);
+  });
 }

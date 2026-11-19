@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavAccess } from "../../hooks/useNavAccess";
 import { useNavigate } from 'react-router-dom';
 import { supabase } from './lib/maintenanceClient';
 import { 
@@ -44,6 +45,7 @@ const RupeeIcon = ({ className = '' }) => {
 
 const MaintenanceDashboard = () => {
   const navigate = useNavigate();
+  const { canSeePath } = useNavAccess();
   const [stats, setStats] = useState({
     totalEnquiries: 0,
     totalQuotations: 0,
@@ -588,7 +590,7 @@ const MaintenanceDashboard = () => {
               <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Quick actions</h2>
               <p className="text-xs text-gray-500 mb-4">Click any action to open the relevant maintenance page.</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {dashboardCards.map((card, index) => {
+                {dashboardCards.filter((card) => canSeePath(card.path)).map((card, index) => {
                   const Icon = card.icon;
                   return (
                     <button
