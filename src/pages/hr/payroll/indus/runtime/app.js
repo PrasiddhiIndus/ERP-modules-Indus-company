@@ -2,7 +2,8 @@
 const E = window.PayEngine;
 const TEMPLATES = window.SITES;            // site templates; live setups come from the database
 const S = { month: '2026-09', view: 'dashboard', sites: {}, siteDocs: {}, hrAtt: {}, arrears: {}, revs: {}, emps: {}, runs: {}, loans: {}, held: {}, ioms: {}, masters: null, db: null, ready: false,
-  proc: { site: null, step: 1, type: 'REG' }, setup: { site: null, tab: 'general' }, empSite: null, comp: { set: 'CLRA', sites: [] } };
+  attSites: [],
+  proc: { site: null, sites: [], siteMode: 'pick', siteMenuOpen: false, siteQ: '', step: 1, type: 'REG' }, setup: { site: null, tab: 'general' }, empSite: null, comp: { set: 'CLRA', sites: [] } };
 window.S = S;
 const payrollRoot = () => document.getElementById('indus-payroll-root');
 const $ = s => { const r = payrollRoot(); return r ? r.querySelector(s) : null; };
@@ -17,6 +18,165 @@ const runId = (sid, m = S.month, t = 'REG') => `${sid}_${m}_${t}`;
 function toast(t, ms = 3200) { if (S.captureNotes) { S.captureNotes.push(t); return; } const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; (payrollRoot() || document.body).appendChild(d); setTimeout(() => d.remove(), ms); }
 const siteList = () => Object.values(S.sites).sort((a, b) => a.name.localeCompare(b.name));
 const empsOf = sid => (S.emps[sid] && S.emps[sid].list) || [];
+/** Same site ids/names as Attendance / Site Master (`sites` table). */
+const attSiteId = row => String(row && row.id != null ? row.id : '');
+/** Match Attendance page type filter when Site Attendance has Safety/Fire selected. */
+function attendanceSiteTypeFilter() {
+  try {
+    const val = localStorage.getItem('hr_selected_site_type');
+    return val === 'Safety' || val === 'Fire' ? val : '';
+  } catch (e) { return ''; }
+}
+function processSiteList() {
+  // Only Attendance / Site Master sites — never fall back to demo payroll templates.
+  if (!S.attSitesLoaded) return [];
+  const type = attendanceSiteTypeFilter();
+  return (S.attSites || [])
+    .filter((row) => !type || (row && row.site_type === type))
+    .map((row) => {
+      const id = attSiteId(row);
+      const live = S.sites[id];
+      if (live) {
+        return Object.assign({}, live, {
+          name: row.site_name || live.name,
+          site_type: row.site_type || live.site_type || '',
+          fromAttendance: true,
+          hrSiteId: row.id,
+        });
+      }
+      return {
+        id,
+        name: row.site_name || `Site ${id}`,
+        client: row.contract_details || row.location || '',
+        state: 'GJ',
+        oc: '—',
+        location: row.location || '',
+        site_type: row.site_type || '',
+        fromAttendance: true,
+        hrSiteId: row.id,
+      };
+    })
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+}
+function processSitesSelected() {
+  const all = processSiteList();
+  const mode = S.proc.siteMode || 'pick';
+  if (mode === 'all') return all.map((s) => s.id);
+  const picked = Array.isArray(S.proc.sites) ? S.proc.sites.map(String) : [];
+  const ids = picked.filter((id) => all.some((s) => s.id === id));
+  return ids;
+}
+function ensureProcFocusSite(preferred) {
+  const selected = processSitesSelected();
+  if (!selected.length) {
+    S.proc.site = null;
+    return null;
+  }
+  const want = preferred != null && preferred !== '' ? String(preferred) : String(S.proc.site || '');
+  if (want && selected.includes(want)) {
+    S.proc.site = want;
+    return want;
+  }
+  S.proc.site = selected[0];
+  return S.proc.site;
+}
+async function syncAttendanceSites(rows) {
+  S.attSitesLoaded = true;
+  S.attSites = Array.isArray(rows) ? rows.slice() : [];
+  if (!S.db || S.noAccess || !S.attSites.length) {
+    if (S.ready) softRender();
+    return;
+  }
+  if (S._attSyncing) {
+    S._attSyncPending = S.attSites.slice();
+    return;
+  }
+  S._attSyncing = true;
+  let created = 0;
+  try {
+    for (const row of S.attSites) {
+      const id = attSiteId(row);
+      if (!id) continue;
+      const existing = S.siteDocs[id];
+      const name = row.site_name || (existing && existing.name) || `Site ${id}`;
+      const client = row.contract_details || row.location || (existing && existing.client) || '';
+      const location = row.location || (existing && existing.location) || '';
+      if (existing) {
+        const same =
+          existing.name === name &&
+          (existing.client || '') === client &&
+          (existing.location || '') === location &&
+          String(existing.hrSiteId || '') === String(row.id);
+        if (same) continue;
+        const doc = storeDoc(Object.assign({}, existing, {
+          id,
+          name,
+          client,
+          location,
+          hrSiteId: row.id,
+          fromAttendance: true,
+        }));
+        await put('sites/' + id, doc);
+        S.siteDocs[id] = Object.assign({ _id: id }, doc);
+        continue;
+      }
+      const tplDoc = Object.values(S.siteDocs || {})[0] || null;
+      const tpl = tplDoc || (window.SITES && window.SITES[0]) || null;
+      let doc;
+      if (tpl) {
+        const src = JSON.parse(JSON.stringify(tplDoc ? storeDoc(tplDoc) : strip(tpl)));
+        src.id = id;
+        src.name = name;
+        src.client = client;
+        src.location = location;
+        src.hrSiteId = row.id;
+        src.fromAttendance = true;
+        delete src.attMap;
+        delete src.demo;
+        if (!Array.isArray(src.structure) && src.components && window.STRUCT && (S.cmList || []).length) {
+          src.structure = STRUCT.mapSite(src, mastersObj());
+          delete src.components;
+        }
+        doc = storeDoc(src);
+      } else {
+        doc = {
+          id,
+          name,
+          client,
+          location,
+          state: 'GJ',
+          oc: '—',
+          hrSiteId: row.id,
+          fromAttendance: true,
+          divisor: { type: 'calendar', weeklyOff: [] },
+          rateType: 'M',
+          rounding: 'component',
+          registerSet: 'CLRA',
+          params: {},
+          components: [],
+          esi: true,
+        };
+      }
+      await put('sites/' + id, doc);
+      S.siteDocs[id] = Object.assign({ _id: id }, doc);
+      if (!S.emps[id]) {
+        await put('employees/' + id, { list: [] });
+        S.emps[id] = { _id: id, list: [] };
+      }
+      created += 1;
+    }
+    resolveAll();
+    if (created && S.ready) toast(`Linked ${created} site${created === 1 ? '' : 's'} from Attendance`);
+    if (S.ready) softRender();
+  } finally {
+    S._attSyncing = false;
+    if (S._attSyncPending) {
+      const pending = S._attSyncPending;
+      S._attSyncPending = null;
+      syncAttendanceSites(pending);
+    }
+  }
+}
 
 // ---------------- database ----------------
 async function connect() {
@@ -26,7 +186,7 @@ async function connect() {
   if (!db) { setDb('bad', 'Database not available'); S.ready = true; render(); return; }
   const timer = setTimeout(() => { if (!S.ready) { setDb('warn', 'Data not reachable yet'); } }, 10000);
   let pending = new Set(['sites', 'employees', 'runs', 'loans', 'held', 'iom', 'masters', 'hr_attendance', 'arrears', 'revisions']);
-  const done = k => { pending.delete(k); if (!pending.size && !S.ready) { S.ready = true; clearTimeout(timer); const finish = () => { setDb(S.db && S.db.ephemeral ? 'warn' : 'ok', S.db && S.db.ephemeral ? 'Saved in this session only' : 'All changes saved'); render(); setTimeout(() => { if (!S.noAccess) freezePay().catch(() => { }); }, 2500); }; if (!S.noAccess && !Object.keys(S.siteDocs || {}).length) { setDb('warn', 'Loading demo sites…'); installDemo().then(finish, finish); } else finish(); } };
+  const done = k => { pending.delete(k); if (!pending.size && !S.ready) { S.ready = true; clearTimeout(timer); const finish = () => { setDb(S.db && S.db.ephemeral ? 'warn' : 'ok', S.db && S.db.ephemeral ? 'Saved in this session only' : 'All changes saved'); if (S.attSites && S.attSites.length) syncAttendanceSites(S.attSites).finally(() => { render(); setTimeout(() => { if (!S.noAccess) freezePay().catch(() => { }); }, 2500); }); else { render(); setTimeout(() => { if (!S.noAccess) freezePay().catch(() => { }); }, 2500); } }; if (!S.noAccess && !Object.keys(S.siteDocs || {}).length) { if (S.attSites && S.attSites.length) { setDb('warn', 'Linking attendance sites…'); syncAttendanceSites(S.attSites).then(finish, finish); } else { setDb('warn', 'Loading demo sites…'); installDemo().then(finish, finish); } } else finish(); } };
   const sub = (col, key, fn) => db.collection(col).onSnapshot(snap => {
     const o = {}; snap.docs.forEach(d => { if (d.exists) o[d.id] = Object.assign({ _id: d.id }, JSON.parse(JSON.stringify(d.data()))); });
     fn ? fn(o) : (S[key] = o); if (!snap.metadata.fromCache) done(col); if (S.ready && !snap.metadata.hasPendingWrites) softRender();
@@ -498,7 +658,7 @@ function vDashboard(p) {
   const hda = $('#hr_demo_all'); if (hda) hda.onclick = () => { hda.disabled = true; hda.textContent = 'Loading…'; demoHR(demoable); };
   $('#dq').oninput = e => { const q = e.target.value.toLowerCase(); $('#dtbl').querySelectorAll('tbody tr').forEach(tr => tr.style.display = tr.dataset.q.includes(q) ? '' : 'none'); };
   p.querySelectorAll('#dseg button').forEach(b => b.onclick = () => { S.dashFilter = b.dataset.f; render(); });
-  p.querySelectorAll('#dtbl tr.click').forEach(tr => tr.onclick = () => go('process', { proc: { site: tr.dataset.id, step: tr.dataset.k === 'none' ? 1 : 3, type: 'REG' } }));
+  p.querySelectorAll('#dtbl tr.click').forEach(tr => tr.onclick = () => go('process', { proc: { site: tr.dataset.id, sites: [tr.dataset.id], siteMode: 'pick', step: tr.dataset.k === 'none' ? 1 : 3, type: 'REG' } }));
 }
 
 function setupBadge(s) {
@@ -509,8 +669,248 @@ function setupBadge(s) {
 }
 // ---------------- Process salary ----------------
 function sitePicker(cur, onch, id = 'sitepick') {
+  const list = processSiteList().length ? processSiteList() : siteList();
   setTimeout(() => { const el = gid(id); if (el) el.onchange = e => onch(e.target.value); });
-  return `<select class="in" id="${id}" style="min-width:320px"><option value="">— choose a site —</option>${siteList().map(s => `<option value="${s.id}" ${s.id === cur ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>`;
+  return `<select class="in" id="${id}" style="min-width:320px"><option value="">— choose a site —</option>${list.map(s => `<option value="${s.id}" ${s.id === cur ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>`;
+}
+function processSiteSummary(all, selected) {
+  if (!S.attSitesLoaded) return 'Loading sites…';
+  if (!all.length) return 'No sites yet';
+  if (!selected.length) return 'Select site';
+  if (selected.length === all.length) return `All sites (${all.length})`;
+  if (selected.length === 1) {
+    const s = all.find((x) => x.id === selected[0]);
+    return s ? s.name : '1 site';
+  }
+  const first = all.find((x) => x.id === selected[0]);
+  return `${selected.length} sites · ${(first && first.name) || selected[0]}`;
+}
+function processSiteControls() {
+  const all = processSiteList();
+  const open = !!S.proc.siteMenuOpen;
+  if (!Array.isArray(S.proc.sites)) S.proc.sites = [];
+  // Default: nothing selected until user picks (or Select all)
+  if (S.proc.siteMode !== 'all' && S.proc.siteMode !== 'pick') S.proc.siteMode = 'pick';
+  const selected = processSitesSelected();
+  const focus = ensureProcFocusSite(S.proc.site);
+  const focusSite = all.find((s) => s.id === focus) || S.sites[focus] || null;
+  const type = attendanceSiteTypeFilter();
+  const summary = processSiteSummary(all, selected);
+  const siteLabel = (id) => {
+    const s = all.find((x) => x.id === id) || S.sites[id] || { id, name: id };
+    return s.name || id;
+  };
+  const menu = open
+    ? `<div class="ps-menu" id="ps_menu" role="listbox" aria-multiselectable="true">
+        <div class="ps-menu-tools">
+          <input class="in grow" id="ps_q" placeholder="Search site…" value="${esc(S.proc.siteQ || '')}" autocomplete="off">
+          <button type="button" class="btn sm" id="ps_all">Select all</button>
+          <button type="button" class="btn sm" id="ps_none">Clear</button>
+        </div>
+        <div class="ps-list">
+          ${all.map((s) => `<label class="chk ps-opt" data-ps-name="${esc(String(s.name || '').toLowerCase())}" data-ps-loc="${esc(String(s.location || '').toLowerCase())}" data-ps-client="${esc(String(s.client || '').toLowerCase())}"><input type="checkbox" data-ps="${esc(s.id)}" ${selected.includes(s.id) ? 'checked' : ''}><span title="${esc(s.name)}">${esc(s.name)}</span></label>`).join('')
+            || '<span class="small muted ps-empty-static">No sites from Attendance yet. Add them under Site Attendance → Site Master.</span>'}
+        </div>
+        <div class="ps-menu-foot small muted">${selected.length} of ${all.length} selected${type ? ` · ${esc(type)}` : ''} · multi-select</div>
+      </div>`
+    : '';
+  // Match Run type: a normal select. Only needed when 2+ sites are ticked.
+  const focusSelect = selected.length > 1
+    ? `<label class="f ps-field ps-field-focus"><span class="small muted">Working on</span>
+        <select class="in" id="ps_focus">${selected.map((id) =>
+          `<option value="${esc(id)}" ${id === focus ? 'selected' : ''}>${esc(siteLabel(id))}</option>`
+        ).join('')}</select>
+      </label>`
+    : '';
+  const chips = selected.length > 1
+    ? `<div class="ps-chips" aria-label="Selected sites">
+        <span class="ps-chips-label small muted">Selected</span>
+        <div class="ps-chips-list">${selected.map((id) => {
+          const name = siteLabel(id);
+          const on = id === focus;
+          return `<div class="ps-chip ${on ? 'on' : ''}" data-pf="${esc(id)}" role="button" tabindex="0" title="${esc(name)}">
+            <span class="ps-chip-name">${esc(name)}</span>
+            ${on ? '<span class="ps-chip-badge">Working on</span>' : ''}
+            <button type="button" class="ps-chip-x" data-px="${esc(id)}" aria-label="Remove ${esc(name)}">×</button>
+          </div>`;
+        }).join('')}</div>
+      </div>`
+    : '';
+  return {
+    focus,
+    focusSite,
+    selected,
+    html: `<div class="card ps-card">
+      <div class="ps-bar">
+        <label class="f ps-field ps-field-sites"><span class="small muted">Sites</span>
+          <button type="button" class="in ps-trigger" id="ps_trigger" aria-haspopup="listbox" aria-expanded="${open ? 'true' : 'false'}">
+            <span class="ps-trigger-label ${selected.length ? '' : 'placeholder'}">${esc(summary)}</span>
+            <span class="ps-trigger-caret" aria-hidden="true"></span>
+          </button>
+          ${menu}
+        </label>
+        <label class="f ps-field ps-field-rtype"><span class="small muted">Run type</span>
+          <select class="in" id="rtype">${[['REG', 'Regular monthly'], ['ARR', 'Arrears'], ['FNF', 'Full & Final'], ['SUP', 'Supplementary / revised']].map(([k, t]) => `<option value="${k}" ${S.proc.type === k ? 'selected' : ''}>${t}</option>`).join('')}</select>
+        </label>
+        ${focusSelect}
+        <div class="ps-status">
+          ${focus && S.sites[focus] ? patPill(S.sites[focus], focus) : ''}
+          ${focus ? `<span class="pill ${runStatus(focus).c}">${runStatus(focus).t}</span>` : ''}
+        </div>
+      </div>
+      ${chips}
+      <p class="ps-help small muted">Same site list as Attendance. Open Sites and tick one or more to process.</p>
+    </div>`,
+  };
+}
+function bindProcessSiteControls(p) {
+  const trigger = $('#ps_trigger');
+  if (trigger) trigger.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    S.proc.siteMenuOpen = !S.proc.siteMenuOpen;
+    if (!S.proc.siteMenuOpen) S._psOutsideBound = false;
+    render();
+  };
+  const qEl = $('#ps_q');
+  const applySiteFilter = () => {
+    if (!qEl) return;
+    S.proc.siteQ = qEl.value;
+    const q = String(S.proc.siteQ || '').trim().toLowerCase();
+    const list = p.querySelector('.ps-list');
+    if (!list) return;
+    let shown = 0;
+    list.querySelectorAll('.ps-opt').forEach((lab) => {
+      const hay = `${lab.dataset.psName || ''} ${lab.dataset.psLoc || ''} ${lab.dataset.psClient || ''}`;
+      const show = !q || hay.includes(q);
+      lab.style.display = show ? '' : 'none';
+      if (show) shown += 1;
+    });
+    let empty = list.querySelector('.ps-empty');
+    if (!shown && processSiteList().length) {
+      if (!empty) {
+        empty = document.createElement('span');
+        empty.className = 'small muted ps-empty';
+        empty.textContent = 'No sites match this search.';
+        list.appendChild(empty);
+      }
+      empty.style.display = '';
+    } else if (empty) empty.style.display = 'none';
+  };
+  if (qEl) {
+    qEl.oninput = applySiteFilter;
+    qEl.onkeydown = (e) => {
+      if (e.key === 'Escape') { S.proc.siteMenuOpen = false; render(); }
+    };
+    applySiteFilter();
+    // Keep search focused after checkbox re-renders
+    if (S.proc.siteMenuOpen && S._psKeepSearchFocus != null) {
+      const pos = Number(S._psKeepSearchFocus) || 0;
+      S._psKeepSearchFocus = null;
+      setTimeout(() => {
+        const el = $('#ps_q');
+        if (!el) return;
+        el.focus();
+        try { el.setSelectionRange(pos, pos); } catch (e) { /* ignore */ }
+      }, 0);
+    }
+  }
+  const focusEl = $('#ps_focus');
+  if (focusEl) focusEl.onchange = () => {
+    ensureProcFocusSite(focusEl.value);
+    S.proc.step = 1;
+    render();
+  };
+  p.querySelectorAll('[data-ps]').forEach((c) => {
+    c.onchange = () => {
+      S.proc.siteMode = 'pick';
+      // Only update from currently visible options so a search filter does not clear hidden ticks
+      const q = String(S.proc.siteQ || '').trim().toLowerCase();
+      const prev = new Set(Array.isArray(S.proc.sites) ? S.proc.sites.map(String) : []);
+      p.querySelectorAll('.ps-opt').forEach((lab) => {
+        const input = lab.querySelector('input[data-ps]');
+        if (!input) return;
+        const id = input.dataset.ps;
+        const hay = `${lab.dataset.psName || ''} ${lab.dataset.psLoc || ''} ${lab.dataset.psClient || ''}`;
+        const visible = !q || hay.includes(q);
+        if (!visible) return;
+        if (input.checked) prev.add(id);
+        else prev.delete(id);
+      });
+      S.proc.sites = [...prev];
+      ensureProcFocusSite(S.proc.site);
+      S.proc.step = 1;
+      S.proc.siteMenuOpen = true;
+      const qBox = $('#ps_q');
+      if (qBox) S._psKeepSearchFocus = qBox.selectionStart || String(S.proc.siteQ || '').length;
+      render();
+    };
+  });
+  const allBtn = $('#ps_all');
+  if (allBtn) allBtn.onclick = () => {
+    S.proc.siteMode = 'pick';
+    S.proc.sites = processSiteList().map((s) => s.id);
+    S.proc.siteMenuOpen = true;
+    ensureProcFocusSite(S.proc.site);
+    render();
+  };
+  const noneBtn = $('#ps_none');
+  if (noneBtn) noneBtn.onclick = () => {
+    S.proc.siteMode = 'pick';
+    S.proc.sites = [];
+    S.proc.site = null;
+    S.proc.siteMenuOpen = true;
+    render();
+  };
+  const setFocusSite = (id) => {
+    ensureProcFocusSite(id);
+    S.proc.step = 1;
+    render();
+  };
+  p.querySelectorAll('[data-pf]').forEach((el) => {
+    el.onclick = (e) => {
+      if (e.target && e.target.closest && e.target.closest('[data-px]')) return;
+      setFocusSite(el.dataset.pf);
+    };
+    el.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        setFocusSite(el.dataset.pf);
+      }
+    };
+  });
+  p.querySelectorAll('[data-px]').forEach((btn) => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = String(btn.dataset.px || '');
+      S.proc.siteMode = 'pick';
+      S.proc.sites = (Array.isArray(S.proc.sites) ? S.proc.sites : []).map(String).filter((x) => x !== id);
+      if (String(S.proc.site || '') === id) S.proc.site = null;
+      ensureProcFocusSite(S.proc.site);
+      S.proc.step = 1;
+      render();
+    };
+  });
+  // Close dropdown when clicking outside
+  if (S.proc.siteMenuOpen && !S._psOutsideBound) {
+    S._psOutsideBound = true;
+    const close = (ev) => {
+      if (!S.proc.siteMenuOpen) {
+        S._psOutsideBound = false;
+        document.removeEventListener('mousedown', close, true);
+        return;
+      }
+      const menu = $('#ps_menu');
+      const trg = $('#ps_trigger');
+      if ((menu && menu.contains(ev.target)) || (trg && trg.contains(ev.target))) return;
+      S.proc.siteMenuOpen = false;
+      S._psOutsideBound = false;
+      document.removeEventListener('mousedown', close, true);
+      render();
+    };
+    setTimeout(() => document.addEventListener('mousedown', close, true), 0);
+  }
 }
 function curRun(sid) {
   const id = runId(sid, S.month, S.proc.type);
@@ -519,22 +919,44 @@ function curRun(sid) {
 async function saveRun(run) { run.updatedAt = new Date().toISOString(); const id = runId(run.siteId, run.month, run.type); S.runs[id] = Object.assign({ _id: id }, run); return put('runs/' + id, strip(run)); }
 
 function vProcess(p) {
-  const sid = S.proc.site; const site = S.sites[sid];
-  let head = `<div class="card"><div class="row"><b>Site</b>${sitePicker(sid, v => { S.proc = { site: v, step: 1, type: 'REG' }; render(); })}
-    <select class="in" id="rtype">${[['REG', 'Regular monthly'], ['ARR', 'Arrears'], ['FNF', 'Full & Final'], ['SUP', 'Supplementary / revised']].map(([k, t]) => `<option value="${k}" ${S.proc.type === k ? 'selected' : ''}>${t}</option>`).join('')}</select>
-    <span class="grow"></span>${site ? patPill(site, sid) : ''}${site ? `<span class="pill ${runStatus(sid).c}">${runStatus(sid).t}</span>` : ''}</div></div>`;
-  if (!site) { p.innerHTML = head + '<div class="card empty">Choose a site to process its salary for ' + monthName() + '.</div>'; bindRType(); return; }
-  if (S.proc.type === 'ARR') { p.innerHTML = head; bindRType(); vArrears(p, site); return; }
+  const ctl = processSiteControls();
+  const sid = ctl.focus;
+  let site = sid ? (S.sites[sid] || ctl.focusSite) : null;
+  let head = ctl.html;
+  const finishHead = () => { bindProcessSiteControls(p); bindRType(); };
+  if (!S.attSitesLoaded) {
+    p.innerHTML = head + `<div class="card empty">Loading sites from Attendance…</div>`;
+    finishHead();
+    return;
+  }
+  if (!processSiteList().length) {
+    p.innerHTML = head + `<div class="card empty"><h2>No sites from Attendance</h2><p>Add sites under Site Attendance → Site Master. The same sites will appear in this dropdown for salary processing.</p></div>`;
+    finishHead();
+    return;
+  }
+  if (!site || !processSitesSelected().length) {
+    p.innerHTML = head + `<div class="card empty">Open the Sites dropdown and tick one or more sites to process salary for ${monthName()}.</div>`;
+    finishHead();
+    return;
+  }
+  if (!S.sites[sid]) {
+    p.innerHTML = head + `<div class="card empty">Linking <b>${esc(site.name || sid)}</b> from Attendance into payroll… Refresh if this stays open.</div>`;
+    finishHead();
+    if (S.attSites && S.attSites.length) syncAttendanceSites(S.attSites);
+    return;
+  }
+  site = S.sites[sid];
+  if (S.proc.type === 'ARR') { p.innerHTML = head; finishHead(); vArrears(p, site); return; }
   const dueR = site ? dueRevs(sid, S.month) : [];
   if (dueR.length && S.proc.type === 'REG') head += `<div class="note warn" style="display:flex;gap:12px;align-items:center;margin-bottom:14px"><div class="grow"><b>Salary revision not applied yet:</b> ${dueR.map(r => `${esc(r.title || '')} (effective ${monthName(r.effective)})`).join('; ')}. Apply it before processing ${monthName()} so this salary uses the new rates.</div><button class="btn sm pri" id="dueRev">Review</button></div>`;
   if (dueR.length && S.proc.type === 'REG') setTimeout(() => { const b = $('#dueRev'); if (b) b.onclick = () => { S.rv = Object.assign(S.rv || {}, { mode: 'view', id: dueR[0]._id || dueR[0].id, back: null }); go('revisions'); }; }, 0);
-  if (S.proc.type === 'FNF') { p.innerHTML = head; bindRType(); vFnF(p, site); return; }
+  if (S.proc.type === 'FNF') { p.innerHTML = head; finishHead(); vFnF(p, site); return; }
   const run = curRun(sid); const locked = run.status === 'LOCKED';
   const st = S.proc.step;
   const steps = [['Attendance', 1], ['Review & clean', 2], ['Salary sheet', 3], ['Lock & files', 4]];
   p.innerHTML = head + (S.proc.type === 'SUP' ? `<div class="note warn" style="margin-bottom:12px">Supplementary run: upload or edit the corrected attendance. The salary sheet shows only the difference against the locked regular run for ${monthName()}.</div>` : '') +
     `<div class="steps">${steps.map(([t, n]) => { const done = n === 1 ? !!(run.att && run.att.length) : n === 2 ? !!run.attFinalAt : n === 3 ? locked : locked; const gated = n >= 3 && !run.attFinalAt; return `<div class="step ${st === n ? 'on' : ''} ${done && st !== n ? 'done' : ''}" data-s="${n}" style="${gated ? 'opacity:.55' : ''}" title="${gated ? 'Finalize attendance first' : ''}"><span class="no">${done && st !== n ? '✓' : n}</span>${t}</div>`; }).join('')}</div><div id="pbody"></div>`;
-  bindRType();
+  finishHead();
   p.querySelectorAll('.step').forEach(el => el.onclick = () => { S.proc.step = +el.dataset.s; render(); });
   const b = $('#pbody');
   if (st === 1) stepUpload(b, site, run, locked);
@@ -3328,6 +3750,12 @@ function __indusPayrollBoot(opts) {
   opts = opts || {};
   if (opts.user) S.user = opts.user;
   if (opts.view && NAV.some(function (n) { return n[0] === opts.view; })) S.view = opts.view;
+  if (opts.attendanceSites !== undefined) {
+    S.attSitesLoaded = true;
+    S.attSites = Array.isArray(opts.attendanceSites) ? opts.attendanceSites.slice() : [];
+    if (S.ready && !S.noAccess) syncAttendanceSites(S.attSites);
+  }
+  if (!S.proc.siteMode) S.proc.siteMode = 'pick';
   if (!S._monthSet) {
     var now = new Date();
     S.month = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
@@ -3345,9 +3773,34 @@ function __indusPayrollBoot(opts) {
   if (!S._connected) { S._connected = true; connect(); }
 }
 window.__indusPayrollBoot = __indusPayrollBoot;
-window.__indusPayrollBuild = 3;
+window.__indusPayrollBuild = 8;
 window.__indusPayrollSetView = function (v) {
   if (!v || v === S.view || !NAV.some(function (n) { return n[0] === v; })) return;
   S.view = v;
+  // Drop site picks that are hidden by Attendance Fire/Safety filter when entering Process salary
+  if (v === 'process' && Array.isArray(S.proc.sites) && S.proc.sites.length) {
+    const ok = new Set(processSiteList().map((s) => s.id));
+    S.proc.sites = S.proc.sites.map(String).filter((id) => ok.has(id));
+    if (S.proc.site && !ok.has(String(S.proc.site))) S.proc.site = S.proc.sites[0] || null;
+  }
   render();
+};
+if (!window.__indusPayrollSiteTypeBound) {
+  window.__indusPayrollSiteTypeBound = true;
+  window.addEventListener('storage', (ev) => {
+    if (ev.key !== 'hr_selected_site_type') return;
+    if (S.ready) softRender();
+  });
+}
+window.__indusPayrollSetAttendanceSites = function (rows) {
+  S.attSitesLoaded = true;
+  S.attSites = Array.isArray(rows) ? rows.slice() : [];
+  // Drop selections that no longer exist in Attendance / Site Master
+  if (Array.isArray(S.proc.sites) && S.proc.sites.length) {
+    const ok = new Set(processSiteList().map((s) => s.id));
+    S.proc.sites = S.proc.sites.map(String).filter((id) => ok.has(id));
+    if (S.proc.site && !ok.has(String(S.proc.site))) S.proc.site = S.proc.sites[0] || null;
+  }
+  if (S.ready && !S.noAccess) syncAttendanceSites(S.attSites);
+  else if (S.ready) softRender();
 };
