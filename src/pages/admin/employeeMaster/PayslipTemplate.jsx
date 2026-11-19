@@ -29,41 +29,47 @@ export default function PayslipTemplate({
 }) {
   if (!payslip) return null;
 
-  const earnRows = [
-    ...(payslip.annexure_structure
-      ? [
-          { label: "Basic", amount: payslip.basic_earned },
-          { label: "HRA", amount: payslip.hra_earned },
-          { label: "Conveyance Allowance", amount: payslip.conveyance_earned },
-          { label: "Advance Against Statutory Bonus", amount: payslip.stat_bonus_earned },
-          { label: "Medical Allowance", amount: payslip.medical_earned },
-          { label: "Special Allowance", amount: payslip.special_allowance },
-          { label: "Performance Incentive", amount: payslip.perf_incentive_earned },
-          ...(payslip.extra_earnings || []),
-        ].filter((r) => Number(r.amount) > 0)
-      : [
-          { label: "Earned basic", amount: payslip.basic_earned },
-          { label: "HRA", amount: payslip.hra_earned },
-          { label: "Other allowances", amount: payslip.special_allowance },
-        ]),
-    ...(payslip.custom_components || [])
-      .filter((c) => c.kind === "earning" && Number(c.amount) > 0)
-      .map((c) => ({ label: c.name || c.code || "Earning", amount: c.amount })),
-  ];
+  const takeHomeOnly = Boolean(payslip.take_home_structure);
 
-  const dedRows = [
-    { label: "Employee PF", amount: payslip.emp_pf },
-    { label: "ESIC", amount: payslip.emp_esic },
-    { label: "Professional tax", amount: payslip.pt_amount },
-    { label: "Loan", amount: payslip.loan },
-    { label: "Salary advance", amount: payslip.sal_adv },
-    { label: "Unpaid / Paid", amount: payslip.unpaid_paid },
-    { label: "TDS", amount: payslip.tds },
-    ...(payslip.extra_deductions || []),
-    ...(payslip.custom_components || [])
-      .filter((c) => c.kind === "deduction" && Number(c.amount) > 0)
-      .map((c) => ({ label: c.name || c.code || "Deduction", amount: c.amount })),
-  ].filter((r) => Number(r.amount) > 0 || ["Employee PF", "Professional tax"].includes(r.label));
+  const earnRows = takeHomeOnly
+    ? [{ label: "Net Salary", amount: payslip.net_salary }]
+    : [
+        ...(payslip.annexure_structure
+          ? [
+              { label: "Basic", amount: payslip.basic_earned },
+              { label: "HRA", amount: payslip.hra_earned },
+              { label: "Conveyance Allowance", amount: payslip.conveyance_earned },
+              { label: "Advance Against Statutory Bonus", amount: payslip.stat_bonus_earned },
+              { label: "Medical Allowance", amount: payslip.medical_earned },
+              { label: "Special Allowance", amount: payslip.special_allowance },
+              { label: "Performance Incentive", amount: payslip.perf_incentive_earned },
+              ...(payslip.extra_earnings || []),
+            ].filter((r) => Number(r.amount) > 0)
+          : [
+              { label: "Earned basic", amount: payslip.basic_earned },
+              { label: "HRA", amount: payslip.hra_earned },
+              { label: "Other allowances", amount: payslip.special_allowance },
+            ]),
+        ...(payslip.custom_components || [])
+          .filter((c) => c.kind === "earning" && Number(c.amount) > 0)
+          .map((c) => ({ label: c.name || c.code || "Earning", amount: c.amount })),
+      ];
+
+  const dedRows = takeHomeOnly
+    ? []
+    : [
+        { label: "Employee PF", amount: payslip.emp_pf },
+        { label: "ESIC", amount: payslip.emp_esic },
+        { label: "Professional tax", amount: payslip.pt_amount },
+        { label: "Loan", amount: payslip.loan },
+        { label: "Salary advance", amount: payslip.sal_adv },
+        { label: "Unpaid / Paid", amount: payslip.unpaid_paid },
+        { label: "TDS", amount: payslip.tds },
+        ...(payslip.extra_deductions || []),
+        ...(payslip.custom_components || [])
+          .filter((c) => c.kind === "deduction" && Number(c.amount) > 0)
+          .map((c) => ({ label: c.name || c.code || "Deduction", amount: c.amount })),
+      ].filter((r) => Number(r.amount) > 0 || ["Employee PF", "Professional tax"].includes(r.label));
 
   const monthDays = Number(payslip.month_days) || 0;
   const presentDays = Number(payslip.present_days) || 0;
@@ -263,24 +269,26 @@ export default function PayslipTemplate({
         style={{
           padding: "12px 22px 0",
           display: "grid",
-          gridTemplateColumns: "1fr 1fr",
+          gridTemplateColumns: takeHomeOnly ? "1fr" : "1fr 1fr",
           gap: 12,
         }}
       >
         <MoneyTable
-          title="Earnings"
-          rows={padRows(earnRows, tableRows)}
-          footerLabel="Total gross earnings"
-          footerValue={payslip.gross_wages}
+          title={takeHomeOnly ? "Payable" : "Earnings"}
+          rows={padRows(earnRows, takeHomeOnly ? Math.max(earnRows.length, 1) : tableRows)}
+          footerLabel={takeHomeOnly ? "Net Salary" : "Total gross earnings"}
+          footerValue={takeHomeOnly ? payslip.net_salary : payslip.gross_wages}
           whiteHeader={whiteHeader}
         />
-        <MoneyTable
-          title="Deductions"
-          rows={padRows(dedRows, tableRows)}
-          footerLabel="Total deductions"
-          footerValue={payslip.total_ded}
-          whiteHeader={whiteHeader}
-        />
+        {!takeHomeOnly ? (
+          <MoneyTable
+            title="Deductions"
+            rows={padRows(dedRows, tableRows)}
+            footerLabel="Total deductions"
+            footerValue={payslip.total_ded}
+            whiteHeader={whiteHeader}
+          />
+        ) : null}
       </div>
 
       {/* Amount in words + Net pay — invoice total style */}

@@ -11,7 +11,7 @@ export function friendlyOcError(error, fallback = "Something went wrong. Please 
   console.error("[PO At Glance]", error);
   const msg = String(error.message || error);
   const code = String(error.code || "");
-  if (/^Only the Finance Department can fill or change the OC No\./.test(msg)) return msg;
+  if (/^Only the Finance Department can fill or change the (OC No\.|Cost Center in Tally\.)/.test(msg)) return msg;
   if (/can sign only after the previous stage|Only the person who created this OC|cannot be removed while a later stage/.test(msg)) {
     return msg;
   }
@@ -38,6 +38,82 @@ export async function listOcs(dept = IEV_OC_DEPARTMENT) {
     .limit(500);
   if (error) throw error;
   return data || [];
+}
+
+const IN_CHUNK = 100;
+const chunk = (list, size) => {
+  const out = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+};
+
+/**
+ * Where each listed OC sits in the sign-off sequence (read-only; uses the existing signoff and
+ * approval-log tables). Returns Map<ocId, { signedSlots: Set<string>, returned: boolean }>.
+ * Departments without sequential sign-off get an empty map.
+ */
+export async function listOcApprovalStages(ids, dept = IEV_OC_DEPARTMENT) {
+  const stages = new Map();
+  if (!dept.sequentialSignoff || !ids?.length) return stages;
+  for (const id of ids) stages.set(id, { signedSlots: new Set(), returned: false });
+
+  const parts = chunk(ids, IN_CHUNK);
+  const signoffs = await Promise.all(
+    parts.map((part) => supabase.from(dept.tables.signoff).select("oc_id, slot").in("oc_id", part))
+  );
+  for (const res of signoffs) {
+    if (res.error) throw res.error;
+    for (const row of res.data || []) stages.get(row.oc_id)?.signedSlots.add(row.slot);
+  }
+
+  if (dept.approvalAudit && dept.key === "projects") {
+    const logs = await Promise.all(
+      parts.map((part) =>
+        supabase
+          .from("pj_oc_approval_log")
+          .select("oc_id, action, created_at, id")
+          .in("oc_id", part)
+          .in("action", ["MODIFICATION_REQUESTED", "RESUBMITTED"])
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+      )
+    );
+    for (const res of logs) {
+      // History is optional for the list badge: fall back to sign-offs only.
+      if (res.error) {
+        console.warn("[PO At Glance] approval log unavailable for list status", res.error);
+        continue;
+      }
+      // Latest event wins: an unanswered Request Modification means "returned to the creator".
+      for (const row of res.data || []) {
+        const s = stages.get(row.oc_id);
+        if (s) s.returned = row.action === "MODIFICATION_REQUESTED";
+      }
+    }
+  }
+  return stages;
+}
+
+/**
+ * Approval status for the PO At Glance list, following the department's sign-off order:
+ * the department currently responsible, "Returned to creator", or "OC Generated" once the
+ * final (Finance) stage is signed. Returns null when the department has no sequential sign-off.
+ */
+export function ocApprovalStatus(stage, dept = IEV_OC_DEPARTMENT) {
+  if (!dept.sequentialSignoff || !stage) return null;
+  const slots = dept.slots || [];
+  const next = slots.find((s) => !stage.signedSlots.has(s.slot));
+  // Same order of checks as the form's approval panel (ProjectsApprovalPanel).
+  if (stage.returned) {
+    return { kind: "returned", label: "Returned to creator", title: "Sent back for modification; waiting for the creator to resubmit." };
+  }
+  if (!next) return { kind: "generated", label: "OC Generated", title: "All approval stages are complete." };
+  const index = slots.indexOf(next);
+  return {
+    kind: "pending",
+    label: `Pending (${next.label})`,
+    title: `Awaiting ${next.label} approval — stage ${index + 1} of ${slots.length}`,
+  };
 }
 
 export async function loadOc(id, dept = IEV_OC_DEPARTMENT) {
@@ -179,6 +255,45 @@ export async function pjStageSignatureBytes(ocId, slot) {
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
   return out;
+}
+
+function bytesFromBase64(b64) {
+  if (!b64) return null;
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** IEV / Maintenance / R&M: request body for the shared PO At Glance signature endpoint. */
+const deptSignatureRequest = (dept, ocId, slot, bytes) => ({
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ department: dept.key, ocId, slot, ...(bytes ? { bytes: true } : {}) }),
+});
+
+/**
+ * Viewable URL of the signature used on a saved sign-off box of any PO At Glance department ("" when none).
+ * Projects keeps its own endpoint; IEV, Maintenance and R&M use /api/po-at-glance/signature-file.
+ */
+export async function ocStageSignatureUrl(ocId, slot, dept = IEV_OC_DEPARTMENT) {
+  if (!ocId || !slot) return "";
+  if (dept.key === "projects") return pjStageSignatureUrl(ocId, slot);
+  try {
+    const res = await fetchApiWithAuth("/api/po-at-glance/signature-file", deptSignatureRequest(dept, ocId, slot, false));
+    return res.ok ? String(res.data?.url || "") : "";
+  } catch (e) {
+    console.warn("[PO At Glance] sign-off signature URL failed", slot, e);
+    return "";
+  }
+}
+
+/** Raw bytes of the signature used on a saved sign-off box (for Word export), or null. */
+export async function ocStageSignatureBytes(ocId, slot, dept = IEV_OC_DEPARTMENT) {
+  if (!ocId || !slot) return null;
+  if (dept.key === "projects") return pjStageSignatureBytes(ocId, slot);
+  const res = await fetchApiWithAuth("/api/po-at-glance/signature-file", deptSignatureRequest(dept, ocId, slot, true));
+  return res.ok ? bytesFromBase64(String(res.data?.base64 || "")) : null;
 }
 
 const PO_DOCUMENT_BUCKET = "projects-po-documents";

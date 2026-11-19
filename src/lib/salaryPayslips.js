@@ -146,6 +146,11 @@ export function buildPayslipFromLine(run, line, opts = {}) {
     extra_earnings: extraLines(line, "extra_earnings"),
     extra_deductions: extraLines(line, "extra_deductions"),
     annexure_structure: Boolean(line.computed_json?.annexure),
+    take_home_structure: Boolean(
+      line.take_home_only ||
+        line.computed_json?.take_home_only ||
+        line.source_snapshot_json?.take_home_only
+    ),
     custom_earn: num(line.custom_earn ?? line.computed_json?.custom_earn),
     custom_ded: num(line.custom_ded ?? line.computed_json?.custom_ded),
     custom_components: customs,

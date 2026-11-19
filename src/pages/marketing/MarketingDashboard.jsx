@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavAccess } from "../../hooks/useNavAccess";
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { 
@@ -44,6 +45,7 @@ const RupeeIcon = ({ className = '' }) => {
 
 const MarketingDashboard = () => {
   const navigate = useNavigate();
+  const { canSeePath } = useNavAccess();
   const [stats, setStats] = useState({
     totalEnquiries: 0,
     totalQuotations: 0,
@@ -614,7 +616,7 @@ const MarketingDashboard = () => {
               <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Quick actions</h2>
               <p className="text-xs text-gray-500 mb-3">Click any action to open the relevant marketing page.</p>
               <div className="grid flex-1 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 content-start">
-                {dashboardCards.map((card, index) => {
+                {dashboardCards.filter((card) => canSeePath(card.path)).map((card, index) => {
                   const Icon = card.icon;
                   return (
                     <button

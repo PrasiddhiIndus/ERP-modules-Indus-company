@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useNavigate } from "react-router-dom";
+import { useNavAccess } from "../../hooks/useNavAccess";
 import { RefreshCw, Sparkles, X } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { fetchLeaveRequests, subscribeLeaveWorkflowRealtime } from "../../lib/adminLeaveRequests";
@@ -163,6 +164,7 @@ const PERSON_COLS = [
 
 export default function AdminOpsDashboard() {
   const navigate = useNavigate();
+  const { canSeePath } = useNavAccess();
   const [, startTransition] = useTransition();
 
   const [fromDate, setFromDate] = useState(() => daysAgoIso(21));
@@ -1486,6 +1488,7 @@ export default function AdminOpsDashboard() {
         spec={detailSpec}
         onClose={closeDetail}
         onOpenPage={(path) => navigate(path)}
+        canOpenPage={canSeePath}
       />
     </div>
   );

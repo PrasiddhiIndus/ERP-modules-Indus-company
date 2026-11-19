@@ -9,7 +9,7 @@ export function deletionErrorMessage(err, fallback = 'Something went wrong. Plea
   if (/enquiry_deletion_requests|request_enquiry_deletion|decide_enquiry_deletion|schema cache|does not exist/i.test(msg)) {
     return 'Deletion approval is not set up yet. Ask your administrator to apply the latest update.';
   }
-  if (/only a manager|no longer exists|already (approved|rejected)|do not have access/i.test(msg)) {
+  if (/view-only access|only a manager|no longer exists|already (approved|rejected)|do not have access/i.test(msg)) {
     return msg;
   }
   return fallback;

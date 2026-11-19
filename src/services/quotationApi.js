@@ -144,6 +144,22 @@ export function daysBetween(fromIso, toIso = new Date().toISOString().slice(0, 1
   return Math.floor(ms / (1000 * 60 * 60 * 24));
 }
 
+/** Quotation Master "Overdue" tab: days allowed after the Last Follow-up Date. */
+export const LAST_FOLLOWUP_OVERDUE_DAYS = 7;
+
+/**
+ * More than LAST_FOLLOWUP_OVERDUE_DAYS days since the Last Follow-up Date, on an offer that is
+ * still open (not converted, lost or superseded). Rows without a follow-up date are not counted.
+ * Returns the number of days since the follow-up, or 0 when not overdue.
+ */
+export function lastFollowupOverdueDays(row, todayIso) {
+  if (!row?.last_followup_date || row.superseded) return 0;
+  const status = String(row.offer_status || '');
+  if (isTerminalConvertedOrLost(status) || status === 'Superseded') return 0;
+  const days = daysBetween(row.last_followup_date, todayIso);
+  return days != null && days > LAST_FOLLOWUP_OVERDUE_DAYS ? days : 0;
+}
+
 export function isFollowupOverdue(row, todayIso = new Date().toISOString().slice(0, 10)) {
   if (!row?.next_followup_date) return false;
   if (isTerminalConvertedOrLost(row.offer_status) || row.superseded) return false;
@@ -354,30 +370,53 @@ export function normalizeQuotationMasterPatch(form = {}) {
   };
 }
 
+/** Today's date (local, yyyy-mm-dd) — the Order Status Date stamped on a status change. */
+function todayLocalIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /**
- * Persist Quotation Master detail edits to projects.quotations.
+ * Persist a Quotation Master edit to projects.quotations.
+ * An existing quotation can only change Offer Status and Last Follow-up Date; every other field
+ * stays as it is (nothing else is sent). When the status changes, the Order Status Date
+ * (order_converted_date) is set to today — the database trigger 20261118190000 does the same
+ * for every other save path.
  * @param {string} id
- * @param {object} form — Edit details form values
- * @param {{ previousStatus?: string }} [opts]
+ * @param {{ offer_status?: string, last_followup_date?: string, remark?: string }} form
+ * @param {{ previousStatus?: string, statusRemark?: string }} [opts]
+ *   statusRemark — reason for Lost / Hold, appended to the remark as "[Status → X] reason".
  */
 export async function updateQuotationMasterDetails(id, form, opts = {}) {
   if (!id) throw new Error('Quotation id is required.');
   const previousStatus = opts.previousStatus || form.offer_status;
   const nextStatus = String(form.offer_status || previousStatus || 'Draft').trim() || 'Draft';
-  if (previousStatus && previousStatus !== nextStatus && !canTransitionStatus(previousStatus, nextStatus)) {
+  const statusChanged = previousStatus !== nextStatus;
+  const statusRemark = String(opts.statusRemark || '').trim();
+  if (previousStatus && statusChanged && !canTransitionStatus(previousStatus, nextStatus)) {
     throw new Error(`Cannot move from "${previousStatus}" to "${nextStatus}". Follow the offer workflow.`);
   }
   if (
     (nextStatus === 'Order Lost' || nextStatus === 'Client Has Hold Enquiry') &&
-    previousStatus !== nextStatus &&
-    !String(form.remark || '').trim()
+    statusChanged &&
+    !statusRemark
   ) {
-    throw new Error('A remark is required when marking Lost or Hold.');
+    throw new Error('A reason is required when marking Lost or Hold.');
   }
 
-  const payload = normalizeQuotationMasterPatch({ ...form, offer_status: nextStatus });
-  if (previousStatus !== nextStatus) {
+  const payload = {
+    offer_status: nextStatus,
+    last_followup_date: normalizeToIsoDate(form.last_followup_date) || null,
+    updated_at: new Date().toISOString(),
+  };
+  if (statusChanged) {
     payload.status_changed_at = new Date().toISOString();
+    payload.order_converted_date = todayLocalIso();
+    if (statusRemark) {
+      payload.remark = [String(form.remark || '').trim(), `[Status → ${nextStatus}] ${statusRemark}`]
+        .filter(Boolean)
+        .join('\n');
+    }
   }
 
   const { data, error } = await projectsTable('quotations').update(payload).eq('id', id).select('*').single();

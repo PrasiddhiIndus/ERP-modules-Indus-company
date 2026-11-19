@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { useNavAccess } from "../../../hooks/useNavAccess";
 
 const BASE = "/app/commercial/rm-mm-amc-iev/manpower-management";
 const IQ = "/app/commercial/rm-mm-amc-iev/internal-quotation";
@@ -8,6 +9,7 @@ const IQ = "/app/commercial/rm-mm-amc-iev/internal-quotation";
 const ManpowerNavbarRm = () => {
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const location = useLocation();
+  const { canSeePath } = useNavAccess();
 
   const p = location.pathname;
   const isRoot = p === BASE;
@@ -37,6 +39,7 @@ const ManpowerNavbarRm = () => {
           Enquiry List
         </Link>
 
+        {canSeePath(IQ) && (
         <Link
           to={IQ}
           className={`px-4 py-2 rounded text-white ${
@@ -45,6 +48,7 @@ const ManpowerNavbarRm = () => {
         >
           Internal Quotation
         </Link>
+        )}
 
         <div className="relative inline-block text-left">
           <button

@@ -2025,6 +2025,60 @@ app.post('/api/commercial/oc/signature-file', requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * IEV / Maintenance / R&M PO At Glance: signature of the login that signed one saved sign-off box.
+ * oc_dept_signature_file checks that department's PO At Glance (or Finance Master) access; only Indus One
+ * signature files (signature/{employee code}/…) are served. Body: { department, ocId, slot, bytes? }.
+ */
+const OC_SIGNATURE_DEPARTMENTS = new Set(['iev', 'maintenance', 'rm']);
+app.post('/api/po-at-glance/signature-file', requireAuth, async (req, res) => {
+  try {
+    const department = String(req.body?.department || '').trim().toLowerCase();
+    const ocId = String(req.body?.ocId || '').trim();
+    const slot = String(req.body?.slot || '').trim().toUpperCase();
+    if (!OC_SIGNATURE_DEPARTMENTS.has(department)) return res.status(400).json({ error: 'Unknown department.' });
+    if (!ocId || !slot) return res.status(400).json({ error: 'Choose the PO and sign-off box.' });
+    const jwt = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    const userDb = createClient(getSupabaseUrlForServer(), getSupabaseAnonKeyForServer(), {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: jwt ? { headers: { Authorization: `Bearer ${jwt}` } } : undefined,
+    });
+    const { data, error } = await userDb.rpc('oc_dept_signature_file', { p_department: department, p_oc_id: ocId, p_slot: slot });
+    if (error) {
+      const status = String(error.code || '') === '42501' ? 403 : 400;
+      return res.status(status).json({ error: error.message || 'Could not load this signature.' });
+    }
+    const employeeCode = String(data?.employeeCode || '').trim();
+    const objectKey = String(data?.objectKey || '').trim();
+    if (!employeeCode || !objectKey.startsWith(`signature/${employeeCode}/`) || objectKey.includes('..')) {
+      return res.status(404).json({ error: 'No digital signature found for this sign-off.' });
+    }
+    if (req.body?.bytes) {
+      const obj = await getR2S3Client().send(new GetObjectCommand({ Bucket: getR2BucketName(), Key: objectKey }));
+      const raw = obj?.Body ? await obj.Body.transformToByteArray() : null;
+      if (!raw?.length) return res.status(404).json({ error: 'No digital signature found for this sign-off.' });
+      return res.json({
+        contentType: String(data.contentType || obj.ContentType || 'image/png'),
+        base64: Buffer.from(raw).toString('base64'),
+      });
+    }
+    const url = await getSignedUrl(
+      getR2S3Client(),
+      new GetObjectCommand({
+        Bucket: getR2BucketName(),
+        Key: objectKey,
+        ResponseContentType: data.contentType || 'image/png',
+        ResponseContentDisposition: 'inline',
+      }),
+      { expiresIn: 600 },
+    );
+    return res.json({ url });
+  } catch (err) {
+    console.error('[po-at-glance/signature-file]', err?.message || err);
+    return res.status(500).json({ error: 'Could not open the signature.' });
+  }
+});
+
 function sendExitEmailError(res, err, fallback) {
   const status = Number(err?.status) || 500;
   if (status >= 500) console.error('[employee-exit/email]', err?.message || err);

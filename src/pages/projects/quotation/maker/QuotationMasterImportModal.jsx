@@ -7,9 +7,10 @@ import {
   parseQuotationImportRows,
   readQuotationExcelRows,
 } from '../quotationExcelImport';
+import QuotationImportSkippedList from '../QuotationImportSkippedList';
 
 const BATCH_SIZE = 50;
-const MAX_ROWS = 500;
+const MAX_ROWS = 2000;
 
 export default function QuotationMasterImportModal({ open, onClose, onImported }) {
   const fileRef = useRef(null);
@@ -103,7 +104,12 @@ export default function QuotationMasterImportModal({ open, onClose, onImported }
       let inserted = 0;
       for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
         const batch = toInsert.slice(i, i + BATCH_SIZE);
-        const { error: insErr } = await projectsTable('quotations').insert(batch);
+        let insErr = (await projectsTable('quotations').insert(batch)).error;
+        // Older DBs may lack order_converted_date — retry without it (same as Master edit).
+        if (insErr && /order_converted_date/i.test(insErr.message || '')) {
+          const stripped = batch.map(({ order_converted_date, ...rest }) => rest);
+          insErr = (await projectsTable('quotations').insert(stripped)).error;
+        }
         if (insErr) {
           const msg = String(insErr.message || '');
           if (/quotations_offer_no_unique|duplicate key/i.test(msg)) {
@@ -111,13 +117,24 @@ export default function QuotationMasterImportModal({ open, onClose, onImported }
               'Import stopped: an Offer No already exists in Quotation Master. Remove duplicates from the sheet (or delete the existing quotation) and try again.'
             );
           }
+          if (/null value in column ["']?offer_no/i.test(msg)) {
+            throw new Error(
+              'Import stopped: every row needs an Offer No. Remove blank Offer No rows from the sheet and try again.'
+            );
+          }
           throw insErr;
         }
         inserted += batch.length;
       }
 
-      const skippedCount = preview.skipped.length + alreadySkipped.length;
-      setResult({ ok: inserted, skipped: skippedCount, alreadyExists: alreadySkipped.length });
+      const skippedRows = [...(preview.skipped || []), ...alreadySkipped];
+      const skippedCount = skippedRows.length;
+      setResult({
+        ok: inserted,
+        skipped: skippedCount,
+        alreadyExists: alreadySkipped.length,
+        skippedRows,
+      });
       setPreview(null);
       if (inserted > 0) onImported?.();
     } catch (err) {
@@ -132,7 +149,7 @@ export default function QuotationMasterImportModal({ open, onClose, onImported }
       open={open}
       title="Import quotations"
       onClose={handleClose}
-      widthClass="max-w-lg"
+      widthClass="max-w-xl"
       footer={
         <div className="flex justify-end gap-2">
           <button
@@ -190,36 +207,49 @@ export default function QuotationMasterImportModal({ open, onClose, onImported }
         </div>
 
         {preview ? (
-          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[13px] space-y-1">
-            <div className="flex justify-between gap-2">
-              <span className="text-slate-500">File</span>
-              <span className="font-medium text-slate-900 truncate max-w-[260px]">{preview.fileName}</span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-slate-500">Rows found</span>
-              <span className="font-medium text-slate-900">{preview.totalRows}</span>
-            </div>
-            {Object.entries(
-              preview.payloads.reduce((acc, p) => {
-                const k = p.sheet || 'Sheet';
-                acc[k] = (acc[k] || 0) + 1;
-                return acc;
-              }, {})
-            ).map(([sheet, n]) => (
-              <div key={sheet} className="flex justify-between gap-2 pl-3">
-                <span className="text-slate-500">Sheet “{sheet}”</span>
-                <span className="text-slate-900 tabular-nums">{n}</span>
-              </div>
-            ))}
-            <div className="flex justify-between gap-2">
-              <span className="text-slate-500">Ready to import</span>
-              <span className="font-semibold text-emerald-700">{preview.payloads.length}</span>
-            </div>
-            {preview.skipped.length > 0 ? (
+          <div className="space-y-3">
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[13px] space-y-1">
               <div className="flex justify-between gap-2">
-                <span className="text-slate-500">Skipped</span>
-                <span className="font-semibold text-amber-700">{preview.skipped.length}</span>
+                <span className="text-slate-500">File</span>
+                <span className="font-medium text-slate-900 truncate max-w-[260px]">{preview.fileName}</span>
               </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-500">Rows found</span>
+                <span className="font-medium text-slate-900">{preview.totalRows}</span>
+              </div>
+              {Object.entries(
+                preview.payloads.reduce((acc, p) => {
+                  const k = p.sheet || 'Sheet';
+                  acc[k] = (acc[k] || 0) + 1;
+                  return acc;
+                }, {})
+              ).map(([sheet, n]) => (
+                <div key={sheet} className="flex justify-between gap-2 pl-3">
+                  <span className="text-slate-500">Sheet “{sheet}”</span>
+                  <span className="text-slate-900 tabular-nums">{n}</span>
+                </div>
+              ))}
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-500">Ready to import</span>
+                <span className="font-semibold text-emerald-700">{preview.payloads.length}</span>
+              </div>
+              {preview.skipped.length > 0 ? (
+                <div className="flex justify-between gap-2">
+                  <span className="text-slate-500">Skipped</span>
+                  <span className="font-semibold text-amber-700">{preview.skipped.length}</span>
+                </div>
+              ) : null}
+            </div>
+
+            <QuotationImportSkippedList
+              rows={preview.skipped}
+              title="Skipped rows (will not be imported)"
+            />
+
+            {!preview.payloads.length && preview.skipped.length > 0 ? (
+              <p className="text-[12px] text-slate-600 m-0">
+                No rows are ready to import. Correct the Excel rows listed above and choose the file again.
+              </p>
             ) : null}
           </div>
         ) : null}
@@ -229,16 +259,22 @@ export default function QuotationMasterImportModal({ open, onClose, onImported }
         ) : null}
 
         {result ? (
-          <div
-            className={`rounded-lg border px-3 py-2 text-[13px] ${
-              result.ok > 0
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                : 'border-amber-200 bg-amber-50 text-amber-900'
-            }`}
-          >
-            {result.ok > 0 ? `${result.ok} quotation(s) imported` : 'No rows imported'}
-            {result.skipped > 0 ? ` · ${result.skipped} skipped` : ''}
-            {result.alreadyExists > 0 ? ` (${result.alreadyExists} Offer No already in Quotation Master)` : ''}
+          <div className="space-y-3">
+            <div
+              className={`rounded-lg border px-3 py-2 text-[13px] ${
+                result.ok > 0
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                  : 'border-amber-200 bg-amber-50 text-amber-900'
+              }`}
+            >
+              {result.ok > 0 ? `${result.ok} quotation(s) imported` : 'No rows imported'}
+              {result.skipped > 0 ? ` · ${result.skipped} skipped` : ''}
+              {result.alreadyExists > 0 ? ` (${result.alreadyExists} Offer No already in Quotation Master)` : ''}
+            </div>
+            <QuotationImportSkippedList
+              rows={result.skippedRows}
+              title="Skipped / not imported rows"
+            />
           </div>
         ) : null}
       </div>
