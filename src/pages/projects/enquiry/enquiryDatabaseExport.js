@@ -37,6 +37,7 @@ const TABLE_COLUMN_MIN_WIDTHS = {
   enquiry_from: 140,
   client_name: 170,
   location: 130,
+  address: 160,
   contact_person: 140,
   phone_number: 120,
   assigned_to_person: 150,
@@ -48,6 +49,9 @@ const TABLE_COLUMN_MIN_WIDTHS = {
 
 /** Computed "Days left" column shown in the register (not a stored field). */
 export const DAYS_LEFT_COLUMN_WIDTH = 148;
+
+/** Sticky Actions column (history + edit + delete). Must match EnquiryDatabase th/td width. */
+export const ACTIONS_COLUMN_WIDTH = 112;
 
 function columnWidth(field) {
   const key = field?.field_key;
@@ -79,7 +83,7 @@ export function getTableColumnLayout(field) {
       px,
       compact: false,
       wrapContent: true,
-      style: { minWidth: px, width: px },
+      style: { minWidth: px, width: px, maxWidth: px },
       headerClass: 'whitespace-normal leading-[1.15] break-words text-center px-2 py-2 align-middle',
       cellClass: 'px-2 break-all whitespace-normal text-left align-top',
     };
@@ -104,15 +108,15 @@ export function getTableColumnLayout(field) {
     px,
     compact: false,
     wrapContent: false,
-    style: { minWidth: px, width: px },
+    style: { minWidth: px, width: px, maxWidth: px },
     headerClass: 'whitespace-normal leading-[1.15] break-words px-2 py-2.5 align-middle',
-    cellClass: 'px-2',
+    cellClass: 'px-2 overflow-hidden',
   };
 }
 
 export function getEnquiryTableWidth(databaseFields, { withDaysLeft = false } = {}) {
   const dataWidth = (databaseFields || []).reduce((sum, f) => sum + getTableColumnLayout(f).px, 0);
-  return dataWidth + (withDaysLeft ? DAYS_LEFT_COLUMN_WIDTH : 0) + 68; // fields + Days left + Actions
+  return dataWidth + (withDaysLeft ? DAYS_LEFT_COLUMN_WIDTH : 0) + ACTIONS_COLUMN_WIDTH;
 }
 
 /** @deprecated use getTableColumnLayout */

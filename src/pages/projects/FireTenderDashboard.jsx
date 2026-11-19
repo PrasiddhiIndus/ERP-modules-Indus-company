@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import FireTenderNavbar from "./FireTenderNavbar";
+import { useNavAccess } from "../../hooks/useNavAccess";
 import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 import {
   SparkKpi,
@@ -37,6 +38,8 @@ const statusClass = {
 
 const FireTenderDashboard = () => {
   const navigate = useNavigate();
+  const { canSeePath } = useNavAccess();
+  const canOpenTenders = canSeePath("/app/fire-tender/costing-hub/tender");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [metrics, setMetrics] = useState({
@@ -231,7 +234,7 @@ const FireTenderDashboard = () => {
               value={loading ? "…" : k.value}
               series={sparkFromValue(Number(k.value) || 0)}
               color={CHART_SERIES[i % CHART_SERIES.length]}
-              onClick={() => navigate(k.path)}
+              onClick={canSeePath(k.path) ? () => navigate(k.path) : undefined}
             />
           ))}
         </div>
@@ -265,6 +268,7 @@ const FireTenderDashboard = () => {
               <RadialScoreChart value={costingCoverage} label="Costing coverage" color={CHART_SERIES[1]} height={160} />
               <RadialScoreChart value={quotationCoverage} label="Quotation coverage" color={CHART_SERIES[2]} height={160} />
             </div>
+            {canOpenTenders && (
             <button
               type="button"
               onClick={() => navigate("/app/fire-tender/costing-hub/tender")}
@@ -274,6 +278,7 @@ const FireTenderDashboard = () => {
               Open tender list
               <ArrowRight className="h-4 w-4 text-slate-400" />
             </button>
+            )}
           </div>
         </div>
 
@@ -283,7 +288,7 @@ const FireTenderDashboard = () => {
             <p className="mt-0.5 text-xs text-slate-500">Open the page you need next.</p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-            {dashboardCards.map((card) => {
+            {dashboardCards.filter((card) => canSeePath(card.path)).map((card) => {
               const Icon = card.icon;
               return (
                 <button
@@ -312,6 +317,7 @@ const FireTenderDashboard = () => {
               <CalendarDays className="h-5 w-5 text-blue-600" />
               <h2 className="text-base font-semibold text-slate-900">Recent tenders</h2>
             </div>
+            {canOpenTenders && (
             <button
               type="button"
               onClick={() => navigate("/app/fire-tender/costing-hub/tender")}
@@ -319,6 +325,7 @@ const FireTenderDashboard = () => {
             >
               View all
             </button>
+            )}
           </div>
 
           {loading ? (

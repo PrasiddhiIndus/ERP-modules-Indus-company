@@ -38,19 +38,8 @@ import {
   userManagementTeamDisplay,
 } from "../lib/userManagementHierarchy";
 import { ManagerSearchSelect } from "../components/employee/ManagerSearchSelect";
-import {
-  ROLES,
-  MODULES,
-  NAV_MODULE_TREE,
-  resolveTeamModuleKey,
-  ALL_RECRUITMENT_TAB_KEYS,
-  ALL_ADMIN_RECRUITMENT_TAB_KEYS,
-  ADMIN_RECRUITMENT_SUBMODULE_KEY,
-  toggleRecruitmentAccessKey,
-  hasHrSectionScope,
-} from "../config/roles";
-import { EMPLOYEE_MASTER_SUBMODULE_KEY } from "./adminOperations/salaryAdmin/salaryAccess";
-import { ChevronDown as ChevronDownIcon } from "lucide-react";
+import { ROLES, MODULES } from "../config/roles";
+import AccessTreeEditor from "./userManagement/accessTree/AccessTreeEditor";
 import {
   fetchEmployeeMasterDepartmentFilterValues,
   fetchEmployeeMasterDepartmentsInUse,
@@ -82,11 +71,6 @@ import {
   profileHasBillingModuleAccess,
 } from "../lib/billingVerticalAccess";
 import { normalizeBillingVerticalKey } from "../utils/billingPoListFilters";
-import { CALLING_SITE_TYPE_KEYS } from "./hr/callingMaster/callingSiteTypeAccess";
-import { SITE_ATTENDANCE_PAGES } from "../lib/siteAttendance/siteAttendancePageAccess";
-import {
-  IEV_CONFIG_PAGES, ievConfigMode, setIevConfigMode, toggleIevConfigPage,
-} from "../lib/ievConfigAccess";
 import { confirmDialog } from "../lib/dialog";
 
 const SEARCH_DEBOUNCE_MS = 350;
@@ -103,28 +87,6 @@ const roleLabel = (role) => {
 const teamLabel = (value) => value ?? "—";
 const moduleLabel = (value) =>
   MODULES.find((m) => m.value === value)?.label ?? teamLabel(value);
-const selectableExtraModules = (team) => {
-  const teamKey = resolveTeamModuleKey(team);
-  return MODULES.filter(
-    (m) => m.value !== "userManagement" && m.value !== teamKey
-  );
-};
-
-/** Returns NAV_MODULE_TREE for the access picker. Primary team module stays visible for sub-module/tab grants. */
-const selectableModuleTree = (team) => {
-  const teamKey = resolveTeamModuleKey(team);
-  return NAV_MODULE_TREE.filter((m) => m.value !== "userManagement").map((mod) => {
-    if (teamKey && mod.value === teamKey) {
-      return { ...mod, implicitViaTeam: true };
-    }
-    return mod;
-  });
-};
-
-/** Sub-modules a full module never implies; they stay grantable and are kept when the module is ticked. */
-const OPT_IN_SUB_MODULE_KEYS = new Set(
-  NAV_MODULE_TREE.flatMap((m) => (m.subModules || []).filter((s) => s.optIn).map((s) => s.value))
-);
 
 const parseAllowedSubModules = (raw) => {
   if (Array.isArray(raw)) return [...raw];
@@ -138,468 +100,6 @@ const parseAllowedSubModules = (raw) => {
   }
   return [];
 };
-
-/**
- * Tree-style module + sub-module access picker — supports 3-level nesting.
- *
- * Level 1: Top-level module (e.g. "hr") — checkbox in allowed_modules.
- * Level 2: Sub-module (e.g. "hr.calling-master") — checkbox in allowed_sub_modules.
- *          If the sub-module has `tabModules`, it shows a chevron to expand level 3.
- * Level 3: Tab key (e.g. "hr.recruitment.candidates") — checkbox in allowed_sub_modules.
- *          Checking the level-2 parent ("hr.calling-master") implies all its tab children
- *          via the onToggleSubModule handler (which expands/collapses them in state).
- *
- * Rules:
- *   - Checking a full module clears all sub-module/tab selections for that module.
- *   - Unchecking a full module reveals level-2 sub-module checkboxes.
- *   - Checking a level-2 parent (hr.calling-master) grants workflow tab keys
- *     (not opt-in tabs such as Add Referral).
- *   - Unchecking hr.calling-master collapses workflow tabs; opt-in keys stay.
- *   - Level-3 tab keys can be toggled individually when the parent is unchecked.
- *   - Opt-in tabs stay visible (and independently grantable) when the parent is checked.
- */
-function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], onToggleModule, onToggleSubModule }) {
-  // Tracks expanded state for both level-1 modules and level-2 sub-modules with children.
-  const [expanded, setExpanded] = useState({});
-
-  const safeModules = Array.isArray(allowedModules) ? allowedModules : [];
-  const safeSubModules = Array.isArray(allowedSubModules) ? allowedSubModules : [];
-
-  // Auto-expand nodes that have active sub-selections (level-2 or level-3).
-  // Always expand Admin so Employee Master is visible without hunting for the chevron.
-  React.useEffect(() => {
-    const autoExpand = {};
-    tree.forEach((mod) => {
-      if (mod.implicitViaTeam || mod.value === "admin") {
-        autoExpand[mod.value] = true;
-      }
-      if (mod.subModules?.some((s) => safeSubModules.includes(s.value))) {
-        autoExpand[mod.value] = true;
-      }
-      mod.subModules?.forEach((sub) => {
-        if (sub.tabModules?.some((t) => safeSubModules.includes(t.value))) {
-          autoExpand[mod.value] = true;
-          autoExpand[sub.value] = true;
-        }
-      });
-    });
-    if (Object.keys(autoExpand).length) {
-      setExpanded((prev) => ({ ...prev, ...autoExpand }));
-    }
-  }, [tree, safeSubModules.join("|")]);
-
-  const toggleExpand = (key) =>
-    setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
-
-  return (
-    <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
-      {tree.map((mod) => {
-        const implicitViaTeam = mod.implicitViaTeam === true;
-        const fullChecked = !implicitViaTeam && safeModules.includes(mod.value);
-        const hasSubs = mod.subModules && mod.subModules.length > 0;
-        const isExpanded = implicitViaTeam ? true : (expanded[mod.value] ?? false);
-        const activeSubCount = hasSubs
-          ? mod.subModules.filter((s) => {
-              if (safeSubModules.includes(s.value)) return true;
-              if (s.tabModules?.some((t) => safeSubModules.includes(t.value))) return true;
-              return false;
-            }).length
-          : 0;
-        const showSubModules = hasSubs && (implicitViaTeam || (!fullChecked && isExpanded));
-
-        return (
-          <div key={mod.value}>
-            {/* Level 1: Module row */}
-            <div className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50">
-              {!implicitViaTeam ? (
-                <input
-                  type="checkbox"
-                  id={`mod-${mod.value}`}
-                  checked={fullChecked}
-                  onChange={() => onToggleModule(mod.value)}
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
-                />
-              ) : (
-                <span className="w-4 shrink-0" aria-hidden />
-              )}
-              <label
-                htmlFor={implicitViaTeam ? undefined : `mod-${mod.value}`}
-                className="flex-1 text-sm font-medium text-gray-800 cursor-pointer select-none"
-              >
-                {mod.label}
-                {implicitViaTeam ? (
-                  <span className="ml-1.5 text-[11px] font-normal text-slate-600 bg-slate-100 rounded px-1.5 py-0.5">
-                    Primary team
-                  </span>
-                ) : null}
-                {!fullChecked && !implicitViaTeam && activeSubCount > 0 && (
-                  <span className="ml-1.5 text-[11px] font-normal text-indigo-600 bg-indigo-50 rounded px-1.5 py-0.5">
-                    {activeSubCount} sub-module{activeSubCount > 1 ? "s" : ""}
-                  </span>
-                )}
-                {implicitViaTeam && activeSubCount > 0 ? (
-                  <span className="ml-1.5 text-[11px] font-normal text-indigo-600 bg-indigo-50 rounded px-1.5 py-0.5">
-                    {activeSubCount} restricted
-                  </span>
-                ) : null}
-              </label>
-              {hasSubs && !fullChecked && !implicitViaTeam ? (
-                <button
-                  type="button"
-                  onClick={() => toggleExpand(mod.value)}
-                  className="p-0.5 rounded hover:bg-gray-200 text-gray-500"
-                  title={isExpanded ? "Hide sub-modules" : "Show sub-modules"}
-                >
-                  <ChevronDownIcon
-                    className={`w-3.5 h-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                  />
-                </button>
-              ) : null}
-            </div>
-
-            {implicitViaTeam && mod.value === "hr" && (
-              <p className="ml-9 mr-3 -mt-1 pb-2 text-[11px] text-gray-500">
-                {activeSubCount > 0
-                  ? "Only the ticked sections are shown to this user."
-                  : "Nothing ticked: this user sees all of HR. Tick sections to show only those."}
-              </p>
-            )}
-
-            {implicitViaTeam && mod.value === "admin" && (
-              <p className="ml-9 mr-3 -mt-1 pb-2 text-[11px] text-gray-500">
-                {activeSubCount > 0
-                  ? "Only the ticked sections are shown to this user (e.g. Employee Master)."
-                  : "Nothing ticked: this user sees all of Admin. Tick Employee Master (or other sections) to show only those."}
-              </p>
-            )}
-
-            {fullChecked && hasSubs && (
-              <p className="ml-9 mr-3 -mt-1 pb-2 text-[11px] text-gray-500">
-                Full access: includes every sub-module and page except opt-in items
-                {mod.value === "admin" ? " (Recruitment, Rules Console)" : ""}. Untick {mod.label} to choose
-                sub-modules or pages
-                {mod.value === "admin" ? " (e.g. Employee Master only)" : ""}.
-              </p>
-            )}
-
-            {fullChecked &&
-              hasSubs &&
-              mod.subModules.some((s) => s.optIn || s.value === EMPLOYEE_MASTER_SUBMODULE_KEY) && (
-              <div className="bg-slate-50 border-t border-gray-100 ml-6 mr-0 divide-y divide-gray-100/60">
-                {mod.subModules
-                  .filter((sub) => sub.optIn || sub.value === EMPLOYEE_MASTER_SUBMODULE_KEY)
-                  .map((sub) => (
-                    <label
-                      key={sub.value}
-                      className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-slate-100"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={
-                          sub.value === EMPLOYEE_MASTER_SUBMODULE_KEY
-                            ? false
-                            : safeSubModules.includes(sub.value)
-                              || (sub.value === ADMIN_RECRUITMENT_SUBMODULE_KEY
-                                && ALL_ADMIN_RECRUITMENT_TAB_KEYS.some((k) => safeSubModules.includes(k)))
-                        }
-                        onChange={() => onToggleSubModule(sub.value)}
-                        className="rounded border-gray-300 text-indigo-500 focus:ring-indigo-400 shrink-0"
-                      />
-                      <span className="flex-1 text-xs text-gray-700">
-                        {sub.value === EMPLOYEE_MASTER_SUBMODULE_KEY
-                          ? "Employee Master only"
-                          : sub.value === ADMIN_RECRUITMENT_SUBMODULE_KEY
-                            ? "Recruitment Module"
-                            : sub.label}
-                      </span>
-                      <span className="text-[10px] text-indigo-500">
-                        {sub.optIn ? "opt-in" : "replaces full Admin"}
-                      </span>
-                    </label>
-                  ))}
-              </div>
-            )}
-
-            {/* Level 2: Sub-module rows */}
-            {showSubModules && (
-              <div className="bg-slate-50 border-t border-gray-100 ml-6 mr-0 divide-y divide-gray-100/60">
-                {mod.subModules.map((sub) => {
-                  const subChecked = safeSubModules.includes(sub.value);
-                  const hasTabChildren = sub.tabModules && sub.tabModules.length > 0;
-                  const isSubExpanded = expanded[sub.value] ?? true;
-                  const activeTabCount = hasTabChildren
-                    ? sub.tabModules.filter((t) => safeSubModules.includes(t.value)).length
-                    : 0;
-
-                  return (
-                    <div key={sub.value}>
-                      {/* Level 2 row */}
-                      <div className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100">
-                        <input
-                          type="checkbox"
-                          id={`sub-${sub.value}`}
-                          checked={subChecked}
-                          onChange={() => onToggleSubModule(sub.value)}
-                          className="rounded border-gray-300 text-indigo-500 focus:ring-indigo-400 shrink-0"
-                        />
-                        <label
-                          htmlFor={`sub-${sub.value}`}
-                          className="flex-1 text-sm text-gray-700 cursor-pointer select-none"
-                        >
-                          {sub.label}
-                          {sub.optIn ? <span className="ml-1.5 text-[10px] text-indigo-500">opt-in</span> : null}
-                          {hasTabChildren && !subChecked && activeTabCount > 0 && (
-                            <span className="ml-1.5 text-[10px] font-normal text-indigo-500 bg-indigo-50 rounded px-1 py-0.5">
-                              {activeTabCount} tab{activeTabCount > 1 ? "s" : ""}
-                            </span>
-                          )}
-                        </label>
-                        {hasTabChildren && !subChecked && (
-                          <button
-                            type="button"
-                            onClick={() => toggleExpand(sub.value)}
-                            className="p-0.5 rounded hover:bg-slate-200 text-gray-400"
-                            title={isSubExpanded ? "Hide tabs" : "Show individual tabs"}
-                          >
-                            <ChevronDownIcon
-                              className={`w-3 h-3 transition-transform ${isSubExpanded ? "rotate-180" : ""}`}
-                            />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Level 3: Tab rows — shown when sub-module is NOT fully checked */}
-                      {hasTabChildren && !subChecked && isSubExpanded && (
-                        <div className="bg-white border-t border-gray-100 ml-5 mr-0 divide-y divide-gray-50">
-                          {sub.tabModules.map((tab) => (
-                            <label
-                              key={tab.value}
-                              className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-slate-50"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={safeSubModules.includes(tab.value)}
-                                onChange={() => onToggleSubModule(tab.value)}
-                                className="rounded border-gray-200 text-indigo-400 focus:ring-indigo-300 shrink-0"
-                              />
-                              <span className="text-xs text-gray-700">{tab.label}</span>
-                              {tab.optIn ? (
-                                <span className="text-[10px] text-indigo-500">{tab.badge || "opt-in"}</span>
-                              ) : null}
-                            </label>
-                          ))}
-                        </div>
-                      )}
-
-                      {hasTabChildren && subChecked && sub.tabModules.some((t) => !t.optIn) && (
-                        <div className="bg-white border-t border-gray-100 ml-5 mr-0 divide-y divide-gray-50">
-                          {sub.tabModules
-                            .filter((tab) => !tab.optIn)
-                            .map((tab) => (
-                              <label
-                                key={tab.value}
-                                className="flex items-center gap-2 px-3 py-1.5 text-gray-400"
-                                title={`Included with ${sub.label}. Untick ${sub.label} to choose pages one by one.`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked
-                                  disabled
-                                  readOnly
-                                  className="rounded border-gray-200 text-indigo-300 shrink-0"
-                                />
-                                <span className="text-xs">{tab.label}</span>
-                                <span className="text-[10px]">included</span>
-                              </label>
-                            ))}
-                        </div>
-                      )}
-
-                      {/* Opt-in tabs remain grantable even when the parent is checked. */}
-                      {hasTabChildren && subChecked && sub.tabModules.some((t) => t.optIn) && (
-                        <div className="bg-white border-t border-gray-100 ml-5 mr-0 divide-y divide-gray-50">
-                          {sub.tabModules
-                            .filter((tab) => tab.optIn)
-                            .map((tab) => (
-                              <label
-                                key={tab.value}
-                                className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-slate-50"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={safeSubModules.includes(tab.value)}
-                                  onChange={() => onToggleSubModule(tab.value)}
-                                  className="rounded border-gray-200 text-indigo-400 focus:ring-indigo-300 shrink-0"
-                                />
-                                <span className="text-[11px] text-gray-600">{tab.label}</span>
-                                <span className="text-[10px] text-indigo-500">{tab.badge || "opt-in"}</span>
-                              </label>
-                            ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function hasFullHrAccess(form) {
-  return (
-    (form?.allowed_modules || []).includes("hr") ||
-    (resolveTeamModuleKey(form?.team) === "hr" && !hasHrSectionScope(form))
-  );
-}
-
-function hasCallingDatabaseAccess(form) {
-  const subs = form?.allowed_sub_modules || [];
-  return (
-    hasFullHrAccess(form) ||
-    subs.some(
-      (key) =>
-        key === "hr.calling-master" ||
-        key === "hr.site-attendance" ||
-        String(key).startsWith("hr.recruitment.")
-    )
-  );
-}
-
-function hasSiteAttendanceAccess(form) {
-  return hasFullHrAccess(form) || (form?.allowed_sub_modules || []).includes("hr.site-attendance");
-}
-
-function toggleCallingSiteTypeKey(subModules, key) {
-  const list = subModules || [];
-  return list.includes(key) ? list.filter((s) => s !== key) : [...list, key];
-}
-
-function hasIevAccess(form) {
-  return (
-    (form?.allowed_modules || []).includes("fireTender") ||
-    resolveTeamModuleKey(form?.team) === "fireTender" ||
-    (form?.allowed_sub_modules || []).some((key) => String(key).startsWith("fireTender."))
-  );
-}
-
-/** IEV Configuration pages: all pages, or only the selected ones. */
-function IevConfigAccessEditor({ allowedSubModules = [], onChange }) {
-  const mode = ievConfigMode(allowedSubModules);
-  const picked = IEV_CONFIG_PAGES.filter((page) => allowedSubModules.includes(page.value));
-  const summary =
-    mode === "all"
-      ? "Can open every IEV Configuration page"
-      : picked.length
-        ? `Can open ${picked.map((page) => page.label).join(", ")}`
-        : "Cannot open any IEV Configuration page";
-  return (
-    <div className="mt-3 rounded-lg border border-red-100 bg-red-50/40 p-3">
-      <p className="text-sm font-medium text-gray-800">IEV: Configuration pages</p>
-      <p className="text-[11px] text-gray-500 mt-0.5">
-        Choose which pages under IEV → Configuration this user can open.
-      </p>
-      <div className="mt-2 flex flex-wrap gap-4">
-        {[
-          ["all", "All items"],
-          ["selected", "Selected items"],
-        ].map(([value, label]) => (
-          <label key={value} className="inline-flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="radio"
-              checked={mode === value}
-              onChange={() => onChange(setIevConfigMode(allowedSubModules, value))}
-              className="h-4 w-4 border-gray-300"
-            />
-            {label}
-          </label>
-        ))}
-      </div>
-      {mode === "selected" && (
-        <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
-          {IEV_CONFIG_PAGES.map((page) => (
-            <label key={page.value} className="inline-flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={allowedSubModules.includes(page.value)}
-                onChange={() => onChange(toggleIevConfigPage(allowedSubModules, page.value))}
-                className="h-4 w-4 rounded border-gray-300"
-              />
-              {page.label}
-            </label>
-          ))}
-        </div>
-      )}
-      <p className="mt-2 text-[11px] font-medium text-red-800">{summary}</p>
-    </div>
-  );
-}
-
-/** Site Attendance page-wise access. No selection = every page. */
-function SiteAttendancePageAccessEditor({ allowedSubModules = [], onToggle }) {
-  const picked = SITE_ATTENDANCE_PAGES.filter((page) => allowedSubModules.includes(page.value));
-  const summary =
-    picked.length === 0 || picked.length === SITE_ATTENDANCE_PAGES.length
-      ? "Can open every Site Attendance page"
-      : `Can open ${picked.map((page) => page.label).join(", ")}`;
-  return (
-    <div className="mt-3 rounded-lg border border-sky-100 bg-sky-50/40 p-3">
-      <p className="text-sm font-medium text-gray-800">Site Attendance: pages</p>
-      <p className="text-[11px] text-gray-500 mt-0.5">
-        Choose which Site Attendance pages this user can open. Leave all unticked for every page.
-      </p>
-      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
-        {SITE_ATTENDANCE_PAGES.map((page) => (
-          <label key={page.value} className="inline-flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={allowedSubModules.includes(page.value)}
-              onChange={() => onToggle(page.value)}
-              className="h-4 w-4 rounded border-gray-300"
-            />
-            {page.label}
-          </label>
-        ))}
-      </div>
-      <p className="mt-2 text-[11px] font-medium text-sky-800">{summary}</p>
-    </div>
-  );
-}
-
-/** HR Fire / Safety split (Recruitment candidates + Site Attendance sites). No selection = both. */
-function CallingSiteTypeAccessEditor({ allowedSubModules = [], onToggle }) {
-  const picked = CALLING_SITE_TYPE_KEYS.filter((item) => allowedSubModules.includes(item.value));
-  const summary =
-    picked.length === 0 || picked.length === CALLING_SITE_TYPE_KEYS.length
-      ? "Sees Fire and Safety"
-      : `Sees ${picked[0].label} only`;
-  return (
-    <div className="mt-3 rounded-lg border border-orange-100 bg-orange-50/40 p-3">
-      <p className="text-sm font-medium text-gray-800">HR: Fire / Safety</p>
-      <p className="text-[11px] text-gray-500 mt-0.5">
-        Limits Recruitment candidates and Site Attendance sites to the ticked type. Leave both
-        unticked for full access.
-      </p>
-      <div className="mt-2 flex flex-wrap gap-4">
-        {CALLING_SITE_TYPE_KEYS.map((item) => (
-          <label key={item.value} className="inline-flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={allowedSubModules.includes(item.value)}
-              onChange={() => onToggle(item.value)}
-              className="h-4 w-4 rounded border-gray-300"
-            />
-            {item.label}
-          </label>
-        ))}
-      </div>
-      <p className="mt-2 text-[11px] font-medium text-orange-800">{summary}</p>
-    </div>
-  );
-}
 
 /** Multi-select billing business lines — incremental grants, independent of HR team. */
 function BillingVerticalGrantsEditor({
@@ -671,6 +171,13 @@ function BillingVerticalGrantsEditor({
   );
 }
 
+function billingAccessWasAdded(prev, next) {
+  const prevMods = prev?.allowed_modules || [];
+  const prevSubs = prev?.allowed_sub_modules || [];
+  if (!prevMods.includes("billing") && (next.allowed_modules || []).includes("billing")) return true;
+  return (next.allowed_sub_modules || []).some((k) => String(k).startsWith("billing.") && !prevSubs.includes(k));
+}
+
 const emptyBillingVerticalState = () => ({
   loading: false,
   baselineCodes: [],
@@ -697,6 +204,8 @@ const UserManagement = () => {
     selectedCodes: [],
     sourcesByCode: {},
   });
+  /** Access as loaded from the database — the editor shows every pending change against it. */
+  const [editAccessBaseline, setEditAccessBaseline] = useState(null);
   const [editForm, setEditForm] = useState({
     email: "",
     username: "",
@@ -1141,6 +650,10 @@ const UserManagement = () => {
       l2_manager_name: row.l2_manager_name ?? "",
     };
     setEditForm(form);
+    setEditAccessBaseline({
+      allowed_modules: [...form.allowed_modules],
+      allowed_sub_modules: [...form.allowed_sub_modules],
+    });
     const hadBilling = profileHasBillingModuleAccess(form);
     setEditBillingVerticals({
       ...emptyBillingVerticalState(),
@@ -1175,6 +688,7 @@ const UserManagement = () => {
 
   const closeEdit = () => {
     setEditId(null);
+    setEditAccessBaseline(null);
     setEditMasterLookup({ loading: false, name: "" });
     setEditBillingVerticals(emptyBillingVerticalState());
     setSaving(false);
@@ -1258,73 +772,29 @@ const UserManagement = () => {
     });
   };
 
-  const toggleModule = (value) => {
+  /** Apply a change from the access editor; Billing grants pre-fill team default business lines. */
+  const applyEditAccess = (next) => {
     setEditForm((prev) => {
-      const willAdd = !prev.allowed_modules.includes(value);
-      // When granting a full module, remove sub-module/tab keys for it — keep opt-in grants
-      // (Admin Recruitment, Rules Console, Master PO At Glance, HR recruitment tabs).
-      const newSubModules = willAdd
-        ? prev.allowed_sub_modules.filter(
-            (s) =>
-              OPT_IN_SUB_MODULE_KEYS.has(s) ||
-              ALL_ADMIN_RECRUITMENT_TAB_KEYS.includes(s) ||
-              (!s.startsWith(`${value}.`) && !ALL_RECRUITMENT_TAB_KEYS.includes(s))
-          )
-        : prev.allowed_sub_modules;
-      const next = {
-        ...prev,
-        allowed_modules: willAdd
-          ? [...prev.allowed_modules, value]
-          : prev.allowed_modules.filter((m) => m !== value),
-        allowed_sub_modules: newSubModules,
-      };
-      if (value === "billing" && willAdd) {
+      if (billingAccessWasAdded(prev, next)) {
         setEditBillingVerticals((bv) => {
           if (bv.baselineCodes.length > 0 || bv.selectedCodes.length > 0) return bv;
-          const defaults = defaultBillingVerticalCodesForTeam(next.team);
-          return { ...bv, selectedCodes: defaults };
+          return { ...bv, selectedCodes: defaultBillingVerticalCodesForTeam(prev.team) };
         });
       }
-      return next;
+      return { ...prev, allowed_modules: next.allowed_modules, allowed_sub_modules: next.allowed_sub_modules };
     });
   };
 
-  const toggleSubModule = (subValue) => {
-    setEditForm((prev) => {
-      // Full Admin → Employee Master only: drop the full module and keep the section grant.
-      const switchingToEmployeeMasterOnly =
-        subValue === EMPLOYEE_MASTER_SUBMODULE_KEY && prev.allowed_modules.includes("admin");
-      const willAdd = switchingToEmployeeMasterOnly || !prev.allowed_sub_modules.includes(subValue);
-
-      let newSubModules;
-      const recruitmentNext = toggleRecruitmentAccessKey(prev.allowed_sub_modules, subValue);
-      if (recruitmentNext) {
-        newSubModules = recruitmentNext;
-      } else {
-        newSubModules = willAdd
-          ? [...prev.allowed_sub_modules.filter((s) => s !== subValue), subValue]
-          : prev.allowed_sub_modules.filter((s) => s !== subValue);
+  const applyCreateAccess = (next) => {
+    setCreateForm((prev) => {
+      if (billingAccessWasAdded(prev, next)) {
+        setCreateBillingVerticals((bv) =>
+          bv.selectedCodes.length
+            ? bv
+            : { selectedCodes: defaultBillingVerticalCodesForTeam(prev.team), sourcesByCode: {} }
+        );
       }
-
-      const next = {
-        ...prev,
-        allowed_modules: switchingToEmployeeMasterOnly
-          ? prev.allowed_modules.filter((m) => m !== "admin")
-          : prev.allowed_modules,
-        allowed_sub_modules: newSubModules,
-      };
-
-      // Software Subscriptions grant = full View / Update / Delete (no separate CRUD toggles).
-      // Keep parent IT/IS module unchecked so API Health is not auto-granted; sub-module alone is enough.
-
-      if (willAdd && String(subValue).startsWith("billing.")) {
-        setEditBillingVerticals((bv) => {
-          if (bv.baselineCodes.length > 0 || bv.selectedCodes.length > 0) return bv;
-          const defaults = defaultBillingVerticalCodesForTeam(next.team);
-          return { ...bv, selectedCodes: defaults };
-        });
-      }
-      return next;
+      return { ...prev, allowed_modules: next.allowed_modules, allowed_sub_modules: next.allowed_sub_modules };
     });
   };
 
@@ -2196,46 +1666,14 @@ const UserManagement = () => {
                       Module access
                     </label>
                     <span className="text-xs text-gray-500">
-                      Tick a module for full access, or untick it and expand to pick pages. Role still controls Edit / Approve.
+                      Module → Page → Tab. Tick a module for full access, or expand it to grant pages and tabs one by one. Role decides Edit / Approve on open pages.
                     </span>
                   </div>
-                  <div className="rounded-lg">
-                    <ModuleAccessTree
-                      tree={selectableModuleTree(editForm.team)}
-                      allowedModules={editForm.allowed_modules}
-                      allowedSubModules={editForm.allowed_sub_modules}
-                      onToggleModule={toggleModule}
-                      onToggleSubModule={toggleSubModule}
-                    />
-                  </div>
-                  {hasCallingDatabaseAccess(editForm) ? (
-                    <CallingSiteTypeAccessEditor
-                      allowedSubModules={editForm.allowed_sub_modules}
-                      onToggle={(key) =>
-                        setEditForm((prev) => ({
-                          ...prev,
-                          allowed_sub_modules: toggleCallingSiteTypeKey(prev.allowed_sub_modules, key),
-                        }))
-                      }
-                    />
-                  ) : null}
-                  {hasSiteAttendanceAccess(editForm) ? (
-                    <SiteAttendancePageAccessEditor
-                      allowedSubModules={editForm.allowed_sub_modules}
-                      onToggle={(key) =>
-                        setEditForm((prev) => ({
-                          ...prev,
-                          allowed_sub_modules: toggleCallingSiteTypeKey(prev.allowed_sub_modules, key),
-                        }))
-                      }
-                    />
-                  ) : null}
-                  {hasIevAccess(editForm) ? (
-                    <IevConfigAccessEditor
-                      allowedSubModules={editForm.allowed_sub_modules}
-                      onChange={(next) => setEditForm((prev) => ({ ...prev, allowed_sub_modules: next }))}
-                    />
-                  ) : null}
+                  <AccessTreeEditor
+                    form={editForm}
+                    original={editAccessBaseline}
+                    onChange={applyEditAccess}
+                  />
                   {editHasBillingAccess ? (
                     <BillingVerticalGrantsEditor
                       selectedCodes={editBillingVerticals.selectedCodes}
@@ -2507,116 +1945,10 @@ const UserManagement = () => {
                       Module access
                     </label>
                     <span className="text-xs text-gray-500">
-                      Tick a module for full access, or untick it and expand to pick pages. Role still controls Edit / Approve.
+                      Module → Page → Tab. Tick a module for full access, or expand it to grant pages and tabs one by one. Role decides Edit / Approve on open pages.
                     </span>
                   </div>
-                  <div className="rounded-lg">
-                    <ModuleAccessTree
-                      tree={selectableModuleTree(createForm.team)}
-                      allowedModules={createForm.allowed_modules}
-                      allowedSubModules={createForm.allowed_sub_modules}
-                      onToggleModule={(value) =>
-                        setCreateForm((prev) => {
-                          const willAdd = !prev.allowed_modules.includes(value);
-                          const next = {
-                            ...prev,
-                            allowed_modules: willAdd
-                              ? [...prev.allowed_modules, value]
-                              : prev.allowed_modules.filter((x) => x !== value),
-                            // When granting a full module, clear all sub/tab keys for it.
-                            allowed_sub_modules: willAdd
-                              ? prev.allowed_sub_modules.filter(
-                                  (s) =>
-                                    OPT_IN_SUB_MODULE_KEYS.has(s) ||
-                                    ALL_ADMIN_RECRUITMENT_TAB_KEYS.includes(s) ||
-                                    (!s.startsWith(`${value}.`) &&
-                                      !ALL_RECRUITMENT_TAB_KEYS.includes(s))
-                                )
-                              : prev.allowed_sub_modules,
-                          };
-                          if (value === "billing" && willAdd) {
-                            setCreateBillingVerticals((bv) =>
-                              bv.selectedCodes.length
-                                ? bv
-                                : {
-                                    selectedCodes: defaultBillingVerticalCodesForTeam(next.team),
-                                    sourcesByCode: {},
-                                  }
-                            );
-                          }
-                          return next;
-                        })
-                      }
-                      onToggleSubModule={(subValue) =>
-                        setCreateForm((prev) => {
-                          const switchingToEmployeeMasterOnly =
-                            subValue === EMPLOYEE_MASTER_SUBMODULE_KEY &&
-                            prev.allowed_modules.includes("admin");
-                          const willAdd =
-                            switchingToEmployeeMasterOnly ||
-                            !prev.allowed_sub_modules.includes(subValue);
-                          let newSubModules;
-                          const recruitmentNext = toggleRecruitmentAccessKey(
-                            prev.allowed_sub_modules,
-                            subValue
-                          );
-                          if (recruitmentNext) {
-                            newSubModules = recruitmentNext;
-                          } else {
-                            newSubModules = willAdd
-                              ? [...prev.allowed_sub_modules.filter((s) => s !== subValue), subValue]
-                              : prev.allowed_sub_modules.filter((s) => s !== subValue);
-                          }
-                          const next = {
-                            ...prev,
-                            allowed_modules: switchingToEmployeeMasterOnly
-                              ? prev.allowed_modules.filter((m) => m !== "admin")
-                              : prev.allowed_modules,
-                            allowed_sub_modules: newSubModules,
-                          };
-                          if (willAdd && String(subValue).startsWith("billing.")) {
-                            setCreateBillingVerticals((bv) =>
-                              bv.selectedCodes.length
-                                ? bv
-                                : {
-                                    selectedCodes: defaultBillingVerticalCodesForTeam(next.team),
-                                    sourcesByCode: {},
-                                  }
-                            );
-                          }
-                          return next;
-                        })
-                      }
-                    />
-                  </div>
-                  {hasCallingDatabaseAccess(createForm) ? (
-                    <CallingSiteTypeAccessEditor
-                      allowedSubModules={createForm.allowed_sub_modules}
-                      onToggle={(key) =>
-                        setCreateForm((prev) => ({
-                          ...prev,
-                          allowed_sub_modules: toggleCallingSiteTypeKey(prev.allowed_sub_modules, key),
-                        }))
-                      }
-                    />
-                  ) : null}
-                  {hasSiteAttendanceAccess(createForm) ? (
-                    <SiteAttendancePageAccessEditor
-                      allowedSubModules={createForm.allowed_sub_modules}
-                      onToggle={(key) =>
-                        setCreateForm((prev) => ({
-                          ...prev,
-                          allowed_sub_modules: toggleCallingSiteTypeKey(prev.allowed_sub_modules, key),
-                        }))
-                      }
-                    />
-                  ) : null}
-                  {hasIevAccess(createForm) ? (
-                    <IevConfigAccessEditor
-                      allowedSubModules={createForm.allowed_sub_modules}
-                      onChange={(next) => setCreateForm((prev) => ({ ...prev, allowed_sub_modules: next }))}
-                    />
-                  ) : null}
+                  <AccessTreeEditor form={createForm} onChange={applyCreateAccess} />
                   {createHasBillingAccess ? (
                     <BillingVerticalGrantsEditor
                       selectedCodes={createBillingVerticals.selectedCodes}

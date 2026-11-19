@@ -36,11 +36,11 @@ const DETAIL_ROWS = [
   ['offer_type', 'Offer Type'],
   ['offer_link', 'Offer Link', 'link'],
   ['scope', 'Scope', 'long'],
-  ['last_followup_date', 'Last Followup Date', 'date'],
+  ['last_followup_date', 'Last Follow-up Date', 'date'],
   ['enquiry_received_from', 'Enquiry Received From'],
   ['remark', 'Remark', 'long'],
-  ['order_converted_date', 'Order Converted Date', 'date'],
-  ['quarter', 'Quarter'],
+  ['order_converted_date', 'Order Status Date', 'date'],
+  ['quarter', 'Quarter / FY (Order Converted)'],
 ];
 
 export default function QuotationViewDrawer({ row, onClose, onEditQuotation, onEditDetails }) {

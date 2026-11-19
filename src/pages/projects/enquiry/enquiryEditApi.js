@@ -48,7 +48,7 @@ export function editErrorMessage(err, fallback = 'Something went wrong. Please t
   if (/enquiry_edit_requests|request_enquiry_edit|decide_enquiry_edit|apply_enquiry_completed|apply_enquiry_progress|enquiry_notifications|schema cache|does not exist/i.test(msg)) {
     return 'Edit approval is not set up yet. Ask your administrator to apply the latest update.';
   }
-  if (/only a manager|only this employee|reporting manager|no longer exists|already (approved|rejected)|do not have access|no field changes|managers can save|Regret must be sent|Only Completed status|Only Not Started|past completed date|Completed date is not/i.test(msg)) {
+  if (/view-only access|only a manager|only this employee|reporting manager|no longer exists|already (approved|rejected)|do not have access|no field changes|managers can save|Regret must be sent|Only Completed status|Only Not Started|past completed date|Completed date is not/i.test(msg)) {
     return msg;
   }
   if (/row-level security|42501/i.test(msg)) {

@@ -453,9 +453,13 @@ export default function EnquiryDashboard() {
 
   const openHandler = (key, label) => (canOpenDatabase ? () => openIds(kpiIds[key], label) : undefined);
 
-  const statusData = useMemo(() => countByStatus(filteredRows), [filteredRows]);
+  // Order Lost is tracked on Quotation Dashboard; keep it out of enquiry status charts/KPIs.
+  const statusData = useMemo(
+    () => countByStatus(filteredRows).filter((d) => d.name !== 'Order Lost'),
+    [filteredRows]
+  );
   const statusPieData = useMemo(() => statusData.filter((d) => d.value > 0), [statusData]);
-  const statusTotal = filteredRows.length;
+  const statusTotal = useMemo(() => statusData.reduce((s, d) => s + d.value, 0), [statusData]);
   const openCount = useMemo(
     () => statusData.filter((d) => d.name !== 'Completed' && d.name !== 'Regret').reduce((s, d) => s + d.value, 0),
     [statusData]
