@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
+import { useNavAccess } from '../../../hooks/useNavAccess';
 
 /**
  * Horizontal billing navigation — each link has a plain-English title for hover help.
@@ -80,6 +81,9 @@ const NAV_ITEMS = [
 
 export default function BillingFlowNav() {
   const { pathname } = useLocation();
+  const { canSeePath } = useNavAccess();
+  // Only the billing pages this user may open.
+  const items = NAV_ITEMS.filter((item) => canSeePath(item.to));
 
   return (
     <div className="border-b border-slate-200/80 bg-white/90 backdrop-blur-sm px-3 sm:px-6 py-2">
@@ -87,7 +91,7 @@ export default function BillingFlowNav() {
         <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 shrink-0 mr-1 hidden sm:inline">
           Go to
         </span>
-        {NAV_ITEMS.map((item, idx) => {
+        {items.map((item, idx) => {
           const active = item.isActive(pathname);
           return (
             <React.Fragment key={item.id}>

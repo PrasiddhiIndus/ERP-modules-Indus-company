@@ -11,6 +11,7 @@ import {
   Building2,
 } from "lucide-react";
 import { PageTaskHeader, SectionCard } from "../../components/erpUi";
+import { useNavAccess } from "../../hooks/useNavAccess";
 
 const HR_MODULES = [
   {
@@ -51,6 +52,7 @@ const HR_MODULES = [
 ];
 
 export default function HrDashboard() {
+  const { canSeePath } = useNavAccess();
   return (
     <div className="p-4 md:p-6 max-w-[1600px] mx-auto w-full flex flex-col gap-4">
       <PageTaskHeader
@@ -59,7 +61,7 @@ export default function HrDashboard() {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {HR_MODULES.map((mod) => {
+        {HR_MODULES.filter((mod) => canSeePath(mod.to)).map((mod) => {
           const Icon = mod.icon;
           return (
             <Link
@@ -98,12 +100,14 @@ export default function HrDashboard() {
             <p className="mt-1 text-[11px] text-gray-600">
               Check the attendance dashboard for today&apos;s present, leave, and week-off totals.
             </p>
+            {canSeePath("/app/attendance") && (
             <Link
               to="/app/attendance"
               className="mt-2 inline-block text-[11px] font-medium text-accent hover:underline"
             >
               Go to Attendance →
             </Link>
+            )}
           </div>
           <div className="rounded-lg border border-gray-100 bg-slate-50/80 px-3 py-2.5">
             <div className="flex items-center gap-2 text-xs font-semibold text-gray-900">
@@ -113,12 +117,14 @@ export default function HrDashboard() {
             <p className="mt-1 text-[11px] text-gray-600">
               Review salary dashboard after attendance for the cycle is locked.
             </p>
+            {canSeePath("/app/hr/payroll/salary/dashboard") && (
             <Link
               to="/app/hr/payroll/salary/dashboard"
               className="mt-2 inline-block text-[11px] font-medium text-accent hover:underline"
             >
               Go to Salary →
             </Link>
+            )}
           </div>
           <div className="rounded-lg border border-gray-100 bg-slate-50/80 px-3 py-2.5">
             <div className="flex items-center gap-2 text-xs font-semibold text-gray-900">
@@ -128,12 +134,14 @@ export default function HrDashboard() {
             <p className="mt-1 text-[11px] text-gray-600">
               Keep employee master current so attendance and payroll stay aligned.
             </p>
+            {canSeePath("/app/hr/employee-master") && (
             <Link
               to="/app/hr/employee-master"
               className="mt-2 inline-block text-[11px] font-medium text-accent hover:underline"
             >
               Go to HR Management →
             </Link>
+            )}
           </div>
         </div>
       </SectionCard>

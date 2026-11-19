@@ -1,6 +1,6 @@
 import React from 'react';
 import { ExternalLink } from 'lucide-react';
-import { formatDisplayDate, quarterOf } from '../quotationConstants';
+import { formatDisplayDate, orderQuarterLabel } from '../quotationConstants';
 import StatusBadge from '../StatusBadge';
 import { QUOTATION_TYPES, formatMoneyIn, normalizeType } from './quotationMakerModel';
 
@@ -16,12 +16,24 @@ export const MASTER_COLUMNS = [
   { key: 'offer_type', label: 'Offer Type', nowrap: true },
   { key: 'offer_link', label: 'Offer Link', type: 'link' },
   { key: 'scope', label: 'Scope', width: 'min-w-[260px]', maxW: 'max-w-[340px]', clamp: true },
-  { key: 'last_followup_date', label: 'Last Followup Date', type: 'date' },
+  { key: 'last_followup_date', label: 'Last Follow-up Date', type: 'date' },
   { key: 'enquiry_received_from', label: 'Enquiry Received From', width: 'min-w-[160px]', maxW: 'max-w-[220px]', clamp: true },
   { key: 'remark', label: 'Remark', width: 'min-w-[200px]', maxW: 'max-w-[300px]', clamp: true },
-  { key: 'order_converted_date', label: 'Order Converted Date', type: 'date' },
-  { key: 'quarter', label: 'Quarter', type: 'computed', nowrap: true },
+  // Stored in order_converted_date; stamped automatically whenever Offer Status changes (migration 20261118190000).
+  { key: 'order_converted_date', label: 'Order Status Date', type: 'date' },
+  { key: 'quarter', label: 'Quarter / FY', type: 'computed', nowrap: true },
 ];
+
+/** Quotation Master grid ("Master Sheet"), in this exact order after SR No. Other fields are in View. */
+export const GRID_COLUMNS = [
+  { key: 'client_name', label: 'Client Name', width: 'min-w-[240px]', maxW: 'max-w-[360px]', clamp: true, strong: true },
+  { key: 'offer_status', label: 'Offer Status', type: 'status' },
+  { key: 'quoted_rate', label: 'Order Value', type: 'money' },
+  { key: 'last_followup_date', label: 'Last Follow-up Date', type: 'date' },
+];
+
+/** The only fields that can be changed when editing an existing quotation. */
+export const EDITABLE_DETAIL_KEYS = ['offer_status', 'last_followup_date'];
 
 /** Fields editable from "Edit details" (sheet order; Quarter is derived). */
 export const DETAIL_FIELDS = [
@@ -42,10 +54,9 @@ export function cellValue(row, key) {
     }
     case 'scope':
       return row.scope || row.subject;
-    case 'quarter': {
-      const q = quarterOf(row.order_converted_date || row.offer_date);
-      return q ? `Q${q}` : '';
-    }
+    case 'quarter':
+      // Order Converted offers only: Q1 Apr–Jun … Q4 Jan–Mar, e.g. "Q3 FY 2026–27".
+      return orderQuarterLabel(row);
     default:
       return row[key];
   }

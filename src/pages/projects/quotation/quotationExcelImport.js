@@ -144,6 +144,7 @@ const HEADER_MAP = (() => {
     notes: 'remark',
     'order converted date': 'order_converted_date',
     'order coverted date': 'order_converted_date',
+    'order status date': 'order_converted_date',
     'ref no': 'offer_no',
     'quotation no': 'offer_no',
   };

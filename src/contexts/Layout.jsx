@@ -3,7 +3,7 @@ import PageLoader from "../components/PageLoader";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
-import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, isAdminRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath, getOpenableIevCostingTabs, getOpenableProjectsEnquiryTabs, getOpenableProjectsContractTabs, FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY } from "../config/roles";
+import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, isAdminRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath, getOpenableIevCostingTabs, getOpenableProjectsEnquiryTabs, getOpenableProjectsContractTabs, FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY, getNavPageKeyForPath } from "../config/roles";
 import {
   canAccessSalaryAdmin,
   EMPLOYEE_MASTER_SUBMODULE_KEY,
@@ -296,6 +296,9 @@ function formatToolbarDate(d = new Date()) {
   }
 }
 
+/** AMC sidebar pages (each gated by its NAV_MODULE_TREE key). */
+const AMC_NAV_PATHS = ["/app/amc","/app/amc/customers","/app/amc/contracts","/app/amc/sites","/app/amc/assets","/app/amc/pm-schedule","/app/amc/complaints","/app/amc/visits","/app/amc/technicians","/app/amc/service-reports","/app/amc/alerts","/app/amc/reports","/app/amc/settings"];
+
 const Layout = () => {
   const { user, signOut, accessibleModules, subModulePaths, navVisibleModules, userProfile } = useAuth();
   syncSalaryFiguresHidden(userProfile, user);
@@ -310,6 +313,22 @@ const Layout = () => {
   const enquiryTabs = getOpenableProjectsEnquiryTabs(userProfile, accessibleModules, subModulePaths);
   const contractTabs = getOpenableProjectsContractTabs(userProfile, accessibleModules, subModulePaths);
   const hasFullAdmin = Boolean(accessibleModules?.has("admin"));
+  // Sidebar shows a page only when the user holds it; a module only when it has at least one such page.
+  const anySub = (keys) => keys.some((key) => canSub(key));
+  const canSubPath = (path) => {
+    const key = getNavPageKeyForPath(path);
+    return key ? canSub(key) : canOpenPath(path);
+  };
+  // Recruitment opens for the parent key or any granted tab (the route guard already allows those tabs).
+  // The link lands on the first tab the user may open, and is shown only when that tab's route opens.
+  const hrRecruitmentLanding = getRecruitmentLandingPath(userProfile, accessibleModules, user?.user_metadata);
+  const canSeeHrRecruitment =
+    canSub("hr.calling-master") ||
+    (hasAnyRecruitmentTabAccess(userProfile, accessibleModules, user?.user_metadata) && canOpenPath(hrRecruitmentLanding));
+  // P&L opens for finance.pl or a Fire / Safety P&L scope key (both open /app/accounts-finance).
+  const canSeeFinancePl =
+    canSub("finance.pl") ||
+    (anySub(["finance.pl.fire", "finance.pl.safety"]) && canOpenPath("/app/accounts-finance"));
   // Probation Reviews: L1 managers with reportees + HR 10935 only (not implied by Admin access).
   const { canAccess: canSeeProbationReviews } = useProbationReviewsAccess();
   const { isConsoleVisible } = useAuditConsole();
@@ -635,28 +654,104 @@ const Layout = () => {
     );
   }
 
+  const isSuperAdminTier = userProfile?.role === ROLES.SUPER_ADMIN || userProfile?.role === ROLES.SUPER_ADMIN_PRO;
+  const navHas = {
+    admin:
+      anySub(["admin.dashboard", EMPLOYEE_MASTER_SUBMODULE_KEY, "admin.employee", "admin.salary-admin", "admin.alerts", "admin.reports"]) ||
+      canSub("admin.recruitment") ||
+      hasAnyRecruitmentTabAccess(userProfile, accessibleModules, user?.user_metadata, "admin") ||
+      canSeeProbationReviews ||
+      canAccessRulesConsole(userProfile, accessibleModules),
+    commercialMt: anySub([
+      "commercialMt.dashboard",
+      "commercialMt.enquiry",
+      "commercialMt.internal-quotation",
+      "commercialMt.quotation",
+      "commercialMt.po-at-glance",
+      "commercialMt.configuration",
+      "commercialMt.po-entry",
+      "commercialMt.contact-log",
+      "commercialMt.fire-tender-management",
+    ]),
+    hr:
+      canSeeHrRecruitment ||
+      anySub(["hr.dashboard", "hr.employee-master", "hr.attendance", "hr.salary-management", "hr.site-attendance", "hr.people-management"]),
+    operationsManpower: canSub("operations.manpower"),
+    operationsFleet: canSub("operations.fleet"),
+    projects:
+      enquiryTabs.length > 0 ||
+      contractTabs.length > 0 ||
+      anySub(["projects.dashboard", "projects.quotation-master", "projects.po-at-glance", "projects.management", "projects.billing", "projects.reports"]),
+    maintenance: anySub([
+      "maintenance.dashboard",
+      "maintenance.enquiry-master",
+      "maintenance.quotation",
+      "maintenance.follow-up",
+      "maintenance.client-master",
+      "maintenance.product-catalog",
+      "maintenance.purchase-orders",
+      "maintenance.mm-po-entry",
+      "maintenance.po-at-glance",
+      "maintenance.expo-seminar",
+      "maintenance.gst",
+      "maintenance.mail-template",
+      "maintenance.reports",
+    ]),
+    marketing: MARKETING_NAV_ITEMS.some((item) => canSub(item.subModule)),
+    billing: anySub([
+      "billing.dashboard",
+      "billing.create",
+      "billing.add-on",
+      "billing.manage",
+      "billing.e-invoice",
+      "billing.credit-notes",
+      "billing.reports",
+      "billing.tracking",
+      "billing.notifications",
+      "billing.tracker",
+    ]),
+    finance: canSeeFinancePl || anySub(["finance.bank-formats", FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY]),
+    compliance: anySub(["compliance.payroll", "compliance.ifspl", "compliance.general"]),
+    commercialRm: anySub([
+      "commercialRm.dashboard",
+      "commercialRm.enquiry",
+      "commercialRm.internal-quotation",
+      "commercialRm.po-entry",
+      "commercialRm.contact-log",
+      "commercialRm.po-at-glance",
+    ]),
+    amc: AMC_NAV_PATHS.some((path) => canSubPath(path)),
+    itIsSubscriptions: isSuperAdminTier || (can("itIs") && canSub("itIs.subscriptions")),
+    itIsApiHealth: isSuperAdminTier || (can("itIs") && canSub("itIs.api-health")),
+  };
+  const ievVisible =
+    can("fireTender") && (canOpenPath("/app/fire-tender") || ievCostingTabs.length > 0 || canOpenPath("/app/fire-tender-manufacturing"));
+
   const showOperationsGroup =
-    can("commercialMt") ||
-    can("sales") ||
-    can("hr") ||
-    can("operations") ||
-    can("projects") ||
-    can("maintenance") ||
-    can("marketing") ||
+    ((can("commercialMt") || can("sales")) && navHas.commercialMt) ||
+    (can("hr") && navHas.hr) ||
+    (can("operations") && navHas.operationsManpower) ||
+    (can("projects") && navHas.projects) ||
+    (can("maintenance") && navHas.maintenance) ||
+    (can("marketing") && navHas.marketing) ||
     can("procurement") ||
-    can("billing") ||
-    can("finance") ||
-    canAccessCompliance(userProfile, user) ||
+    (can("billing") && navHas.billing) ||
+    (can("finance") && navHas.finance) ||
+    (canAccessCompliance(userProfile, user) && navHas.compliance) ||
     misScopedOnly;
   const showIevGroup =
-    can("fireTender") || can("operations") || can("commercialRm") || can("sales") || can("amc");
+    ievVisible ||
+    (can("operations") && navHas.operationsFleet) ||
+    ((can("commercialRm") || can("sales")) && navHas.commercialRm) ||
+    (can("amc") && navHas.amc);
   const showUtilitiesGroup =
     can("indusLms") ||
     can("crmOutreach") ||
     can("marketing") ||
     can("userManagement") ||
     can("settings") ||
-    can("itIs") ||
+    navHas.itIsSubscriptions ||
+    navHas.itIsApiHealth ||
     canSeeActivityLog ||
     userProfile?.role === ROLES.SUPER_ADMIN ||
     userProfile?.role === ROLES.SUPER_ADMIN_PRO;
@@ -833,7 +928,7 @@ const Layout = () => {
             {!navFilterNorm && (
             <div className="space-y-1.5">
             {/* IN-House HR/Admin */}
-            {(can("admin") || canAccessSalaryAdmin(userProfile, user) || canSeeProbationReviews) && (
+            {(can("admin") || canAccessSalaryAdmin(userProfile, user) || canSeeProbationReviews) && navHas.admin && (
             <div className="rail-section">
               <button
                 onClick={() => {
@@ -1091,7 +1186,7 @@ const Layout = () => {
             {showOperationsGroup && <NavSectionTitle>Operations</NavSectionTitle>}
 
             {/* Commercial */}
-            {(can("commercialMt") || can("sales")) && (
+            {(can("commercialMt") || can("sales")) && navHas.commercialMt && (
             <div className="rail-section">
               <button
                 type="button"
@@ -1204,7 +1299,7 @@ const Layout = () => {
             )}
 
             {/* HR */}
-            {can("hr") && (
+            {can("hr") && navHas.hr && (
             <div className="rail-section">
               <button
                 onClick={() => setHrAdminOpen(!hrAdminOpen)}
@@ -1247,9 +1342,9 @@ const Layout = () => {
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">HR Management</span>
                   </NavLink>
                   )}
-                  {canSub("hr.calling-master") && (
+                  {canSeeHrRecruitment && (
                   <NavLink
-                    to="hr/calling-master"
+                    to={hrRecruitmentLanding}
                     className={() => subNavClass({ isActive: pathname.startsWith("/app/hr/calling-master") })}
                   >
                     <UserPlus className="w-4 h-4 shrink-0 text-sidebar-accent" />
@@ -1331,7 +1426,7 @@ const Layout = () => {
             )}
 
             {/* Site Operations */}
-            {can("operations") && (
+            {can("operations") && navHas.operationsManpower && (
             <div className="rail-section">
               <button
                 onClick={() => setOperationsOpen(!operationsOpen)}
@@ -1420,7 +1515,7 @@ const Layout = () => {
             )}
 
             {/* Projects */}
-            {can("projects") && (
+            {can("projects") && navHas.projects && (
             <div className="rail-section">
               <button
                 onClick={() => setProjectsOpen(!projectsOpen)}
@@ -1537,7 +1632,7 @@ const Layout = () => {
             )}
 
             {/* Maintenance */}
-            {can("maintenance") && (
+            {can("maintenance") && navHas.maintenance && (
             <div className="rail-section">
               <button
                 onClick={() => setMaintenanceOpen(!maintenanceOpen)}
@@ -1640,7 +1735,7 @@ const Layout = () => {
             )}
 
             {/* Marketing */}
-            {can("marketing") && (
+            {can("marketing") && navHas.marketing && (
             <div className="rail-section">
               <button
                 onClick={() => setMarketingOpen(!marketingOpen)}
@@ -1692,7 +1787,7 @@ const Layout = () => {
             )}
 
             {/* Billing */}
-            {can("billing") && (
+            {can("billing") && navHas.billing && (
             <div className="rail-section">
               <button
                 onClick={() => setBillingOpen(!billingOpen)}
@@ -1775,7 +1870,7 @@ const Layout = () => {
             </div>
             )}
 
-            {can("finance") && (
+            {can("finance") && navHas.finance && (
             <div className="rail-section">
               <button
                 type="button"
@@ -1790,7 +1885,7 @@ const Layout = () => {
               </button>
               {(financeOpen || isRail) && (
                 <div data-title="Finance" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                  {canSub("finance.pl") && (
+                  {canSeeFinancePl && (
                   <NavLink to="/app/accounts-finance/reports/site-ledger" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">P&amp;L</span>
@@ -1814,7 +1909,7 @@ const Layout = () => {
             )}
 
             {/* Compliance */}
-            {canAccessCompliance(userProfile, user) && (
+            {canAccessCompliance(userProfile, user) && navHas.compliance && (
             <div className="rail-section">
               <button
                 onClick={() => setComplianceOpen(!complianceOpen)}
@@ -1916,7 +2011,7 @@ const Layout = () => {
 
             {showIevGroup && <NavSectionTitle>IEV</NavSectionTitle>}
 
-            {can("fireTender") && (canOpenPath("/app/fire-tender") || ievCostingTabs.length > 0 || canOpenPath("/app/fire-tender-manufacturing")) && (
+            {ievVisible && (
             <div className="rail-section">
               <button
                 type="button"
@@ -1968,7 +2063,7 @@ const Layout = () => {
             )}
 
             {/* R&M */}
-            {(can("commercialRm") || can("sales")) && (
+            {(can("commercialRm") || can("sales")) && navHas.commercialRm && (
             <div className="rail-section">
               <button
                 type="button"
@@ -2027,7 +2122,7 @@ const Layout = () => {
             </div>
             )}
 
-            {can("operations") && (
+            {can("operations") && navHas.operationsFleet && (
             <NavLink to="fire-tender-vehicle-management" className={topNavClass} title="Fleet Management">
               <Car className="w-4 h-4 shrink-0" />
               <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Fleet Management</span>
@@ -2035,7 +2130,7 @@ const Layout = () => {
             )}
 
             {/* AMC Management */}
-            {can("amc") && (
+            {can("amc") && navHas.amc && (
             <div className="rail-section">
               <button
                 type="button"
@@ -2050,58 +2145,84 @@ const Layout = () => {
               </button>
               {(amcOpen || isRail) && (
                 <div data-title="AMC Management" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2 max-h-64 overflow-y-auto">
+                  {canSubPath("/app/amc") && (
                   <NavLink to="/app/amc" end className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
                   </NavLink>
+                  )}
+                  {canSubPath("/app/amc/customers") && (
                   <NavLink to="/app/amc/customers" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Customers</span>
                   </NavLink>
+                  )}
+                  {canSubPath("/app/amc/contracts") && (
                   <NavLink to="/app/amc/contracts" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Contracts</span>
                   </NavLink>
+                  )}
+                  {canSubPath("/app/amc/sites") && (
                   <NavLink to="/app/amc/sites" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Covered Sites</span>
                   </NavLink>
+                  )}
+                  {canSubPath("/app/amc/assets") && (
                   <NavLink to="/app/amc/assets" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Covered Assets</span>
                   </NavLink>
+                  )}
+                  {canSubPath("/app/amc/pm-schedule") && (
                   <NavLink to="/app/amc/pm-schedule" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">PM Schedule</span>
                   </NavLink>
+                  )}
+                  {canSubPath("/app/amc/complaints") && (
                   <NavLink to="/app/amc/complaints" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Complaint Calls</span>
                   </NavLink>
+                  )}
+                  {canSubPath("/app/amc/visits") && (
                   <NavLink to="/app/amc/visits" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Service Visits</span>
                   </NavLink>
+                  )}
+                  {canSubPath("/app/amc/technicians") && (
                   <NavLink to="/app/amc/technicians" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Technician Allocation</span>
                   </NavLink>
+                  )}
+                  {canSubPath("/app/amc/service-reports") && (
                   <NavLink to="/app/amc/service-reports" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Service Reports</span>
                   </NavLink>
+                  )}
+                  {canSubPath("/app/amc/alerts") && (
                   <NavLink to="/app/amc/alerts" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Alerts & SLA</span>
                   </NavLink>
+                  )}
+                  {canSubPath("/app/amc/reports") && (
                   <NavLink to="/app/amc/reports" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Reports</span>
                   </NavLink>
+                  )}
+                  {canSubPath("/app/amc/settings") && (
                   <NavLink to="/app/amc/settings" className={subNavClass}>
                     <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Settings</span>
                   </NavLink>
+                  )}
                 </div>
               )}
             </div>
@@ -2130,18 +2251,14 @@ const Layout = () => {
             </NavLink>
             )}
 
-            {(userProfile?.role === ROLES.SUPER_ADMIN ||
-              userProfile?.role === ROLES.SUPER_ADMIN_PRO ||
-              can("itIs")) && (
+            {navHas.itIsSubscriptions && (
             <NavLink to="software-subscriptions-reminders" className={topNavClass}>
               <Bell className="w-4 h-4 shrink-0" />
               <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Software Subscriptions</span>
             </NavLink>
             )}
 
-            {(userProfile?.role === ROLES.SUPER_ADMIN ||
-              userProfile?.role === ROLES.SUPER_ADMIN_PRO ||
-              can("itIs")) && (
+            {navHas.itIsApiHealth && (
             <NavLink to="api-health" className={topNavClass}>
               <Activity className="w-4 h-4 shrink-0" />
               <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">API Health</span>

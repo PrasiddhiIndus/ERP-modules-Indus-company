@@ -11,6 +11,7 @@ export const STATUS_LEGEND = [
   { status: 'Work in Progress', bg: UI_TOKENS.infoSoft, label: 'Work in Progress' },
   { status: 'Completed',        bg: UI_TOKENS.successSoft, label: 'Completed' },
   { status: 'Regret',           bg: UI_TOKENS.criticalSoft, label: 'Regret' },
+  { status: 'Order Lost',       bg: UI_TOKENS.neutralStateSoft, label: 'Order Lost' },
 ];
 
 const STATUS_COLOR_MAP = {
@@ -19,6 +20,7 @@ const STATUS_COLOR_MAP = {
   'wip':              UI_TOKENS.infoSoft,
   'completed':        UI_TOKENS.successSoft,
   'regret':           UI_TOKENS.criticalSoft,
+  'order lost':       UI_TOKENS.neutralStateSoft,
 };
 
 export function getStatusBg(status) {
@@ -36,10 +38,11 @@ const STATUS_DISPLAY_RANK = {
   'work in progress': 1,
   wip: 1,
   regret: 2,
+  'order lost': 2,
   completed: 3,
 };
 
-/** List position of a status: Not Started, Work in Progress, Regret, Completed (others with in-progress). */
+/** List position of a status: Not Started, Work in Progress, Regret / Order Lost, Completed (others with in-progress). */
 export function getStatusRank(status) {
   const key = String(status || '').toLowerCase().trim().replace(/\s+/g, ' ');
   return STATUS_DISPLAY_RANK[key] ?? 1;

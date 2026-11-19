@@ -6,9 +6,11 @@ import {
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Eye,
   FilePenLine,
   FilterX,
+  History,
   Loader2,
   Pencil,
   Plus,
@@ -20,30 +22,58 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { normalizeAppRole, ROLES } from '../../../../config/roles';
-import { fetchQuotations, fiscalYearFromDate, updateQuotationMasterDetails } from '../../../../services/quotationApi';
+import {
+  canTransitionStatus,
+  fetchQuotations,
+  fiscalYearFromDate,
+  LAST_FOLLOWUP_OVERDUE_DAYS,
+  lastFollowupOverdueDays,
+  updateQuotationMasterDetails,
+} from '../../../../services/quotationApi';
 import { normalizeToIsoDate } from '../../../../utils/dateDisplay';
 import {
   OFFER_BUCKETS,
   OFFER_STATUS_OPTIONS,
   QUOTATION_BASE,
+  formatDisplayDate,
   offerBucketOf,
+  orderQuarterLabel,
+  localTodayIso,
 } from '../quotationConstants';
 import { formatMoneyIn } from './quotationMakerModel';
-import { Cell, DETAIL_FIELDS, MASTER_COLUMNS, cellValue } from './quotationMasterColumns.jsx';
+import { Cell, DETAIL_FIELDS, EDITABLE_DETAIL_KEYS, GRID_COLUMNS, cellValue } from './quotationMasterColumns.jsx';
 import QuotationMasterImportModal from './QuotationMasterImportModal';
 import QuotationViewDrawer from './QuotationViewDrawer';
 import QuotationDeletionRequests from './QuotationDeletionRequests';
+import QuotationOrderLostRequests from './QuotationOrderLostRequests';
 import {
   deleteQuotationAsSuperAdmin,
   deletionErrorMessage,
   listPendingQuotationDeletionRequests,
   requestQuotationDeletion,
 } from '../quotationDeletionApi';
+import {
+  ORDER_LOST_STATUS,
+  listPendingOrderLostRequests,
+  needsOrderLostApproval,
+  orderLostErrorMessage,
+  requestOrderLost,
+} from '../quotationOrderLostApi';
 import { Modal } from '../../../../components/erpUi';
+import ProjectActivityLog from '../../activityLog/ProjectActivityLog';
+import { ACTIVITY_ENTITY } from '../../activityLog/projectActivityLogApi';
 import './quotationMaker.css';
 import { confirmDialog } from "../../../../lib/dialog";
 
 const PAGE_SIZES = [25, 50, 100];
+
+/** Field names shown in the Activity Log (anything else is shown as Title Case). */
+const HISTORY_FIELD_LABELS = {
+  ...Object.fromEntries(DETAIL_FIELDS.map((f) => [f.key, f.label])),
+  maker_status: 'Quotation (maker) status',
+  grand_total: 'Grand total',
+  revision_no: 'Revision no.',
+};
 
 function sortValue(row, col) {
   const v = cellValue(row, col.key);
@@ -57,6 +87,10 @@ function rowFiscalYear(r) {
   const iso = normalizeToIsoDate(r.offer_date) || normalizeToIsoDate(r.created_at);
   return iso ? fiscalYearFromDate(iso) : '';
 }
+
+const HOLD_STATUS = 'Client Has Hold Enquiry';
+/** Shown once per browser session per day when follow-ups are overdue. */
+const FOLLOWUP_POPUP_KEY = 'projects-quotation-followup-exceeded-shown';
 
 const EMPTY_FILTERS = {
   search: '',
@@ -89,10 +123,21 @@ export default function QuotationMakerList() {
   const [viewingId, setViewingId] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [deletionRequests, setDeletionRequests] = useState([]);
+  const [orderLostRequests, setOrderLostRequests] = useState([]);
   const [deleteAsk, setDeleteAsk] = useState(null);
   const [deleteReason, setDeleteReason] = useState('');
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [historyRow, setHistoryRow] = useState(null);
+  const [tab, setTab] = useState('all'); // 'all' | 'overdue'
+  const [today, setToday] = useState(() => localTodayIso());
+  const [followupPopup, setFollowupPopup] = useState(false);
+
+  // Overdue is worked out from today's date: refresh it so the tab stays right past midnight.
+  useEffect(() => {
+    const t = setInterval(() => setToday(localTodayIso()), 5 * 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -118,6 +163,30 @@ export default function QuotationMakerList() {
   useEffect(() => {
     void loadDeletionRequests();
   }, [loadDeletionRequests]);
+
+  const loadOrderLostRequests = useCallback(async () => {
+    setOrderLostRequests(await listPendingOrderLostRequests());
+  }, []);
+
+  useEffect(() => {
+    void loadOrderLostRequests();
+  }, [loadOrderLostRequests]);
+
+  const pendingOrderLostIds = useMemo(
+    () => new Set(orderLostRequests.map((r) => r.quotation_id).filter(Boolean)),
+    [orderLostRequests]
+  );
+
+  /** L1 / admin queue — the requester's own pending items are flagged on the row instead. */
+  const actionableOrderLostRequests = useMemo(
+    () => orderLostRequests.filter((r) => r.requested_by && r.requested_by !== user?.id),
+    [orderLostRequests, user?.id]
+  );
+
+  const handleOrderLostDecided = async (message) => {
+    setNotice(message);
+    await Promise.all([load(), loadOrderLostRequests()]);
+  };
 
   const pendingDeletionIds = useMemo(
     () => new Set(deletionRequests.map((r) => r.quotation_id).filter(Boolean)),
@@ -176,6 +245,27 @@ export default function QuotationMakerList() {
 
   const merged = rows;
 
+  /** Open offers more than LAST_FOLLOWUP_OVERDUE_DAYS days past their Last Follow-up Date. */
+  const overdueDays = useMemo(() => {
+    const map = new Map();
+    for (const r of merged) {
+      const d = lastFollowupOverdueDays(r, today);
+      if (d) map.set(r.id, d);
+    }
+    return map;
+  }, [merged, today]);
+
+  useEffect(() => {
+    if (loading || !overdueDays.size) return;
+    try {
+      if (sessionStorage.getItem(FOLLOWUP_POPUP_KEY) === today) return;
+      sessionStorage.setItem(FOLLOWUP_POPUP_KEY, today);
+    } catch {
+      /* storage unavailable — still show once for this mount */
+    }
+    setFollowupPopup(true);
+  }, [loading, overdueDays.size, today]);
+
   const options = useMemo(() => {
     const types = new Set();
     const years = new Set();
@@ -192,9 +282,10 @@ export default function QuotationMakerList() {
   const filtered = useMemo(() => {
     const q = filters.search.trim().toLowerCase();
     return merged.filter((r) => {
+      if (tab === 'overdue' && !overdueDays.has(r.id)) return false;
       if (filters.bucket && offerBucketOf(r.offer_status) !== filters.bucket) return false;
       if (filters.offerType && cellValue(r, 'offer_type') !== filters.offerType) return false;
-      if (filters.quarter && cellValue(r, 'quarter') !== filters.quarter) return false;
+      if (filters.quarter && !String(cellValue(r, 'quarter')).startsWith(`${filters.quarter} `)) return false;
       if (filters.fy && rowFiscalYear(r) !== filters.fy) return false;
       if (filters.dateFrom || filters.dateTo) {
         const d = normalizeToIsoDate(r.offer_date);
@@ -216,11 +307,12 @@ export default function QuotationMakerList() {
         'remark',
       ].some((k) => String(r[k] || '').toLowerCase().includes(q));
     });
-  }, [merged, filters]);
+  }, [merged, filters, tab, overdueDays]);
 
   const sorted = useMemo(() => {
     if (!sort.key) return filtered;
-    const col = MASTER_COLUMNS.find((c) => c.key === sort.key);
+    const col = GRID_COLUMNS.find((c) => c.key === sort.key);
+    if (!col) return filtered;
     const dir = sort.dir === 'asc' ? 1 : -1;
     return [...filtered].sort((a, b) => {
       const va = sortValue(a, col);
@@ -253,7 +345,7 @@ export default function QuotationMakerList() {
 
   useEffect(() => {
     setPage(1);
-  }, [filters, pageSize, sort]);
+  }, [filters, pageSize, sort, tab]);
 
   const setFilter = (key) => (e) => setFilters((f) => ({ ...f, [key]: e.target.value }));
   const activeFilterCount = Object.entries(filters).filter(([, v]) => v).length;
@@ -263,14 +355,49 @@ export default function QuotationMakerList() {
 
   const openMaker = (id) => navigate(`${QUOTATION_BASE}/quotation-entry?id=${id}`);
 
-  const onSaveDetails = async (id, patch, previousStatus) => {
+  const onSaveDetails = async (id, patch, previousStatus, statusReason = '') => {
     setSavingDetails(true);
     setError('');
     try {
-      const saved = await updateQuotationMasterDetails(id, patch, { previousStatus });
+      const reason = String(statusReason || '').trim();
+      const wantsOrderLost = patch.offer_status === ORDER_LOST_STATUS && previousStatus !== ORDER_LOST_STATUS;
+      if (wantsOrderLost && !reason) throw new Error('Enter the reason for Order Lost.');
+      if (wantsOrderLost && previousStatus && !canTransitionStatus(previousStatus, ORDER_LOST_STATUS)) {
+        throw new Error(`Cannot move from "${previousStatus}" to "${ORDER_LOST_STATUS}". Follow the offer workflow.`);
+      }
+
+      if (needsOrderLostApproval(previousStatus, patch.offer_status, userProfile)) {
+        // The offer status stays as it is until L1 approves; the follow-up date saves now.
+        try {
+          await requestOrderLost(id, reason);
+        } catch (err) {
+          throw new Error(orderLostErrorMessage(err, 'Could not send the Order Lost request. Please try again.'));
+        }
+        const saved = await updateQuotationMasterDetails(
+          id,
+          { ...patch, offer_status: previousStatus || patch.offer_status },
+          { previousStatus }
+        );
+        setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...saved } : r)));
+        setEditing(null);
+        setNotice(
+          `Order Lost for ${saved.offer_no || 'the quotation'} sent to your L1 manager for approval. The offer status stays "${
+            previousStatus || '—'
+          }" until it is approved.`
+        );
+        await loadOrderLostRequests();
+        return;
+      }
+
+      // Lost (Super Admin) / Hold: applies directly; the reason goes into the remark (as the Board does).
+      const saved = await updateQuotationMasterDetails(id, patch, {
+        previousStatus,
+        statusRemark: patch.offer_status !== previousStatus ? reason : '',
+      });
       setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...saved } : r)));
       setEditing(null);
       setNotice(`Saved details for ${saved.offer_no || 'quotation'}.`);
+      if (wantsOrderLost) await loadOrderLostRequests();
     } catch (err) {
       const message = err?.message || 'Could not save quotation details.';
       setError(message);
@@ -331,6 +458,41 @@ export default function QuotationMakerList() {
       ) : null}
 
       <QuotationDeletionRequests requests={actionableDeletionRequests} onDecided={handleDeletionDecided} />
+      <QuotationOrderLostRequests requests={actionableOrderLostRequests} onDecided={handleOrderLostDecided} />
+
+      {/* All / Overdue follow-up tabs */}
+      <div className="flex items-center gap-1 border-b border-slate-200">
+        {[
+          { id: 'all', label: 'All quotations', count: merged.length },
+          { id: 'overdue', label: 'Overdue', count: overdueDays.size, alert: true },
+        ].map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-medium ${
+              tab === t.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+            title={t.alert ? `Open offers more than ${LAST_FOLLOWUP_OVERDUE_DAYS} days after the Last Follow-up Date` : undefined}
+          >
+            {t.alert ? <Clock className="h-3.5 w-3.5" /> : null}
+            {t.label}
+            <span
+              className={`min-w-[22px] rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${
+                t.alert && t.count ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {t.count}
+            </span>
+          </button>
+        ))}
+      </div>
+      {tab === 'overdue' ? (
+        <p className="m-0 text-xs text-slate-600">
+          Open offers whose Last Follow-up Date is more than {LAST_FOLLOWUP_OVERDUE_DAYS} days ago (converted and lost
+          offers are not included). Update the follow-up date with Edit details to clear one.
+        </p>
+      ) : null}
 
       {/* Status quick filters (scrolls sideways on phones) */}
       <div className="flex gap-2 overflow-x-auto pb-0.5 -mx-3 px-3 sm:mx-0 sm:px-0 sm:flex-wrap sm:overflow-visible">
@@ -442,9 +604,9 @@ export default function QuotationMakerList() {
             <thead className="sticky top-0 z-20">
               <tr>
                 <th className="text-left whitespace-nowrap">
-                  SR No
+                  SR No.
                 </th>
-                {MASTER_COLUMNS.map((c) => {
+                {GRID_COLUMNS.map((c) => {
                   const active = sort.key === c.key;
                   const Icon = !active ? ArrowUpDown : sort.dir === 'asc' ? ArrowUp : ArrowDown;
                   return (
@@ -474,13 +636,13 @@ export default function QuotationMakerList() {
             <tbody>
               {loading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={MASTER_COLUMNS.length + 2} className="py-16 text-center">
+                  <td colSpan={GRID_COLUMNS.length + 2} className="py-16 text-center">
                     <Loader2 className="h-6 w-6 animate-spin text-slate-400 inline-block" />
                   </td>
                 </tr>
               ) : pageRows.length === 0 ? (
                 <tr>
-                  <td colSpan={MASTER_COLUMNS.length + 2} className="py-12 text-center text-slate-500">
+                  <td colSpan={GRID_COLUMNS.length + 2} className="py-12 text-center text-slate-500">
                     {merged.length === 0
                       ? 'No quotations yet. Create one from Make a Quotation.'
                       : 'No quotations match these filters.'}
@@ -494,7 +656,7 @@ export default function QuotationMakerList() {
                       <td className="!min-w-0 w-12 text-slate-500 tabular-nums">
                         {pageStart + i + 1}
                       </td>
-                      {MASTER_COLUMNS.map((c) => (
+                      {GRID_COLUMNS.map((c) => (
                         <td
                           key={c.key}
                           className={`${c.width || ''} ${
@@ -504,6 +666,27 @@ export default function QuotationMakerList() {
                           }`}
                         >
                           <Cell column={c} value={cellValue(r, c.key)} />
+                          {c.key === 'offer_status' && orderQuarterLabel(r) ? (
+                            <span className="ml-1 text-[11px] font-medium text-emerald-800" title="Financial quarter of the Order Status Date">
+                              {orderQuarterLabel(r)}
+                            </span>
+                          ) : null}
+                          {c.key === 'last_followup_date' && overdueDays.has(r.id) ? (
+                            <span
+                              className="ml-1 inline-block rounded-full border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700"
+                              title="Follow-up Date Exceeded"
+                            >
+                              {overdueDays.get(r.id)}d overdue
+                            </span>
+                          ) : null}
+                          {c.key === 'offer_status' && pendingOrderLostIds.has(r.id) ? (
+                            <span
+                              className="ml-1 inline-block rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                              title="Order Lost is waiting for L1 approval"
+                            >
+                              Lost: L1 pending
+                            </span>
+                          ) : null}
                         </td>
                       ))}
                       <td className="qm-sticky-col sticky right-0 z-10">
@@ -520,6 +703,9 @@ export default function QuotationMakerList() {
                           </IconBtn>
                           <IconBtn title="Edit details" onClick={() => setEditing(r)}>
                             <Pencil className="h-3.5 w-3.5" />
+                          </IconBtn>
+                          <IconBtn title="History / activity log" onClick={() => setHistoryRow(r)}>
+                            <History className="h-3.5 w-3.5" />
                           </IconBtn>
                           <IconBtn
                             title={
@@ -592,7 +778,9 @@ export default function QuotationMakerList() {
           onClose={() => {
             if (!savingDetails) setEditing(null);
           }}
-          onSave={(patch) => onSaveDetails(editing.id, patch, editing.offer_status)}
+          orderLostPending={pendingOrderLostIds.has(editing.id)}
+          orderLostNeedsApproval={needsOrderLostApproval(editing.offer_status, ORDER_LOST_STATUS, userProfile)}
+          onSave={(patch, reason) => onSaveDetails(editing.id, patch, editing.offer_status, reason)}
         />
       ) : null}
 
@@ -607,6 +795,15 @@ export default function QuotationMakerList() {
         />
       ) : null}
 
+      <ProjectActivityLog
+        open={Boolean(historyRow)}
+        onClose={() => setHistoryRow(null)}
+        entityType={ACTIVITY_ENTITY.QUOTATION}
+        entityId={historyRow?.id}
+        title={`History — ${historyRow?.offer_no || historyRow?.client_name || 'Quotation'}`}
+        fieldLabels={HISTORY_FIELD_LABELS}
+      />
+
       <QuotationMasterImportModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
@@ -615,6 +812,39 @@ export default function QuotationMakerList() {
           void load();
         }}
       />
+
+      <Modal
+        open={followupPopup}
+        title="Follow-up Date Exceeded"
+        onClose={() => setFollowupPopup(false)}
+        widthClass="max-w-md"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setFollowupPopup(false)}
+              className="h-9 px-3 rounded-lg border border-slate-200 bg-white text-[13px] font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Later
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFollowupPopup(false);
+                setTab('overdue');
+              }}
+              className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg bg-rose-600 text-[13px] font-semibold text-white hover:bg-rose-700"
+            >
+              <Clock className="h-4 w-4" /> Show overdue
+            </button>
+          </div>
+        }
+      >
+        <p className="m-0 text-[13px] text-slate-700">
+          <b>Follow-up Date Exceeded</b> for {overdueDays.size} open quotation{overdueDays.size === 1 ? '' : 's'}: more
+          than {LAST_FOLLOWUP_OVERDUE_DAYS} days have passed since the Last Follow-up Date.
+        </p>
+      </Modal>
 
       <Modal
         open={Boolean(deleteAsk)}
@@ -703,11 +933,31 @@ function toInputValue(field, row) {
   return String(v);
 }
 
-function EditDetailsModal({ row, onClose, onSave, saving = false }) {
+function EditDetailsModal({
+  row,
+  onClose,
+  onSave,
+  saving = false,
+  orderLostPending = false,
+  orderLostNeedsApproval = true,
+}) {
   const [form, setForm] = useState(() =>
     Object.fromEntries(DETAIL_FIELDS.map((f) => [f.key, toInputValue(f, row)]))
   );
   const [localError, setLocalError] = useState('');
+  const [lostReason, setLostReason] = useState('');
+  const choosingOrderLost = form.offer_status === ORDER_LOST_STATUS && row.offer_status !== ORDER_LOST_STATUS;
+  const choosingHold = form.offer_status === HOLD_STATUS && row.offer_status !== HOLD_STATUS;
+  const needsReason = choosingOrderLost || choosingHold;
+  const editable = new Set(EDITABLE_DETAIL_KEYS);
+  const statusChanged = form.offer_status !== (row.offer_status || '');
+  /** Order Status Date / quarter as they will be after saving (date = today on a status change). */
+  const previewRow = {
+    ...row,
+    offer_status: form.offer_status,
+    order_converted_date: statusChanged ? localTodayIso() : row.order_converted_date,
+  };
+  const quarterPreview = orderQuarterLabel(previewRow);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -726,10 +976,22 @@ function EditDetailsModal({ row, onClose, onSave, saving = false }) {
     e.preventDefault();
     if (saving) return;
     setLocalError('');
-    const patch = { ...form };
-    patch.quoted_rate = form.quoted_rate === '' ? null : Number(form.quoted_rate);
+    if (choosingOrderLost && orderLostPending) {
+      setLocalError('An Order Lost request for this quotation is already waiting for L1 approval.');
+      return;
+    }
+    if (needsReason && !lostReason.trim()) {
+      setLocalError(choosingOrderLost ? 'Enter the reason for Order Lost.' : 'Enter the reason for putting the offer on Hold.');
+      return;
+    }
+    // Only Offer Status and Last Follow-up Date can change; the current remark is kept for the reason note.
+    const patch = {
+      offer_status: form.offer_status,
+      last_followup_date: form.last_followup_date,
+      remark: row.remark || '',
+    };
     try {
-      await onSave(patch);
+      await onSave(patch, needsReason ? lostReason.trim() : '');
     } catch (err) {
       setLocalError(err?.message || 'Could not save.');
     }
@@ -757,9 +1019,30 @@ function EditDetailsModal({ row, onClose, onSave, saving = false }) {
         <div className="px-4 py-3 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2.5">
           {DETAIL_FIELDS.map((f) => {
             const full = f.key === 'scope' || f.key === 'remark';
+            const locked = !editable.has(f.key);
+            if (f.key === 'order_converted_date') {
+              return (
+                <label key={f.key}>
+                  <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">{f.label}</span>
+                  <input
+                    className={`${input} bg-slate-100 text-slate-600`}
+                    readOnly
+                    value={formatDisplayDate(previewRow.order_converted_date) || '—'}
+                    title="Set automatically when the Offer Status changes"
+                  />
+                  <span className="mt-0.5 block text-[10px] text-slate-500">
+                    {statusChanged ? 'Will be set to today on save' : 'Updates automatically when the Offer Status changes'}
+                    {quarterPreview ? ` · ${quarterPreview}` : ''}
+                  </span>
+                </label>
+              );
+            }
             return (
               <label key={f.key} className={full ? 'sm:col-span-2' : ''}>
-                <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">{f.label}</span>
+                <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">
+                  {f.label}
+                  {locked ? <span className="ml-1 normal-case font-normal text-slate-400">(read-only)</span> : null}
+                </span>
                 {f.type === 'status' ? (
                   <select className={input} value={form[f.key]} onChange={set(f.key)} disabled={saving}>
                     <option value="">—</option>
@@ -771,15 +1054,17 @@ function EditDetailsModal({ row, onClose, onSave, saving = false }) {
                   </select>
                 ) : full ? (
                   <textarea
-                    className={`${input} h-auto py-2`}
+                    className={`${input} h-auto py-2 ${locked ? 'bg-slate-100 text-slate-600' : ''}`}
                     rows={3}
                     value={form[f.key]}
                     onChange={set(f.key)}
                     disabled={saving}
+                    readOnly={locked}
                   />
                 ) : (
                   <input
-                    className={input}
+                    className={`${input} ${locked ? 'bg-slate-100 text-slate-600' : ''}`}
+                    readOnly={locked}
                     type={f.type === 'date' ? 'date' : f.type === 'money' ? 'number' : f.key === 'email_id' ? 'email' : 'text'}
                     step={f.type === 'money' ? '0.01' : undefined}
                     value={form[f.key]}
@@ -790,6 +1075,32 @@ function EditDetailsModal({ row, onClose, onSave, saving = false }) {
               </label>
             );
           })}
+          {needsReason ? (
+            <label className="sm:col-span-2 rounded-lg border border-amber-200 bg-amber-50/60 p-2.5">
+              <span className="block text-[11px] font-semibold uppercase tracking-wide text-amber-900 mb-1">
+                {choosingOrderLost ? 'Reason for Order Lost' : 'Reason for Hold'} <span className="text-rose-600">*</span>
+              </span>
+              <textarea
+                className={`${input} h-auto py-2`}
+                rows={3}
+                value={lostReason}
+                onChange={(e) => setLostReason(e.target.value)}
+                placeholder="e.g. price gap, competitor selected, client dropped the requirement…"
+                disabled={saving || (choosingOrderLost && orderLostPending)}
+              />
+              <span className="mt-1 block text-[11px] text-amber-900">
+                {choosingHold
+                  ? 'Added to the remark when you save.'
+                  : orderLostPending
+                  ? 'An Order Lost request is already waiting for L1 approval.'
+                  : orderLostNeedsApproval
+                    ? `This goes to your L1 manager for approval. The offer status stays "${
+                        row.offer_status || '—'
+                      }" until it is approved; the follow-up date saves now.`
+                    : 'Saved directly (Super Admin). The reason is added to the remark.'}
+              </span>
+            </label>
+          ) : null}
         </div>
         {localError ? (
           <div className="mx-4 mb-0 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[13px] text-rose-800">
@@ -797,7 +1108,7 @@ function EditDetailsModal({ row, onClose, onSave, saving = false }) {
           </div>
         ) : null}
         <div className="px-4 py-2.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[11px] text-slate-500">Changes are saved to Quotation Master in the database.</p>
+          <p className="text-[11px] text-slate-500">Only Offer Status and Last Follow-up Date can be changed on an existing quotation.</p>
           <div className="flex gap-2">
             <button
               type="button"

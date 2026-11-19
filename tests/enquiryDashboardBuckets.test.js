@@ -49,4 +49,14 @@ describe('Enquiry dashboard boxes count each enquiry once', () => {
   it('regret is only in Regret, even when past target', () => {
     expect(dashboardBucket(row({ current_status: 'Regret', target_date: '2026-10-01' }), today)).toBe('regret');
   });
+
+  it('order lost is isolated (not overdue/WIP); Quotation Dashboard tracks Order Lost KPIs', () => {
+    expect(dashboardBucket(row({ current_status: 'Order Lost', target_date: '2026-10-01' }), today)).toBe('orderLost');
+    expect(
+      dashboardBucket(
+        row({ current_status: 'Order Lost', target_date: '2026-10-10', completed_on: '2026-10-05' }),
+        today
+      )
+    ).toBe('orderLost');
+  });
 });

@@ -1,13 +1,48 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Eye, FilePlus2, Loader2, Pencil, Search, Trash2 } from "lucide-react";
+import { Eye, FilePlus2, History, Loader2, Pencil, Search, Trash2 } from "lucide-react";
+import ProjectActivityLog from "../activityLog/ProjectActivityLog";
+import { ACTIVITY_ENTITY } from "../activityLog/projectActivityLogApi";
 import { useAuth } from "../../../contexts/AuthContext";
 import { IEV_OC_DEPARTMENT } from "./ocDepartment";
 import { toast } from "../../../lib/toast";
-import { amFinance, deleteOc, friendlyOcError, listOcs, loadSignoffAssignees, myEmployeeCode } from "./ocApi";
+import {
+  amFinance,
+  deleteOc,
+  friendlyOcError,
+  listOcApprovalStages,
+  listOcs,
+  loadSignoffAssignees,
+  myEmployeeCode,
+  ocApprovalStatus,
+} from "./ocApi";
 import { formatIndianAmount, formatOcDate } from "./ocModel";
 import OcCreationForm from "./OcCreationForm";
 import { confirmDialog } from "../../../lib/dialog";
+
+const STATUS_PILL = {
+  pending: "bg-amber-50 text-amber-700",
+  returned: "bg-orange-50 text-orange-700",
+  generated: "bg-emerald-50 text-emerald-700",
+};
+
+/**
+ * OC No. cell: the number when issued, plus where the OC is in approval.
+ * Without stage data (other departments) it keeps the previous behaviour: number, or "Pending (Finance)".
+ */
+function OcStatusCell({ ocNo, status }) {
+  if (!status) {
+    return ocNo || <span className="rounded-full bg-amber-50 px-2 py-0.5 font-sans text-[11px] text-amber-700">Pending (Finance)</span>;
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      {ocNo ? <span>{ocNo}</span> : null}
+      <span title={status.title} className={`rounded-full px-2 py-0.5 font-sans text-[11px] ${STATUS_PILL[status.kind] || STATUS_PILL.pending}`}>
+        {status.label}
+      </span>
+    </span>
+  );
+}
 
 /**
  * PO At Glance: list of entries, and the form for one entry (?oc=<id> or ?oc=new).
@@ -32,15 +67,28 @@ export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
   const [params, setParams] = useSearchParams();
   const openId = params.get("oc");
   const [rows, setRows] = useState([]);
+  const [stages, setStages] = useState(() => new Map());
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [historyRow, setHistoryRow] = useState(null);
+  // Activity Log covers Projects PO At Glance (pj_oc_master, migration 20261118183000).
+  const showHistory = department.key === "projects";
 
   const open = (id) => setParams(id ? { oc: id } : {}, { replace: false });
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      setRows(await listOcs(department));
+      const list = await listOcs(department);
+      setRows(list);
+      // Current approval stage per OC (sequential sign-off departments only). A failure here
+      // only falls back to the previous "Pending (Finance)" badge; the list still loads.
+      try {
+        setStages(await listOcApprovalStages(list.map((r) => r.id), department));
+      } catch (stageErr) {
+        console.warn("[PO At Glance] could not load approval stages", stageErr);
+        setStages(new Map());
+      }
     } catch (e) {
       toast.error(friendlyOcError(e, "Could not load PO At Glance entries.", department));
     } finally {
@@ -165,7 +213,7 @@ export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
           <table className="w-full min-w-[52rem] text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-2">OC No.</th>
+                <th className="px-4 py-2">{department.sequentialSignoff ? "OC No. / Approval status" : "OC No."}</th>
                 <th className="px-4 py-2">Date</th>
                 <th className="px-4 py-2">Client</th>
                 <th className="px-4 py-2">PO/WO No.</th>
@@ -178,7 +226,7 @@ export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
               {filtered.map((r) => (
                 <tr key={r.id} onClick={() => open(r.id)} className="cursor-pointer hover:bg-red-50/40">
                   <td className="px-4 py-2 font-mono text-xs text-slate-900">
-                    {r.oc_no || <span className="rounded-full bg-amber-50 px-2 py-0.5 font-sans text-[11px] text-amber-700">Pending (Finance)</span>}
+                    <OcStatusCell ocNo={r.oc_no} status={ocApprovalStatus(stages.get(r.id), department)} />
                   </td>
                   <td className="px-4 py-2 text-slate-600">{formatOcDate(r.oc_date) || "—"}</td>
                   <td className="px-4 py-2 text-slate-900">{r.client_name}</td>
@@ -200,6 +248,20 @@ export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
                         {canEdit && !reviewerView() ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                         {canEdit && !reviewerView() ? "Edit" : "View"}
                       </button>
+                      {showHistory && (
+                        <button
+                          type="button"
+                          title="History / activity log"
+                          aria-label={`History of ${r.oc_no || r.client_name}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setHistoryRow(r);
+                          }}
+                          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        >
+                          <History className="h-4 w-4" />
+                        </button>
+                      )}
                       {canDelete && (
                         <button
                           type="button"
@@ -220,6 +282,15 @@ export default function OcCreationTab({ department = IEV_OC_DEPARTMENT }) {
             </tbody>
           </table>
         </div>
+      )}
+      {showHistory && (
+        <ProjectActivityLog
+          open={Boolean(historyRow)}
+          onClose={() => setHistoryRow(null)}
+          entityType={ACTIVITY_ENTITY.PO_AT_GLANCE}
+          entityId={historyRow?.id}
+          title={`History — ${historyRow?.oc_no ? `OC No. ${historyRow.oc_no}` : historyRow?.client_name || "PO At Glance"}`}
+        />
       )}
     </div>
   );

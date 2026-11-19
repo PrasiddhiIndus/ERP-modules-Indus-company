@@ -8,6 +8,7 @@ import {
   X,
 } from 'lucide-react';
 import { DateInput } from '../../../components/DateInput';
+import { normalizeToIsoDate } from '../../../utils/dateDisplay';
 import { useAuth } from '../../../contexts/AuthContext';
 import {
   addDaysIso,
@@ -17,7 +18,6 @@ import {
   fetchFollowups,
   fetchLineItems,
   fetchRevisionChain,
-  normalizeQuotationPayload,
   projectsTable,
   TERMINAL_CONVERTED,
 } from '../../../services/quotationApi';
@@ -29,13 +29,28 @@ import {
   qInput,
   qLabel,
   qSelect,
+  localTodayIso,
   todayIsoDate,
 } from './quotationConstants';
 import StatusBadge from './StatusBadge';
 import { useQuotationDropdowns } from './useQuotationDropdowns';
 import ConvertToProjectModal from './ConvertToProjectModal';
 import FollowupModal from './FollowupModal';
-import { confirmDialog } from "../../../lib/dialog";
+import { alertDialog, confirmDialog } from "../../../lib/dialog";
+import { needsOrderLostApproval, orderLostErrorMessage, requestOrderLost } from './quotationOrderLostApi';
+
+/** Editing an existing quotation: only these fields can change (the rest stay read-only). */
+const DRAWER_EDITABLE_KEYS = new Set(['offer_status', 'last_followup_date', 'next_followup_date']);
+
+/** Only the editable fields are written; nothing else on the quotation is touched. */
+function editablePayload(draft) {
+  return {
+    offer_status: draft.offer_status || 'Draft',
+    last_followup_date: normalizeToIsoDate(draft.last_followup_date) || null,
+    next_followup_date: normalizeToIsoDate(draft.next_followup_date) || null,
+    updated_at: new Date().toISOString(),
+  };
+}
 
 const DETAIL_TABS = [
   { id: 'details', label: 'Details' },
@@ -117,20 +132,46 @@ export default function QuotationDetailDrawer({
       if (
         (nextStatus === 'Order Lost' || nextStatus === 'Client Has Hold Enquiry') &&
         prevStatus !== nextStatus &&
-        !statusRemark.trim() &&
-        !String(draft.remark || '').trim()
+        !statusRemark.trim()
       ) {
-        throw new Error('A remark is required when marking Lost or Hold.');
+        throw new Error('A reason is required when marking Lost or Hold.');
       }
 
-      const payload = normalizeQuotationPayload(draft);
+      // Order Lost needs L1 approval: send the request, keep the current status, save the rest.
+      const lostNeedsApproval = needsOrderLostApproval(prevStatus, nextStatus, userProfile);
+      if (lostNeedsApproval) {
+        if (!statusRemark.trim()) throw new Error('Enter the reason for Order Lost.');
+        try {
+          await requestOrderLost(draft.id, statusRemark.trim());
+        } catch (err) {
+          throw new Error(orderLostErrorMessage(err, 'Could not send the Order Lost request. Please try again.'));
+        }
+        const rest = editablePayload({ ...draft, offer_status: prevStatus });
+        const { error: restErr } = await projectsTable('quotations').update(rest).eq('id', draft.id);
+        if (restErr) throw restErr;
+        await load();
+        setEditing(false);
+        setStatusRemark('');
+        onChanged?.();
+        setError('');
+        await alertDialog({
+          title: 'Sent for L1 approval',
+          message: `Order Lost was sent to your L1 manager. The status stays "${prevStatus}" until it is approved.`,
+          confirmLabel: "OK",
+        });
+        return;
+      }
+
+      const payload = editablePayload(draft);
       if (statusRemark.trim() && prevStatus !== nextStatus) {
-        payload.remark = [payload.remark, `[Status → ${nextStatus}] ${statusRemark.trim()}`]
+        payload.remark = [String(row.remark || '').trim() || null, `[Status → ${nextStatus}] ${statusRemark.trim()}`]
           .filter(Boolean)
           .join('\n');
       }
       if (prevStatus !== nextStatus) {
         payload.status_changed_at = new Date().toISOString();
+        // Order Status Date (also stamped by the database trigger on every status change).
+        payload.order_converted_date = localTodayIso();
         if (nextStatus === 'Awaiting Client Response' && !payload.next_followup_date) {
           payload.next_followup_date = addDaysIso(todayIsoDate(), 7);
         }
@@ -144,7 +185,7 @@ export default function QuotationDetailDrawer({
       setStatusRemark('');
       onChanged?.();
 
-      if (TERMINAL_CONVERTED.has(nextStatus) && prevStatus !== nextStatus && !payload.linked_project_id) {
+      if (TERMINAL_CONVERTED.has(nextStatus) && prevStatus !== nextStatus && !row.linked_project_id) {
         setShowConvert(true);
       }
     } catch (err) {
@@ -341,14 +382,14 @@ export default function QuotationDetailDrawer({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <Field label="Offer No" readOnly={!editing}>
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('offer_no') ? (
                         <input className={qInput} value={draft.offer_no || ''} onChange={(e) => setField('offer_no', e.target.value)} />
                       ) : (
                         <ReadVal>{row.offer_no}</ReadVal>
                       )}
                     </Field>
                     <Field label="Date">
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('offer_date') ? (
                         <DateInput className={qInput} value={draft.offer_date || ''} onChange={(v) => setField('offer_date', v)} />
                       ) : (
                         <ReadVal>{formatDisplayDate(row.offer_date)}</ReadVal>
@@ -372,7 +413,7 @@ export default function QuotationDetailDrawer({
                       )}
                     </Field>
                     <Field label="Offer Type">
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('offer_type') ? (
                         <select className={qSelect} value={draft.offer_type || ''} onChange={(e) => setField('offer_type', e.target.value)}>
                           <option value="">—</option>
                           {types.map((t) => (
@@ -386,21 +427,21 @@ export default function QuotationDetailDrawer({
                       )}
                     </Field>
                     <Field label="Client Name">
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('client_name') ? (
                         <input className={qInput} value={draft.client_name || ''} onChange={(e) => setField('client_name', e.target.value)} />
                       ) : (
                         <ReadVal>{row.client_name}</ReadVal>
                       )}
                     </Field>
                     <Field label="Location">
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('location') ? (
                         <input className={qInput} value={draft.location || ''} onChange={(e) => setField('location', e.target.value)} />
                       ) : (
                         <ReadVal>{row.location}</ReadVal>
                       )}
                     </Field>
                     <Field label="Contact Person">
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('contact_person') ? (
                         <input
                           className={qInput}
                           value={draft.contact_person || ''}
@@ -411,21 +452,21 @@ export default function QuotationDetailDrawer({
                       )}
                     </Field>
                     <Field label="Contact No">
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('contact_no') ? (
                         <input className={qInput} value={draft.contact_no || ''} onChange={(e) => setField('contact_no', e.target.value)} />
                       ) : (
                         <ReadVal>{row.contact_no}</ReadVal>
                       )}
                     </Field>
                     <Field label="Email ID">
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('email_id') ? (
                         <input className={qInput} value={draft.email_id || ''} onChange={(e) => setField('email_id', e.target.value)} />
                       ) : (
                         <ReadVal>{row.email_id}</ReadVal>
                       )}
                     </Field>
                     <Field label="Quoted Rate">
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('quoted_rate') ? (
                         <input
                           type="number"
                           className={qInput}
@@ -437,14 +478,14 @@ export default function QuotationDetailDrawer({
                       )}
                     </Field>
                     <Field label="Subject" className="sm:col-span-2">
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('subject') ? (
                         <input className={qInput} value={draft.subject || ''} onChange={(e) => setField('subject', e.target.value)} />
                       ) : (
                         <ReadVal>{row.subject || row.scope}</ReadVal>
                       )}
                     </Field>
                     <Field label="Enquiry Received From">
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('enquiry_received_from') ? (
                         <select
                           className={qSelect}
                           value={draft.enquiry_received_from || ''}
@@ -462,7 +503,7 @@ export default function QuotationDetailDrawer({
                       )}
                     </Field>
                     <Field label="Owner">
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('owner_name') ? (
                         <input className={qInput} value={draft.owner_name || ''} onChange={(e) => setField('owner_name', e.target.value)} />
                       ) : (
                         <ReadVal>{row.owner_name}</ReadVal>
@@ -491,7 +532,7 @@ export default function QuotationDetailDrawer({
                       )}
                     </Field>
                     <Field label="Offer Link" className="sm:col-span-2">
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('offer_link') ? (
                         <input className={qInput} value={draft.offer_link || ''} onChange={(e) => setField('offer_link', e.target.value)} />
                       ) : row.offer_link ? (
                         <a href={row.offer_link} target="_blank" rel="noreferrer" className="text-sm text-blue-600 inline-flex items-center gap-1">
@@ -502,14 +543,14 @@ export default function QuotationDetailDrawer({
                       )}
                     </Field>
                     <Field label="Scope" className="sm:col-span-2">
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('scope') ? (
                         <textarea rows={3} className={qInput} value={draft.scope || ''} onChange={(e) => setField('scope', e.target.value)} />
                       ) : (
                         <ReadVal>{row.scope}</ReadVal>
                       )}
                     </Field>
                     <Field label="Remark" className="sm:col-span-2">
-                      {editing ? (
+                      {editing && DRAWER_EDITABLE_KEYS.has('remark') ? (
                         <textarea rows={2} className={qInput} value={draft.remark || ''} onChange={(e) => setField('remark', e.target.value)} />
                       ) : (
                         <ReadVal>{row.remark}</ReadVal>
@@ -519,7 +560,14 @@ export default function QuotationDetailDrawer({
                       (draft.offer_status === 'Order Lost' ||
                         draft.offer_status === 'Client Has Hold Enquiry') &&
                       draft.offer_status !== row.offer_status && (
-                        <Field label="Status change remark (required)" className="sm:col-span-2">
+                        <Field
+                          label={
+                            needsOrderLostApproval(row.offer_status, draft.offer_status, userProfile)
+                              ? 'Reason for Order Lost (required — sent to your L1 for approval)'
+                              : 'Status change remark (required)'
+                          }
+                          className="sm:col-span-2"
+                        >
                           <textarea
                             rows={2}
                             className={qInput}

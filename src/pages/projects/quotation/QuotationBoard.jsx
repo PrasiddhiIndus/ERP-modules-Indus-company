@@ -6,15 +6,19 @@ import {
   fetchQuotations,
   projectsTable,
 } from '../../../services/quotationApi';
-import { BOARD_COLUMNS, formatCurrency, formatDisplayDate } from './quotationConstants';
+import { BOARD_COLUMNS, formatCurrency, formatDisplayDate, localTodayIso } from './quotationConstants';
 import StatusBadge from './StatusBadge';
 import QuotationDetailDrawer from './QuotationDetailDrawer';
 import { getStatusStyle } from './quotationStatusStyles';
+import { useAuth } from '../../../contexts/AuthContext';
+import { needsOrderLostApproval, orderLostErrorMessage, requestOrderLost } from './quotationOrderLostApi';
 
 export default function QuotationBoard() {
+  const { userProfile } = useAuth();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [detailId, setDetailId] = useState(null);
   const [draggingId, setDraggingId] = useState(null);
   const [confirmMove, setConfirmMove] = useState(null);
@@ -72,10 +76,24 @@ export default function QuotationBoard() {
   };
 
   const applyStatus = async (row, targetStatus, remark) => {
+    setNotice('');
+    if (needsOrderLostApproval(row.offer_status, targetStatus, userProfile)) {
+      // Order Lost needs L1 approval: the card stays in its column until approved.
+      try {
+        await requestOrderLost(row.id, remark);
+        setError('');
+        setNotice(`Order Lost for ${row.offer_no || 'the quotation'} sent to your L1 manager for approval.`);
+      } catch (err) {
+        setError(orderLostErrorMessage(err, 'Could not send the Order Lost request. Please try again.'));
+      }
+      return;
+    }
     try {
       const patch = {
         offer_status: targetStatus,
         status_changed_at: new Date().toISOString(),
+        // Order Status Date (the database trigger also stamps it on every status change).
+        order_converted_date: localTodayIso(),
       };
       if (remark) {
         patch.remark = [row.remark, `[Status → ${targetStatus}] ${remark}`].filter(Boolean).join('\n');
@@ -110,6 +128,9 @@ export default function QuotationBoard() {
 
       {error && (
         <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
+      )}
+      {notice && (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{notice}</div>
       )}
 
       {loading ? (
@@ -185,8 +206,10 @@ export default function QuotationBoard() {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-3">
             <h3 className="font-semibold text-slate-900">Confirm status change</h3>
             <p className="text-sm text-slate-600">
-              Move <strong>{confirmMove.row.offer_no}</strong> to <strong>{confirmMove.targetStatus}</strong>? Remark is
-              required.
+              Move <strong>{confirmMove.row.offer_no}</strong> to <strong>{confirmMove.targetStatus}</strong>?{' '}
+              {needsOrderLostApproval(confirmMove.row.offer_status, confirmMove.targetStatus, userProfile)
+                ? 'Reason for Order Lost is required. It goes to your L1 manager for approval; the status changes only after approval.'
+                : 'Remark is required.'}
             </p>
             <textarea
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"

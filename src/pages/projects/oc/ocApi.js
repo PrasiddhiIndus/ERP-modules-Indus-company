@@ -40,6 +40,82 @@ export async function listOcs(dept = IEV_OC_DEPARTMENT) {
   return data || [];
 }
 
+const IN_CHUNK = 100;
+const chunk = (list, size) => {
+  const out = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+};
+
+/**
+ * Where each listed OC sits in the sign-off sequence (read-only; uses the existing signoff and
+ * approval-log tables). Returns Map<ocId, { signedSlots: Set<string>, returned: boolean }>.
+ * Departments without sequential sign-off get an empty map.
+ */
+export async function listOcApprovalStages(ids, dept = IEV_OC_DEPARTMENT) {
+  const stages = new Map();
+  if (!dept.sequentialSignoff || !ids?.length) return stages;
+  for (const id of ids) stages.set(id, { signedSlots: new Set(), returned: false });
+
+  const parts = chunk(ids, IN_CHUNK);
+  const signoffs = await Promise.all(
+    parts.map((part) => supabase.from(dept.tables.signoff).select("oc_id, slot").in("oc_id", part))
+  );
+  for (const res of signoffs) {
+    if (res.error) throw res.error;
+    for (const row of res.data || []) stages.get(row.oc_id)?.signedSlots.add(row.slot);
+  }
+
+  if (dept.approvalAudit && dept.key === "projects") {
+    const logs = await Promise.all(
+      parts.map((part) =>
+        supabase
+          .from("pj_oc_approval_log")
+          .select("oc_id, action, created_at, id")
+          .in("oc_id", part)
+          .in("action", ["MODIFICATION_REQUESTED", "RESUBMITTED"])
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+      )
+    );
+    for (const res of logs) {
+      // History is optional for the list badge: fall back to sign-offs only.
+      if (res.error) {
+        console.warn("[PO At Glance] approval log unavailable for list status", res.error);
+        continue;
+      }
+      // Latest event wins: an unanswered Request Modification means "returned to the creator".
+      for (const row of res.data || []) {
+        const s = stages.get(row.oc_id);
+        if (s) s.returned = row.action === "MODIFICATION_REQUESTED";
+      }
+    }
+  }
+  return stages;
+}
+
+/**
+ * Approval status for the PO At Glance list, following the department's sign-off order:
+ * the department currently responsible, "Returned to creator", or "OC Generated" once the
+ * final (Finance) stage is signed. Returns null when the department has no sequential sign-off.
+ */
+export function ocApprovalStatus(stage, dept = IEV_OC_DEPARTMENT) {
+  if (!dept.sequentialSignoff || !stage) return null;
+  const slots = dept.slots || [];
+  const next = slots.find((s) => !stage.signedSlots.has(s.slot));
+  // Same order of checks as the form's approval panel (ProjectsApprovalPanel).
+  if (stage.returned) {
+    return { kind: "returned", label: "Returned to creator", title: "Sent back for modification; waiting for the creator to resubmit." };
+  }
+  if (!next) return { kind: "generated", label: "OC Generated", title: "All approval stages are complete." };
+  const index = slots.indexOf(next);
+  return {
+    kind: "pending",
+    label: `Pending (${next.label})`,
+    title: `Awaiting ${next.label} approval — stage ${index + 1} of ${slots.length}`,
+  };
+}
+
 export async function loadOc(id, dept = IEV_OC_DEPARTMENT) {
   const t = dept.tables;
   const byOc = (table, order) => {

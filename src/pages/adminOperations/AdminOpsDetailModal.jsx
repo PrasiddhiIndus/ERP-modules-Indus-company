@@ -15,7 +15,7 @@ function statusLabel(severity) {
  * In-page detail for admin dashboard tiles.
  * Caps rows at POPUP_ROW_CAP; offers full-page link when more exist.
  */
-export default function AdminOpsDetailModal({ open, spec, onClose, onOpenPage }) {
+export default function AdminOpsDetailModal({ open, spec, onClose, onOpenPage, canOpenPage }) {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState(spec?.defaultSort || "priority");
   const [page, setPage] = useState(1);
@@ -101,7 +101,8 @@ export default function AdminOpsDetailModal({ open, spec, onClose, onOpenPage })
         <button type="button" className="erp-btn-secondary h-9 px-3" onClick={onClose}>
           Close
         </button>
-        {spec.pagePath ? (
+        {/* Offer the page only when the user may open it. */}
+        {spec.pagePath && (!canOpenPage || canOpenPage(spec.pagePath)) ? (
           <button
             type="button"
             className="erp-btn-primary h-9 px-3 inline-flex items-center gap-1.5"

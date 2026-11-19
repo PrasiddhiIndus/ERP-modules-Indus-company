@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useNavAccess } from '../../../hooks/useNavAccess';
 import { 
   LayoutDashboard, 
   FileText, 
@@ -15,6 +16,7 @@ import {
 
 const MaintenanceNavbar = () => {
   const location = useLocation();
+  const { canSeePath } = useNavAccess();
 
   const navItems = [
     { path: '/app/maintenance', icon: LayoutDashboard, label: 'Dashboard' },
@@ -34,7 +36,7 @@ const MaintenanceNavbar = () => {
     <div className="bg-white shadow-sm border-b border-slate-200/90 mb-6 rounded-b-xl ring-1 ring-slate-900/[0.04]">
       <div className="px-4 sm:px-6 py-3 sm:py-4">
         <nav className="flex gap-1 sm:gap-1.5 overflow-x-auto pb-0.5">
-          {navItems.map((item) => {
+          {navItems.filter((item) => canSeePath(item.path)).map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
             

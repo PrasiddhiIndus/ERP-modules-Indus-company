@@ -4,12 +4,16 @@ import { projectsErrorMsg, projectsTable } from '../../../services/projectsApi';
 import { peInput, peLabel, slugifyKindKey } from './enquiryConstants';
 import { ASSIGNEE_KIND_KEY, useProjectsEnquiryDropdowns } from './useProjectsEnquiryDropdowns';
 import { confirmDialog } from "../../../lib/dialog";
+import { useAuth } from '../../../contexts/AuthContext';
+import { isProjectsEnquiryViewOnly } from '../../../config/roles';
 
 function nameKey(value) {
   return String(value || '').trim().toLowerCase();
 }
 
 export default function EnquiryDropdown() {
+  const { userProfile } = useAuth();
+  const viewOnly = isProjectsEnquiryViewOnly(userProfile);
   const {
     kinds,
     setKinds,
@@ -225,6 +229,13 @@ export default function EnquiryDropdown() {
         </div>
       )}
 
+      {viewOnly && (
+        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          You have view-only access to Enquiry Master. Dropdown values cannot be changed.
+        </div>
+      )}
+
+      {!viewOnly && (
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-5 mb-6">
         <h3 className="text-base font-semibold text-slate-900 mb-1 flex items-center gap-2">
           <Tag className="h-4 w-4 text-blue-600" />
@@ -265,6 +276,7 @@ export default function EnquiryDropdown() {
           </button>
         </form>
       </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-12">
@@ -293,6 +305,7 @@ export default function EnquiryDropdown() {
                 >
                   {k.label}
                 </button>
+                {!viewOnly && (
                 <button
                   type="button"
                   onClick={() => handleDeleteKind(k)}
@@ -301,6 +314,7 @@ export default function EnquiryDropdown() {
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
+                )}
               </div>
             ))}
           </div>
@@ -341,7 +355,7 @@ export default function EnquiryDropdown() {
                         <button
                           type="button"
                           onClick={() => toggleAssignee(row)}
-                          disabled={Boolean(togglingName)}
+                          disabled={viewOnly || Boolean(togglingName)}
                           className="flex w-full items-center gap-3 px-5 py-2.5 text-left hover:bg-slate-50 disabled:opacity-60"
                         >
                           <span className="text-blue-600">
@@ -373,6 +387,7 @@ export default function EnquiryDropdown() {
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              {!viewOnly && (
               <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <h3 className="mb-1 text-base font-semibold text-slate-900">Add value — {activeKind?.label}</h3>
                 <p className="mb-4 text-xs text-slate-500">
@@ -401,6 +416,7 @@ export default function EnquiryDropdown() {
                   </div>
                 </form>
               </div>
+              )}
 
               <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                 <div className="border-b border-slate-100 bg-slate-50 px-5 py-3">
@@ -414,6 +430,7 @@ export default function EnquiryDropdown() {
                     rows.map((row) => (
                       <li key={row.id} className="flex items-center justify-between gap-2 px-5 py-2.5 hover:bg-slate-50">
                         <span className="text-sm text-slate-800">{row.value}</span>
+                        {!viewOnly && (
                         <button
                           type="button"
                           onClick={() => handleDeleteValue(row.id)}
@@ -428,6 +445,7 @@ export default function EnquiryDropdown() {
                             <Trash2 className="h-4 w-4" />
                           )}
                         </button>
+                        )}
                       </li>
                     ))
                   )}

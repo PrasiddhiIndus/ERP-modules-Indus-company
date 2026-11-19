@@ -79,6 +79,7 @@ describe('days left', () => {
     expect(daysLeftBadge(row({ target_date: '2026-10-30' }), today).className).toContain('emerald');
     expect(daysLeftBadge(row({ target_date: '2026-10-01', current_status: 'Completed' }), today).label).toBe('Completed');
     expect(daysLeftBadge(row({ target_date: '2026-10-01', current_status: 'Regret' }), today).label).toBe('Closed');
+    expect(daysLeftBadge(row({ target_date: '2026-10-01', current_status: 'Order Lost' }), today).label).toBe('Order Lost');
   });
 
   it('a Completed Date stops the overdue count, whatever the status', () => {
@@ -88,7 +89,7 @@ describe('days left', () => {
     expect(isCompletedAfterTarget(late)).toBe(true);
     expect(dashboardBucket(late, today)).toBe('completedLate');
 
-    const onTime = row({ target_date: '2026-10-13', current_status: 'Not Started', completed_on: '12/10/2026' });
+    const onTime = row({ target_date: '2026-10-13', current_status: 'Not Started', completed_on: '2026-10-13' });
     expect(daysLeftBadge(onTime, today).label).toBe('Completed on time');
     expect(isDueSoon(onTime, today)).toBe(false);
     expect(dashboardBucket(onTime, today)).toBe('completed');
@@ -96,6 +97,11 @@ describe('days left', () => {
     const regret = row({ target_date: '2026-10-05', current_status: 'Regret', completed_on: '2026-10-08' });
     expect(daysLeftBadge(regret, today).label).toBe('Closed');
     expect(dashboardBucket(regret, today)).toBe('regret');
+
+    const orderLost = row({ target_date: '2026-10-05', current_status: 'Order Lost', completed_on: '2026-10-08' });
+    expect(daysLeftBadge(orderLost, today).label).toBe('Order Lost');
+    expect(isOverdueOpen(orderLost, today)).toBe(false);
+    expect(dashboardBucket(orderLost, today)).toBe('orderLost');
   });
 });
 
