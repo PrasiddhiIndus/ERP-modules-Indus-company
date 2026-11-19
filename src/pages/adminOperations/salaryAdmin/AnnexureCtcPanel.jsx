@@ -61,12 +61,16 @@ import {
   CATEGORY_OPTIONS,
   REVISION_TYPE_OPTIONS,
   buildCtcHistory,
+  categoryLabel,
   historyRowSummary,
   isAnnexureRecord,
+  isTakeHomeCategory,
+  isTakeHomeStructure,
   recordToComponents,
   resultToStructurePayload,
   skillLabel,
   statusLabel,
+  takeHomeToStructurePayload,
 } from "./annexureCtcRecord";
 import { printAnnexure } from "./annexurePrint";
 import { exportCtcDetailsExcel } from "./annexureCtcExcel";
@@ -151,6 +155,9 @@ function parseEntered(v) {
 
 const ENTRY_CALCULATE = "calculate";
 const ENTRY_MANUAL = "manual";
+/** For Voucher / Consultant / Apprentice — full CTC vs Net-only Take Home. */
+const STRUCTURE_MODE_CTC = "ctc";
+const STRUCTURE_MODE_TAKE_HOME = "take_home";
 const STAT_KEYS = [...DEDUCTION_KEYS, ...PART_B_KEYS];
 
 /** Part A amounts plus any deduction / Part B values that were set by hand. */
@@ -180,6 +187,8 @@ function emptyForm(employee) {
   return {
     skill: SKILL_SKILLED,
     category: confirmed ? CATEGORY_EXISTING_CONFIRMED : CATEGORY_NEW_PROBATION,
+    structureMode: STRUCTURE_MODE_CTC,
+    netSalary: "",
     scheme: SCHEME_OLD,
     ctc: "",
     gross: "",
@@ -258,6 +267,16 @@ function incompleteExtraRow(rows) {
 function formFromRecord(record, employee) {
   const base = emptyForm(employee);
   if (!record?.declared) return base;
+  if (isTakeHomeStructure(record)) {
+    return {
+      ...base,
+      wef: todayIso(),
+      category: record.employee_category || base.category,
+      structureMode: STRUCTURE_MODE_TAKE_HOME,
+      netSalary: record.take_home_monthly != null ? String(roundRupee(record.take_home_monthly)) : "",
+      revisionType: "increment",
+    };
+  }
   if (!isAnnexureRecord(record)) {
     return { ...base, gross: record.gross_monthly ? String(roundRupee(record.gross_monthly)) : "", revisionType: "increment" };
   }
@@ -265,14 +284,20 @@ function formFromRecord(record, employee) {
   const extras = extraRowsFromRecord(record);
   const extraA = sumExtraComponents(extras, EXTRA_PART_A);
   const extraB = sumExtraComponents(extras, EXTRA_PART_B);
+  const storedCategory = record.employee_category || null;
+  const category = isTakeHomeCategory(storedCategory)
+    ? storedCategory
+    : record.employee_status === STATUS_CONFIRMED
+      ? CATEGORY_EXISTING_CONFIRMED
+      : storedCategory || CATEGORY_NEW_PROBATION;
   return {
     ...base,
     /** New revision always starts with today's W.E.F.; user can change it. */
     wef: todayIso(),
     extras,
     skill: record.skill_category || SKILL_SKILLED,
-    category:
-      record.employee_status === STATUS_CONFIRMED ? CATEGORY_EXISTING_CONFIRMED : record.employee_category || CATEGORY_NEW_PROBATION,
+    category,
+    structureMode: STRUCTURE_MODE_CTC,
     scheme: record.salary_scheme || SCHEME_OLD,
     ctc: byCtc ? String(roundRupee(record.ctc_monthly - extraA - extraB)) : "",
     gross: byCtc ? "" : String(roundRupee(record.gross_monthly - extraA)),
@@ -683,6 +708,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
 
   const history = useMemo(() => buildCtcHistory(structure).map(historyRowSummary), [structure]);
   const current = structure?.declared ? structure : null;
+  const currentIsTakeHome = isTakeHomeStructure(current);
   const currentIsAnnexure = isAnnexureRecord(current);
 
   const setField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
@@ -740,11 +766,14 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
 
   // ── Live calculation ────────────────────────────────────────────────────
   const isConfirmationFlow = form.category === CATEGORY_PROBATION_TO_CONFIRMED;
-  const isManual = !isConfirmationFlow && form.entryMode === ENTRY_MANUAL;
+  const takeHomeCategory = isTakeHomeCategory(form.category);
+  const isTakeHomeMode = takeHomeCategory && form.structureMode === STRUCTURE_MODE_TAKE_HOME;
+  const isManual = !isConfirmationFlow && !isTakeHomeMode && form.entryMode === ENTRY_MANUAL;
   const resolved = resolveCategory(form.category, form.scheme, form.schemeAfter);
   const confirmationWef = isConfirmationFlow ? toDay(form.confirmationDate) : "";
 
   const calcBase = useMemo(() => {
+    if (isTakeHomeMode) return { empty: true, takeHome: true };
     if (isManual) {
       const entered = {};
       for (const k of PART_A_KEYS) entered[k] = roundRupee(parseEntered(form.manual[k]) ?? 0);
@@ -803,7 +832,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     } catch (err) {
       return { error: err?.message || "Could not calculate." };
     }
-  }, [form, ruleVersions, resolved.scheme, resolved.schemeAfter, resolved.status, isConfirmationFlow, isManual, confirmationWef]);
+  }, [form, ruleVersions, resolved.scheme, resolved.schemeAfter, resolved.status, isConfirmationFlow, isManual, isTakeHomeMode, confirmationWef]);
 
   const calc = useMemo(() => {
     const extras = form.extras;
@@ -881,6 +910,49 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     }
     const wef = toDay(form.wef);
     if (!wef) return toast.error("W.E.F. required", "Pick the Effective From date.");
+
+    if (isTakeHomeMode) {
+      const net = parseEntered(form.netSalary);
+      if (!(net > 0)) return toast.error("Net Salary required", "Enter the Net Salary amount.");
+      const overlap = findOverlappingRecord(existingRecords, { effective_from: wef });
+      if (overlap) return toast.error("Dates overlap", overlap.message);
+      if (backdatedMonth) {
+        const ok = await confirmDialog({
+          title: "Back-dated revision",
+          message: `Salary for ${backdatedMonth} is already processed. This revision is back-dated; the difference is not paid automatically and must be adjusted in Salary Processing. Continue?`,
+          confirmLabel: "Continue",
+        });
+        if (!ok) return;
+      }
+      setSaving(true);
+      try {
+        const payload = takeHomeToStructurePayload(net, {
+          category: form.category,
+          revisionType: current ? form.revisionType : "initial",
+          wefDate: wef,
+          reason: form.reason.trim() || "Take Home net salary",
+          status: resolved.status,
+          skill: form.skill,
+          scheme: resolved.scheme,
+          employee,
+        });
+        if (current) await dbReviseSalaryStructure(employee.id, payload, { wef_date: wef, reason: payload.revision_reason });
+        else await dbSaveSalaryStructure(employee.id, payload);
+        toast.success("Take Home saved", "Net Salary is saved for this employee from the W.E.F. date.");
+        setEditing(false);
+        await load();
+      } catch (err) {
+        console.error("Take Home CTC: save failed", err);
+        const msg = /permission|row-level|42501/i.test(`${err?.message || ""} ${err?.code || ""}`)
+          ? "You do not have access to change salary records."
+          : err?.message || "Please try again.";
+        toast.error("Could not save Take Home", msg);
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     if (calc.empty) {
       return toast.error(
         "Amount required",
@@ -1257,9 +1329,14 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
       {!editing ? (
         current ? (
           <SectionCard
-            title="Current CTC"
+            title={currentIsTakeHome ? "Current Take Home" : "Current CTC"}
             right={
-              currentIsAnnexure ? (
+              currentIsTakeHome ? (
+                <div className="flex items-center gap-2">
+                  <StatusChip label={categoryLabel(current.employee_category)} severity="info" />
+                  <StatusChip label="Take Home" severity="neutral" />
+                </div>
+              ) : currentIsAnnexure ? (
                 <div className="flex items-center gap-2">
                   <StatusChip label={statusLabel(current.employee_status)} severity="info" />
                   <StatusChip label={schemeLabel(current.salary_scheme)} severity="neutral" />
@@ -1271,7 +1348,20 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
               )
             }
           >
-            {currentIsAnnexure ? (
+            {currentIsTakeHome ? (
+              <div className="space-y-3 text-xs">
+                <p className="text-ink-secondary">
+                  W.E.F. {fmtDate(current.wef_date)}
+                  {wefEditButton}
+                  {current.revision_reason ? ` · ${current.revision_reason}` : ""}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-xl">
+                  <Fact label="Employee Name">{employee.full_name || "—"}</Fact>
+                  <Fact label="Designation">{employee.designation || "—"}</Fact>
+                  <Fact label="Net Salary / month">₹{money(current.take_home_monthly)}</Fact>
+                </div>
+              </div>
+            ) : currentIsAnnexure ? (
               <div className="space-y-2">
                 <p className="text-xs text-ink-secondary">
                   W.E.F. {fmtDate(current.wef_date)}
@@ -1314,13 +1404,15 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
             }
           >
             <div className="space-y-3 text-xs">
-              <label className="block">
-                <span className="text-ink-secondary">Skill Category</span>
-                <TinySelect className="mt-1 w-full" value={form.skill} onChange={(e) => setField("skill", e.target.value)}>
-                  <option value={SKILL_SKILLED}>Skilled</option>
-                  <option value={SKILL_SEMI}>Semi-skilled</option>
-                </TinySelect>
-              </label>
+              {!isTakeHomeMode ? (
+                <label className="block">
+                  <span className="text-ink-secondary">Skill Category</span>
+                  <TinySelect className="mt-1 w-full" value={form.skill} onChange={(e) => setField("skill", e.target.value)}>
+                    <option value={SKILL_SKILLED}>Skilled</option>
+                    <option value={SKILL_SEMI}>Semi-skilled</option>
+                  </TinySelect>
+                </label>
+              ) : null}
               <label className="block">
                 <span className="text-ink-secondary">Employee Category</span>
                 <TinySelect
@@ -1331,6 +1423,9 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                     setForm((f) => ({
                       ...f,
                       category,
+                      structureMode: isTakeHomeCategory(category)
+                        ? f.structureMode || STRUCTURE_MODE_CTC
+                        : STRUCTURE_MODE_CTC,
                       scheme: category === CATEGORY_NEW_JOINER_NEW_SCHEME ? SCHEME_NEW : f.scheme,
                       revisionType:
                         category === CATEGORY_PROBATION_TO_CONFIRMED && current ? "confirmation" : f.revisionType,
@@ -1345,6 +1440,111 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   ))}
                 </TinySelect>
               </label>
+
+              {takeHomeCategory ? (
+                <div className="block">
+                  <span className="text-ink-secondary">Salary structure</span>
+                  <div className="mt-1 grid grid-cols-2 gap-1 rounded-lg border border-gray-200 p-0.5">
+                    {[
+                      { id: STRUCTURE_MODE_CTC, label: "CTC" },
+                      { id: STRUCTURE_MODE_TAKE_HOME, label: "Take Home" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setField("structureMode", opt.id)}
+                        className={`rounded-md px-2 py-1.5 text-[11px] font-medium ${
+                          form.structureMode === opt.id
+                            ? "bg-accent text-white"
+                            : "text-ink-secondary hover:bg-gray-50"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {isTakeHomeMode ? (
+                <>
+                  <div className="rounded-lg border border-border bg-surface-muted/40 p-2.5 space-y-2">
+                    <div>
+                      <span className="text-ink-muted text-[11px]">Employee Name</span>
+                      <p className="mt-0.5 text-sm font-medium text-ink">{employee?.full_name || "—"}</p>
+                    </div>
+                    <div>
+                      <span className="text-ink-muted text-[11px]">Designation</span>
+                      <p className="mt-0.5 text-sm font-medium text-ink">{employee?.designation || "—"}</p>
+                    </div>
+                  </div>
+                  <label className="block">
+                    <span className="text-ink-secondary">Net Salary (₹)</span>
+                    <TinyInput
+                      type="number"
+                      step="any"
+                      min="0"
+                      className="mt-1 w-full text-right tabular-nums"
+                      value={form.netSalary}
+                      onChange={(e) => setField("netSalary", e.target.value)}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-ink-secondary">W.E.F. / Effective From</span>
+                    <div className="mt-1">
+                      <TinyInput
+                        type="date"
+                        value={form.wef}
+                        onChange={(e) => setField("wef", e?.target?.value || "")}
+                      />
+                    </div>
+                  </label>
+                  {current ? (
+                    <label className="block">
+                      <span className="text-ink-secondary">Revision Type</span>
+                      <TinySelect
+                        className="mt-1 w-full"
+                        value={form.revisionType}
+                        onChange={(e) => setField("revisionType", e.target.value)}
+                      >
+                        {REVISION_TYPE_OPTIONS.filter((o) => o.value !== "initial").map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </TinySelect>
+                    </label>
+                  ) : null}
+                  <label className="block">
+                    <span className="text-ink-secondary">Reason / remarks</span>
+                    <textarea
+                      rows={2}
+                      className="mt-1 w-full border border-gray-300 rounded px-2 py-1.5"
+                      value={form.reason}
+                      onChange={(e) => setField("reason", e.target.value)}
+                    />
+                  </label>
+                  {backdatedMonth ? (
+                    <InlineAlert tone="warning">
+                      Salary for {backdatedMonth} is already processed. This revision is back-dated — the difference is
+                      not paid automatically.
+                    </InlineAlert>
+                  ) : null}
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={save}
+                      disabled={saving}
+                      className="h-8 px-4 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-deep disabled:opacity-50"
+                    >
+                      {saving ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                </>
+              ) : null}
+
+              {!isTakeHomeMode ? (
+              <>
               <label className="block">
                 <span className="text-ink-secondary">Salary Scheme</span>
                 <TinySelect
@@ -1584,11 +1784,41 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   <Columns3 className="h-3.5 w-3.5" /> Scenario Matrix
                 </button>
               </div>
+              </>
+              ) : null}
             </div>
           </SectionCard>
 
           <div className="space-y-4 min-w-0">
-            {calc.empty ? (
+            {isTakeHomeMode ? (
+              <SectionCard title="Take Home preview">
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <dt className="text-ink-muted">Employee Name</dt>
+                    <dd className="mt-0.5 font-medium text-ink">{employee?.full_name || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-ink-muted">Designation</dt>
+                    <dd className="mt-0.5 font-medium text-ink">{employee?.designation || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-ink-muted">Net Salary</dt>
+                    <dd className="mt-0.5 font-semibold tabular-nums text-ink">
+                      {parseEntered(form.netSalary) > 0 ? `₹${money(parseEntered(form.netSalary))}` : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-ink-muted">Category</dt>
+                    <dd className="mt-0.5 font-medium text-ink">
+                      {CATEGORY_OPTIONS.find((o) => o.value === form.category)?.label || "—"}
+                    </dd>
+                  </div>
+                </dl>
+                <p className="mt-3 text-[11px] text-ink-muted">
+                  No statutory deductions. Salary Processing will pay this Net Salary with Present Days from attendance.
+                </p>
+              </SectionCard>
+            ) : calc.empty ? (
               <SectionCard title="Annexure-I preview">
                 <p className="text-xs text-ink-muted">Enter Monthly CTC or Monthly Gross to see the breakup.</p>
               </SectionCard>
