@@ -30,7 +30,9 @@ import { Breadcrumbs } from "../components/erpUi";
 const EnquiryDueSoonPopup = lazy(() => import("../pages/projects/enquiry/EnquiryDueSoonPopup"));
 const EnquiryOverduePopup = lazy(() => import("../pages/projects/enquiry/EnquiryOverduePopup"));
 const EnquiryCompletedPopup = lazy(() => import("../pages/projects/enquiry/EnquiryCompletedPopup"));
+const QuotationStatusChangePopup = lazy(() => import("../pages/projects/quotation/QuotationStatusChangePopup"));
 import { beginProjectsVisit, endProjectsVisit } from "../pages/projects/enquiry/enquiryPopupVisit";
+import { canReceiveQuotationStatusNotifications } from "../pages/projects/quotation/quotationNotificationRoles";
 import {
   LogOut,
   User,
@@ -2420,13 +2422,23 @@ const Layout = () => {
         </main>
       </div>
 
-      {pathname.startsWith("/app/projects") && enquiryTabs.includes("enquiry-database") ? (
+      {pathname.startsWith("/app/projects") &&
+      (enquiryTabs.includes("enquiry-database") ||
+        canReceiveQuotationStatusNotifications(userProfile, accessibleModules)) ? (
         <div className="fixed bottom-4 right-4 z-[900] flex w-[340px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] flex-col gap-3 overflow-y-auto">
           <Suspense fallback={null}>
-            <EnquiryCompletedPopup />
-            {/* Overdue: only on Enquiry Master Dashboard, once per Projects visit */}
-            {pathname.includes("/projects/enquiry/enquiry-dashboard") ? <EnquiryOverduePopup /> : null}
-            <EnquiryDueSoonPopup />
+            {/* Quotation status feed — separate table/dismiss key from Enquiry Completed */}
+            {canReceiveQuotationStatusNotifications(userProfile, accessibleModules) ? (
+              <QuotationStatusChangePopup />
+            ) : null}
+            {enquiryTabs.includes("enquiry-database") ? (
+              <>
+                <EnquiryCompletedPopup />
+                {/* Overdue: only on Enquiry Master Dashboard, once per Projects visit */}
+                {pathname.includes("/projects/enquiry/enquiry-dashboard") ? <EnquiryOverduePopup /> : null}
+                <EnquiryDueSoonPopup />
+              </>
+            ) : null}
           </Suspense>
         </div>
       ) : null}

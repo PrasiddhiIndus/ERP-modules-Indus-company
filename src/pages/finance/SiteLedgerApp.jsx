@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { loadLedgerStore, saveLedgerPartial, savePeriodRecord, flushPeriodRecordNow, flushAllPendingPeriodRecords, persistSitesNow, persistOneSiteNow, mergePeriodEntry, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
+import { loadLedgerStore, saveLedgerPartial, savePeriodRecord, flushPeriodRecordNow, flushAllPendingPeriodRecords, persistSitesNow, persistOneSiteNow, mergePeriodEntry, formatPeriodFigureSaveError, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
 import { PeriodDateSelect, formatPeriodDateDDMMYYYY } from "./components/PeriodDateSelect";
 import { PeriodMonthSelect } from "./components/PeriodMonthSelect";
 import { FinanceDateInput } from "./components/FinanceDateInput";
@@ -27,7 +27,7 @@ import {
 import { MultiMonthFilter } from "./components/MultiMonthFilter";
 import { exportReportExcel, exportReportPdf } from "./lib/reportExport";
 import { formatFinanceDate, formatFinanceLabel } from "./lib/formatters";
-import { subscribeFinanceRefresh } from "../../services/financeApi";
+import { isFinanceSchemaError, subscribeFinanceRefresh } from "../../services/financeApi";
 import { useAuth } from "../../contexts/AuthContext";
 import { filterSitesByFinancePlAccess } from "./constants/financePlSiteAccess";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -729,6 +729,7 @@ export default function SiteLedgerApp({ embedded = true }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editSite, setEditSite] = useState(null);
   const [loadError, setLoadError] = useState(null);
+  const [periodSaveError, setPeriodSaveError] = useState(null);
   const [actionNotice, setActionNotice] = useState("");
   const [showHistorical, setShowHistorical] = useState(urlInit.showHistorical);
   const [historyGroup, setHistoryGroup] = useState(null);
@@ -1395,11 +1396,14 @@ export default function SiteLedgerApp({ embedded = true }) {
   const onRecordPersisted = useCallback(() => {
     lastSaveAt.current = Date.now();
     setSaveState("saved");
-    setLoadError(null);
+    setPeriodSaveError(null);
   }, []);
-  const onPeriodSaveError = useCallback((msg) => {
+  const onPeriodSaveError = useCallback((errOrMsg) => {
     setSaveState("local");
-    setLoadError(msg || "Figure save failed — not saved to database");
+    const msg = typeof errOrMsg === "string"
+      ? errOrMsg
+      : formatPeriodFigureSaveError(errOrMsg, "Figure save");
+    setPeriodSaveError(msg || "Figure save failed — values were not written to the database.");
   }, []);
   const renameLibraryHead = useCallback((key, label) => {
     applySiteSetupChange(({ library }) => ({
@@ -1507,7 +1511,21 @@ export default function SiteLedgerApp({ embedded = true }) {
       <main className="main">
         {loadError && (
           <div style={{ margin: "12px 24px 0", padding: "12px 14px", borderRadius: 8, background: "var(--critical-soft)", border: "1px solid var(--critical-border)", color: "var(--critical)", fontSize: 13, lineHeight: 1.5 }}>
-            <strong>Database setup required.</strong> {loadError}
+            <strong>{isFinanceSchemaError({ message: loadError }) ? "Database setup required." : "Could not load Site Ledger."}</strong>{" "}
+            {loadError}
+          </div>
+        )}
+        {periodSaveError && (
+          <div style={{ margin: "12px 24px 0", padding: "12px 14px", borderRadius: 8, background: "var(--critical-soft)", border: "1px solid var(--critical-border)", color: "var(--critical)", fontSize: 13, lineHeight: 1.5 }} role="alert">
+            <strong>Figures not saved.</strong> {periodSaveError}
+            <button
+              type="button"
+              className="link"
+              style={{ marginLeft: 10 }}
+              onClick={() => setPeriodSaveError(null)}
+            >
+              Dismiss
+            </button>
           </div>
         )}
         {actionNotice && (
@@ -3676,6 +3694,18 @@ function buildReimbursementSavePayload(existing, reimbursementItems) {
   return mergePeriodEntry(existing, reimbClean);
 }
 
+/** Figures-only clean: omit reimbursements so figure autosave stays independent. */
+function entryFiguresClean(form, expenseHeadKeys = []) {
+  const {
+    reimbursements: _r,
+    reimbursementType: _t,
+    reimbursementOtherLabel: _l,
+    esicBill: _e,
+    ...figureFields
+  } = form || {};
+  return entryRecordClean(figureFields, expenseHeadKeys);
+}
+
 function revenueTotalRows(rec) {
   const rows = [];
   REVENUE_ITEMS.forEach((it) => {
@@ -3797,12 +3827,14 @@ function EntryForm({ sites, sitesAll, library, parents, records, month, setMonth
   formRef.current = form;
   const suppressRecordReload = useRef(false);
   const formLoadKey = useRef("");
-  const persistGen = useRef(0);
+  const figurePersistGen = useRef(0);
+  const reimbPersistGen = useRef(0);
   const autosaveTimer = useRef(null);
   const formDirtyRef = useRef(false);
   const reimbDirtyRef = useRef(false);
   formDirtyRef.current = formDirty;
   reimbDirtyRef.current = reimbDirty;
+  const reimbSaveUiTimer = useRef(null);
   useEffect(() => {
     if (activeSite && sites.some((s) => s.id === activeSite)) {
       setSiteId(activeSite);
@@ -3845,48 +3877,86 @@ function EntryForm({ sites, sitesAll, library, parents, records, month, setMonth
     const payload = data ?? formRef.current;
     const site = sites.find((s) => s.id === siteId);
     const expenseHeadKeys = site ? siteChildKeys(site) : [];
-    const clean = entryRecordClean(payload, expenseHeadKeys);
+    // Figures only — reimbursements have their own save path/status.
+    const clean = entryFiguresClean(payload, expenseHeadKeys);
     const existing = records[`${siteId}__${mk}`] || {};
     const prior = { ...existing };
     const toPersist = mergePeriodEntry(existing, clean, expenseHeadKeys);
-    const gen = ++persistGen.current;
+    const gen = ++figurePersistGen.current;
     suppressRecordReload.current = true;
     onSave(siteId, mk, toPersist);
     setMonth(mk);
     setActiveSite(siteId);
     setFormDirty(false);
-    setReimbDirty(false);
-    setSaveUi(manual ? "saved" : "autosaved");
+    setSaveUi("saving");
     if (saveUiTimer.current) clearTimeout(saveUiTimer.current);
-    saveUiTimer.current = setTimeout(() => setSaveUi("idle"), manual ? 2000 : 1200);
-    savePeriodRecord(siteId, mk, toPersist, periodSaveContext, { immediate })
+    return savePeriodRecord(siteId, mk, toPersist, periodSaveContext, { immediate })
       .then(() => {
-        if (gen !== persistGen.current) return;
+        if (gen !== figurePersistGen.current) return;
         onRecordPersisted?.();
+        setSaveUi(manual ? "saved" : "autosaved");
+        saveUiTimer.current = setTimeout(() => setSaveUi("idle"), manual ? 2000 : 1200);
       })
       .catch((e) => {
-        if (gen !== persistGen.current) return;
+        if (gen !== figurePersistGen.current) return;
         console.error("Figure save failed:", e);
         suppressRecordReload.current = true;
         onRecordSaveFailed?.(siteId, mk, prior);
-        onPeriodSaveError?.(e?.message);
+        onPeriodSaveError?.(e);
         setFormDirty(true);
         setSaveUi("error");
       });
   }, [siteId, mk, records, sites, onSave, onRecordPersisted, onRecordSaveFailed, onPeriodSaveError, setMonth, setActiveSite, periodSaveContext]);
+  const saveReimbursements = useCallback(() => {
+    const existing = records[`${siteId}__${mk}`] || {};
+    const prior = { ...existing };
+    const merged = buildReimbursementSavePayload(existing, formRef.current.reimbursements || []);
+    const gen = ++reimbPersistGen.current;
+    suppressRecordReload.current = true;
+    onSave(siteId, mk, merged);
+    setReimbDirty(false);
+    setReimbSaveUi("saving");
+    if (reimbSaveUiTimer.current) clearTimeout(reimbSaveUiTimer.current);
+    return savePeriodRecord(siteId, mk, merged, periodSaveContext, { immediate: true })
+      .then(() => {
+        if (gen !== reimbPersistGen.current) return;
+        onRecordPersisted?.();
+        setForm((f) => ({
+          ...f,
+          reimbursements: recordToFormFields(merged).reimbursements,
+        }));
+        setReimbSaveUi("saved");
+        reimbSaveUiTimer.current = setTimeout(() => setReimbSaveUi("idle"), 2000);
+      })
+      .catch((e) => {
+        if (gen !== reimbPersistGen.current) return;
+        console.error("Reimbursement save failed:", e);
+        suppressRecordReload.current = true;
+        onRecordSaveFailed?.(siteId, mk, prior);
+        onPeriodSaveError?.(formatPeriodFigureSaveError(e, "Reimbursement save"));
+        setReimbDirty(true);
+        setReimbSaveUi("error");
+      });
+  }, [siteId, mk, records, onSave, onRecordPersisted, onRecordSaveFailed, onPeriodSaveError, periodSaveContext]);
   const flushAutosaveNow = useCallback(() => {
     if (autosaveTimer.current) {
       clearTimeout(autosaveTimer.current);
       autosaveTimer.current = null;
     }
-    if (formDirtyRef.current || reimbDirtyRef.current) {
-      persistForm(undefined, { manual: false, immediate: true });
-      return;
+    const tasks = [];
+    if (formDirtyRef.current) {
+      tasks.push(persistForm(undefined, { manual: false, immediate: true }));
     }
-    void flushPeriodRecordNow(siteId, mk);
-  }, [persistForm, siteId, mk]);
+    if (reimbDirtyRef.current) {
+      tasks.push(saveReimbursements());
+    }
+    if (!tasks.length) {
+      void flushPeriodRecordNow(siteId, mk);
+    }
+  }, [persistForm, saveReimbursements, siteId, mk]);
   useEffect(() => {
-    if (!formDirty && !reimbDirty) return undefined;
+    // Figure autosave only — reimbursements require explicit Save reimbursement.
+    if (!formDirty) return undefined;
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     autosaveTimer.current = setTimeout(() => {
       autosaveTimer.current = null;
@@ -3895,46 +3965,20 @@ function EntryForm({ sites, sitesAll, library, parents, records, month, setMonth
     return () => {
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     };
-  }, [form, formDirty, reimbDirty, persistForm]);
-  const saveReimbursements = useCallback(() => {
-    const existing = records[`${siteId}__${mk}`] || {};
-    const prior = { ...existing };
-    const merged = buildReimbursementSavePayload(existing, formRef.current.reimbursements || []);
-    const gen = ++persistGen.current;
-    suppressRecordReload.current = true;
-    onSave(siteId, mk, merged);
-    setReimbDirty(false);
-    setReimbSaveUi("saved");
-    savePeriodRecord(siteId, mk, merged, periodSaveContext, { immediate: true })
-      .then(() => {
-        if (gen !== persistGen.current) return;
-        onRecordPersisted?.();
-        setForm((f) => ({
-          ...f,
-          reimbursements: recordToFormFields(merged).reimbursements,
-        }));
-        if (saveUiTimer.current) clearTimeout(saveUiTimer.current);
-        saveUiTimer.current = setTimeout(() => setReimbSaveUi("idle"), 2000);
-      })
-      .catch((e) => {
-        if (gen !== persistGen.current) return;
-        console.error("Reimbursement save failed:", e);
-        suppressRecordReload.current = true;
-        onRecordSaveFailed?.(siteId, mk, prior);
-        onPeriodSaveError?.(e?.message);
-        setReimbDirty(true);
-        setReimbSaveUi("error");
-      });
-  }, [siteId, mk, records, onSave, onRecordPersisted, onRecordSaveFailed, onPeriodSaveError, periodSaveContext]);
+  }, [form, formDirty, persistForm]);
   useEffect(() => {
     const flushAll = () => {
       if (autosaveTimer.current) {
         clearTimeout(autosaveTimer.current);
         autosaveTimer.current = null;
       }
-      if (formDirtyRef.current || reimbDirtyRef.current) {
-        persistForm(undefined, { manual: false, immediate: true });
-      } else {
+      if (formDirtyRef.current) {
+        void persistForm(undefined, { manual: false, immediate: true });
+      }
+      if (reimbDirtyRef.current) {
+        void saveReimbursements();
+      }
+      if (!formDirtyRef.current && !reimbDirtyRef.current) {
         void flushPeriodRecordNow(siteId, mk);
       }
     };
@@ -3947,7 +3991,7 @@ function EntryForm({ sites, sitesAll, library, parents, records, month, setMonth
       window.removeEventListener("pagehide", flushAll);
       window.removeEventListener("visibilitychange", onHide);
     };
-  }, [persistForm, siteId, mk]);
+  }, [persistForm, saveReimbursements, siteId, mk]);
   if (!sites.length) return <div className="empty"><Building2 size={30} /><h3>No sites yet</h3><p>Add your first site to start recording figures.</p><button className="primary" onClick={onAdd} style={{ marginTop: 12 }}><PlusCircle size={15} /> Add Site</button></div>;
   const site = sites.find((s) => s.id === siteId);
   if (!site) return <div className="empty"><Building2 size={30} /><h3>Site not found</h3><p>Pick another site from the list.</p></div>;
@@ -4075,7 +4119,9 @@ function EntryForm({ sites, sitesAll, library, parents, records, month, setMonth
         ? "Saving…"
         : reimbSaveUi === "error"
           ? "Save failed — retry"
-          : "Save reimbursement";
+          : reimbDirty
+            ? "Save reimbursement"
+            : "Save reimbursement";
     return (
       <div className="rev-reimb-panel">
         <div className="rev-reimb-top">
@@ -4145,15 +4191,33 @@ function EntryForm({ sites, sitesAll, library, parents, records, month, setMonth
       </div>
     );
   };
-  const periodStatus = records[`${siteId}__${mk}`] ? "✓ saved" : inContract(site, mk) && monthIdx(mk) <= monthIdx(month) ? "• pending" : "";
-  const saveLabel = saveUi === "saved" ? "✓ Saved" : saveUi === "autosaved" ? "✓ Saved" : saveUi === "error" ? "Save failed — retry" : "Save figures";
+  const periodStatus = saveUi === "saved" || saveUi === "autosaved"
+    ? "✓ saved"
+    : saveUi === "saving"
+      ? "Saving…"
+      : saveUi === "error"
+        ? "Not saved"
+        : records[`${siteId}__${mk}`]
+          ? ""
+          : inContract(site, mk) && monthIdx(mk) <= monthIdx(month) ? "• pending" : "";
+  const saveLabel = saveUi === "saving"
+    ? "Saving…"
+    : saveUi === "saved" || saveUi === "autosaved"
+      ? "✓ Saved"
+      : saveUi === "error"
+        ? "Save failed — retry"
+        : "Save figures";
   const autosaveHint = saveUi === "error"
     ? "Save failed — click Save figures to retry"
-    : saveUi === "autosaved" || saveUi === "saved"
-      ? "✓ Saved"
-      : (formDirty || reimbDirty) && saveUi === "idle"
-        ? "Saving…"
-        : "";
+    : saveUi === "saving"
+      ? "Saving to database…"
+      : saveUi === "autosaved" || saveUi === "saved"
+        ? "✓ Saved to database"
+        : formDirty && saveUi === "idle"
+          ? "Unsaved changes…"
+          : reimbDirty
+            ? "Reimbursement not saved — use Save reimbursement"
+            : "";
   const periodAudit = records[`${siteId}__${mk}`]?._audit;
 
   // If a user adds a spread and had typed the full total into the start month,

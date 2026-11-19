@@ -53,6 +53,30 @@ export async function listPendingOrderLostRequests() {
   return data || [];
 }
 
+/**
+ * Reportee view: own Order Lost requests (pending + recent decided), newest first.
+ * RLS already limits rows to requester / L1 / admin.
+ */
+export async function listMyOrderLostRequests({ limit = 30 } = {}) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user?.id) return [];
+  const { data, error } = await projectsTable('quotation_status_change_requests')
+    .select(
+      'id, quotation_id, offer_no, client_name, previous_status, requested_status, reason, status, requested_by, requested_by_name, requested_at, decided_by_name, decided_at, decision_note'
+    )
+    .eq('requested_by', user.id)
+    .in('status', ['pending', 'approved', 'rejected', 'failed'])
+    .order('requested_at', { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.warn('My Order Lost requests unavailable', error);
+    return [];
+  }
+  return data || [];
+}
+
 /** Full request history for one quotation (newest first). */
 export async function listOrderLostHistory(quotationId) {
   if (!quotationId) return [];

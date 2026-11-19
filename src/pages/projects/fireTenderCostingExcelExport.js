@@ -6,8 +6,9 @@ import {
 } from "./fireTenderCostingConfig";
 
 const HEADER_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF2F2" } };
-const COMPLETE_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFECFDF5" } };
-const INCOMPLETE_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF2F2" } };
+/** Match UI bg-green-100 / bg-red-100 from getCostingRowFillHighlightClass. */
+const COMPLETE_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDCFCE7" } };
+const INCOMPLETE_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE2E2" } };
 const GREY_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F4F6" } };
 const TOTAL_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFBEB" } };
 const SUB_DETAIL_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
@@ -142,8 +143,7 @@ export async function exportFireTenderCostingWorkbook({
   allRows.forEach((row, index) => {
     const isFixed = index < fixedRows.length;
     const status = getCostingRowFillStatus(row, allRows, componentTree, isFixed);
-    const fill =
-      status === "complete" ? COMPLETE_FILL : status === "incomplete" ? INCOMPLETE_FILL : GREY_FILL;
+    const fill = status === "complete" ? COMPLETE_FILL : INCOMPLETE_FILL;
     const displayName = displayAliases[row.component] || row.component;
     const path = subCategoryPath(row);
     const total = calculateCostingRowTotal(row, allRows);
@@ -159,8 +159,7 @@ export async function exportFireTenderCostingWorkbook({
     num(r.getCell(8), row.qty);
     num(r.getCell(9), total);
     r.getCell(10).value = row.remark || "";
-    r.getCell(11).value =
-      status === "complete" ? "Complete" : status === "incomplete" ? "Incomplete" : "";
+    r.getCell(11).value = status === "complete" ? "Complete" : "Incomplete";
 
     for (let c = 1; c <= COL_COUNT; c += 1) {
       styleDataCell(r.getCell(c), fill);

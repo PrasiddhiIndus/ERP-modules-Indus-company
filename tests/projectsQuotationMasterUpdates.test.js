@@ -52,6 +52,7 @@ import {
 import {
   EDITABLE_DETAIL_KEYS,
   GRID_COLUMNS,
+  GRID_PRIMARY_COLUMNS,
   MASTER_COLUMNS,
   cellValue,
 } from '../src/pages/projects/quotation/maker/quotationMasterColumns.jsx';
@@ -117,8 +118,20 @@ describe('2. Order Lost (Quotation Dashboard)', () => {
 });
 
 describe('3 & 4. Master grid columns and Order Status Date label', () => {
-  it('grid shows exactly Client Name, Offer Status, Order Value, Last Follow-up Date (after SR No.)', () => {
-    expect(GRID_COLUMNS.map((c) => c.label)).toEqual(['Client Name', 'Offer Status', 'Order Value', 'Last Follow-up Date']);
+  it('grid keeps primary columns first, then remaining Master fields for horizontal scroll', () => {
+    expect(GRID_PRIMARY_COLUMNS.map((c) => c.label)).toEqual([
+      'Client Name',
+      'Offer Status',
+      'Order Value',
+      'Last Follow-up Date',
+    ]);
+    expect(GRID_COLUMNS.slice(0, 4).map((c) => c.label)).toEqual(GRID_PRIMARY_COLUMNS.map((c) => c.label));
+    const primaryKeys = new Set(GRID_PRIMARY_COLUMNS.map((c) => c.key));
+    const extraKeys = GRID_COLUMNS.slice(4).map((c) => c.key);
+    expect(extraKeys.length).toBeGreaterThan(0);
+    expect(extraKeys.every((k) => !primaryKeys.has(k))).toBe(true);
+    expect(new Set(GRID_COLUMNS.map((c) => c.key)).size).toBe(GRID_COLUMNS.length);
+    expect(MASTER_COLUMNS.every((c) => GRID_COLUMNS.some((g) => g.key === c.key))).toBe(true);
     expect(cellValue({ quoted_rate: null, grand_total: 1500 }, 'quoted_rate')).toBe(1500);
   });
 
@@ -134,17 +147,29 @@ describe('5. Editing an existing quotation', () => {
     calls.length = 0;
   });
 
-  it('only Offer Status and Last Follow-up Date are editable', () => {
-    expect(EDITABLE_DETAIL_KEYS).toEqual(['offer_status', 'last_followup_date']);
+  it('Offer Status, Last Follow-up Date, and Remark are editable', () => {
+    expect(EDITABLE_DETAIL_KEYS).toEqual(['offer_status', 'last_followup_date', 'remark']);
   });
 
-  it('sends only the editable fields, even if the form carries others', async () => {
+  it('sends editable fields including remark, even if the form carries others', async () => {
     await updateQuotationMasterDetails(
       'q1',
       { offer_status: 'Draft', last_followup_date: '2026-11-10', client_name: 'Hacked', quoted_rate: 1, remark: 'r' },
       { previousStatus: 'Draft' }
     );
-    expect(Object.keys(calls[0].payload).sort()).toEqual(['last_followup_date', 'offer_status', 'updated_at']);
+    expect(Object.keys(calls[0].payload).sort()).toEqual([
+      'last_followup_date',
+      'offer_status',
+      'remark',
+      'updated_at',
+    ]);
+    expect(calls[0].payload.remark).toBe('r');
+  });
+
+  it('Super Admin can move to any offer status', async () => {
+    const { canTransitionStatus } = await import('../src/services/quotationApi.js');
+    expect(canTransitionStatus('Order Lost', 'Awaiting Client Response', { role: 'super_admin' })).toBe(true);
+    expect(canTransitionStatus('Order Lost', 'Awaiting Client Response', { role: 'executive' })).toBe(false);
   });
 
   it('a status change stamps the Order Status Date (today) and status_changed_at', async () => {
