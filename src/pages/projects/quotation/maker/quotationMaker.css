@@ -1189,20 +1189,32 @@
 
 }
 
-/* Quotation Master table: keeps the ERP table look; sticky header + Actions column need opaque backgrounds */
+/* Quotation Master table: sticky header + Actions; border-separate so wide horizontal scroll does not overlap */
+main.erp-app-shell table.qm-master-table {
+  border-collapse: separate !important;
+  border-spacing: 0;
+}
+main.erp-app-shell table.qm-master-table thead th {
+  background-color: var(--surface-sunken) !important;
+}
 main.erp-app-shell table.qm-master-table thead th.qm-sticky-col {
   background-color: var(--surface-sunken) !important;
-  box-shadow: inset 1px 0 0 var(--border);
+  box-shadow: -6px 0 8px -6px rgba(15, 23, 42, 0.18), inset 1px 0 0 var(--border);
 }
 main.erp-app-shell table.qm-master-table tbody td.qm-sticky-col {
   background-color: var(--surface);
-  box-shadow: inset 1px 0 0 var(--divider);
+  box-shadow: -6px 0 8px -6px rgba(15, 23, 42, 0.14), inset 1px 0 0 var(--divider);
 }
 main.erp-app-shell table.qm-master-table tbody tr:hover td.qm-sticky-col {
   background-color: var(--row-hover);
 }
 main.erp-app-shell table.qm-master-table td {
   vertical-align: top;
+  overflow: visible;
+}
+/* Keep money / status / follow-up fully readable; don't clip under sticky Actions */
+main.erp-app-shell table.qm-master-table td:not(.qm-sticky-col) {
+  overflow-wrap: anywhere;
 }
 
 /* Dark theme — the maker is a light document workspace (A4 preview + PDF

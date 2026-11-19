@@ -253,8 +253,18 @@ export function calculateCostingRowTotal(row, allRows) {
   return (labour + unitCost) * qty;
 }
 
+/**
+ * Data-entry fill status for a costing line (UI + Excel).
+ * - "complete" → green: required fields filled (component-specific rules)
+ * - "incomplete" → red: required fields blank/missing (includes newly added blank lines)
+ * - "neutral" → unused for sheet lines (kept for callers that still check it)
+ *
+ * Default complete rule: Unit Cost/Metal Price > 0 and Qty > 0.
+ * Tank / structure / DCP / metacone keep their own weight/qty rules.
+ */
 export function getCostingRowFillStatus(row, allRows, componentTree, isFixedRow) {
-  if (!row?.component?.trim()) return "neutral";
+  // New / blank lines: highlight red until the user fills required values.
+  if (!row?.component?.trim()) return "incomplete";
 
   const unitCost = parseCostingNumber(row.unitCost);
   const weight = parseCostingNumber(row.weight);
@@ -284,15 +294,20 @@ export function getCostingRowFillStatus(row, allRows, componentTree, isFixedRow)
     complete = false;
   }
 
-  if (complete) return "complete";
-  const hasInput =
-    manual ||
-    unitCost > 0 ||
-    weight > 0 ||
-    parseCostingNumber(row.labour) > 0 ||
-    qty > 0 ||
-    [row.sub1, row.sub2, row.sub3, row.sub4, row.sub5].some((s) => String(s || "").trim());
-  return hasInput ? "incomplete" : "incomplete";
+  return complete ? "complete" : "incomplete";
+}
+
+/** Tailwind classes for costing-row fill (must stay in sync with Excel COMPLETE/INCOMPLETE fills). */
+export function getCostingRowFillHighlightClass(status) {
+  if (status === "complete") return "bg-green-100";
+  if (status === "incomplete") return "bg-red-100";
+  return "bg-white";
+}
+
+export function getCostingRowFillHoverClass(status) {
+  if (status === "complete") return "hover:bg-green-50";
+  if (status === "incomplete") return "hover:bg-red-50";
+  return "hover:bg-slate-50/80";
 }
 
 /** GST rate applied to final tender (quotation inc-GST line). */

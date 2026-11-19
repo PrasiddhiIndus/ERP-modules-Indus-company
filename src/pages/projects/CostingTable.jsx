@@ -11,6 +11,8 @@ import {
   calculateCostingRowTotal,
   computeMetaconeQty,
   getComponentDisplayAliases,
+  getCostingRowFillHighlightClass,
+  getCostingRowFillHoverClass,
   getCostingRowFillStatus,
   getGlobalOmittedComponents,
   getManualSubLabel,
@@ -1083,8 +1085,9 @@ const CostingTable = ({
   const th =
     "sticky top-0 z-20 border border-red-100 bg-gradient-to-r from-red-50 to-amber-50 px-1.5 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-700";
   const td = "border border-slate-200 px-1.5 py-1 align-middle text-[11px] text-slate-800";
+  /** Default input is transparent so row red/green fill shows through as values change. */
   const inputCompact =
-    "w-full min-w-0 rounded border border-slate-300 bg-white px-1 py-0.5 text-[11px] text-slate-800";
+    "w-full min-w-0 rounded border border-slate-300 bg-transparent px-1 py-0.5 text-[11px] text-slate-800";
 
   return (
     <div className="space-y-4">
@@ -1127,12 +1130,8 @@ const CostingTable = ({
               const { row, isCatalog: isFixedRow, kindIndex } = item;
               const metaconeQty = isMetaconeMounting(row.component) ? computeMetaconeQty(allRows) : null;
               const fillStatus = getCostingRowFillStatus(row, allRows, componentTree, isFixedRow);
-              const fillHighlightClass =
-                fillStatus === "complete"
-                  ? "bg-green-100"
-                  : fillStatus === "incomplete"
-                    ? "bg-red-100"
-                    : "bg-white";
+              const fillHighlightClass = getCostingRowFillHighlightClass(fillStatus);
+              const fillHoverClass = getCostingRowFillHoverClass(fillStatus);
               const subSummary = getSubCategorySummary(row);
               const isSubExpanded = expandedSubRows.has(index);
               const hasAnySubOptions =
@@ -1145,7 +1144,7 @@ const CostingTable = ({
               return (
                 <React.Fragment key={rowKey}>
                 <tr
-                  className={`bg-white hover:bg-slate-50/80 ${dragFromIndex === index ? "opacity-60" : ""}`}
+                  className={`${fillHighlightClass} ${fillHoverClass} ${dragFromIndex === index ? "opacity-60" : ""}`}
                   draggable
                   onDragStart={(e) => {
                     if (e.target.closest("input, textarea, select, button, a")) {
@@ -1173,10 +1172,10 @@ const CostingTable = ({
                   }}
                   onDragEnd={() => setDragFromIndex(null)}
                 >
-                  <td className={`${td} text-center tabular-nums text-slate-500`}>{index + 1}</td>
+                  <td className={`${td} ${fillHighlightClass} text-center tabular-nums text-slate-500`}>{index + 1}</td>
 
                   {/* Main Component (+ drag handle for all lines) */}
-                  <td className={`${td} font-medium`}>
+                  <td className={`${td} ${fillHighlightClass} font-medium`}>
                     <div className="flex min-w-0 items-start gap-1">
                       <span
                         className="mt-0.5 shrink-0 cursor-grab text-slate-400 active:cursor-grabbing"
@@ -1210,7 +1209,7 @@ const CostingTable = ({
                   </td>
 
                   {/* Single Sub Category column — summary + expand */}
-                  <td className={`${td} bg-white`}>
+                  <td className={`${td} ${fillHighlightClass}`}>
                     <div className="flex min-w-0 items-start gap-1">
                       <div className="min-w-0 flex-1">
                         {subSummary ? (
@@ -1229,7 +1228,7 @@ const CostingTable = ({
                         className={`inline-flex shrink-0 items-center gap-0.5 rounded border px-1.5 py-0.5 text-[10px] font-semibold transition-colors ${
                           isSubExpanded
                             ? "border-red-200 bg-red-50 text-red-700"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                            : "border-slate-200 bg-white/80 text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
                         }`}
                         title={isSubExpanded ? "Collapse subcategories" : "Edit subcategories"}
                         aria-expanded={isSubExpanded}
@@ -1242,7 +1241,7 @@ const CostingTable = ({
                   </td>
 
                   {/* Manual Sub Category — label driven by catalog component name */}
-                  <td className={`${td} bg-white align-top`}>
+                  <td className={`${td} ${fillHighlightClass} align-top`}>
                     <AutoGrowRemark
                       value={row.manualSub}
                       title={getManualSubLabel(row.component)}
@@ -1310,12 +1309,10 @@ const CostingTable = ({
                           ? isLabourFieldEditable(row.component)
                           : true;
 
-                    const highlightField = field === "qty" || field === "unitCost";
-
                     return (
                         <td
                           key={field}
-                          className={`${td} relative ${highlightField ? fillHighlightClass : "bg-white"}`}
+                          className={`${td} relative ${fillHighlightClass}`}
                         >
                         <div className="relative">
                           <NumericInput
@@ -1384,7 +1381,7 @@ const CostingTable = ({
                   </td>
 
                   {/* Remark */}
-                  <td className={`${td} bg-white w-[12rem] min-w-[10rem] max-w-[14rem] overflow-hidden align-top`}>
+                  <td className={`${td} ${fillHighlightClass} w-[12rem] min-w-[10rem] max-w-[14rem] overflow-hidden align-top`}>
                     <AutoGrowRemark
                       value={row.remark || ""}
                       onChange={(e) => {
@@ -1404,7 +1401,7 @@ const CostingTable = ({
                   </td>
 
                   {/* Action: delete any line (fixed lines stay omitted for this tender in this browser) */}
-                  <td className={`${td} bg-white text-center`}>
+                  <td className={`${td} ${fillHighlightClass} text-center`}>
                     <button
                       type="button"
                       onClick={() => removeCostingRowAt(index)}

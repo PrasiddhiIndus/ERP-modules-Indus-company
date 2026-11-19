@@ -1092,11 +1092,37 @@ export function assignedExpenseHeadKeys(site) {
   return keys;
 }
 
+const PERIOD_META_KEYS = new Set([
+  "reimbursements",
+  "reimbursementType",
+  "reimbursementOtherLabel",
+  "creditNoteRemark",
+  "_audit",
+]);
+
+/** Coerce entered amounts (number or numeric string) without wiping valid values to 0. */
+export function coercePeriodAmount(value) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  return parseBudgetAmount(value);
+}
+
 /** Ensure every assigned expense head is present on the record (empty → 0). */
 export function preparePeriodRecordForSave(rec, assignedExpenseKeys = []) {
   const out = { ...(rec || {}) };
-  for (const key of assignedExpenseKeys) {
-    out[key] = typeof out[key] === "number" ? Number(out[key]) || 0 : 0;
+  const assigned = new Set(assignedExpenseKeys || []);
+
+  for (const key of assigned) {
+    const n = coercePeriodAmount(out[key]);
+    out[key] = n == null ? 0 : n;
+  }
+
+  // Coerce any leftover string amounts (revenue / legacy) so sync never skips them as non-numbers.
+  for (const [k, v] of Object.entries(out)) {
+    if (PERIOD_META_KEYS.has(k) || assigned.has(k)) continue;
+    if (typeof v === "number") continue;
+    const n = coercePeriodAmount(v);
+    if (n != null) out[k] = n;
   }
   return out;
 }
@@ -1127,7 +1153,8 @@ export function mergePeriodEntry(base, patch, expenseHeadKeys = null) {
       continue;
     }
     if (k === "esicBill") {
-      if (Number(v)) merged.esicBill = Number(v);
+      const n = coercePeriodAmount(v);
+      if (n) merged.esicBill = n;
       else delete merged.esicBill;
       continue;
     }
@@ -1135,9 +1162,11 @@ export function mergePeriodEntry(base, patch, expenseHeadKeys = null) {
       if (v && typeof v === "object" && v.updatedAt) merged._audit = v;
       continue;
     }
-    if (typeof v === "number") {
-      if (expenseSet?.has(k)) merged[k] = Number(v) || 0;
-      else if (Number(v)) merged[k] = Number(v);
+
+    const asNumber = typeof v === "number" || typeof v === "string" ? coercePeriodAmount(v) : null;
+    if (asNumber != null) {
+      if (expenseSet?.has(k)) merged[k] = asNumber || 0;
+      else if (asNumber) merged[k] = asNumber;
       else delete merged[k];
       continue;
     }
@@ -1149,6 +1178,43 @@ export function mergePeriodEntry(base, patch, expenseHeadKeys = null) {
     else delete merged[k];
   }
   return merged;
+}
+
+/** User-facing message for Enter / Edit Figures save failures (not schema-setup by default). */
+export function formatPeriodFigureSaveError(error, context = "Figure save") {
+  const raw = error?.message || String(error || "");
+  const code = error?.code;
+
+  // Avoid double-wrapping when callers rethrow an already-formatted Error.
+  if (/^(Figure save|Reimbursement save) failed:/i.test(raw)) {
+    return raw;
+  }
+
+  if (isFinanceSchemaError(error) || isFinanceSchemaError({ message: raw })) {
+    return financeErrorMsg(error || { message: raw }, context);
+  }
+  if (/row-level security|RLS|policy|42501|permission denied/i.test(raw)) {
+    return `${context} failed: you do not have permission to edit this site's figures. Ask a Finance admin to grant access.`;
+  }
+  if (/Expense cost lines not (in database|saved)/i.test(raw) || /sync Site Setup first/i.test(raw)) {
+    return `${context} failed: expense cost lines are missing in the database. Open Site Setup, save the structure, then retry.`;
+  }
+  if (/is not saved yet|retry in a moment|Site ".*" not found/i.test(raw)) {
+    return `${context} failed: this site is not saved yet. Save Site Setup first, then enter figures again.`;
+  }
+  if (/replace_period_entry_lines|could not find the function|PGRST202|404/i.test(raw)) {
+    return `${context} failed: figure-save RPC is missing or outdated. Apply migration 20260807140000_finance_atomic_replace_lines.sql.`;
+  }
+  if (/Failed to fetch|NetworkError|network|timeout|ECONN|offline/i.test(raw)) {
+    return `${context} failed: network interrupted. Check your connection and click Save to retry.`;
+  }
+  if (/Figure save failed: expected .* lines/i.test(raw)) {
+    return `${context} failed: the database rejected the line write. Retry once; if it continues, save Site Setup and try again.`;
+  }
+  if (code === "23503" || /foreign key/i.test(raw)) {
+    return `${context} failed: a revenue or expense head is missing. Save Site Setup, then retry.`;
+  }
+  return raw || `${context} failed — values were not written to the database.`;
 }
 
 function periodEntryNotesFromRecord(rec) {
@@ -1182,18 +1248,18 @@ async function syncOnePeriodRecord(
       code === "reimbursements" ||
       code === "reimbursementOtherLabel" ||
       code === "creditNoteRemark" ||
-      code === "_audit" ||
-      typeof amount !== "number"
+      code === "_audit"
     ) {
       continue;
     }
-    if (!Number(amount)) continue;
+    const n = coercePeriodAmount(amount);
+    if (n == null || !n) continue;
     if (!revenueCodes.has(code)) continue;
     const revId = revIdByCode[code];
     if (revId) {
       revRows.push({
         revenue_head_id: revId,
-        amount: Number(amount),
+        amount: n,
       });
     } else {
       missingRevenue.push(code);
@@ -1214,7 +1280,7 @@ async function syncOnePeriodRecord(
       missingHeads.push(code);
       continue;
     }
-    const amount = typeof rec?.[code] === "number" ? Number(rec[code]) || 0 : 0;
+    const amount = coercePeriodAmount(rec?.[code]) ?? 0;
     expRows.push({
       child_head_id: childId,
       amount,
@@ -1237,12 +1303,12 @@ async function syncOnePeriodRecord(
       code === "reimbursements" ||
       code === "reimbursementOtherLabel" ||
       code === "creditNoteRemark" ||
-      code === "_audit" ||
-      typeof amount !== "number" ||
-      !Number(amount)
+      code === "_audit"
     ) {
       continue;
     }
+    const n = coercePeriodAmount(amount);
+    if (n == null || !n) continue;
     const childId = childIdByCode[code];
     if (!childId) {
       missingLegacy.push(code);
@@ -1250,7 +1316,7 @@ async function syncOnePeriodRecord(
     }
     expRows.push({
       child_head_id: childId,
-      amount: Number(amount),
+      amount: n,
     });
   }
   if (missingLegacy.length) {
@@ -1279,7 +1345,12 @@ async function syncOnePeriodRecord(
     )
     .select("id")
     .single();
-  if (error) throw error;
+  if (error) {
+    throw Object.assign(new Error(formatPeriodFigureSaveError(error, "Figure save")), {
+      code: error.code,
+      cause: error,
+    });
+  }
 
   // Notes-only change: period_entries upsert already applied; skip identical line replace.
   if (prevSync && prevSync.linesFp === linesFp && prevSync.peId === pe.id) {
@@ -1293,7 +1364,12 @@ async function syncOnePeriodRecord(
     p_revenue_rows: revRows,
     p_expense_rows: expRows,
   });
-  if (rpcErr) throw rpcErr;
+  if (rpcErr) {
+    throw Object.assign(new Error(formatPeriodFigureSaveError(rpcErr, "Figure save")), {
+      code: rpcErr.code,
+      cause: rpcErr,
+    });
+  }
   if (Number(replacedCount) !== expectedLines) {
     throw new Error(
       `Figure save failed: expected ${expectedLines} lines after replace, got ${replacedCount}.`,
@@ -1325,12 +1401,12 @@ async function ensureHeadMapsForPeriodSave(siteCode, rec, context = {}) {
       code === "reimbursements" ||
       code === "reimbursementOtherLabel" ||
       code === "creditNoteRemark" ||
-      code === "_audit" ||
-      typeof amount !== "number" ||
-      !Number(amount)
+      code === "_audit"
     ) {
       continue;
     }
+    const n = coercePeriodAmount(amount);
+    if (n == null || !n) continue;
     // Candidate revenue codes — ensureRev map covers REVENUE_ITEMS after upsert.
     if (REVENUE_ITEMS.some((r) => r.key === code)) revKeys.push(code);
     else amountChildKeys.add(code);
@@ -1373,7 +1449,9 @@ async function ensureSiteUuid(siteCode, context = {}) {
   const library = context.library || [];
   const allSites = context.sites || [];
   if (!parents.length || !library.length) {
-    throw new Error(`Site "${siteCode}" is not saved yet — retry in a moment`);
+    throw new Error(
+      `Site "${siteCode}" is not saved yet — save Site Setup first, then enter figures again`,
+    );
   }
 
   const { parentKeys, childKeys } = collectStructureMapKeys(site.structure);
@@ -1423,22 +1501,47 @@ async function executePeriodFlush(compoundKey) {
   pendingPeriodContexts.delete(compoundKey);
   if (!latest) return true;
 
-  const [siteCode, periodKey] = compoundKey.split("__");
-  const siteUuid = await ensureSiteUuid(siteCode, ctx);
-  const ctxSite = ctx.sites?.find((s) => s.id === siteCode);
-  const assignedExpenseKeys = ctxSite ? assignedExpenseHeadKeys(ctxSite) : [];
-  const prepared = preparePeriodRecordForSave(latest, assignedExpenseKeys);
-  const { childIdByCode, revIdByCode } = await ensureHeadMapsForPeriodSave(siteCode, prepared, ctx);
-  await syncOnePeriodRecord(
-    siteUuid,
-    periodKey,
-    prepared,
-    childIdByCode,
-    revIdByCode,
-    assignedExpenseKeys,
-  );
-  invalidateFinanceCache({ notify: false });
-  return true;
+  const sep = compoundKey.indexOf("__");
+  const siteCode = sep >= 0 ? compoundKey.slice(0, sep) : compoundKey;
+  const periodKey = sep >= 0 ? compoundKey.slice(sep + 2) : "";
+  try {
+    const siteUuid = await ensureSiteUuid(siteCode, ctx);
+    const ctxSite = ctx.sites?.find((s) => s.id === siteCode);
+    const assignedExpenseKeys = ctxSite ? assignedExpenseHeadKeys(ctxSite) : [];
+    const prepared = preparePeriodRecordForSave(latest, assignedExpenseKeys);
+    const { childIdByCode, revIdByCode } = await ensureHeadMapsForPeriodSave(siteCode, prepared, ctx);
+    await syncOnePeriodRecord(
+      siteUuid,
+      periodKey,
+      prepared,
+      childIdByCode,
+      revIdByCode,
+      assignedExpenseKeys,
+    );
+    invalidateFinanceCache({ notify: false });
+    return true;
+  } catch (err) {
+    // Re-queue so retry / Save figures can flush again. Prefer any newer pending patch.
+    const keys = assignedExpenseKeysFromContext(ctx, siteCode);
+    const newer = pendingPeriodRecords.get(compoundKey);
+    pendingPeriodRecords.set(
+      compoundKey,
+      newer ? mergePeriodEntry(latest, newer, keys.length ? keys : null) : latest,
+    );
+    if (!pendingPeriodContexts.has(compoundKey)
+      && (ctx.sites?.length || ctx.library?.length || ctx.parents?.length)) {
+      pendingPeriodContexts.set(compoundKey, ctx);
+    }
+    throw Object.assign(new Error(formatPeriodFigureSaveError(err, "Figure save")), {
+      code: err?.code,
+      cause: err,
+    });
+  }
+}
+
+function assignedExpenseKeysFromContext(ctx, siteCode) {
+  const site = ctx?.sites?.find((s) => s.id === siteCode);
+  return site ? assignedExpenseHeadKeys(site) : [];
 }
 
 function schedulePeriodFlush(compoundKey) {

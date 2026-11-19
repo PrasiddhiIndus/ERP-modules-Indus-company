@@ -40,7 +40,7 @@ import { alertDialog, confirmDialog } from "../../../lib/dialog";
 import { needsOrderLostApproval, orderLostErrorMessage, requestOrderLost } from './quotationOrderLostApi';
 
 /** Editing an existing quotation: only these fields can change (the rest stay read-only). */
-const DRAWER_EDITABLE_KEYS = new Set(['offer_status', 'last_followup_date', 'next_followup_date']);
+const DRAWER_EDITABLE_KEYS = new Set(['offer_status', 'last_followup_date', 'next_followup_date', 'remark']);
 
 /** Only the editable fields are written; nothing else on the quotation is touched. */
 function editablePayload(draft) {
@@ -48,6 +48,7 @@ function editablePayload(draft) {
     offer_status: draft.offer_status || 'Draft',
     last_followup_date: normalizeToIsoDate(draft.last_followup_date) || null,
     next_followup_date: normalizeToIsoDate(draft.next_followup_date) || null,
+    remark: draft.remark != null ? String(draft.remark).trim() || null : null,
     updated_at: new Date().toISOString(),
   };
 }
@@ -126,7 +127,7 @@ export default function QuotationDetailDrawer({
     try {
       const prevStatus = row.offer_status;
       const nextStatus = draft.offer_status;
-      if (prevStatus !== nextStatus && !canTransitionStatus(prevStatus, nextStatus)) {
+      if (prevStatus !== nextStatus && !canTransitionStatus(prevStatus, nextStatus, userProfile)) {
         throw new Error(`Cannot move from "${prevStatus}" to "${nextStatus}". Follow the offer workflow.`);
       }
       if (
@@ -164,7 +165,7 @@ export default function QuotationDetailDrawer({
 
       const payload = editablePayload(draft);
       if (statusRemark.trim() && prevStatus !== nextStatus) {
-        payload.remark = [String(row.remark || '').trim() || null, `[Status → ${nextStatus}] ${statusRemark.trim()}`]
+        payload.remark = [String(draft.remark || '').trim() || null, `[Status → ${nextStatus}] ${statusRemark.trim()}`]
           .filter(Boolean)
           .join('\n');
       }
@@ -259,7 +260,10 @@ export default function QuotationDetailDrawer({
   );
   const selectableStatuses = row
     ? Array.from(
-        new Set([row.offer_status, ...statuses.filter((s) => canTransitionStatus(row.offer_status, s))])
+        new Set([
+          row.offer_status,
+          ...statuses.filter((s) => canTransitionStatus(row.offer_status, s, userProfile)),
+        ])
       )
     : statuses;
 
