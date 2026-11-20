@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Download, Lock, MessageSquare, Paperclip } from "lucide-react";
+import { ArrowLeft, Lock, MessageSquare, Paperclip } from "lucide-react";
 import {
   EmptyState,
   FormField,
@@ -33,12 +33,14 @@ import {
   reopenTicket,
   setPriority,
   subscribeItSupportRealtime,
+  removeTicketAttachment,
   uploadTicketAttachment,
 } from "./itSupportApi";
 import PriorityBadge from "./components/PriorityBadge";
 import StatusBadge from "./components/StatusBadge";
 import SlaTimer from "./components/SlaTimer";
 import RichTextField from "./components/RichTextField";
+import TicketFileList from "./components/TicketFileList";
 
 function displayPerson(p) {
   if (!p) return "—";
@@ -402,6 +404,7 @@ export default function TicketDetailPage() {
                     {agents.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.username || a.email}
+                        {a.employee_code ? ` · ${a.employee_code}` : ""}
                       </option>
                     ))}
                   </TinySelect>
@@ -504,36 +507,39 @@ export default function TicketDetailPage() {
               </label>
             }
           >
-            {attachments.length === 0 ? (
-              <p className="text-xs text-ink-muted">No attachments yet. Files are stored in Cloudflare R2.</p>
-            ) : (
-              <ul className="space-y-2">
-                {attachments.map((a) => (
-                  <li key={a.id} className="flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline min-w-0"
-                      onClick={async () => {
-                        try {
-                          const key = attachmentObjectKey(a);
-                          if (!key) throw new Error("This file has no Cloudflare path.");
-                          const url = await presignItSupportR2Get(key);
-                          window.open(url, "_blank", "noopener,noreferrer");
-                        } catch (err) {
-                          toast.error(err.message || "Could not open file.");
-                        }
-                      }}
-                    >
-                      <Download className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">{a.file_name || "File"}</span>
-                    </button>
-                    <span className="text-[10px] text-ink-muted shrink-0 uppercase tracking-wide">
-                      {a.storage || "r2"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <TicketFileList
+              mode="uploaded"
+              attachments={attachments}
+              disabled={busy}
+              onOpenUploaded={async (a) => {
+                try {
+                  const key = attachmentObjectKey(a);
+                  if (!key) throw new Error("This file has no Cloudflare path.");
+                  const url = await presignItSupportR2Get(key);
+                  window.open(url, "_blank", "noopener,noreferrer");
+                } catch (err) {
+                  toast.error(err.message || "Could not open file.");
+                }
+              }}
+              onRemoveUploaded={async (a) => {
+                const ok = await confirmDialog({
+                  title: "Remove attachment",
+                  message: `Remove “${a.file_name || "this file"}” from the ticket?`,
+                  confirmLabel: "Remove",
+                });
+                if (!ok) return;
+                setBusy(true);
+                try {
+                  await removeTicketAttachment(a.id);
+                  setAttachments((prev) => prev.filter((x) => x.id !== a.id));
+                  toast.success("Attachment removed.");
+                } catch (err) {
+                  toast.error(err.message || "Could not remove attachment.");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            />
           </SectionCard>
 
           <SectionCard title="Details">
