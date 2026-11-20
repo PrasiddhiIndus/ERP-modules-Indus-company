@@ -18,12 +18,16 @@ import { toast } from "../../lib/toast";
 import { canAdmin } from "./itSupportAccess";
 import { IMPACT_OPTIONS, PRIORITIES } from "./itSupportConstants";
 import {
+  listAssigneeMaster,
   listCategories,
   listSlaRules,
+  softDeleteAssigneeMaster,
+  upsertAssigneeMaster,
   upsertCategory,
   upsertSlaRule,
   upsertSubcategory,
 } from "./itSupportApi";
+import CcEmployeePicker from "./components/CcEmployeePicker";
 
 export default function MastersPage() {
   const { userProfile } = useAuth();
@@ -31,20 +35,27 @@ export default function MastersPage() {
   const [categories, setCategories] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
   const [slaRules, setSlaRules] = useState([]);
+  const [assignees, setAssignees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [catModal, setCatModal] = useState({ open: false, row: null });
   const [subModal, setSubModal] = useState({ open: false, row: null });
   const [slaModal, setSlaModal] = useState({ open: false, row: null });
+  const [assigneeModal, setAssigneeModal] = useState({ open: false, row: null, pick: [] });
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [cats, rules] = await Promise.all([listCategories(), listSlaRules()]);
+      const [cats, rules, agentRows] = await Promise.all([
+        listCategories(),
+        listSlaRules(),
+        listAssigneeMaster(),
+      ]);
       setCategories(cats.categories || []);
       setSubcategories(cats.subcategories || []);
       setSlaRules(rules);
+      setAssignees(agentRows || []);
     } catch (err) {
       setError(err.message || "Could not load masters.");
     } finally {
@@ -119,16 +130,54 @@ export default function MastersPage() {
     },
   ];
 
+  const assigneeColumns = [
+    { key: "display_name", label: "Name" },
+    { key: "employee_code", label: "Code", render: (r) => r.employee_code || "—" },
+    { key: "sort_order", label: "Order" },
+    {
+      key: "is_active",
+      label: "Active",
+      render: (r) => (r.is_active === false ? "No" : "Yes"),
+    },
+    {
+      key: "actions",
+      label: "",
+      render: (r) => (
+        <div className="flex flex-wrap gap-1.5">
+          <SecondaryButton
+            onClick={() => setAssigneeModal({ open: true, row: { ...r }, pick: [] })}
+          >
+            Edit
+          </SecondaryButton>
+          <SecondaryButton
+            onClick={async () => {
+              try {
+                await softDeleteAssigneeMaster(r.id);
+                toast.success("Assignee removed");
+                load();
+              } catch (err) {
+                toast.error(err.message || "Remove failed");
+              }
+            }}
+          >
+            Remove
+          </SecondaryButton>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <>
       <PageTaskHeader
         title="Masters"
-        subtitle="Categories and SLA rules used when tickets are raised."
+        subtitle="Issue types, assignees for Assigned to, and SLA rules."
       />
 
       <div className="flex gap-2 mb-2">
         {[
           { id: "categories", label: "Categories" },
+          { id: "assignees", label: "Assignees" },
           { id: "sla", label: "SLA rules" },
         ].map((t) => (
           <button
@@ -193,6 +242,35 @@ export default function MastersPage() {
             <DenseTable columns={subColumns} rows={subcategories} rowKey="id" />
           </SectionCard>
         </div>
+      ) : tab === "assignees" ? (
+        <SectionCard
+          title="Assignees"
+          right={
+            <PrimaryButton
+              onClick={() =>
+                setAssigneeModal({
+                  open: true,
+                  row: {
+                    display_name: "",
+                    employee_code: "",
+                    profile_id: "",
+                    is_active: true,
+                    sort_order: assignees.length,
+                  },
+                  pick: [],
+                })
+              }
+            >
+              Add assignee
+            </PrimaryButton>
+          }
+        >
+          <p className="mb-3 text-[11px] text-ink-muted">
+            People shown in the ticket <span className="font-medium text-ink-secondary">Assigned to</span> dropdown.
+            Pick from Employee Master (same idea as Categories).
+          </p>
+          <DenseTable columns={assigneeColumns} rows={assignees} rowKey="id" />
+        </SectionCard>
       ) : (
         <SectionCard
           title="SLA rules"
@@ -449,6 +527,113 @@ export default function MastersPage() {
                 checked={slaModal.row.is_active !== false}
                 onChange={(e) =>
                   setSlaModal((m) => ({ ...m, row: { ...m.row, is_active: e.target.checked } }))
+                }
+              />
+              Active
+            </label>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={assigneeModal.open}
+        title={assigneeModal.row?.id ? "Edit assignee" : "New assignee"}
+        onClose={() => setAssigneeModal({ open: false, row: null, pick: [] })}
+        footer={
+          <div className="flex justify-end gap-2">
+            <SecondaryButton onClick={() => setAssigneeModal({ open: false, row: null, pick: [] })}>
+              Cancel
+            </SecondaryButton>
+            <PrimaryButton
+              onClick={async () => {
+                try {
+                  const row = assigneeModal.row || {};
+                  await upsertAssigneeMaster(row);
+                  toast.success("Assignee saved");
+                  setAssigneeModal({ open: false, row: null, pick: [] });
+                  load();
+                } catch (err) {
+                  toast.error(err.message || "Save failed");
+                }
+              }}
+            >
+              Save
+            </PrimaryButton>
+          </div>
+        }
+      >
+        {assigneeModal.row ? (
+          <div className="space-y-3">
+            {!assigneeModal.row.id ? (
+              <FormField
+                label="Employee"
+                required
+                hint="Type a name and select from Employee Master."
+              >
+                <CcEmployeePicker
+                  value={assigneeModal.pick || []}
+                  onChange={(people) => {
+                    const person = people?.[people.length - 1] || null;
+                    setAssigneeModal((m) => ({
+                      ...m,
+                      pick: person ? [person] : [],
+                      row: {
+                        ...m.row,
+                        profile_id: person?.profileId || "",
+                        display_name: person?.fullName || m.row.display_name || "",
+                        employee_code: person?.employeeCode || "",
+                      },
+                    }));
+                  }}
+                />
+              </FormField>
+            ) : null}
+            <FormField label="Display name" required>
+              <TinyInput
+                className="w-full"
+                value={assigneeModal.row.display_name || ""}
+                onChange={(e) =>
+                  setAssigneeModal((m) => ({
+                    ...m,
+                    row: { ...m.row, display_name: e.target.value },
+                  }))
+                }
+              />
+            </FormField>
+            <FormField label="Employee code">
+              <TinyInput
+                className="w-full"
+                value={assigneeModal.row.employee_code || ""}
+                onChange={(e) =>
+                  setAssigneeModal((m) => ({
+                    ...m,
+                    row: { ...m.row, employee_code: e.target.value },
+                  }))
+                }
+              />
+            </FormField>
+            <FormField label="Sort order">
+              <TinyInput
+                type="number"
+                className="w-full"
+                value={assigneeModal.row.sort_order ?? 0}
+                onChange={(e) =>
+                  setAssigneeModal((m) => ({
+                    ...m,
+                    row: { ...m.row, sort_order: Number(e.target.value) },
+                  }))
+                }
+              />
+            </FormField>
+            <label className="inline-flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={assigneeModal.row.is_active !== false}
+                onChange={(e) =>
+                  setAssigneeModal((m) => ({
+                    ...m,
+                    row: { ...m.row, is_active: e.target.checked },
+                  }))
                 }
               />
               Active

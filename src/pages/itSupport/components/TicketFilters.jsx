@@ -88,6 +88,7 @@ export default function TicketFilters({
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.username || a.email || a.id}
+                  {a.employee_code ? ` · ${a.employee_code}` : ""}
                 </option>
               ))}
             </TinySelect>

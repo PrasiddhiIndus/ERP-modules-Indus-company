@@ -562,12 +562,83 @@ export async function upsertSlaRule(row) {
   return data;
 }
 
-/** IT agents for assign dropdown (RPC — profiles are otherwise self-only under RLS). */
+/** Soft-remove an uploaded attachment (keeps R2 object; hides from ticket). */
+export async function removeTicketAttachment(attachmentId) {
+  if (!attachmentId) throw new Error("Attachment id is required.");
+  const { data, error } = await supabase
+    .from("it_ticket_attachments")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", attachmentId)
+    .is("deleted_at", null)
+    .select(ATTACHMENT_SELECT)
+    .maybeSingle();
+  throwIf(error, "Could not remove the attachment.");
+  return data;
+}
+
+/** Assignees master (Assigned to dropdown) — same pattern as categories. */
+export async function listAssigneeMaster() {
+  const { data, error } = await supabase
+    .from("it_support_assignees")
+    .select("id, profile_id, display_name, employee_code, is_active, sort_order, created_at, updated_at")
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true })
+    .order("display_name", { ascending: true });
+  throwIf(error, "Could not load assignees master.");
+  return data || [];
+}
+
+export async function upsertAssigneeMaster(row) {
+  const payload = {
+    profile_id: row.profile_id,
+    display_name: String(row.display_name || "").trim(),
+    employee_code: row.employee_code ? String(row.employee_code).trim() : null,
+    is_active: row.is_active !== false,
+    sort_order: Number(row.sort_order) || 0,
+    updated_at: new Date().toISOString(),
+  };
+  if (row.id) payload.id = row.id;
+  if (!payload.profile_id) throw new Error("Select an employee from Employee Master.");
+  if (!payload.display_name) throw new Error("Display name is required.");
+  const { data, error } = await supabase
+    .from("it_support_assignees")
+    .upsert(payload, { onConflict: "id" })
+    .select("*")
+    .single();
+  throwIf(error, "Could not save assignee.");
+  return data;
+}
+
+export async function softDeleteAssigneeMaster(id) {
+  const { error } = await supabase
+    .from("it_support_assignees")
+    .update({ deleted_at: new Date().toISOString(), is_active: false, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  throwIf(error, "Could not remove assignee.");
+}
+
+/** IT agents for assign dropdown — from assignees master via RPC. */
 export async function listAgents() {
   const { data, error } = await supabase.rpc("it_list_support_agents");
   if (!error && Array.isArray(data)) return data;
 
-  // Fallback if RPC not deployed yet
+  // Fallback: assignees master table
+  try {
+    const rows = await listAssigneeMaster();
+    const active = (rows || []).filter((r) => r.is_active !== false);
+    if (active.length) {
+      return active.map((r) => ({
+        id: r.profile_id,
+        username: r.display_name,
+        email: null,
+        employee_code: r.employee_code,
+        role: null,
+      }));
+    }
+  } catch {
+    /* fall through */
+  }
+
   const { data: rows, error: err2 } = await supabase
     .from("profiles")
     .select("id, username, email, employee_code, role, allowed_modules, allowed_sub_modules")
