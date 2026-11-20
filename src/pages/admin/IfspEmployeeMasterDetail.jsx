@@ -33,6 +33,7 @@ import EmployeeToursTab from "./employeeMaster/EmployeeToursTab";
 import EmployeeMasterDocumentsPanel from "./employeeMaster/EmployeeMasterDocumentsPanel";
 import EmployeeSalaryHistoryTab from "./employeeMaster/EmployeeSalaryHistoryTab";
 import EmployeePayslipsTab from "./employeeMaster/EmployeePayslipsTab";
+import { fetchEmployeeMasterCreatedBy } from "./employeeMaster/employeeMasterHistory";
 import { fetchOpenVariancesForEmployee } from "../adminOperations/salaryAdmin/salaryMonthProcessing";
 import {
   canAccessSalaryAdmin,
@@ -130,6 +131,7 @@ export default function IfspEmployeeMasterDetail() {
   const [customCtcFormula, setCustomCtcFormula] = useState(false);
   const [employees, setEmployees] = useState([]);
   const [salaryVariances, setSalaryVariances] = useState([]);
+  const [createdBy, setCreatedBy] = useState({ display: "—", createdAt: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [deductions, setDeductions] = useState(() => emptyEmployeeDeductions());
@@ -231,6 +233,22 @@ export default function IfspEmployeeMasterDetail() {
       }
       setEmployee(oneRes.data);
       setEmployees(allRes.data || []);
+
+      try {
+        const creator = await fetchEmployeeMasterCreatedBy(
+          oneRes.data.id,
+          oneRes.data.created_by || null
+        );
+        setCreatedBy(creator);
+      } catch (creatorErr) {
+        console.warn("Employee Master: created-by soft-load skipped", creatorErr);
+        setCreatedBy({
+          display: oneRes.data.created_by || "—",
+          createdAt: oneRes.data.created_at || null,
+          name: oneRes.data.created_by || null,
+          employeeCode: null,
+        });
+      }
 
       if (!soft) {
         const local = getEmployeeDeductions(employeeId);
@@ -413,6 +431,18 @@ export default function IfspEmployeeMasterDetail() {
               <p>
                 <span className="text-gray-500">Location:</span> {employee.location || "—"}
               </p>
+              <p>
+                <span className="text-gray-500">Created by:</span>{" "}
+                <span className="font-medium text-gray-900">{createdBy.display || "—"}</span>
+                {createdBy.createdAt || employee.created_at ? (
+                  <span className="text-gray-500">
+                    {" "}
+                    ·{" "}
+                    {formatDateDdMmYyyy(createdBy.createdAt || employee.created_at) ||
+                      new Date(createdBy.createdAt || employee.created_at).toLocaleString("en-IN")}
+                  </span>
+                ) : null}
+              </p>
             </div>
           </div>
         </div>
@@ -463,26 +493,61 @@ export default function IfspEmployeeMasterDetail() {
 
           <div className="min-w-0 flex-1 min-h-0 overflow-y-auto overscroll-contain pr-0.5">
             {activeTab === "personal" ? (
-              <SectionCard title="Personal details">
-                <EmployeeMasterPersonalForm
-                  employee={employee}
-                  employees={employees}
-                  variant="page"
-                  showCancel={false}
-                  onSaved={(saved) => {
-                    if (saved) {
-                      setEmployee((prev) => ({ ...prev, ...saved }));
-                      setEmployees((list) =>
-                        (list || []).map((row) =>
-                          String(row.id) === String(saved.id) ? { ...row, ...saved } : row
-                        )
-                      );
-                    } else {
-                      load();
-                    }
-                  }}
-                />
-              </SectionCard>
+              <div className="space-y-4">
+                <SectionCard title="Personal details">
+                  <EmployeeMasterPersonalForm
+                    employee={employee}
+                    employees={employees}
+                    variant="page"
+                    showCancel={false}
+                    onSaved={(saved) => {
+                      if (saved) {
+                        setEmployee((prev) => ({ ...prev, ...saved }));
+                        setEmployees((list) =>
+                          (list || []).map((row) =>
+                            String(row.id) === String(saved.id) ? { ...row, ...saved } : row
+                          )
+                        );
+                      } else {
+                        load();
+                      }
+                    }}
+                  />
+                </SectionCard>
+                <SectionCard title="Audit trail">
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <dt className="text-[11px] font-medium text-ink-muted uppercase tracking-wide">
+                        Created by
+                      </dt>
+                      <dd className="mt-0.5 font-medium text-ink-strong">
+                        {createdBy.name || createdBy.display || "—"}
+                      </dd>
+                      {createdBy.employeeCode ? (
+                        <dd className="text-xs text-ink-secondary mt-0.5">
+                          Employee code · {createdBy.employeeCode}
+                        </dd>
+                      ) : null}
+                    </div>
+                    <div>
+                      <dt className="text-[11px] font-medium text-ink-muted uppercase tracking-wide">
+                        Created on
+                      </dt>
+                      <dd className="mt-0.5 font-medium text-ink-strong">
+                        {createdBy.createdAt || employee.created_at
+                          ? formatDateDdMmYyyy(createdBy.createdAt || employee.created_at) ||
+                            new Date(createdBy.createdAt || employee.created_at).toLocaleString(
+                              "en-IN"
+                            )
+                          : "—"}
+                      </dd>
+                      <dd className="text-[11px] text-ink-muted mt-1">
+                        Set when the record was first saved. Later edits do not change this.
+                      </dd>
+                    </div>
+                  </dl>
+                </SectionCard>
+              </div>
             ) : null}
 
             {activeTab === "ctc" ? (
