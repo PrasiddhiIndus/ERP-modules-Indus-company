@@ -2,10 +2,17 @@
  * Projects Quotation Master — helpers for `projects` schema tables.
  */
 
+import { normalizeAppRole, ROLES } from '../config/roles';
 import { projectsTable } from './projectsApi';
 import { normalizeToIsoDate } from '../utils/dateDisplay';
 
 export { projectsTable };
+
+/** Super Admin / Super Admin Pro may set any offer status (bypass workflow graph). */
+export function canBypassQuotationStatusWorkflow(profile) {
+  const role = normalizeAppRole(profile?.role);
+  return role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO;
+}
 
 /** India FY label from a date (Apr–Mar), e.g. 2026-07-29 → "26-27". */
 export function fiscalYearFromDate(dateInput = new Date()) {
@@ -219,8 +226,9 @@ export const STATUS_TRANSITIONS = {
   Superseded: [],
 };
 
-export function canTransitionStatus(from, to) {
+export function canTransitionStatus(from, to, profile) {
   if (from === to) return true;
+  if (canBypassQuotationStatusWorkflow(profile)) return true;
   const allowed = STATUS_TRANSITIONS[from];
   if (!allowed) return false;
   return allowed.includes(to);
@@ -393,7 +401,12 @@ export async function updateQuotationMasterDetails(id, form, opts = {}) {
   const nextStatus = String(form.offer_status || previousStatus || 'Draft').trim() || 'Draft';
   const statusChanged = previousStatus !== nextStatus;
   const statusRemark = String(opts.statusRemark || '').trim();
-  if (previousStatus && statusChanged && !canTransitionStatus(previousStatus, nextStatus)) {
+  const remarkBase = form.remark !== undefined ? String(form.remark || '').trim() : undefined;
+  if (
+    previousStatus &&
+    statusChanged &&
+    !canTransitionStatus(previousStatus, nextStatus, opts.profile)
+  ) {
     throw new Error(`Cannot move from "${previousStatus}" to "${nextStatus}". Follow the offer workflow.`);
   }
   if (
@@ -412,11 +425,12 @@ export async function updateQuotationMasterDetails(id, form, opts = {}) {
   if (statusChanged) {
     payload.status_changed_at = new Date().toISOString();
     payload.order_converted_date = todayLocalIso();
-    if (statusRemark) {
-      payload.remark = [String(form.remark || '').trim(), `[Status → ${nextStatus}] ${statusRemark}`]
-        .filter(Boolean)
-        .join('\n');
-    }
+  }
+  // Remark is editable for anyone with Quotation Master access; status reasons append when provided.
+  if (statusChanged && statusRemark) {
+    payload.remark = [remarkBase || '', `[Status → ${nextStatus}] ${statusRemark}`].filter(Boolean).join('\n');
+  } else if (remarkBase !== undefined) {
+    payload.remark = remarkBase || null;
   }
 
   const { data, error } = await projectsTable('quotations').update(payload).eq('id', id).select('*').single();
