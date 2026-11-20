@@ -78,6 +78,16 @@ describe("defaults match the behaviour before the Rules Console", () => {
     expect(ruleDepartmentKey("Production - Neotech")).toBe("production-neotech");
     expect(DEFAULT_RULE_VALUE_ROWS.length).toBeGreaterThan(0);
   });
+
+  it("Dahej HR spelling variants share one department key and keep weekly offs", () => {
+    expect(ruleDepartmentKey("Dahej-HR")).toBe("dahej-hr");
+    expect(ruleDepartmentKey("Dahej - HR")).toBe("dahej-hr");
+    expect(ruleDepartmentKey("Dahej HR")).toBe("dahej-hr");
+    for (const dept of ["Dahej-HR", "Dahej HR", "Dahej - HR"]) {
+      expect(isAutoWeekoffDate(SUNDAY, dept), dept).toBe(true);
+      expect(isAutoWeekoffDate(THIRD_SAT, dept), dept).toBe(true);
+    }
+  });
 });
 
 describe("resolver honours dates and department overrides", () => {

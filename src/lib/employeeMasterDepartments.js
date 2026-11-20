@@ -40,6 +40,8 @@ const DEPARTMENT_ALIASES = {
   'human resources': 'HR',
   'hr dept': 'HR',
   'hr department': 'HR',
+  'dahej hr': 'Dahej-HR',
+  'dahej - hr': 'Dahej-HR',
   operation: 'Operations',
   operations: 'Operations',
   project: 'Projects',

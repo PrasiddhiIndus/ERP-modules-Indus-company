@@ -4265,9 +4265,17 @@ export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { 
  * counted in Total present — the day is credited as WO / NH/PH (C/O earning is unchanged).
  * Sunday work (P on Sunday WO) therefore adds 0 to Total present.
  * Earlier months keep the old totals.
+ *
+ * Exception — Dahej-HR: work on a weekly off still counts in Total present (31-day
+ * months stay full when every day is worked). C/O earning is unchanged (still WO days).
  */
 export const OFF_DAY_WORK_EXCLUDED_FROM_PRESENT_START_MONTH = "2026-10";
 const OFF_DAY_WORK_MARKS = new Set(["P", "P(OD)", "T", "HD"]);
+
+/** Total present only: Dahej-HR keeps P/P(OD) credit on weekly offs (department key, no emp codes). */
+export function offDayWorkCountsTowardPresent(department) {
+  return ruleDepartmentKey(department) === "dahej-hr";
+}
 
 function isOffDayWorkExcludedFromPresentMonth(year, month) {
   if (!year || !month) return false;
@@ -4279,6 +4287,8 @@ function totalPresentCreditMark(mark, { year, month, day, department, employeeCo
   const iso = registerDateFromDay(monthKeyFromParts(year, month), day);
   if (!iso) return mark;
   if (holidayDates?.has(iso) && isAutoHolidayFor(iso, { employeeCode, department })) return REGISTER_MARK_NHPH;
+  // Dahej-HR: keep present credit on WO work days (C/O still uses weekly-off rules).
+  if (offDayWorkCountsTowardPresent(department)) return mark;
   if (isWeeklyOffDate(iso, department, employeeCode)) return "WO";
   return mark;
 }

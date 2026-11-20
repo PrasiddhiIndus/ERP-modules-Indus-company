@@ -85,6 +85,7 @@ import {
 import { RegisterMarkPicker } from "./RegisterMarkPicker";
 import { BulkMarkEmployeePicker } from "./BulkMarkEmployeePicker";
 import { RegisterDepartmentFilter } from "./RegisterDepartmentFilter";
+import { departmentInSelection } from "../../../lib/employeeMasterDepartments";
 import {
   REGISTER_LEAVE_ANNUAL_LIMITS,
   aggregateLeaveUsageByEmployee,
@@ -1160,7 +1161,7 @@ export function EmployeeAttendanceDailyPage() {
     return gridRows.filter((row) => {
       if (
         selectedDepartments.length > 0 &&
-        !selectedDepartments.includes(row.department || "")
+        !departmentInSelection(row.department || "", selectedDepartments)
       ) {
         return false;
       }
