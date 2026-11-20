@@ -25,6 +25,7 @@ import {
 } from "./itSupportModuleOptions";
 import CcEmployeePicker from "./components/CcEmployeePicker";
 import RichTextField from "./components/RichTextField";
+import TicketFileList from "./components/TicketFileList";
 
 const ALLOWED_EXT = /\.(pdf|jpe?g|png|webp|xlsx?|docx?)$/i;
 
@@ -393,7 +394,15 @@ export default function RaiseTicketPage() {
                           }
                           ok.push(f);
                         }
-                        setFiles(ok);
+                        setFiles((prev) => {
+                          const keys = new Set(prev.map((x) => `${x.name}|${x.size}|${x.lastModified}`));
+                          const next = [...prev];
+                          for (const f of ok) {
+                            const k = `${f.name}|${f.size}|${f.lastModified}`;
+                            if (!keys.has(k)) next.push(f);
+                          }
+                          return next;
+                        });
                         if (bad.length) {
                           setError(bad.join(". "));
                           toast.error(bad[0]);
@@ -402,17 +411,14 @@ export default function RaiseTicketPage() {
                       }}
                     />
                   </label>
-                  {files.length > 0 ? (
-                    <ul className="space-y-0.5 text-[11px] text-ink-muted">
-                      {files.map((f) => (
-                        <li key={f.name + f.size} className="truncate">
-                          {f.name} ({Math.round(f.size / 1024)} KB)
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-[11px] text-ink-muted">No files selected</p>
-                  )}
+                  <TicketFileList
+                    mode="pending"
+                    files={files}
+                    disabled={submitting}
+                    onRemovePending={(index) =>
+                      setFiles((prev) => prev.filter((_, i) => i !== index))
+                    }
+                  />
                 </div>
               </FormField>
             </div>
