@@ -10,7 +10,6 @@ import {
 } from "../pages/adminOperations/salaryAdmin/salaryAccess";
 import { canAccessRulesConsole } from "../pages/adminOperations/rulesConsole/rulesConsoleAccess";
 import { syncSalaryFiguresHidden } from "../pages/adminOperations/salaryAdmin/salaryPrivacy";
-import { canAccessCompliance } from "../pages/compliance/payroll/complianceAccess";
 import { fetchMyMisAccess } from "../pages/adminOperations/salaryAdmin/mis/misDb";
 import { useProbationReviewsAccess } from "../pages/adminOperations/probationReviews/probationAccess";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
@@ -800,7 +799,7 @@ const Layout = () => {
     can("procurement") ||
     (can("billing") && navHas.billing) ||
     (can("finance") && navHas.finance) ||
-    (canAccessCompliance(userProfile, user) && navHas.compliance) ||
+    navHas.compliance ||
     misScopedOnly;
   const showIevGroup =
     ievVisible ||
@@ -1925,8 +1924,8 @@ const Layout = () => {
             </div>
             )}
 
-            {/* Compliance */}
-            {canAccessCompliance(userProfile, user) && navHas.compliance && (
+            {/* Compliance — allowlist, Super Admin / full module, or User Management grant */}
+            {navHas.compliance && (
             <div className="rail-section">
               <button
                 onClick={() => setComplianceOpen(!complianceOpen)}

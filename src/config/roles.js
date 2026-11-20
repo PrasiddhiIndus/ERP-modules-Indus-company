@@ -26,6 +26,7 @@ import {
   canAccessComplianceSection,
   canOpenCompliancePath,
   isCompliancePath,
+  resolveComplianceSectionKey,
 } from '../pages/compliance/payroll/complianceAccess';
 
 export const ROLES = {
@@ -302,11 +303,23 @@ export function canSeeSubModule(profile, accessibleModules, subModuleKey, userMe
     });
   }
 
-  // Compliance: Vivek, Vaisakh / Vaishak, and Rahul only.
+  // Compliance: allowlisted emails, Super Admin / full module, or User Management grant.
   if (String(subModuleKey || "").startsWith("compliance.")) {
-    return canAccessComplianceSection(profile, {
-      email: userMetadata?.email || profile?.email,
-    }, subModuleKey);
+    const sectionKey = resolveComplianceSectionKey(subModuleKey) || subModuleKey;
+    if (
+      canAccessComplianceSection(profile, {
+        email: userMetadata?.email || profile?.email,
+      }, sectionKey)
+    ) {
+      return true;
+    }
+    if (hasFullModuleAccess(accessibleModules, "compliance")) return true;
+    const granted = getEffectiveAllowedSubModules(profile, userMetadata);
+    return (
+      granted.includes(sectionKey) ||
+      granted.includes(subModuleKey) ||
+      granted.some((k) => String(k).startsWith(`${sectionKey}.`))
+    );
   }
 
   if (
