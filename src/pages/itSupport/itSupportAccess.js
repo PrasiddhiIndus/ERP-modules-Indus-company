@@ -22,15 +22,11 @@ function hasSub(userProfile, key) {
   return subs.includes(key);
 }
 
-/** Employees who can raise tickets and view their own. */
+/** Employees who can raise tickets and view their own — all active users. */
 export function canRaise(userProfile) {
   if (!userProfile) return false;
-  if (isSuperAdmin(userProfile) || hasFullItIs(userProfile)) return true;
-  return (
-    hasSub(userProfile, ACCESS_KEYS.raise) ||
-    hasSub(userProfile, ACCESS_KEYS.agent) ||
-    hasSub(userProfile, ACCESS_KEYS.admin)
-  );
+  if (userProfile.is_active === false) return false;
+  return true;
 }
 
 /** IT agents — queue, assign, priority, internal notes. */

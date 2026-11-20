@@ -134,6 +134,13 @@ export function hasSoftwareSubscriptionsR2Access(ctx) {
   );
 }
 
+/** IT Support ticket attachments: any active signed-in user (raise is company-wide). */
+export function hasItSupportR2Access(ctx) {
+  if (!ctx?.profile) return false;
+  if (ctx.profile.is_active === false) return false;
+  return true;
+}
+
 /** Fleet / vehicle papers: Operations or Fleet — shared board, not uploader-only. */
 export function hasFleetR2Access(ctx) {
   if (isSuperAdminRole(ctx)) return true;
@@ -557,6 +564,7 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     requireCrmOutreachAccess: middleware((ctx) => hasCrmOutreachAccess(ctx, 'client')),
     requireCrmInHouseMailAccess: middleware((ctx) => hasCrmOutreachAccess(ctx, 'inhouse')),
     requireSoftwareSubscriptionsR2: middleware((ctx) => hasSoftwareSubscriptionsR2Access(ctx)),
+    requireItSupportR2: middleware((ctx) => hasItSupportR2Access(ctx)),
     requireFleetR2: middleware((ctx) => hasFleetR2Access(ctx)),
     requireHrCallingR2: middleware((ctx) => hasHrCallingR2Access(ctx)),
     requireAdminPoliciesR2: middleware((ctx) => hasAdminPoliciesR2Access(ctx)),

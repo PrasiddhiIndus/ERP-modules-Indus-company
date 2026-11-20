@@ -48,6 +48,8 @@ import {
 import { registerAdminRecruitmentRoutes, startAdminRecruitmentAutomation } from './adminRecruitmentApi.js';
 import { registerAdminEmployeeDocumentsRoutes } from './adminEmployeeDocumentsApi.js';
 import { registerAdminSurveyRoutes } from './adminSurveysApi.js';
+import { registerItSupportNotifyRoutes } from './itSupportNotifyApi.js';
+import { registerItSupportR2Routes } from './itSupportR2Api.js';
 import { startPayrollMisAlerts } from './payrollMisAlerts.js';
 import { isAllowedCorsOrigin, isLocalDevOrigin } from './corsAllowOrigin.js';
 import { startProbationReviewReminders } from './probationReviewReminders.js';
@@ -400,6 +402,7 @@ const {
   requireCrmOutreachAccess,
   requireCrmInHouseMailAccess,
   requireSoftwareSubscriptionsR2,
+  requireItSupportR2,
   requireFleetR2,
   requireHrCallingR2,
   requireAdminPoliciesR2,
@@ -553,6 +556,14 @@ registerAdminEmployeeDocumentsRoutes(app, {
   getR2Client: getR2S3Client,
   getR2Bucket: getR2BucketName,
   upload: r2InvoiceUpload,
+});
+
+registerItSupportNotifyRoutes(app, { requireAuth });
+registerItSupportR2Routes(app, {
+  requireAuth,
+  requireItSupportR2,
+  getR2Client: getR2S3Client,
+  getR2Bucket: getR2BucketName,
 });
 
 registerAdminSurveyRoutes(app, {

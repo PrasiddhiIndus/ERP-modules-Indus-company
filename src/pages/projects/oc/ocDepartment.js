@@ -27,6 +27,8 @@ export const IEV_OC_DEPARTMENT = {
   },
   rpc: { save: "oc_save", employeeOptions: "oc_employee_options" },
   notifyPath: "/api/fire-tender/oc/signoff-notify",
+  /** Events emailed in the PO's own email thread (server/ocSignoffNotifyApi.js OC_NOTIFY_PROFILES). */
+  mailEvents: ["created", "stage", "oc_number"],
   accessDeniedMessage: "You do not have access to IEV PO At Glance.",
   canEdit: ocCanEdit,
   canDelete: ocCanDelete,

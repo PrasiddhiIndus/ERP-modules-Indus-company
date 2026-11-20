@@ -12,8 +12,13 @@ import {
 } from "lucide-react";
 import { PageShell } from "../../components/erpUi";
 import { useAuth } from "../../contexts/AuthContext";
-import { resolveItSupportAccess, roleLabel, itSupportLandingPath } from "./itSupportAccess";
-import { listNotifications, markNotificationRead } from "./itSupportApi";
+import { resolveItSupportAccess, itSupportLandingPath } from "./itSupportAccess";
+import {
+  createItSupportRefreshScheduler,
+  listNotifications,
+  markNotificationRead,
+  subscribeItSupportRealtime,
+} from "./itSupportApi";
 
 const ALL_TABS = [
   { to: "/app/it-support/raise", label: "Raise", icon: PlusCircle, need: "raise" },
@@ -59,8 +64,20 @@ export default function ItSupportLayout() {
 
   useEffect(() => {
     loadNotifs();
-    const t = setInterval(loadNotifs, 60_000);
-    return () => clearInterval(t);
+    const scheduler = createItSupportRefreshScheduler(loadNotifs, 400);
+    const unsub = subscribeItSupportRealtime(() => scheduler.schedule(), {
+      channelName: "it-support-notifs-live",
+      includeNotifications: true,
+    });
+    const onFocus = () => scheduler.schedule();
+    window.addEventListener("focus", onFocus);
+    const t = setInterval(loadNotifs, 120_000);
+    return () => {
+      scheduler.cancel();
+      unsub();
+      window.removeEventListener("focus", onFocus);
+      clearInterval(t);
+    };
   }, [loadNotifs]);
 
   const unread = notifs.filter((n) => !n.is_read).length;
@@ -74,9 +91,6 @@ export default function ItSupportLayout() {
   if (onIndex && !access.canAgent && !access.canAdmin) {
     return <Navigate to={itSupportLandingPath(userProfile)} replace />;
   }
-
-  const displayName =
-    userProfile?.username || user?.email?.split("@")[0] || user?.email || "User";
 
   return (
     <PageShell>
@@ -155,10 +169,6 @@ export default function ItSupportLayout() {
                 )}
               </div>
             ) : null}
-          </div>
-          <div className="text-right">
-            <p className="text-xs font-medium text-ink-strong">{displayName}</p>
-            <p className="text-[11px] text-ink-muted">{roleLabel(userProfile)}</p>
           </div>
         </div>
       </div>
