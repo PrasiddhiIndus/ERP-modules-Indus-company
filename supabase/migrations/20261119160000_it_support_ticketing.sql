@@ -17,27 +17,7 @@ AS $$
     SELECT 1
     FROM public.profiles p
     WHERE p.id = auth.uid()
-      AND (
-        replace(lower(btrim(coalesce(p.role, ''))), ' ', '_') IN (
-          'super_admin', 'super_admin_pro', 'superadmin', 'superadmin_pro'
-        )
-        OR lower(btrim(coalesce(p.team, ''))) IN (
-          'itis', 'it_is', 'it/is', 'it-is', 'it', 'is',
-          'information system', 'information systems'
-        )
-        OR COALESCE(p.allowed_modules, '[]'::jsonb) ? 'itIs'
-        OR COALESCE(p.allowed_modules, '[]'::jsonb) ? 'itis'
-        OR EXISTS (
-          SELECT 1
-          FROM jsonb_array_elements_text(COALESCE(p.allowed_sub_modules, '[]'::jsonb)) s(val)
-          WHERE lower(btrim(s.val)) IN (
-              'itis.helpdesk',
-              'itis.helpdesk-agent',
-              'itis.helpdesk-admin'
-            )
-            OR lower(btrim(s.val)) LIKE 'itis.helpdesk%'
-        )
-      )
+      AND COALESCE(p.is_active, true) = true
   );
 $$;
 
@@ -105,7 +85,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.current_user_has_it_support_raise() IS
-  'IT Support: can raise / see own tickets (helpdesk grant or IT/IS).';
+  'IT Support: any active signed-in user can raise tickets and see their own.';
 COMMENT ON FUNCTION public.current_user_is_it_support_agent() IS
   'IT Support: agent or admin — full queue access.';
 COMMENT ON FUNCTION public.current_user_is_it_support_admin() IS

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Columns3, Table2 } from "lucide-react";
 import {
@@ -19,14 +19,47 @@ import { canAgent, canAdmin } from "./itSupportAccess";
 import { KANBAN_STATUSES, statusLabel } from "./itSupportConstants";
 import {
   changeStatus,
+  createItSupportRefreshScheduler,
   listAgents,
   listCategories,
   listQueueTickets,
+  subscribeItSupportRealtime,
 } from "./itSupportApi";
+import { formatErpModulePath, getItSupportModuleOptions } from "./itSupportModuleOptions";
 import PriorityBadge from "./components/PriorityBadge";
 import StatusBadge from "./components/StatusBadge";
 import SlaTimer from "./components/SlaTimer";
 import TicketFilters from "./components/TicketFilters";
+
+function ticketMatchesFilters(ticket, filters) {
+  if (!ticket) return false;
+  if (filters.status && ticket.status !== filters.status) return false;
+  if (filters.priority && ticket.priority !== filters.priority) return false;
+  if (filters.categoryId && ticket.category_id !== filters.categoryId) return false;
+  if (filters.erpModuleKey && ticket.erp_module_key !== filters.erpModuleKey) return false;
+  if (filters.breachedOnly) {
+    if (!ticket.first_response_breached && !ticket.resolution_breached) return false;
+  }
+  if (filters.assigneeId === "unassigned") {
+    if (ticket.assignee_id) return false;
+  } else if (filters.assigneeId && ticket.assignee_id !== filters.assigneeId) {
+    return false;
+  }
+  const q = String(filters.search || "").trim().toLowerCase();
+  if (q) {
+    const hay = [
+      ticket.ticket_no,
+      ticket.title,
+      ticket.erp_module_label,
+      ticket.erp_submodule_label,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  return true;
+}
 
 export default function TicketQueuePage() {
   const { user, userProfile } = useAuth();
@@ -39,7 +72,9 @@ export default function TicketQueuePage() {
   const [agents, setAgents] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const moduleOptions = useMemo(() => getItSupportModuleOptions(), []);
   const [filters, setFilters] = useState(() => ({
     search: "",
     status: searchParams.get("status") || "",
@@ -47,35 +82,84 @@ export default function TicketQueuePage() {
     assigneeId:
       searchParams.get("assignee") === "me" && user?.id ? user.id : searchParams.get("assignee") || "",
     categoryId: "",
+    erpModuleKey: "",
     breachedOnly: searchParams.get("breached") === "1",
   }));
   const [dragTicketId, setDragTicketId] = useState(null);
   const [statusModal, setStatusModal] = useState({ open: false, ticketId: null, status: "", remark: "" });
+  const [statusSaving, setStatusSaving] = useState(false);
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const requestIdRef = useRef(0);
 
-  const load = useCallback(async () => {
-    if (!allowed) return;
-    setLoading(true);
-    setError("");
-    try {
-      const [tickets, agentList, cats] = await Promise.all([
-        listQueueTickets(filters),
-        listAgents(),
-        listCategories(),
-      ]);
-      setRows(tickets);
-      setAgents(agentList);
-      setCategories((cats.categories || []).filter((c) => c.is_active !== false));
-    } catch (err) {
-      setError(err.message || "Could not load queue.");
-    } finally {
-      setLoading(false);
-    }
-  }, [allowed, filters]);
+  // Masters / agents once — not on every filter keystroke.
+  useEffect(() => {
+    if (!allowed) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [agentList, cats] = await Promise.all([listAgents(), listCategories()]);
+        if (cancelled) return;
+        setAgents(agentList);
+        setCategories((cats.categories || []).filter((c) => c.is_active !== false));
+      } catch (err) {
+        if (!cancelled) setError(err.message || "Could not load queue filters.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [allowed]);
+
+  const loadTickets = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!allowed) return;
+      const reqId = ++requestIdRef.current;
+      if (silent) setRefreshing(true);
+      else setLoading(true);
+      setError("");
+      try {
+        const tickets = await listQueueTickets(filters);
+        if (reqId !== requestIdRef.current) return;
+        setRows(tickets);
+      } catch (err) {
+        if (reqId !== requestIdRef.current) return;
+        setError(err.message || "Could not load queue.");
+      } finally {
+        if (reqId !== requestIdRef.current) return;
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [allowed, filters]
+  );
 
   useEffect(() => {
-    const t = setTimeout(load, filters.search ? 250 : 0);
+    const delay = filters.search ? 300 : 0;
+    const silent = rowsRef.current.length > 0;
+    const t = setTimeout(() => loadTickets({ silent }), delay);
     return () => clearTimeout(t);
-  }, [load, filters.search]);
+  }, [loadTickets, filters.search]);
+
+  // Live queue — realtime DB changes, not static/mock snapshots.
+  useEffect(() => {
+    if (!allowed) return undefined;
+    const scheduler = createItSupportRefreshScheduler(
+      () => loadTickets({ silent: true }),
+      400
+    );
+    const unsub = subscribeItSupportRealtime(() => scheduler.schedule(), {
+      channelName: "it-support-queue-live",
+      includeNotifications: false,
+    });
+    const onFocus = () => scheduler.schedule();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      scheduler.cancel();
+      unsub();
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [allowed, loadTickets]);
 
   const columns = useMemo(
     () => [
@@ -87,7 +171,25 @@ export default function TicketQueuePage() {
       {
         key: "title",
         label: "Title",
-        render: (r) => <span className="max-w-[240px] truncate block">{r.title}</span>,
+        render: (r) => <span className="max-w-[200px] truncate block">{r.title}</span>,
+      },
+      {
+        key: "erp_module",
+        label: "Module",
+        render: (r) => (
+          <span className="max-w-[160px] truncate block" title={formatErpModulePath(r)}>
+            {formatErpModulePath(r)}
+          </span>
+        ),
+      },
+      {
+        key: "requester",
+        label: "Raised by",
+        render: (r) =>
+          r.requester?.username ||
+          r.requester?.email ||
+          r.requester_display_name ||
+          "—",
       },
       { key: "status", label: "Status", render: (r) => <StatusBadge status={r.status} /> },
       { key: "priority", label: "Priority", render: (r) => <PriorityBadge priority={r.priority} /> },
@@ -125,31 +227,71 @@ export default function TicketQueuePage() {
     const map = Object.fromEntries(KANBAN_STATUSES.map((s) => [s, []]));
     rows.forEach((r) => {
       if (map[r.status]) map[r.status].push(r);
-      else if (!map.closed) {
-        /* skip closed/other in kanban */
-      }
     });
     return map;
   }, [rows]);
 
+  const closeStatusModal = () =>
+    setStatusModal({ open: false, ticketId: null, status: "", remark: "" });
+
   const applyStatusChange = async () => {
+    if (statusSaving || !statusModal.ticketId || !statusModal.status) return;
+    const ticketId = statusModal.ticketId;
+    const nextStatus = statusModal.status;
+    const remark = statusModal.remark;
+    const previous = rows.find((r) => r.id === ticketId);
+    if (!previous) return;
+
+    setStatusSaving(true);
+    // Optimistic move in the list / kanban.
+    setRows((curr) => {
+      const patched = curr.map((r) =>
+        r.id === ticketId
+          ? { ...r, status: nextStatus, last_status_remark: remark || r.last_status_remark }
+          : r
+      );
+      const updated = { ...previous, status: nextStatus };
+      if (!ticketMatchesFilters(updated, { ...filters, search: filters.search })) {
+        return patched.filter((r) => r.id !== ticketId);
+      }
+      return patched;
+    });
+
     try {
-      await changeStatus({
-        ticketId: statusModal.ticketId,
-        status: statusModal.status,
-        remark: statusModal.remark,
+      const saved = await changeStatus({
+        ticketId,
+        status: nextStatus,
+        remark,
+      });
+      setRows((curr) => {
+        const merged = curr.map((r) => (r.id === ticketId ? { ...r, ...saved } : r));
+        if (!ticketMatchesFilters(saved, filters)) {
+          return merged.filter((r) => r.id !== ticketId);
+        }
+        // If optimistic remove already happened but ticket still matches, re-insert.
+        if (!merged.some((r) => r.id === ticketId) && ticketMatchesFilters(saved, filters)) {
+          return [saved, ...merged];
+        }
+        return merged;
       });
       toast.success("Status updated");
-      setStatusModal({ open: false, ticketId: null, status: "", remark: "" });
-      await load();
+      closeStatusModal();
     } catch (err) {
+      setRows((curr) => {
+        const without = curr.filter((r) => r.id !== ticketId);
+        return [previous, ...without];
+      });
       toast.error(err.message || "Could not update status.");
+    } finally {
+      setStatusSaving(false);
     }
   };
 
   if (!allowed) {
     return <EmptyState title="No access" message="The ticket queue is for IT agents." />;
   }
+
+  const showInitialLoader = loading && rows.length === 0;
 
   return (
     <>
@@ -181,6 +323,7 @@ export default function TicketQueuePage() {
         {...filters}
         agents={agents}
         categories={categories}
+        modules={moduleOptions}
         showAgentFilters
         onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))}
       />
@@ -191,7 +334,11 @@ export default function TicketQueuePage() {
         </InlineAlert>
       ) : null}
 
-      {loading ? (
+      {refreshing ? (
+        <p className="text-[11px] text-ink-muted -mt-1 mb-1">Updating queue…</p>
+      ) : null}
+
+      {showInitialLoader ? (
         <LoadingBlock label="Loading queue…" />
       ) : view === "table" ? (
         <SectionCard title={`Queue (${rows.length})`}>
@@ -215,6 +362,7 @@ export default function TicketQueuePage() {
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
+                if (statusSaving) return;
                 const ticketId = dragTicketId || e.dataTransfer.getData("text/ticket-id");
                 if (!ticketId) return;
                 const current = rows.find((r) => r.id === ticketId);
@@ -231,7 +379,7 @@ export default function TicketQueuePage() {
                 {(byStatus[status] || []).map((t) => (
                   <div
                     key={t.id}
-                    draggable
+                    draggable={!statusSaving}
                     onDragStart={(e) => {
                       setDragTicketId(t.id);
                       e.dataTransfer.setData("text/ticket-id", t.id);
@@ -242,6 +390,12 @@ export default function TicketQueuePage() {
                   >
                     <p className="text-[11px] font-medium text-accent">{t.ticket_no}</p>
                     <p className="text-xs text-ink-strong mt-0.5 line-clamp-2">{t.title}</p>
+                    <p className="text-[10px] text-ink-muted mt-1 line-clamp-1" title={formatErpModulePath(t)}>
+                      {formatErpModulePath(t)}
+                    </p>
+                    <p className="text-[10px] text-ink-muted line-clamp-1">
+                      {t.requester?.username || t.requester_display_name || "—"}
+                    </p>
                     <div className="mt-2 flex flex-wrap gap-1">
                       <PriorityBadge priority={t.priority} />
                     </div>
@@ -259,15 +413,17 @@ export default function TicketQueuePage() {
       <Modal
         open={statusModal.open}
         title="Move ticket"
-        onClose={() => setStatusModal({ open: false, ticketId: null, status: "", remark: "" })}
+        onClose={() => {
+          if (!statusSaving) closeStatusModal();
+        }}
         footer={
           <div className="flex justify-end gap-2">
-            <SecondaryButton
-              onClick={() => setStatusModal({ open: false, ticketId: null, status: "", remark: "" })}
-            >
+            <SecondaryButton onClick={closeStatusModal} disabled={statusSaving}>
               Cancel
             </SecondaryButton>
-            <PrimaryButton onClick={applyStatusChange}>Confirm</PrimaryButton>
+            <PrimaryButton onClick={applyStatusChange} disabled={statusSaving}>
+              {statusSaving ? "Saving…" : "Confirm"}
+            </PrimaryButton>
           </div>
         }
       >
@@ -278,6 +434,7 @@ export default function TicketQueuePage() {
           <textarea
             className="w-full min-h-[80px] border border-border rounded-control px-2.5 py-2 text-xs"
             value={statusModal.remark}
+            disabled={statusSaving}
             onChange={(e) => setStatusModal((m) => ({ ...m, remark: e.target.value }))}
             placeholder="Optional note for the timeline…"
           />

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Download, Lock, MessageSquare, Paperclip } from "lucide-react";
 import {
@@ -26,11 +26,13 @@ import {
   attachmentObjectKey,
   changeStatus,
   confirmFixed,
+  createItSupportRefreshScheduler,
   getTicketDetail,
   IT_SUPPORT_MAX_FILE_BYTES,
   listAgents,
   reopenTicket,
   setPriority,
+  subscribeItSupportRealtime,
   uploadTicketAttachment,
 } from "./itSupportApi";
 import PriorityBadge from "./components/PriorityBadge";
@@ -53,39 +55,71 @@ export default function TicketDetailPage() {
   const [comments, setComments] = useState([]);
   const [history, setHistory] = useState([]);
   const [attachments, setAttachments] = useState([]);
+  const [ccList, setCcList] = useState([]);
   const [agents, setAgents] = useState([]);
   const [commentBody, setCommentBody] = useState("");
   const [internalNote, setInternalNote] = useState(false);
   const [busy, setBusy] = useState(false);
   const [statusModal, setStatusModal] = useState({ open: false, status: "", remark: "" });
+  const agentsLoadedRef = useRef(false);
 
   const isOwner = ticket?.requester_id === user?.id;
+  const isOnCc = Boolean(
+    user?.id && (ccList || []).some((c) => c.user_id === user.id)
+  );
 
-  const load = useCallback(async () => {
-    if (!id) return;
-    setLoading(true);
-    setError("");
-    try {
-      const detail = await getTicketDetail({ ticketId: id, includeInternal: agent });
-      setTicket(detail.ticket);
-      setComments(detail.comments);
-      setHistory(detail.history);
-      setAttachments(detail.attachments);
-      if (agent) {
-        const a = await listAgents();
-        setAgents(a);
+  const applyDetail = useCallback((detail) => {
+    if (!detail) return;
+    setTicket(detail.ticket);
+    setComments(detail.comments);
+    setHistory(detail.history);
+    setAttachments(detail.attachments);
+    setCcList(detail.cc || []);
+  }, []);
+
+  const load = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!id) return;
+      if (!silent) setLoading(true);
+      setError("");
+      try {
+        const detail = await getTicketDetail({ ticketId: id, includeInternal: agent });
+        applyDetail(detail);
+        if (agent && !agentsLoadedRef.current) {
+          const a = await listAgents();
+          setAgents(a);
+          agentsLoadedRef.current = true;
+        }
+      } catch (err) {
+        setError(err.message || "Could not load ticket.");
+        if (!silent) setTicket(null);
+      } finally {
+        if (!silent) setLoading(false);
       }
-    } catch (err) {
-      setError(err.message || "Could not load ticket.");
-      setTicket(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [id, agent]);
+    },
+    [id, agent, applyDetail]
+  );
 
   useEffect(() => {
-    load();
+    agentsLoadedRef.current = false;
+    load({ silent: false });
   }, [load]);
+
+  useEffect(() => {
+    if (!id) return undefined;
+    const scheduler = createItSupportRefreshScheduler(() => load({ silent: true }), 400);
+    const unsub = subscribeItSupportRealtime(() => scheduler.schedule(), {
+      channelName: `it-support-ticket-${id}`,
+      includeNotifications: false,
+    });
+    const onFocus = () => scheduler.schedule();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      scheduler.cancel();
+      unsub();
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [id, load]);
 
   const timelineItems = useMemo(() => {
     const items = [];
@@ -107,14 +141,32 @@ export default function TicketDetailPage() {
     return items;
   }, [history, comments]);
 
+  /** Apply ticket-returning API results in place; soft-refresh activity. No full-page reload. */
   const run = async (fn, okMsg) => {
+    if (busy) return;
     setBusy(true);
     setError("");
+    const snapshot = {
+      ticket,
+      comments,
+      history,
+      attachments,
+    };
     try {
-      await fn();
+      const result = await fn();
+      if (result?.id && (result.status != null || result.ticket_no != null)) {
+        setTicket((t) => ({ ...(t || {}), ...result }));
+      } else if (result?.id && result.body != null) {
+        setComments((prev) => [...prev, result]);
+      }
       if (okMsg) toast.success(okMsg);
-      await load();
+      // Sync timeline / attachments without blanking the page.
+      await load({ silent: true });
     } catch (err) {
+      setTicket(snapshot.ticket);
+      setComments(snapshot.comments);
+      setHistory(snapshot.history);
+      setAttachments(snapshot.attachments);
       setError(err.message || "Action failed.");
       toast.error(err.message || "Action failed.");
     } finally {
@@ -171,6 +223,11 @@ export default function TicketDetailPage() {
       <div className="flex flex-wrap items-center gap-2 mb-2">
         <StatusBadge status={ticket.status} />
         <PriorityBadge priority={ticket.priority} />
+        {isOnCc && !isOwner ? (
+          <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-800">
+            You are on CC
+          </span>
+        ) : null}
         <SlaTimer
           label="First response"
           dueAt={ticket.first_response_due_at}
@@ -194,19 +251,43 @@ export default function TicketDetailPage() {
             />
             <dl className="mt-4 grid grid-cols-2 gap-2 text-xs">
               <div>
-                <dt className="text-ink-muted">Category</dt>
+                <dt className="text-ink-muted">Module</dt>
+                <dd className="font-medium text-ink-strong">
+                  {ticket.erp_module_label || ticket.erp_module_key || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">Page / sub-module</dt>
+                <dd className="font-medium text-ink-strong">
+                  {ticket.erp_submodule_label || ticket.erp_submodule_key || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">Issue type</dt>
                 <dd className="font-medium text-ink-strong">{ticket.category?.name || "—"}</dd>
               </div>
               <div>
-                <dt className="text-ink-muted">Subcategory</dt>
+                <dt className="text-ink-muted">Issue detail</dt>
                 <dd className="font-medium text-ink-strong">{ticket.subcategory?.name || "—"}</dd>
               </div>
               <div>
                 <dt className="text-ink-muted">Impact</dt>
                 <dd className="font-medium text-ink-strong">{impactLabel(ticket.impact)}</dd>
               </div>
+              <div className="col-span-2">
+                <dt className="text-ink-muted">CC</dt>
+                <dd className="font-medium text-ink-strong">
+                  {(ccList || []).length
+                    ? ccList
+                        .map((c) =>
+                          [c.display_name, c.employee_code].filter(Boolean).join(" · ")
+                        )
+                        .join(", ")
+                    : "—"}
+                </dd>
+              </div>
               <div>
-                <dt className="text-ink-muted">Requester</dt>
+                <dt className="text-ink-muted">Raised by</dt>
                 <dd className="font-medium text-ink-strong">
                   {ticket.requester?.username ||
                     ticket.requester?.email ||
@@ -263,7 +344,7 @@ export default function TicketDetailPage() {
                 icon={MessageSquare}
                 onClick={() =>
                   run(async () => {
-                    await addComment({
+                    const row = await addComment({
                       ticketId: ticket.id,
                       body: commentBody,
                       isInternal: agent && internalNote,
@@ -271,6 +352,7 @@ export default function TicketDetailPage() {
                     });
                     setCommentBody("");
                     setInternalNote(false);
+                    return row;
                   }, "Comment added")
                 }
               >
@@ -492,12 +574,13 @@ export default function TicketDetailPage() {
               disabled={busy}
               onClick={() =>
                 run(async () => {
-                  await changeStatus({
+                  const updated = await changeStatus({
                     ticketId: ticket.id,
                     status: statusModal.status,
                     remark: statusModal.remark,
                   });
                   setStatusModal({ open: false, status: "", remark: "" });
+                  return updated;
                 }, "Status updated")
               }
             >

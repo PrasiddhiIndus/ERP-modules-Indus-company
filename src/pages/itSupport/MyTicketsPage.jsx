@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Ticket } from "lucide-react";
 import {
@@ -11,23 +11,31 @@ import {
 } from "../../components/erpUi";
 import { useAuth } from "../../contexts/AuthContext";
 import { canRaise } from "./itSupportAccess";
-import { listMyTickets } from "./itSupportApi";
+import {
+  createItSupportRefreshScheduler,
+  listMyTickets,
+  subscribeItSupportRealtime,
+} from "./itSupportApi";
 import StatusBadge from "./components/StatusBadge";
 import PriorityBadge from "./components/PriorityBadge";
 import TicketFilters from "./components/TicketFilters";
 import { impactLabel } from "./itSupportConstants";
+import { formatErpModulePath } from "./itSupportModuleOptions";
 
 export default function MyTicketsPage() {
   const { user, userProfile } = useAuth();
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [filters, setFilters] = useState({ search: "", status: "" });
+  const hasLoadedRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
-    setLoading(true);
+    if (hasLoadedRef.current) setRefreshing(true);
+    else setLoading(true);
     setError("");
     try {
       const data = await listMyTickets({
@@ -36,17 +44,35 @@ export default function MyTicketsPage() {
         status: filters.status,
       });
       setRows(data);
+      hasLoadedRef.current = true;
     } catch (err) {
       setError(err.message || "Could not load tickets.");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [user?.id, filters.search, filters.status]);
 
   useEffect(() => {
-    const t = setTimeout(load, filters.search ? 250 : 0);
+    const t = setTimeout(load, filters.search ? 300 : 0);
     return () => clearTimeout(t);
   }, [load, filters.search]);
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    const scheduler = createItSupportRefreshScheduler(load, 400);
+    const unsub = subscribeItSupportRealtime(() => scheduler.schedule(), {
+      channelName: "it-support-my-tickets-live",
+      includeNotifications: false,
+    });
+    const onFocus = () => scheduler.schedule();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      scheduler.cancel();
+      unsub();
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [user?.id, load]);
 
   if (!canRaise(userProfile)) {
     return <EmptyState title="No access" message="You cannot view IT support tickets." />;
@@ -59,9 +85,30 @@ export default function MyTicketsPage() {
       render: (r) => <span className="font-medium text-ink-strong">{r.ticket_no || "—"}</span>,
     },
     {
+      key: "viewer_role",
+      label: "Role",
+      render: (r) =>
+        r.viewer_role === "cc" ? (
+          <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-800">
+            On CC
+          </span>
+        ) : (
+          <span className="text-[11px] text-ink-muted">Raised by you</span>
+        ),
+    },
+    {
       key: "title",
       label: "Title",
-      render: (r) => <span className="max-w-[280px] truncate block">{r.title}</span>,
+      render: (r) => <span className="max-w-[220px] truncate block">{r.title}</span>,
+    },
+    {
+      key: "erp_module",
+      label: "Module",
+      render: (r) => (
+        <span className="max-w-[180px] truncate block" title={formatErpModulePath(r)}>
+          {formatErpModulePath(r)}
+        </span>
+      ),
     },
     {
       key: "status",
@@ -90,7 +137,7 @@ export default function MyTicketsPage() {
     <>
       <PageTaskHeader
         title="My tickets"
-        subtitle="Track requests you have raised with IT Support."
+        subtitle="Requests you raised, plus tickets where you were kept on CC — with live status."
       />
       <TicketFilters
         search={filters.search}
@@ -102,14 +149,17 @@ export default function MyTicketsPage() {
           {error}
         </InlineAlert>
       ) : null}
+      {refreshing ? (
+        <p className="text-[11px] text-ink-muted -mt-1 mb-1">Updating…</p>
+      ) : null}
       <SectionCard title={`Tickets (${rows.length})`}>
-        {loading ? (
+        {loading && rows.length === 0 ? (
           <LoadingBlock label="Loading your tickets…" />
         ) : rows.length === 0 ? (
           <EmptyState
             icon={Ticket}
             title="No tickets yet"
-            message="When you raise a request, it will show up here."
+            message="Tickets you raise or are CC’d on will show up here."
           />
         ) : (
           <DenseTable

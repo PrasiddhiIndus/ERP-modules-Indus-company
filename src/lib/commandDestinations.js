@@ -46,6 +46,7 @@ export const COMMAND_DESTINATIONS = [
   { label: "User Management", path: "/app/user-management", group: "IT / IS", keywords: "roles access" },
   { label: "API Health", path: "/app/api-health", group: "IT / IS", keywords: "monitoring" },
   { label: "Software Subscriptions", path: "/app/software-subscriptions-reminders", group: "IT / IS", keywords: "" },
+  { label: "IT Support", path: "/app/it-support", group: "IT / IS", keywords: "helpdesk ticket raise queue" },
   { label: "Settings", path: "/app/settings", group: "System", keywords: "profile account" },
   { label: "Commercial MT Dashboard", path: "/app/commercial/manpower-training/dashboard", group: "Commercial", keywords: "manpower training" },
   { label: "Commercial PO Entry", path: "/app/commercial/manpower-training/po-entry", group: "Commercial", keywords: "contract" },

@@ -832,7 +832,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
         ? "PO At Glance resubmitted. Approval restarts from Stage 1." : saved ? "PO At Glance updated." : res.oc_no ? `PO At Glance for OC No. ${res.oc_no} created.` : "PO At Glance created.");
       onSaved?.(res.id);
 
-      if (projectsPo && creating) {
+      if (department.mailEvents?.includes("created") && creating) {
         try {
           await notifyOcSignoff({ ocId: res.id, event: "created" }, department);
         } catch (mailErr) {
@@ -948,7 +948,7 @@ export default function OcCreationForm({ ocId, canEdit, onBack, onSaved, departm
           ocDate: form.oc_date || null,
           expectedUpdatedAt,
         });
-        if (projectsPo) {
+        if (department.mailEvents?.includes("oc_number")) {
           try {
             await notifyOcSignoff({
               ocId: form.id,

@@ -71,6 +71,8 @@ export const PROJECTS_OC_DEPARTMENT = {
   },
   rpc: { save: "pj_oc_save", employeeOptions: "pj_oc_employee_options" },
   notifyPath: "/api/projects/oc/signoff-notify",
+  /** Events emailed in the PO's own email thread (server/ocSignoffNotifyApi.js OC_NOTIFY_PROFILES). */
+  mailEvents: ["created", "stage", "oc_number", "revision"],
   accessDeniedMessage: "You do not have access to Projects PO At Glance.",
   canEdit: pjOcCanEdit,
   canDelete: pjOcCanDelete,
