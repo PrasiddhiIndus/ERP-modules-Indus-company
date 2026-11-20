@@ -78,3 +78,118 @@ export async function fetchEmployeeMasterFieldHistory(employeeMasterId) {
     (row) => !EMPLOYEE_MASTER_HISTORY_SYSTEM_FIELD_KEYS.has(String(row?.field_key || ""))
   );
 }
+
+/**
+ * Resolve creator name + employee code from immutable creation metadata.
+ * Prefers field-history `__created__` (changed_by / changed_by_name); falls back to
+ * `admin_ifsp_employee_master.created_by` (email stamp set only on insert).
+ * Does not write or alter employee rows.
+ */
+export async function fetchEmployeeMasterCreatedBy(employeeMasterId, createdByEmail = null) {
+  if (employeeMasterId == null || employeeMasterId === "") {
+    return { name: null, employeeCode: null, createdAt: null, display: "—" };
+  }
+
+  let name = null;
+  let employeeCode = null;
+  let createdAt = null;
+  let actorId = null;
+
+  const { data: createdRow } = await supabase
+    .from(EMPLOYEE_MASTER_HISTORY_TABLE)
+    .select("changed_by, changed_by_name, changed_at")
+    .eq("employee_master_id", employeeMasterId)
+    .eq("field_key", "__created__")
+    .order("changed_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (createdRow) {
+    name = String(createdRow.changed_by_name || "").trim() || null;
+    createdAt = createdRow.changed_at || null;
+    actorId = createdRow.changed_by || null;
+  }
+
+  if (actorId) {
+    // Prefer Employee Master linked to the creator's login (same source as history actor name).
+    const { data: masterByUser } = await supabase
+      .from("admin_ifsp_employee_master")
+      .select("full_name, employee_code")
+      .eq("user_id", actorId)
+      .limit(1)
+      .maybeSingle();
+    if (masterByUser) {
+      if (masterByUser.full_name) name = String(masterByUser.full_name).trim() || name;
+      employeeCode = String(masterByUser.employee_code || "").trim() || employeeCode;
+    }
+
+    if (!name || !employeeCode) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("id, username, email, employee_code")
+        .eq("id", actorId)
+        .maybeSingle();
+      if (profile) {
+        if (!employeeCode) employeeCode = String(profile.employee_code || "").trim() || null;
+        if (!name) {
+          name =
+            String(profile.username || "").trim() ||
+            String(profile.email || "").trim() ||
+            null;
+        }
+      }
+    }
+
+    if (employeeCode && !name) {
+      const { data: master } = await supabase
+        .from("admin_ifsp_employee_master")
+        .select("full_name, employee_code")
+        .eq("employee_code", employeeCode)
+        .limit(1)
+        .maybeSingle();
+      if (master?.full_name) name = String(master.full_name).trim() || name;
+    }
+  }
+
+  const emailHint = String(createdByEmail || "").trim();
+  if ((!name || !employeeCode) && emailHint) {
+    const { data: byEmail } = await supabase
+      .from("profiles")
+      .select("username, email, employee_code")
+      .ilike("email", emailHint)
+      .limit(1)
+      .maybeSingle();
+    if (byEmail) {
+      if (!employeeCode) employeeCode = String(byEmail.employee_code || "").trim() || null;
+      if (!name) {
+        name =
+          String(byEmail.username || "").trim() ||
+          String(byEmail.email || "").trim() ||
+          emailHint;
+      }
+    }
+    if (!name || !employeeCode) {
+      const { data: masterByEmail } = await supabase
+        .from("admin_ifsp_employee_master")
+        .select("full_name, employee_code, email_id")
+        .ilike("email_id", emailHint)
+        .limit(1)
+        .maybeSingle();
+      if (masterByEmail) {
+        if (!name) name = String(masterByEmail.full_name || "").trim() || null;
+        if (!employeeCode) employeeCode = String(masterByEmail.employee_code || "").trim() || null;
+      }
+    }
+    if (!name) name = emailHint;
+  }
+
+  const parts = [name, employeeCode].filter(Boolean);
+  const display = parts.length
+    ? employeeCode && name
+      ? `${name} · ${employeeCode}`
+      : parts.join(" · ")
+    : "—";
+
+  return { name, employeeCode, createdAt, display };
+}

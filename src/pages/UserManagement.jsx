@@ -26,6 +26,7 @@ import {
   buildUserManagementExportRows,
   exportUserManagementToExcel,
 } from "../lib/userManagementExcel";
+import { toast } from "../lib/toast";
 import {
   employeeMasterToEditHierarchyFields,
   enrichProfileWithHierarchy,
@@ -523,6 +524,7 @@ const UserManagement = () => {
     setExportBusy(true);
     setError("");
     try {
+      // Same filters / access scope as the list (Super Admin only page; site logins excluded).
       const result = await fetchAllUserManagementProfiles(supabase, {
         filters: activeFilters,
         preferEmpCode: empCodeSupported !== false,
@@ -531,27 +533,26 @@ const UserManagement = () => {
 
       if (result.error) {
         setError(result.error.message || "Unable to export users.");
+        toast.error(result.error.message || "Unable to export users.");
         return;
       }
 
       const enriched = await enrichProfilesWithHierarchy(result.data ?? []);
-      const includeEmpCode =
-        empCodeSupported !== false && result.empCodeSupported !== false;
-      const rows = buildUserManagementExportRows(enriched, {
-        includeEmpCode,
-        includeHierarchy: hierarchySupported !== false,
-      });
+      const rows = buildUserManagementExportRows(enriched);
 
       if (!rows.length) {
         setError("No users to export.");
+        toast.error("No users to export.");
         return;
       }
 
       const suffix = filtersActive ? "filtered" : "all";
       const stamp = new Date().toISOString().slice(0, 10);
       exportUserManagementToExcel(rows, `users-export-${suffix}-${stamp}`);
+      toast.success(`Exported ${rows.length} user${rows.length === 1 ? "" : "s"} to Excel.`);
     } catch {
       setError("Unable to export users.");
+      toast.error("Unable to export users.");
     } finally {
       setExportBusy(false);
     }
@@ -1076,15 +1077,16 @@ const UserManagement = () => {
               Bulk import
             </button>
           ) : null}
-          <button
+          {/* <button
             type="button"
             onClick={handleExportExcel}
             disabled={loading || exportBusy || total === 0}
             className={`${actionBtnCls} border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed`}
+            title="Download users as Excel (.xlsx). Password column is blank (not stored)."
           >
             <Download className="w-4 h-4" />
-            {exportBusy ? "Exporting…" : "Export Excel"}
-          </button>
+            {exportBusy ? "Exporting…" : "Export"}
+          </button> */}
         </div>
       </div>
 
