@@ -105,18 +105,31 @@
 .indus-payroll .ps-card{overflow:visible}
 .indus-payroll .ps-bar{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
 .indus-payroll .ps-field{margin:0;min-width:0}
-/* Sites + Run type + Working on: same footprint */
+/* Sites + Run type + Month + Working on: same footprint */
 .indus-payroll .ps-field-sites,
 .indus-payroll .ps-field-rtype,
+.indus-payroll .ps-field-month,
 .indus-payroll .ps-field-focus{
   position:relative;
-  flex:1 1 240px;
-  min-width:min(240px,100%);
-  max-width:320px;
+  flex:1 1 200px;
+  min-width:min(200px,100%);
+  max-width:280px;
 }
 .indus-payroll .ps-field-sites .ps-trigger,
 .indus-payroll .ps-field #ps_focus,
-.indus-payroll .ps-field #rtype{width:100%}
+.indus-payroll .ps-field #rtype,
+.indus-payroll .ps-field #ps_month{width:100%}
+.indus-payroll .ps-field-month #ps_month{min-width:0}
+/* Site attendance summary (Process salary step 1) */
+.indus-payroll .ps-sum{position:sticky;top:88px}
+.indus-payroll .ps-sum-meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.indus-payroll .ps-sum-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.indus-payroll .ps-sum-kpis div{padding:8px 10px;border:1px solid var(--line2);border-radius:8px;background:#fafbfc}
+.indus-payroll .ps-sum-kpis span{display:block;font-size:11.5px;color:var(--ink3);font-weight:550}
+.indus-payroll .ps-sum-kpis b{font-size:16px;font-variant-numeric:tabular-nums;font-weight:650}
+.indus-payroll .ps-sum-rules{margin-bottom:14px;line-height:1.45}
+.indus-payroll .ps-sum-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.indus-payroll .ps-sum-empty{padding:18px 4px;font-size:13px}
 .indus-payroll .ps-status{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-left:auto;padding-bottom:2px;min-height:34px}
 /* Sites closed: same clean select look as Run type (no SVG background — that stretched into zigzags) */
 .indus-payroll button.in.ps-trigger{
