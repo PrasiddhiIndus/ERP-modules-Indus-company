@@ -490,13 +490,28 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
     }
   };
 
-  const reload = async (id) => {
+  const reloadWithHistory = async (id) => {
     const [bundle, history] = await Promise.all([loadCmOc(id), loadCmPoHistory(id)]);
     const f = cmFormFromRecord(bundle, SLOTS);
     setForm(f);
     setInitial(JSON.stringify(f));
     setPoHistory(history || []);
-    return f;
+    return { f, history: history || [] };
+  };
+
+  const reload = async (id) => (await reloadWithHistory(id)).f;
+
+  /**
+   * Emails a PO update in the PO's own email thread, after the save has succeeded.
+   * The server checks the event against the database; a failure never undoes the save.
+   */
+  const notifyUpdate = async (ocId, event, failText) => {
+    try {
+      await notifyCmSignoff({ ocId, event });
+    } catch (mailErr) {
+      console.error(`[Commercial PO At Glance] ${event} email failed`, mailErr);
+      toast.error(failText);
+    }
   };
 
   /** Signs one stage with the caller's own signature, reloads, and emails the assigned users. */
@@ -536,8 +551,11 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
     }
     const creating = !form.id;
     const pendingUpload = pendingWoFiles.map((p) => p.file);
+    const before = JSON.parse(initial);
+    const lastRevision = Number(poHistory[0]?.revision_no || 0);
     setSaving(true);
     let res;
+    let after = null;
     try {
       res = await saveCmOc(toCmSavePayload(form));
       if (pendingUpload.length) {
@@ -548,7 +566,7 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
           toast.error(friendlyCmError(uploadErr, "PO saved, but work order files could not be uploaded."));
         }
       }
-      await reload(res.id);
+      after = await reloadWithHistory(res.id);
       toast.success(saved ? "PO At Glance updated." : res.oc_no ? `PO At Glance for OC No. ${res.oc_no} created.` : "PO At Glance created.");
       onSaved?.(res.id);
     } catch (e) {
@@ -556,6 +574,18 @@ export default function CommercialPoForm({ ocId, canEdit, onBack, onSaved, defau
       return;
     } finally {
       setSaving(false);
+    }
+    if (res?.id) {
+      if (creating) await notifyUpdate(res.id, "created", "PO saved. The notification email could not be sent.");
+      const savedOc = after?.f || {};
+      const ocChanged = String(savedOc.oc_no || "").trim()
+        && (String(savedOc.oc_no || "").trim() !== String(before.oc_no || "").trim()
+          || String(savedOc.oc_date || "") !== String(before.oc_date || ""));
+      if (ocChanged) await notifyUpdate(res.id, "oc_number", "OC Number saved. The update email could not be sent.");
+      const latest = after?.history?.[0];
+      if (!creating && latest?.event_kind === "amended" && Number(latest.revision_no) > lastRevision) {
+        await notifyUpdate(res.id, "revision", "Customer PO amendment saved. The update email could not be sent.");
+      }
     }
     // Stage 1: the OC creator's own signature is applied automatically when the PO is first saved.
     if (creating && res?.id) await signStage(res.id, "CREATOR", { quiet: true });

@@ -13,23 +13,70 @@ import {
   TinySelect,
 } from "../../components/erpUi";
 import { useAuth } from "../../contexts/AuthContext";
+import { useProbationReviewsAccess } from "../adminOperations/probationReviews/probationAccess";
 import { toast } from "../../lib/toast";
 import { canRaise } from "./itSupportAccess";
 import { IMPACT_OPTIONS } from "./itSupportConstants";
 import { createTicket, IT_SUPPORT_MAX_FILE_BYTES, listCategories } from "./itSupportApi";
+import {
+  findModuleOption,
+  findSubmoduleOption,
+  getItSupportModuleOptionsForUser,
+} from "./itSupportModuleOptions";
+import CcEmployeePicker from "./components/CcEmployeePicker";
 import RichTextField from "./components/RichTextField";
 
 const ALLOWED_EXT = /\.(pdf|jpe?g|png|webp|xlsx?|docx?)$/i;
 
+const fieldClass = "w-full";
+
 export default function RaiseTicketPage() {
-  const { user, userProfile } = useAuth();
+  const { user, userProfile, accessibleModules, subModulePaths } = useAuth();
+  const { canAccess: canSeeProbationReviews } = useProbationReviewsAccess();
+  const assignmentKey = useMemo(
+    () =>
+      JSON.stringify({
+        team: userProfile?.team ?? null,
+        role: userProfile?.role ?? null,
+        modules: userProfile?.allowed_modules ?? [],
+        subs: userProfile?.allowed_sub_modules ?? [],
+        access: accessibleModules ? [...accessibleModules].sort() : [],
+        paths: subModulePaths ? [...subModulePaths].sort() : [],
+        probation: Boolean(canSeeProbationReviews),
+      }),
+    [
+      userProfile?.team,
+      userProfile?.role,
+      userProfile?.allowed_modules,
+      userProfile?.allowed_sub_modules,
+      accessibleModules,
+      subModulePaths,
+      canSeeProbationReviews,
+    ]
+  );
+  const moduleOptions = useMemo(
+    () =>
+      getItSupportModuleOptionsForUser(
+        userProfile,
+        accessibleModules,
+        {
+          ...(user?.user_metadata || {}),
+          email: userProfile?.email || user?.email || "",
+        },
+        subModulePaths,
+        { probationReviews: Boolean(canSeeProbationReviews) }
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [assignmentKey, userProfile, accessibleModules, subModulePaths, user?.user_metadata, user?.email, canSeeProbationReviews]
+  );
   const [categories, setCategories] = useState([]);
-  const [subcategories, setSubcategories] = useState([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [erpModuleKey, setErpModuleKey] = useState("");
+  const [erpSubmoduleKey, setErpSubmoduleKey] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [subcategoryId, setSubcategoryId] = useState("");
   const [impact, setImpact] = useState("only_me");
+  const [ccPeople, setCcPeople] = useState([]);
   const [files, setFiles] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -39,13 +86,12 @@ export default function RaiseTicketPage() {
     let cancelled = false;
     (async () => {
       try {
-        const { categories: cats, subcategories: subs } = await listCategories();
+        const { categories: cats } = await listCategories({ forRaise: true });
         if (!cancelled) {
           setCategories((cats || []).filter((c) => c.is_active !== false));
-          setSubcategories((subs || []).filter((s) => s.is_active !== false));
         }
       } catch (err) {
-        if (!cancelled) setError(err.message || "Could not load categories.");
+        if (!cancelled) setError(err.message || "Could not load issue types.");
       }
     })();
     return () => {
@@ -53,10 +99,38 @@ export default function RaiseTicketPage() {
     };
   }, []);
 
-  const filteredSubs = useMemo(
-    () => subcategories.filter((s) => String(s.category_id) === String(categoryId)),
-    [subcategories, categoryId]
+  useEffect(() => {
+    if (erpModuleKey && !moduleOptions.some((m) => m.value === erpModuleKey)) {
+      setErpModuleKey("");
+      setErpSubmoduleKey("");
+      return;
+    }
+    const mod = findModuleOption(erpModuleKey, moduleOptions);
+    const subs = mod?.subModules || [];
+    if (erpSubmoduleKey && !subs.some((s) => s.value === erpSubmoduleKey)) {
+      setErpSubmoduleKey("");
+    }
+  }, [moduleOptions, erpModuleKey, erpSubmoduleKey]);
+
+  const selectedModule = useMemo(
+    () => findModuleOption(erpModuleKey, moduleOptions),
+    [erpModuleKey, moduleOptions]
   );
+  const erpSubOptions = selectedModule?.subModules || [];
+  const submoduleRequired = erpSubOptions.length > 0;
+
+  const resetForm = () => {
+    setCreated(null);
+    setTitle("");
+    setDescription("");
+    setErpModuleKey("");
+    setErpSubmoduleKey("");
+    setCategoryId("");
+    setImpact("only_me");
+    setCcPeople([]);
+    setFiles([]);
+    setError("");
+  };
 
   if (!canRaise(userProfile)) {
     return (
@@ -78,24 +152,15 @@ export default function RaiseTicketPage() {
           </p>
           <p className="mt-2 text-xs text-ink-muted max-w-md mx-auto">
             Keep this number for your records. The IT team will pick it up shortly.
+            {ccPeople.length
+              ? ` People on CC can follow it from My Tickets.`
+              : ""}
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-2">
             <Link to={`/app/it-support/tickets/${created.id}`}>
               <PrimaryButton>View ticket</PrimaryButton>
             </Link>
-            <SecondaryButton
-              onClick={() => {
-                setCreated(null);
-                setTitle("");
-                setDescription("");
-                setCategoryId("");
-                setSubcategoryId("");
-                setImpact("only_me");
-                setFiles([]);
-              }}
-            >
-              Raise another
-            </SecondaryButton>
+            <SecondaryButton onClick={resetForm}>Raise another</SecondaryButton>
             <Link to="/app/it-support/my">
               <SecondaryButton>My tickets</SecondaryButton>
             </Link>
@@ -116,18 +181,33 @@ export default function RaiseTicketPage() {
       setError("Please describe the issue.");
       return;
     }
-    if (!categoryId) {
-      setError("Please choose a category.");
+    if (!erpModuleKey) {
+      setError("Please choose which module the issue is in.");
       return;
     }
+    if (submoduleRequired && !erpSubmoduleKey) {
+      setError("Please choose the sub-module where the issue happened.");
+      return;
+    }
+    if (!categoryId) {
+      setError("Please choose an issue type.");
+      return;
+    }
+    const modOpt = findModuleOption(erpModuleKey, moduleOptions);
+    const subOpt = findSubmoduleOption(erpModuleKey, erpSubmoduleKey, moduleOptions);
     setSubmitting(true);
     try {
       const ticket = await createTicket({
         title,
         description,
         categoryId,
-        subcategoryId: subcategoryId || null,
+        subcategoryId: null,
         impact,
+        erpModuleKey,
+        erpModuleLabel: modOpt?.label || erpModuleKey,
+        erpSubmoduleKey: erpSubmoduleKey || null,
+        erpSubmoduleLabel: subOpt?.label || null,
+        ccUserIds: ccPeople.map((p) => p.profileId),
         requesterId: user?.id,
         requesterEmployeeCode: userProfile?.employee_code || null,
         requesterDepartment: userProfile?.team || null,
@@ -150,131 +230,201 @@ export default function RaiseTicketPage() {
   };
 
   return (
-    <>
+    <div className="w-full min-w-0">
       <PageTaskHeader
+        className="mb-3"
         title="Raise a ticket"
-        subtitle="Tell us what you need help with. The IT team will respond as soon as they can."
+        subtitle="Describe the issue, choose where it happens, and submit to IT Support."
       />
       {error ? (
-        <InlineAlert tone="error" onDismiss={() => setError("")}>
-          {error}
-        </InlineAlert>
+        <div className="mb-3">
+          <InlineAlert tone="error" onDismiss={() => setError("")}>
+            {error}
+          </InlineAlert>
+        </div>
       ) : null}
-      <SectionCard title="New request">
-        <form onSubmit={onSubmit} className="space-y-4 max-w-2xl">
-          <FormField label="Title" required>
-            <TinyInput
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Cannot connect to VPN"
-              className="w-full"
-              maxLength={200}
-            />
-          </FormField>
+      <SectionCard title="New request" className="w-full">
+        <form onSubmit={onSubmit} className="w-full min-w-0 space-y-4">
+          <div className="grid grid-cols-1 gap-x-4 gap-y-4 lg:grid-cols-12">
+            <div className="lg:col-span-12">
+              <FormField label="Title" required>
+                <TinyInput
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Cannot open Attendance register"
+                  className={fieldClass}
+                  maxLength={200}
+                />
+              </FormField>
+            </div>
 
-          <FormField label="Description" required hint="Include steps to reproduce and any error messages.">
-            <RichTextField value={description} onChange={setDescription} />
-          </FormField>
+            <div className="lg:col-span-12">
+              <FormField
+                label="Description"
+                required
+                hint="Steps to reproduce and any error messages."
+                htmlFor="it-raise-description"
+              >
+                <RichTextField
+                  id="it-raise-description"
+                  value={description}
+                  onChange={setDescription}
+                  className="w-full"
+                />
+              </FormField>
+            </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <FormField label="Category" required>
-              <TinySelect
-                value={categoryId}
-                onChange={(e) => {
-                  setCategoryId(e.target.value);
-                  setSubcategoryId("");
-                }}
-                className="w-full"
+            <div className="lg:col-span-6 min-w-0">
+              <FormField label="Module" required>
+                <TinySelect
+                  value={erpModuleKey}
+                  onChange={(e) => {
+                    setErpModuleKey(e.target.value);
+                    setErpSubmoduleKey("");
+                  }}
+                  className={fieldClass}
+                >
+                  <option value="">Select…</option>
+                  {moduleOptions.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </TinySelect>
+              </FormField>
+            </div>
+            <div className="lg:col-span-6 min-w-0">
+              <FormField
+                label="Sub Module"
+                required={submoduleRequired}
+                hint={
+                  !erpModuleKey
+                    ? "Select a module first."
+                    : submoduleRequired
+                      ? "Same labels as the sidebar."
+                      : "Not needed for this module."
+                }
               >
-                <option value="">Select…</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
+                <TinySelect
+                  value={erpSubmoduleKey}
+                  onChange={(e) => setErpSubmoduleKey(e.target.value)}
+                  className={fieldClass}
+                  disabled={!erpModuleKey || !submoduleRequired}
+                >
+                  <option value="">
+                    {!erpModuleKey ? "Select a module first…" : submoduleRequired ? "Select…" : "—"}
                   </option>
-                ))}
-              </TinySelect>
-            </FormField>
-            <FormField label="Subcategory">
-              <TinySelect
-                value={subcategoryId}
-                onChange={(e) => setSubcategoryId(e.target.value)}
-                className="w-full"
-                disabled={!categoryId}
+                  {erpSubOptions.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </TinySelect>
+              </FormField>
+            </div>
+
+            <div className="lg:col-span-6 min-w-0">
+              <FormField label="Issue type" required>
+                <TinySelect
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  className={fieldClass}
+                >
+                  <option value="">Select…</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </TinySelect>
+              </FormField>
+            </div>
+            <div className="lg:col-span-6 min-w-0">
+              <FormField label="Who is affected?" required>
+                <TinySelect
+                  value={impact}
+                  onChange={(e) => setImpact(e.target.value)}
+                  className={fieldClass}
+                >
+                  {IMPACT_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </TinySelect>
+              </FormField>
+            </div>
+
+            <div className="lg:col-span-8 min-w-0">
+              <FormField
+                label="CC"
+                hint="Type a name, then select from Employee Master. They see this ticket under My Tickets."
+                htmlFor="it-raise-cc"
               >
-                <option value="">Optional…</option>
-                {filteredSubs.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </TinySelect>
-            </FormField>
+                <CcEmployeePicker value={ccPeople} onChange={setCcPeople} disabled={submitting} />
+              </FormField>
+            </div>
+            <div className="lg:col-span-4 min-w-0">
+              <FormField
+                label="Attachments"
+                hint="Max 10 MB each · pdf, jpg, png, webp, xls, xlsx, doc, docx"
+              >
+                <div className="flex flex-col gap-2">
+                  <label className="inline-flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-control border border-border bg-surface px-3 text-xs text-ink-secondary hover:bg-surface-sunken">
+                    <Paperclip className="w-3.5 h-3.5 shrink-0" />
+                    Add files
+                    <input
+                      type="file"
+                      multiple
+                      accept=".pdf,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.doc,.docx"
+                      className="hidden"
+                      onChange={(e) => {
+                        const picked = Array.from(e.target.files || []);
+                        const ok = [];
+                        const bad = [];
+                        for (const f of picked) {
+                          if (!ALLOWED_EXT.test(f.name)) {
+                            bad.push(`${f.name}: file type not allowed`);
+                            continue;
+                          }
+                          if (f.size > IT_SUPPORT_MAX_FILE_BYTES) {
+                            bad.push(`${f.name}: over 10 MB`);
+                            continue;
+                          }
+                          ok.push(f);
+                        }
+                        setFiles(ok);
+                        if (bad.length) {
+                          setError(bad.join(". "));
+                          toast.error(bad[0]);
+                        }
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  {files.length > 0 ? (
+                    <ul className="space-y-0.5 text-[11px] text-ink-muted">
+                      {files.map((f) => (
+                        <li key={f.name + f.size} className="truncate">
+                          {f.name} ({Math.round(f.size / 1024)} KB)
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-[11px] text-ink-muted">No files selected</p>
+                  )}
+                </div>
+              </FormField>
+            </div>
           </div>
 
-          <FormField label="Who is affected?" required>
-            <TinySelect value={impact} onChange={(e) => setImpact(e.target.value)} className="w-full max-w-xs">
-              {IMPACT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </TinySelect>
-          </FormField>
-
-          <FormField
-            label="Attachments"
-            hint="Stored on Cloudflare (R2). Max 10 MB each. Allowed: pdf, jpg, png, webp, xls, xlsx, doc, docx."
-          >
-            <label className="inline-flex items-center gap-2 h-9 px-3 rounded-control border border-border bg-surface text-xs text-ink-secondary cursor-pointer hover:bg-surface-sunken">
-              <Paperclip className="w-3.5 h-3.5" />
-              Add files
-              <input
-                type="file"
-                multiple
-                accept=".pdf,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.doc,.docx"
-                className="hidden"
-                onChange={(e) => {
-                  const picked = Array.from(e.target.files || []);
-                  const ok = [];
-                  const bad = [];
-                  for (const f of picked) {
-                    if (!ALLOWED_EXT.test(f.name)) {
-                      bad.push(`${f.name}: file type not allowed`);
-                      continue;
-                    }
-                    if (f.size > IT_SUPPORT_MAX_FILE_BYTES) {
-                      bad.push(`${f.name}: over 10 MB`);
-                      continue;
-                    }
-                    ok.push(f);
-                  }
-                  setFiles(ok);
-                  if (bad.length) {
-                    setError(bad.join(". "));
-                    toast.error(bad[0]);
-                  }
-                  e.target.value = "";
-                }}
-              />
-            </label>
-            {files.length > 0 ? (
-              <ul className="mt-2 text-[11px] text-ink-muted space-y-0.5">
-                {files.map((f) => (
-                  <li key={f.name + f.size}>
-                    {f.name} ({Math.round(f.size / 1024)} KB) → Cloudflare R2
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </FormField>
-
-          <div className="pt-2">
+          <div className="mt-1 flex items-center justify-end border-t border-border pt-3">
             <PrimaryButton type="submit" disabled={submitting}>
               {submitting ? "Submitting…" : "Submit ticket"}
             </PrimaryButton>
           </div>
         </form>
       </SectionCard>
-    </>
+    </div>
   );
 }

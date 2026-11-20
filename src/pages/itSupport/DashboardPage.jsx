@@ -10,7 +10,12 @@ import {
 } from "../../components/erpUi";
 import { useAuth } from "../../contexts/AuthContext";
 import { canAgent, canAdmin } from "./itSupportAccess";
-import { dashboardCounts } from "./itSupportApi";
+import {
+  createItSupportRefreshScheduler,
+  dashboardCounts,
+  IT_SUPPORT_OPEN_COUNT_EVENT,
+  subscribeItSupportRealtime,
+} from "./itSupportApi";
 
 export default function DashboardPage() {
   const { user, userProfile } = useAuth();
@@ -21,22 +26,40 @@ export default function DashboardPage() {
 
   const allowed = canAgent(userProfile) || canAdmin(userProfile);
 
-  const load = useCallback(async () => {
-    if (!allowed) return;
-    setLoading(true);
-    setError("");
-    try {
-      const data = await dashboardCounts({ userId: user?.id });
-      setCounts(data);
-    } catch (err) {
-      setError(err.message || "Could not load dashboard.");
-    } finally {
-      setLoading(false);
-    }
-  }, [allowed, user?.id]);
+  const load = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!allowed) return;
+      if (!silent) setLoading(true);
+      setError("");
+      try {
+        const data = await dashboardCounts({ userId: user?.id });
+        setCounts(data);
+      } catch (err) {
+        setError(err.message || "Could not load dashboard.");
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [allowed, user?.id]
+  );
 
   useEffect(() => {
-    load();
+    load({ silent: false });
+    const scheduler = createItSupportRefreshScheduler(() => load({ silent: true }), 350);
+    const onChanged = () => scheduler.schedule();
+    const unsub = subscribeItSupportRealtime(onChanged, {
+      channelName: "it-support-dashboard-live",
+      includeNotifications: false,
+    });
+    window.addEventListener(IT_SUPPORT_OPEN_COUNT_EVENT, onChanged);
+    const onFocus = () => scheduler.schedule();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      scheduler.cancel();
+      unsub();
+      window.removeEventListener(IT_SUPPORT_OPEN_COUNT_EVENT, onChanged);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [load]);
 
   if (!allowed) {

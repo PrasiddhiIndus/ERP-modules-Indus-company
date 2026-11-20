@@ -62,6 +62,8 @@ export const RM_OC_DEPARTMENT = {
   },
   rpc: { save: "rm_oc_save", employeeOptions: "rm_oc_employee_options" },
   notifyPath: "/api/rm/oc/signoff-notify",
+  /** Events emailed in the PO's own email thread (server/ocSignoffNotifyApi.js OC_NOTIFY_PROFILES). */
+  mailEvents: ["created", "stage", "oc_number"],
   accessDeniedMessage: "You do not have access to R&M PO At Glance.",
   canEdit: rmOcCanEdit,
   canDelete: rmOcCanDelete,

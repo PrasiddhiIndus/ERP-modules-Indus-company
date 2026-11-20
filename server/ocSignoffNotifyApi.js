@@ -1,11 +1,17 @@
 /**
- * IEV PO At Glance — email the four sign-off assignees when a PO slot is signed.
+ * PO At Glance (IEV, Maintenance, Projects, R&M, Commercial) — email the department's sign-off
+ * assignees about a PO. Each PO has one email thread per department: creation, stage sign-offs,
+ * OC Number updates and revisions are replies in it (pj_oc_mail_thread for Projects,
+ * oc_mail_thread for the others).
  * From address: a Verified mailbox from CRM Outreach → Sender Mailboxes that the caller may use.
  *
  * Security (fix C3): nothing that ends up in the email is trusted from the request body.
  *   - Stage emails: only slots the caller actually signed (signed_user_id in the sign-off table).
  *   - Projects created / OC Number / revision emails: verified against the approval log / OC Number
  *     audit written by the database, or (fallback) the caller must have the department's module access.
+ *   - Other departments: created → the record's created_by or department access; OC Number → the
+ *     Finance OC Number audit, else department / Finance access and a saved OC Number; Commercial
+ *     revision → the latest amended customer PO in cm_oc_po_history, recorded by the caller.
  *   - Signer name, OC Number, date, remarks and "sent by" come from the database.
  *   - Sender mailbox: personal mailboxes only for their owner (same rule as CRM Outreach).
  *   - Each event is emailed once (public.oc_signoff_notify_log); a failed send can be retried.
@@ -16,7 +22,11 @@ import { isValidEmployeeEmail, normalizeEmployeeEmail } from '../shared/crmInHou
 import { OC_DEPARTMENT_SCOPE, profileHasDataScope } from '../shared/erpDataScopes.mjs';
 import { claimOcNotify, completeOcNotify, failOcNotify } from './ocNotifyIdempotency.js';
 
-/** Per-department tables, box labels and wording. IEV is the default; Maintenance has its own records. */
+/**
+ * Per-department tables, box labels and wording. IEV is the default; Maintenance has its own records.
+ * mailEvents: the events emailed for that department, all in one thread per PO (anything else is a stage email).
+ * threadLabel: department name at the start of the thread subject (Projects keeps its original subject).
+ */
 export const OC_NOTIFY_PROFILES = {
   iev: {
     masterTable: 'oc_master',
@@ -31,6 +41,8 @@ export const OC_NOTIFY_PROFILES = {
     reviewPath: 'IEV → Costing Hub → PO At Glance',
     configPath: 'IEV Configuration → PO At Glance Sign-off',
     assigneeCount: 'four',
+    mailEvents: ['created', 'stage', 'oc_number'],
+    threadLabel: 'IEV',
   },
   maintenance: {
     masterTable: 'mm_oc_master',
@@ -44,6 +56,8 @@ export const OC_NOTIFY_PROFILES = {
     reviewPath: 'Maintenance → PO At Glance',
     configPath: 'Maintenance → PO At Glance Sign-off Assignment',
     assigneeCount: 'three',
+    mailEvents: ['created', 'stage', 'oc_number'],
+    threadLabel: 'Maintenance',
   },
   projects: {
     masterTable: 'pj_oc_master',
@@ -58,6 +72,7 @@ export const OC_NOTIFY_PROFILES = {
     reviewPath: 'Projects → PO At Glance',
     configPath: 'Projects → PO At Glance Sign-off Assignment',
     assigneeCount: 'four',
+    mailEvents: ['created', 'stage', 'oc_number', 'revision'],
   },
   rm: {
     masterTable: 'rm_oc_master',
@@ -71,6 +86,8 @@ export const OC_NOTIFY_PROFILES = {
     reviewPath: 'R&M → PO At Glance',
     configPath: 'R&M → PO At Glance Sign-off Assignment',
     assigneeCount: 'three',
+    mailEvents: ['created', 'stage', 'oc_number'],
+    threadLabel: 'R&M',
   },
   commercial: {
     masterTable: 'cm_oc_master',
@@ -89,6 +106,9 @@ export const OC_NOTIFY_PROFILES = {
     reviewPath: 'Commercial → PO At Glance',
     configPath: 'Commercial → PO At Glance Sign-off Assignment',
     assigneeCount: 'Commercial approval',
+    /** Revision = an amended customer PO (cm_oc_po_history); Commercial has no send-back step. */
+    mailEvents: ['created', 'stage', 'oc_number', 'revision'],
+    threadLabel: 'Commercial',
   },
 };
 
@@ -251,13 +271,24 @@ function signerDetailsHtml(profile, sign) {
   return `<li><strong>${escapeHtml(slotLabel(profile, sign.slot))}</strong> — signed by ${escapeHtml(name)}${facts}</li>`;
 }
 
-function projectsThreadSubject(master) {
+/**
+ * Subject of a PO's email thread (stored with the first message and reused).
+ * Projects keeps its original subject; other departments start with their name, so two POs
+ * with the same client and PO number in different departments never look like one conversation.
+ */
+function threadSubject(profile, master) {
   const client = String(master?.client_name || '').trim() || 'PO At Glance';
   const poWo = String(master?.po_wo_no || '').trim();
-  return poWo ? `PO At Glance — ${client} · ${poWo}` : `PO At Glance — ${client}`;
+  const prefix = profile?.threadLabel ? `${profile.threadLabel} PO At Glance` : 'PO At Glance';
+  return poWo ? `${prefix} — ${client} · ${poWo}` : `${prefix} — ${client}`;
 }
 
-function projectsThreadHtml({ profile, master, event, signatures, signerName, ocNo, ocDate, remarks, actorName }) {
+/** Body of one message in a PO's thread. Projects wording is unchanged. */
+function threadHtml({ profile, master, event, signatures, signerName, ocNo, ocDate, remarks, actorName, poRevision }) {
+  // Other departments keep their existing stage email content (OC No., client, PO/WO, signatures).
+  if (event === 'stage' && profile.threadLabel) {
+    return buildEmail({ profile, master, signatures, signerName }).html;
+  }
   const client = String(master?.client_name || '').trim() || '—';
   const poWo = String(master?.po_wo_no || '').trim() || '—';
   const facts = `<ul>
@@ -266,7 +297,20 @@ function projectsThreadHtml({ profile, master, event, signatures, signerName, oc
 </ul>`;
   let update = '';
   if (event === 'created') {
-    update = `<p>A PO At Glance record was created and is ready for approval.</p>${facts}<p>Later signatures, the OC Number, and any revision will continue in this email.</p>`;
+    const later = profile.mailEvents?.includes('revision')
+      ? 'Later signatures, the OC Number, and any revision will continue in this email.'
+      : 'Later signatures and the OC Number will continue in this email.';
+    update = `<p>A PO At Glance record was created and is ready for approval.</p>${facts}<p>${later}</p>`;
+  } else if (event === 'revision' && poRevision) {
+    const poNo = String(poRevision.customer_po_no || '').trim() || '—';
+    const poDate = String(poRevision.customer_po_date || '').trim();
+    const notes = String(poRevision.customer_po_notes || '').trim();
+    const who = String(actorName || '').trim();
+    update = `<p><strong>Customer PO amended</strong> (revision ${escapeHtml(poRevision.revision_no)})${who ? ` by ${escapeHtml(who)}` : ''}.</p>
+<ul>
+<li><strong>Customer PO No.</strong> ${escapeHtml(poNo)}${poDate ? ` (date ${escapeHtml(poDate)})` : ''}</li>
+${notes ? `<li><strong>Notes</strong> ${escapeHtml(notes)}</li>` : ''}
+</ul>${facts}`;
   } else if (event === 'oc_number') {
     const number = String(ocNo || master?.oc_no || '').trim() || '—';
     const when = String(ocDate || '').trim();
@@ -310,25 +354,61 @@ function buildEmail({ profile, master, signatures, signerName }) {
   return { subject, html };
 }
 
-/**
- * Notify the assigned sign-off users that one or more PO slots were signed.
- * `department` picks the records and assignees ('iev' by default, 'maintenance', 'projects' or 'rm').
- * @returns {{ ok: true, from: string|null, sent: string[], skipped: {name:string,code:string,reason:string}[], failed: {email:string,error:string}[] }}
- */
-const PROJECT_MAIL_EVENTS = new Set(['created', 'stage', 'oc_number', 'revision']);
+/** Which event this request is. Anything a department does not email is treated as a stage email (as before). */
+export function resolveOcMailEvent(department, event) {
+  const events = OC_NOTIFY_PROFILES[department]?.mailEvents || [];
+  return events.includes(event) ? event : 'stage';
+}
 
-async function loadProjectsMailThread(db, ocId) {
-  const { data, error } = await db.from('pj_oc_mail_thread').select('*').eq('oc_id', ocId).maybeSingle();
-  if (error) throw httpError(500, 'Could not load the email thread.');
+/** Projects: pj_oc_mail_thread (one row per PO). Other departments: oc_mail_thread keyed by (department, PO). */
+export const DEPT_MAIL_THREAD_TABLE = 'oc_mail_thread';
+
+function isMissingTable(error, table) {
+  const code = String(error?.code || '');
+  const msg = String(error?.message || '');
+  if (code === '42P01' || code === 'PGRST205') return true;
+  return msg.includes(table) && /does not exist|schema cache/i.test(msg);
+}
+
+async function loadMailThread(db, department, ocId) {
+  if (department === 'projects') {
+    const { data, error } = await db.from('pj_oc_mail_thread').select('*').eq('oc_id', ocId).maybeSingle();
+    if (error) throw httpError(500, 'Could not load the email thread.');
+    return data || null;
+  }
+  const { data, error } = await db
+    .from(DEPT_MAIL_THREAD_TABLE)
+    .select('*')
+    .eq('department', department)
+    .eq('oc_id', ocId)
+    .maybeSingle();
+  if (error) {
+    // Migration 20261119160000 not applied yet: send as a new message instead of failing.
+    if (isMissingTable(error, DEPT_MAIL_THREAD_TABLE)) {
+      console.warn('[oc/signoff-notify] oc_mail_thread missing — sending without a thread');
+      return null;
+    }
+    throw httpError(500, 'Could not load the email thread.');
+  }
   return data || null;
 }
 
-async function saveProjectsMailThread(db, row) {
-  const { error } = await db.from('pj_oc_mail_thread').upsert(
-    { ...row, updated_at: new Date().toISOString() },
-    { onConflict: 'oc_id' }
+async function saveMailThread(db, department, row) {
+  const updatedAt = new Date().toISOString();
+  if (department === 'projects') {
+    const { error } = await db.from('pj_oc_mail_thread').upsert(
+      { ...row, updated_at: updatedAt },
+      { onConflict: 'oc_id' }
+    );
+    if (error) throw httpError(500, 'Could not save the email thread.');
+    return;
+  }
+  const { error } = await db.from(DEPT_MAIL_THREAD_TABLE).upsert(
+    { ...row, department, updated_at: updatedAt },
+    { onConflict: 'department,oc_id' }
   );
-  if (error) throw httpError(500, 'Could not save the email thread.');
+  // The email has already gone out, so never fail (or re-send) because the thread was not stored.
+  if (error) console.warn('[oc/signoff-notify] could not save the email thread', department, row.oc_id, error.message);
 }
 
 const NOT_ALLOWED_MESSAGE = 'You are not allowed to send notifications for this PO At Glance.';
@@ -362,6 +442,36 @@ export async function verifyOcNotifyEvent({ db, department, mailEvent, master, s
       signs,
       signerName: signs[0].signed_by,
       idempotencyKey: `${base}:${keyParts.join(',')}`,
+    };
+  }
+
+  if (mailEvent === 'created' && department !== 'projects') {
+    // No approval log in these departments: created_by is stamped by the master table's trigger.
+    const actorOk = (master.created_by && master.created_by === userId) || hasScope;
+    if (!actorOk) throw httpError(403, NOT_ALLOWED_MESSAGE);
+    return { signs: [], idempotencyKey: base };
+  }
+
+  if (mailEvent === 'revision' && department === 'commercial') {
+    // Latest amended customer PO version (append-only cm_oc_po_history, written by cm_oc_save).
+    const { data: rev, error } = await db
+      .from('cm_oc_po_history')
+      .select('id, revision_no, event_kind, customer_po_no, customer_po_date, customer_po_notes, recorded_by')
+      .eq('oc_id', master.id)
+      .order('revision_no', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw httpError(500, 'Could not load the customer PO history.');
+    if (!rev || rev.event_kind !== 'amended') throw httpError(400, 'There is no customer PO amendment to notify about.');
+    if (rev.recorded_by !== userId) {
+      throw httpError(403, 'Only the person who amended the customer PO can send the revision email.');
+    }
+    const who = await loadEmployeeForSigner(db, { userId });
+    return {
+      signs: [],
+      poRevision: rev,
+      actorName: who?.full_name || '',
+      idempotencyKey: `${base}:${rev.id}`,
     };
   }
 
@@ -423,6 +533,9 @@ export async function verifyOcNotifyEvent({ db, department, mailEvent, master, s
       };
     }
     if (!hasScope && !profileHasDataScope(caller.profile, 'finance')) throw httpError(403, NOT_ALLOWED_MESSAGE);
+    if (department !== 'projects' && !String(master.oc_no || '').trim()) {
+      throw httpError(400, 'This PO At Glance has no OC Number yet.');
+    }
     return {
       signs: [],
       ocNo: master.oc_no || '',
@@ -435,6 +548,10 @@ export async function verifyOcNotifyEvent({ db, department, mailEvent, master, s
 }
 
 /**
+ * Email the department's assigned sign-off users about a PO event (creation, stage sign-off,
+ * OC Number, revision), in that PO's own email thread.
+ * `department` picks the records and assignees ('iev' by default, 'maintenance', 'projects', 'rm' or 'commercial').
+ * @returns {{ ok: true, from: string|null, sent: string[], skipped: {name:string,code:string,reason:string}[], failed: {email:string,error:string}[] }}
  * @param {object} p
  * @param {{ userId: string, profile: object, emails: string[] }} p.caller  authenticated user (from requireAuth)
  * @param {Array<{slot: string}>} [p.signatures]  slots to notify about; names in the body are ignored
@@ -453,7 +570,7 @@ export async function notifyOcSignoffAssignees({
   if (!caller?.userId) throw httpError(401, 'Sign in again to send the notification.');
   const id = String(ocId || '').trim();
   if (!id) throw httpError(400, 'PO At Glance id is missing.');
-  const mailEvent = department === 'projects' && PROJECT_MAIL_EVENTS.has(event) ? event : 'stage';
+  const mailEvent = resolveOcMailEvent(department, event);
 
   const requestedSlots = [...new Set(
     (Array.isArray(signatures) ? signatures : [])
@@ -464,11 +581,7 @@ export async function notifyOcSignoffAssignees({
 
   const { data: master, error: masterErr } = await db
     .from(profile.masterTable)
-    .select(
-      department === 'projects'
-        ? 'id, oc_no, oc_date, client_name, po_wo_no, created_by'
-        : 'id, oc_no, client_name, po_wo_no'
-    )
+    .select('id, oc_no, oc_date, client_name, po_wo_no, created_by')
     .eq('id', id)
     .maybeSingle();
   if (masterErr) throw httpError(500, 'Could not load the PO At Glance.');
@@ -597,78 +710,61 @@ async function sendOcNotification({
   const sent = [];
   const failed = [];
 
-  if (department === 'projects') {
-    const thread = await loadProjectsMailThread(db, master.id);
-    const subject = thread?.subject || projectsThreadSubject(master);
-    const threadRecipients = Array.isArray(thread?.recipients) && thread.recipients.length
-      ? thread.recipients
-      : uniqueEmails.map((r) => ({ email: r.email, name: r.name }));
-    const html = projectsThreadHtml({
-      profile,
-      master,
-      event: mailEvent,
-      signatures: signsWithEmployee,
-      signerName,
-      ocNo: verified.ocNo,
-      ocDate: verified.ocDate,
-      remarks: verified.remarks,
-      actorName: verified.actorName,
+  // Every department: one email conversation per PO (creation, stage sign-offs, OC Number, revisions).
+  const thread = await loadMailThread(db, department, master.id);
+  const subject = thread?.subject || threadSubject(profile, master);
+  const threadRecipients = Array.isArray(thread?.recipients) && thread.recipients.length
+    ? thread.recipients
+    : uniqueEmails.map((r) => ({ email: r.email, name: r.name }));
+  const html = threadHtml({
+    profile,
+    master,
+    event: mailEvent,
+    signatures: signsWithEmployee,
+    signerName,
+    ocNo: verified.ocNo,
+    ocDate: verified.ocDate,
+    remarks: verified.remarks,
+    actorName: verified.actorName,
+    poRevision: verified.poRevision,
+  });
+  try {
+    const posted = await sendThreadedMail({
+      from: sender?.mail || undefined,
+      fromName: sender?.display_name || undefined,
+      toList: threadRecipients,
+      subject,
+      html,
+      replyToMessageId: thread?.latest_message_id || null,
+      conversationId: thread?.conversation_id || null,
+      mailboxHint: thread?.mailbox || null,
     });
-    try {
-      const posted = await sendThreadedMail({
-        from: sender?.mail || undefined,
-        fromName: sender?.display_name || undefined,
-        toList: threadRecipients,
+    // Threaded Graph draft may be denied; sendMail fallback still delivers (no conversation id).
+    if (posted?.messageId) {
+      await saveMailThread(db, department, {
+        oc_id: master.id,
+        mailbox: posted.mailbox || thread?.mailbox || sender?.mail || 'unknown',
+        latest_message_id: posted.messageId,
+        conversation_id: posted.conversationId || thread?.conversation_id || null,
         subject,
-        html,
-        replyToMessageId: thread?.latest_message_id || null,
-        conversationId: thread?.conversation_id || null,
-        mailboxHint: thread?.mailbox || null,
+        recipients: threadRecipients,
       });
-      // Threaded Graph draft may be denied; sendMail fallback still delivers (no conversation id).
-      if (posted?.messageId) {
-        await saveProjectsMailThread(db, {
-          oc_id: master.id,
-          mailbox: posted.mailbox || thread?.mailbox || sender?.mail || 'unknown',
-          latest_message_id: posted.messageId,
-          conversation_id: posted.conversationId || thread?.conversation_id || null,
-          subject,
-          recipients: threadRecipients,
-        });
-      } else if (!posted?.fallback) {
-        throw httpError(502, 'Mail was accepted but the conversation id was not returned.');
-      }
-      for (const row of threadRecipients) sent.push(row.email);
-      console.info('[oc/signoff-notify] projects thread', {
-        ocId: master.id,
-        event: mailEvent,
-        threaded: Boolean(posted.threaded),
-        fallback: posted.fallback || null,
-        conversationId: posted.conversationId || null,
-      });
-    } catch (err) {
-      const detail = String(err?.message || err || 'Send failed').trim() || 'Send failed';
-      console.warn('[oc/signoff-notify] thread send failed — trying direct send', detail);
-      // Last resort: same content via sendMail so the concerned departments still get notified.
-      for (const r of uniqueEmails) {
-        try {
-          await sendOutboundMail({
-            from: sender?.mail || undefined,
-            fromName: sender?.display_name || undefined,
-            to: r.email,
-            subject,
-            html,
-          });
-          sent.push(r.email);
-        } catch (sendErr) {
-          failed.push({ email: r.email, error: sendErr?.message || detail });
-          console.warn('[oc/signoff-notify] projects fallback send failed', r.email, sendErr?.message || sendErr);
-        }
-      }
-      if (!sent.length) failed.push({ email: threadRecipients.map((r) => r.email).join(', '), error: detail });
+    } else if (!posted?.fallback) {
+      throw httpError(502, 'Mail was accepted but the conversation id was not returned.');
     }
-  } else {
-    const { subject, html } = buildEmail({ profile, master, signatures: signsWithEmployee, signerName });
+    for (const row of threadRecipients) sent.push(row.email);
+    console.info('[oc/signoff-notify] thread', {
+      department,
+      ocId: master.id,
+      event: mailEvent,
+      threaded: Boolean(posted.threaded),
+      fallback: posted.fallback || null,
+      conversationId: posted.conversationId || null,
+    });
+  } catch (err) {
+    const detail = String(err?.message || err || 'Send failed').trim() || 'Send failed';
+    console.warn('[oc/signoff-notify] thread send failed — trying direct send', detail);
+    // Last resort: same content via sendMail so the concerned departments still get notified.
     for (const r of uniqueEmails) {
       try {
         await sendOutboundMail({
@@ -679,11 +775,12 @@ async function sendOcNotification({
           html,
         });
         sent.push(r.email);
-      } catch (err) {
-        failed.push({ email: r.email, error: err?.message || 'Send failed' });
-        console.warn('[oc/signoff-notify] send failed', r.email, err?.message || err);
+      } catch (sendErr) {
+        failed.push({ email: r.email, error: sendErr?.message || detail });
+        console.warn('[oc/signoff-notify] fallback send failed', department, r.email, sendErr?.message || sendErr);
       }
     }
+    if (!sent.length) failed.push({ email: threadRecipients.map((r) => r.email).join(', '), error: detail });
   }
 
   if (!sent.length) {

@@ -19,6 +19,10 @@ import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import { SALARY_SUB_NAV, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
 import { OPERATIONS_NAV, operationsNavHref, operationsNavIsActive } from "../pages/operations/navConfig";
 import { MARKETING_NAV_ITEMS } from "../pages/marketing/marketingNav";
+import {
+  ADMIN_EMPLOYEE_SIDEBAR_PAGES,
+  COMPLIANCE_PAYROLL_SIDEBAR_PAGES,
+} from "../config/sidebarNavPages";
 import PoApprovalBell from "../components/PoApprovalBell";
 import CommandPalette from "../components/CommandPalette";
 import { COMMAND_DESTINATIONS } from "../lib/commandDestinations";
@@ -87,6 +91,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Search as SearchIcon,
+  Headphones,
 } from "lucide-react";
 
 const SALARY_NAV_ICONS = {
@@ -266,6 +271,7 @@ function resolveWorkspaceContext(pathname) {
     [/\/app\/commercial|\/app\/manpower/, "Commercial", "Manpower & training"],
     [/\/app\/marketing/, "Go-to-market", "Marketing"],
     [/\/app\/crm-outreach/, "Internal Utilities", "Mail Outreach"],
+    [/\/app\/it-support/, "Internal Utilities", "IT Support"],
     [/\/app\/activity-history/, "Internal Utilities", "Activity history"],
     [/\/app\/maintenance/, "Service", "Maintenance"],
     [/\/app\/projects-billing/, "Projects", "Billing"],
@@ -362,6 +368,7 @@ const Layout = () => {
   const { theme, toggleTheme } = useTheme();
   const [isAccessDenied, setIsAccessDenied] = useState(false);
   const [pendingRequisitionCount, setPendingRequisitionCount] = useState(0);
+  const [itSupportOpenCount, setItSupportOpenCount] = useState(0);
   const canSeeActivityLog =
     userProfile?.role === ROLES.SUPER_ADMIN || userProfile?.role === ROLES.SUPER_ADMIN_PRO;
   const workspace = resolveWorkspaceContext(pathname);
@@ -520,6 +527,58 @@ const Layout = () => {
       cancelled = true;
     };
   }, [userProfile, accessibleModules, user?.user_metadata, pathname]);
+
+  useEffect(() => {
+    const showItSupport = Boolean(userProfile) && userProfile.is_active !== false;
+    if (!showItSupport) {
+      setItSupportOpenCount(0);
+      return undefined;
+    }
+    let cancelled = false;
+    let unsubRealtime = () => {};
+    let scheduler = { schedule: () => {}, cancel: () => {} };
+
+    const refresh = () => {
+      import("../pages/itSupport/itSupportApi")
+        .then((m) => m.countOpenTickets())
+        .then((n) => {
+          if (!cancelled) setItSupportOpenCount(Number(n) || 0);
+        })
+        .catch(() => {
+          if (!cancelled) setItSupportOpenCount(0);
+        });
+    };
+
+    import("../pages/itSupport/itSupportApi").then((m) => {
+      if (cancelled) return;
+      scheduler = m.createItSupportRefreshScheduler(refresh, 300);
+      refresh();
+      unsubRealtime = m.subscribeItSupportRealtime(() => scheduler.schedule(), {
+        channelName: "it-support-nav-open-count",
+        includeNotifications: false,
+      });
+    });
+
+    const onChanged = () => refresh();
+    const onFocus = () => refresh();
+    const onVis = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("it-support-open-count-changed", onChanged);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVis);
+    // Slow fallback only — primary updates are realtime + local events.
+    const interval = window.setInterval(refresh, 120_000);
+    return () => {
+      cancelled = true;
+      scheduler.cancel();
+      unsubRealtime();
+      window.removeEventListener("it-support-open-count-changed", onChanged);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVis);
+      window.clearInterval(interval);
+    };
+  }, [userProfile, userProfile?.is_active, pathname]);
 
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [contractMgmtOpen, setContractMgmtOpen] = useState(false);
@@ -725,6 +784,8 @@ const Layout = () => {
     amc: AMC_NAV_PATHS.some((path) => canSubPath(path)),
     itIsSubscriptions: isSuperAdminTier || (can("itIs") && canSub("itIs.subscriptions")),
     itIsApiHealth: isSuperAdminTier || (can("itIs") && canSub("itIs.api-health")),
+    // Raise/my tickets: every active signed-in user (agent/admin still grant-gated inside the page).
+    itIsHelpdesk: Boolean(userProfile) && userProfile.is_active !== false,
   };
   const ievVisible =
     can("fireTender") && (canOpenPath("/app/fire-tender") || ievCostingTabs.length > 0 || canOpenPath("/app/fire-tender-manufacturing"));
@@ -754,6 +815,7 @@ const Layout = () => {
     can("settings") ||
     navHas.itIsSubscriptions ||
     navHas.itIsApiHealth ||
+    navHas.itIsHelpdesk ||
     canSeeActivityLog ||
     userProfile?.role === ROLES.SUPER_ADMIN ||
     userProfile?.role === ROLES.SUPER_ADMIN_PRO;
@@ -994,64 +1056,17 @@ const Layout = () => {
                       </NavLink>
                   )}
 
-                  {canSub("admin.employee") && (
-                  <>
-                      <NavLink to="admin/employee/onboarding" className={subNavClass}>
-                        <UserPlus className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Onboarding</span>
+                  {canSub("admin.employee") &&
+                    ADMIN_EMPLOYEE_SIDEBAR_PAGES.map((item) => (
+                      <NavLink
+                        key={item.value}
+                        to={String(item.path || "").replace(/^\/app\//, "")}
+                        className={subNavClass}
+                      >
+                        <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">{item.label}</span>
                       </NavLink>
-                      <NavLink to="admin/employee/policies" className={subNavClass}>
-                        <BookOpen className="h-4 w-4 shrink-0 text-sky-700" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Policies &amp; Terms</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/official-letters" className={subNavClass}>
-                        <FileText className="h-4 w-4 shrink-0 text-indigo-700" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Official Letters</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/surveys" className={subNavClass}>
-                        <ClipboardList className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Surveys</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/attendance-inputs" className={subNavClass}>
-                        <Clock className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Raw Attendance Data</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/attendance-daily" className={subNavClass}>
-                        <Calendar className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Daily Attendance Register</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/national-holidays" className={subNavClass}>
-                        <CalendarDays className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">National / Public Holidays</span>
-                      </NavLink>
-                      {/* NAV_HIDDEN: Attendance Sheets */}
-                      {/* <NavLink to="admin/employee/attendance-sheets" className={subNavClass}>
-                        <FileText className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Attendance Sheets</span>
-                      </NavLink> */}
-                      <NavLink to="admin/employee/leaves-permissions" className={subNavClass}>
-                        <Calendar className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Leave Approvals</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/tour-approvals" className={subNavClass}>
-                        <MapPin className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Tour Approvals</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/leave-management" className={subNavClass}>
-                        <CalendarDays className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Leave Management</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/inactive" className={subNavClass}>
-                        <UserX className="h-4 w-4 shrink-0 text-ink-muted" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Inactive Employees</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/exit-ff" className={subNavClass}>
-                        <FileSpreadsheet className="h-4 w-4 shrink-0 text-rose-700" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">F &amp; F</span>
-                      </NavLink>
-                      {/* NAV_HIDDEN: Compliance & Documents, Salary Inputs */}
-                  </>
-                  )}
+                    ))}
 
                   {canSeeProbationReviews && (
                   <NavLink to="admin/probation-reviews" className={subNavClass}>
@@ -1935,51 +1950,27 @@ const Layout = () => {
 
               {(complianceOpen || isRail) && (
                 <div data-title="Compliance" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                  {canSub("compliance.payroll") && (
-                  <>
-                  <NavLink
-                    to="compliance/dashboard"
-                    className={() =>
-                      `${subLinkBase} ${
-                        pathname === "/app/compliance" ||
-                        pathname === "/app/compliance/" ||
-                        pathname === "/app/compliance/dashboard"
-                          ? activeClass
-                          : "border-l-transparent text-sidebar-strong"
-                      }`
-                    }
-                  >
-                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
-                  </NavLink>
-                  <NavLink
-                    to="compliance/forms"
-                    className={() =>
-                      `${subLinkBase} ${
-                        pathname.startsWith("/app/compliance/forms")
-                          ? activeClass
-                          : "border-l-transparent text-sidebar-strong"
-                      }`
-                    }
-                  >
-                    <FileText className="w-4 h-4 shrink-0 text-ink-muted" />
-                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Compliance Forms</span>
-                  </NavLink>
-                  <NavLink
-                    to="compliance/payroll-process"
-                    className={() =>
-                      `${subLinkBase} ${
-                        pathname.startsWith("/app/compliance/payroll-process")
-                          ? activeClass
-                          : "border-l-transparent text-sidebar-strong"
-                      }`
-                    }
-                  >
-                    <FileSpreadsheet className="w-4 h-4 shrink-0 text-ink-muted" />
-                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Payroll Compliance</span>
-                  </NavLink>
-                  </>
-                  )}
+                  {canSub("compliance.payroll") &&
+                    COMPLIANCE_PAYROLL_SIDEBAR_PAGES.map((item) => (
+                      <NavLink
+                        key={item.value}
+                        to={String(item.path || "").replace(/^\/app\//, "")}
+                        className={() =>
+                          subNavClass({
+                            isActive:
+                              pathname === item.path ||
+                              pathname === `${item.path}/` ||
+                              (item.path === "/app/compliance/dashboard" &&
+                                (pathname === "/app/compliance" || pathname === "/app/compliance/")) ||
+                              (item.path !== "/app/compliance/dashboard" &&
+                                pathname.startsWith(item.path)),
+                          })
+                        }
+                      >
+                        <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">{item.label}</span>
+                      </NavLink>
+                    ))}
                   {canSub("compliance.ifspl") && (
                   <NavLink to="ifsp-employee-compliance" className={subNavClass}>
                     <CheckCircle className="w-4 h-4 shrink-0 text-sidebar-accent" />
@@ -2250,6 +2241,23 @@ const Layout = () => {
             <NavLink to="all-employees" className={topNavClass}>
               <Users className="w-4 h-4 shrink-0" />
               <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">All Employees</span>
+            </NavLink>
+            )}
+
+            {navHas.itIsHelpdesk && (
+            <NavLink to="it-support" className={topNavClass} title="IT Support">
+              <Headphones className="w-4 h-4 shrink-0" />
+              <span className="type-body-medium min-w-0 flex-1 text-left flex items-center gap-1.5 overflow-hidden">
+                <span className="type-truncate min-w-0">IT Support</span>
+                {itSupportOpenCount > 0 ? (
+                  <span
+                    className="shrink-0 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white"
+                    aria-label={`${itSupportOpenCount} open tickets`}
+                  >
+                    {itSupportOpenCount > 99 ? "99+" : itSupportOpenCount}
+                  </span>
+                ) : null}
+              </span>
             </NavLink>
             )}
 

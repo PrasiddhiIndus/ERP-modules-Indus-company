@@ -96,6 +96,7 @@ export const ROUTE_MODULE_MAP = [
   ['/app/user-management', 'User management'],
   ['/app/software-subscriptions-reminders', 'Software subscriptions/reminders'],
   ['/app/api-health', 'API health'],
+  ['/app/it-support', 'IT Support'],
   ['/app/settings', 'Settings'],
   ['/app/ifsp-employee-compliance', 'Compliance'],
   ['/app/general-compliance', 'Compliance'],

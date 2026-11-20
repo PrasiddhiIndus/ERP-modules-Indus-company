@@ -62,6 +62,8 @@ export const MAINTENANCE_OC_DEPARTMENT = {
   },
   rpc: { save: "mm_oc_save", employeeOptions: "mm_oc_employee_options" },
   notifyPath: "/api/maintenance/oc/signoff-notify",
+  /** Events emailed in the PO's own email thread (server/ocSignoffNotifyApi.js OC_NOTIFY_PROFILES). */
+  mailEvents: ["created", "stage", "oc_number"],
   accessDeniedMessage: "You do not have access to Maintenance PO At Glance.",
   canEdit: mmOcCanEdit,
   canDelete: mmOcCanDelete,

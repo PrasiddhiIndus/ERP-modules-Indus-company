@@ -118,6 +118,9 @@ export const COMMERCIAL_OC_DEPARTMENT = {
   },
   rpc: { save: "cm_oc_save", employeeOptions: "cm_oc_employee_options" },
   notifyPath: "/api/commercial/oc/signoff-notify",
+  /** Events emailed in the PO's own email thread (server/ocSignoffNotifyApi.js OC_NOTIFY_PROFILES). */
+  /** Revision = an amended customer PO (cm_oc_po_history). */
+  mailEvents: ["created", "stage", "oc_number", "revision"],
   accessDeniedMessage: "You do not have access to Commercial PO At Glance.",
   canEdit: cmOcCanEdit,
   canDelete: cmOcCanDelete,
