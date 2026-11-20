@@ -531,6 +531,174 @@ async function importFromHR(site, run) {
   run.hr = { version: h.version || 1, approvedBy: h.approvedBy || '', approvedAt: h.approvedAt || '', importedAt: new Date().toISOString() };
   delete run.attFinalAt; validateAtt(site, run); await saveRun(run); S.proc.step = 2; render(); toast(`Attendance imported from HR for ${run.att.length} employees`);
 }
+function siteAttSummaryKey(siteId, month) {
+  return String(siteId) + '_' + String(month || S.month);
+}
+async function loadSiteAttSummary(siteId) {
+  const [y, m] = ym();
+  const key = siteAttSummaryKey(siteId, S.month);
+  if (S.proc.attSummaryKey === key && S.proc.attSummary) return S.proc.attSummary;
+  const fetchFn = window.__indusPayrollFetchSiteAttSummary;
+  if (typeof fetchFn !== 'function') {
+    const missing = { ok: false, error: 'Attendance summary is not available.' };
+    S.proc.attSummaryKey = key;
+    S.proc.attSummary = missing;
+    return missing;
+  }
+  try {
+    const summary = await fetchFn({ siteId, month: m, year: y });
+    // Ignore stale responses if the user changed site/month while fetching
+    if (siteAttSummaryKey(siteId, S.month) !== key) return summary;
+    S.proc.attSummaryKey = key;
+    S.proc.attSummary = summary;
+    return summary;
+  } catch (err) {
+    console.error('Site attendance summary failed', err);
+    const failed = { ok: false, error: (err && err.message) || 'Could not load attendance summary.' };
+    if (siteAttSummaryKey(siteId, S.month) === key) {
+      S.proc.attSummaryKey = key;
+      S.proc.attSummary = failed;
+    }
+    return failed;
+  }
+}
+async function importFromSiteAttendance(site, run, summary) {
+  const rows = (summary && summary.rows) || [];
+  if (!rows.length) {
+    toast('No attendance marked in Site Attendance for ' + monthName());
+    return false;
+  }
+  run.att = rows.map((r) => ({
+    code: String(r.code),
+    PD: +r.PD || 0,
+    OTD: +r.OTD || 0,
+    OTH: +r.OTH || 0,
+    NH: +r.NH || 0,
+    WOT: +r.WOT || 0,
+  }));
+  run.attSource = 'HR';
+  delete run.uploadReason;
+  run.source = 'Site Attendance';
+  run.format = 'site attendance totals';
+  run.hr = {
+    version: 1,
+    approvedBy: 'Site Attendance',
+    approvedAt: new Date().toISOString(),
+    importedAt: new Date().toISOString(),
+    fromSiteAttendance: true,
+    rangeLabel: summary.rangeLabel || '',
+  };
+  delete run.attFinalAt;
+  validateAtt(site, run);
+  await saveRun(run);
+  return true;
+}
+function renderSiteAttSummaryCard(site, run, locked) {
+  const has = run.att && run.att.length;
+  const sum = S.proc.attSummary;
+  const key = siteAttSummaryKey(site.id, S.month);
+  const loading = S.proc.attSummaryKey !== key || S.proc.attSummaryLoading;
+  let body = '';
+  if (loading && !sum) {
+    body = `<div class="ps-sum-empty muted">Loading attendance from Site Attendance…</div>`;
+  } else if (!sum || !sum.ok) {
+    body = `<div class="ps-sum-empty muted">${esc((sum && sum.error) || 'Could not load attendance for this site and month.')}</div>`;
+  } else {
+    const t = sum.totals || {};
+    const ready = (sum.markedPeople || 0) > 0 || (sum.recordCount || 0) > 0;
+    body = `
+      <div class="ps-sum-meta">
+        <span class="pill ${sum.locked ? 'p-warn' : ready ? 'p-ok' : 'p-mute'}">${sum.locked ? 'Month locked' : ready ? 'Marks found' : 'No marks yet'}</span>
+        <span class="small muted">${esc(sum.rangeLabel || monthName())}</span>
+      </div>
+      <div class="ps-sum-kpis">
+        <div><span>Roster</span><b>${sum.peopleCount || 0}</b></div>
+        <div><span>Marked</span><b>${sum.markedPeople || 0}</b></div>
+        <div><span>Present</span><b>${inr(t.PD || 0, 1)}</b></div>
+        <div><span>Leave</span><b>${inr(t.leave || 0, 1)}</b></div>
+        <div><span>Week-off</span><b>${inr(t.weekoff || 0, 1)}</b></div>
+        <div><span>NH / PH</span><b>${inr(t.NH || 0, 1)}</b></div>
+        <div><span>OT</span><b>${inr(t.OT || 0, 1)}</b></div>
+      </div>
+      <div class="small muted ps-sum-rules">Duty <b>${sum.dutyHours || 8} hrs</b> · Cycle day <b>${sum.cycleStart || 1}</b>–<b>${sum.cycleEnd || 31}</b>${has ? ` · This run: <b>${run.att.length}</b> loaded` : ''}</div>`;
+  }
+  const canNext = !locked && ((has && run.att.length) || (sum && sum.ok && ((sum.markedPeople || 0) > 0 || (sum.rows || []).length > 0)));
+  return `<div class="card ps-sum" id="ps_sum_card">
+    <div class="row" style="margin-bottom:10px;align-items:flex-start">
+      <div class="grow"><h2 style="margin:0">Site attendance summary</h2>
+        <div class="small muted">${esc(site.name)} · ${monthName()}</div>
+      </div>
+    </div>
+    ${body}
+    <div class="ps-sum-actions">
+      ${locked
+        ? `<div class="note warn" style="margin:0">This run is locked. Unlock in step 4 to change attendance.</div>`
+        : `<button type="button" class="btn pri" id="ps_next" ${canNext ? '' : 'disabled'} title="${canNext ? '' : 'Mark attendance in Site Attendance for this month first'}">${has ? 'Process to next step →' : 'Load attendance & continue →'}</button>
+           <button type="button" class="btn sm" id="ps_sum_refresh">Refresh</button>`}
+    </div>
+    ${!has && !(sum && sum.ok && (sum.markedPeople || 0) > 0)
+      ? `<p class="small muted" style="margin:10px 0 0">Open Site Attendance for this site and month, mark the grid, then continue here.</p>`
+      : ''}
+  </div>`;
+}
+async function bindSiteAttSummary(site, run, locked) {
+  const key = siteAttSummaryKey(site.id, S.month);
+  const needFetch = S.proc.attSummaryKey !== key || !S.proc.attSummary;
+  const paint = () => {
+    const host = $('#ps_sum_card');
+    if (!host) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = renderSiteAttSummaryCard(site, run, locked);
+    const next = wrap.firstElementChild;
+    if (next) host.replaceWith(next);
+    wireSummaryActions();
+  };
+  const wireSummaryActions = () => {
+    const nextBtn = $('#ps_next');
+    if (nextBtn) nextBtn.onclick = async () => {
+      if (locked) return;
+      if (run.att && run.att.length) {
+        S.proc.step = 2;
+        render();
+        return;
+      }
+      const summary = S.proc.attSummary;
+      if (!summary || !summary.ok) {
+        toast('Attendance summary is still loading');
+        return;
+      }
+      nextBtn.disabled = true;
+      nextBtn.textContent = 'Loading…';
+      const ok = await importFromSiteAttendance(site, run, summary);
+      if (!ok) {
+        nextBtn.disabled = false;
+        nextBtn.textContent = 'Load attendance & continue →';
+        return;
+      }
+      S.proc.step = 2;
+      render();
+      toast(`Attendance loaded for ${run.att.length} employees · ${monthName()}`);
+    };
+    const refBtn = $('#ps_sum_refresh');
+    if (refBtn) refBtn.onclick = async () => {
+      S.proc.attSummary = null;
+      S.proc.attSummaryKey = null;
+      S.proc.attSummaryLoading = true;
+      paint();
+      await loadSiteAttSummary(site.id);
+      S.proc.attSummaryLoading = false;
+      paint();
+    };
+  };
+  wireSummaryActions();
+  if (!needFetch) return;
+  S.proc.attSummaryLoading = true;
+  paint();
+  await loadSiteAttSummary(site.id);
+  if (siteAttSummaryKey(site.id, S.month) !== key) return;
+  S.proc.attSummaryLoading = false;
+  paint();
+}
 function returnToHRModal(site) {
   const h = hrDoc(site.id);
   $('#modal').innerHTML = `<div class="modal-bg"><div class="modal" style="max-width:520px"><h2>Send attendance back to HR</h2><p class="small muted">${esc(site.name)} · ${monthName()}. HR corrects it in the HR module and approves it again; payroll can then import the corrected version.</p>
@@ -752,6 +920,9 @@ function processSiteControls() {
         <label class="f ps-field ps-field-rtype"><span class="small muted">Run type</span>
           <select class="in" id="rtype">${[['REG', 'Regular monthly'], ['ARR', 'Arrears'], ['FNF', 'Full & Final'], ['SUP', 'Supplementary / revised']].map(([k, t]) => `<option value="${k}" ${S.proc.type === k ? 'selected' : ''}>${t}</option>`).join('')}</select>
         </label>
+        <label class="f ps-field ps-field-month"><span class="small muted">Month</span>
+          <input type="month" class="in" id="ps_month" value="${esc(S.month || '')}" title="Salary month — attendance loads for this month">
+        </label>
         ${focusSelect}
         <div class="ps-status">
           ${focus && S.sites[focus] ? patPill(S.sites[focus], focus) : ''}
@@ -759,7 +930,7 @@ function processSiteControls() {
         </div>
       </div>
       ${chips}
-      <p class="ps-help small muted">Same site list as Attendance. Open Sites and tick one or more to process.</p>
+      <p class="ps-help small muted">Same site list as Attendance. Pick the month to process — attendance summary uses that month.</p>
     </div>`,
   };
 }
@@ -819,6 +990,18 @@ function bindProcessSiteControls(p) {
   if (focusEl) focusEl.onchange = () => {
     ensureProcFocusSite(focusEl.value);
     S.proc.step = 1;
+    S.proc.attSummary = null;
+    S.proc.attSummaryKey = null;
+    render();
+  };
+  const monthEl = $('#ps_month');
+  if (monthEl) monthEl.onchange = () => {
+    const next = monthEl.value || S.month;
+    if (next === S.month) return;
+    S.month = next;
+    S.proc.step = 1;
+    S.proc.attSummary = null;
+    S.proc.attSummaryKey = null;
     render();
   };
   p.querySelectorAll('[data-ps]').forEach((c) => {
@@ -998,14 +1181,9 @@ function stepUpload(b, site, run, locked) {
      <p class="small muted">Day-wise codes, punch times or monthly totals are recognised; the column mapping is saved for the site. The upload is marked on the salary sheet and dashboard.</p>
      <div class="row" style="gap:8px"><button class="btn sm" id="tmpl">Download standard template</button></div></div>` : ''}</div>`}
    </div>
-   <div class="card"><h2>This run</h2>
-    ${has ? `<p style="margin-top:0"><b>${run.att.length}</b> employees · ${run.attSource === 'HR' ? `<span class="pill p-ok">From HR module</span>` : run.attSource === 'UPLOAD' ? `<span class="pill p-warn">Uploaded directly</span>` : `<span class="pill p-mute">${esc(run.source || 'loaded')}</span>`}</p>
-     ${run.attSource === 'UPLOAD' && run.uploadReason ? `<p class="small muted">Reason: ${esc(run.uploadReason)}${run.source ? ` · file ${esc(run.source)}` : ''}</p>` : ''}
-     <p class="small muted">${run.att.filter(a => a.flags && a.flags.length).length} rows flagged · last changed ${run.updatedAt ? new Date(run.updatedAt).toLocaleString('en-IN') : '—'}</p>
-     <button class="btn pri" onclick="S.proc.step=2;render()">Review & clean →</button>` : '<p class="muted">No attendance loaded yet.</p>'}
-    <h3>Site rules applied to attendance</h3>
-    <div class="small">Divisor: <b>${site.divisor.type === 'fixed' ? site.divisor.days + ' days (fixed)' : 'calendar — ' + siteCalWD(site) + ' days this month'}</b> · Shift: <b>${(site.params || {}).HRS || 8} hrs</b> · Pay period from day <b>${(site.payPeriod || {}).startDay || 1}</b></div>
-   </div></div>`;
+   ${renderSiteAttSummaryCard(site, run, locked)}
+   </div>`;
+  bindSiteAttSummary(site, run, locked);
   const sp = $('#hr_spec'); if (sp) sp.onclick = e => { e.preventDefault(); hrSpecModal(); };
   if (locked) return;
   const hd = $('#hr_demo'); if (hd) hd.onclick = e => { e.preventDefault(); demoHR([site.id]); };
@@ -3761,19 +3939,14 @@ function __indusPayrollBoot(opts) {
     S.month = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
     S._monthSet = true;
   }
-  var monthEl = $('#month');
-  if (monthEl) {
-    if (monthEl.value !== S.month) monthEl.value = S.month;
-    if (!monthEl._bound) {
-      monthEl._bound = true;
-      monthEl.onchange = function (e) { S.month = e.target.value || S.month; render(); };
-    }
-  }
+  // Month lives on Process salary bar (#ps_month) — strip leftover top-bar picker
+  var legacyMonth = $('#month');
+  if (legacyMonth && legacyMonth.closest && legacyMonth.closest('.top')) legacyMonth.remove();
   render();
   if (!S._connected) { S._connected = true; connect(); }
 }
 window.__indusPayrollBoot = __indusPayrollBoot;
-window.__indusPayrollBuild = 8;
+window.__indusPayrollBuild = 10;
 window.__indusPayrollSetView = function (v) {
   if (!v || v === S.view || !NAV.some(function (n) { return n[0] === v; })) return;
   S.view = v;
