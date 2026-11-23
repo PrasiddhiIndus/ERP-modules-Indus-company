@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { loadLedgerStore, saveLedgerPartial, savePeriodRecord, flushPeriodRecordNow, flushAllPendingPeriodRecords, persistSitesNow, persistOneSiteNow, mergePeriodEntry, formatPeriodFigureSaveError, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
+import { loadLedgerStore, saveLedgerPartial, savePeriodRecord, flushPeriodRecordNow, flushAllPendingPeriodRecords, persistOneSiteNow, mergePeriodEntry, formatPeriodFigureSaveError, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
 import { PeriodDateSelect, formatPeriodDateDDMMYYYY } from "./components/PeriodDateSelect";
 import { PeriodMonthSelect } from "./components/PeriodMonthSelect";
 import { FinanceDateInput } from "./components/FinanceDateInput";
@@ -632,22 +632,6 @@ async function loadStore() {
   }
   return { data: normalize(defaults), ok: false, error: result.error || null };
 }
-/** Legacy all-sites save — prefer persistOneSite / scope "site" for Site Setup edits. */
-async function saveSitesStore(data) {
-  try {
-    await saveLedgerPartial({
-      scope: "sites",
-      sites: data.sites,
-      library: data.library,
-      parents: data.parents,
-    });
-    return { ok: true, error: null };
-  } catch (e) {
-    console.error("Finance site save failed:", e);
-    return { ok: false, error: e?.message || "Save failed" };
-  }
-}
-
 function mergeSetupInclude(a, b) {
   // undefined include = full one-site sync; keep that when coalescing.
   if (!a || !b) return undefined;
@@ -833,11 +817,11 @@ export default function SiteLedgerApp({ embedded = true }) {
         setupPersistPending.current = null;
         saveLedgerPartial(pending).catch(() => {});
       }
+      // Do not flush legacy portfolio autosave — it only upserts site meta now and
+      // previously rewrote every site's cost lines (multi-user data loss).
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
         saveTimer.current = null;
-        // Flush pending sites/library autosave only (never all period records).
-        saveSitesStore(stateRef.current).catch(() => {});
       }
       void flushAllPendingPeriodRecords();
     };
@@ -874,6 +858,8 @@ export default function SiteLedgerApp({ embedded = true }) {
   }, [reloadLedger, saveState]);
   useEffect(() => {
     stateRef.current = { sites, records, library, parents };
+    // Portfolio-wide autosave removed: Site Setup / masters / figures persist through
+    // scheduleSetupPersist, persistOneSiteNow, and savePeriodRecord only.
     if (!loaded) return;
     if (skipInitialAutosave.current) {
       skipInitialAutosave.current = false;
@@ -888,21 +874,11 @@ export default function SiteLedgerApp({ embedded = true }) {
       skipNextAutosave.current = false;
       return;
     }
-    setSaveState("saving");
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    const delay = saveImmediate.current ? 0 : 400;
     saveImmediate.current = false;
-    saveTimer.current = setTimeout(async () => {
-      const result = await saveSitesStore(stateRef.current);
-      if (result.ok) {
-        lastSaveAt.current = Date.now();
-        setSaveState("saved");
-        setLoadError(null);
-      } else {
-        setSaveState("local");
-        setLoadError(result.error);
-      }
-    }, delay);
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
   }, [sites, library, parents, loaded]);
 
   const flushSetupPersist = useCallback(async () => {
@@ -967,6 +943,7 @@ export default function SiteLedgerApp({ embedded = true }) {
       siteCodes: [...siteCodes],
       include,
       libraryChanged: !!(opts.libraryChanged || prev?.libraryChanged),
+      pruneHeads: !!(opts.pruneHeads || prev?.pruneHeads),
       deletedSiteCodes: opts.deletedSiteCodes || prev?.deletedSiteCodes,
       pruneSites: !!(opts.pruneSites || prev?.pruneSites),
     };
@@ -1046,10 +1023,13 @@ export default function SiteLedgerApp({ embedded = true }) {
     const usedInLib = library.some((h) => h.parent === key);
     const usedInSite = sites.some((s) => (s.structure || []).some((g) => g.parent === key && g.children.length));
     if (usedInLib || usedInSite) { toast.success("This parent head still has cost lines (here or on another site). Move or delete them first, then delete the head."); return; }
+    const touched = sites
+      .filter((s) => (s.structure || []).some((g) => g.parent === key))
+      .map((s) => s.id);
     applySiteSetupChange(({ parents: ps, sites: allSites }) => ({
       parents: ps.filter((p) => p.key !== key),
       sites: allSites.map((s) => ({ ...s, structure: (s.structure || []).filter((g) => g.parent !== key) })),
-    }));
+    }), { scope: "masters", pruneHeads: true, siteCodes: touched });
   }, [library, sites, applySiteSetupChange]);
 
   const needsPortfolio = view !== "config" && view !== "entry";
@@ -1160,22 +1140,17 @@ export default function SiteLedgerApp({ embedded = true }) {
         ? opts.siteCodes
         : opts.siteCode
           ? [opts.siteCode]
-          : null;
-      if (siteCodes?.length) {
-        await persistOneSiteNow({
-          siteCodes,
-          sites: nextSites ?? data.sites,
-          library: data.library,
-          parents: data.parents,
-          include: opts.include,
-        });
-      } else {
-        await persistSitesNow({
-          sites: nextSites ?? data.sites,
-          library: data.library,
-          parents: data.parents,
-        });
+          : [];
+      if (!siteCodes.length) {
+        throw new Error("No site selected to save");
       }
+      await persistOneSiteNow({
+        siteCodes,
+        sites: nextSites ?? data.sites,
+        library: data.library,
+        parents: data.parents,
+        include: opts.include,
+      });
       lastSaveAt.current = Date.now();
       setSaveState("saved");
       setLoadError(null);
@@ -1414,6 +1389,9 @@ export default function SiteLedgerApp({ embedded = true }) {
     const affectedKeys = Object.keys(stateRef.current.records).filter(
       (compound) => stateRef.current.records[compound]?.[key] != null,
     );
+    const touched = stateRef.current.sites
+      .filter((s) => (s.structure || []).some((g) => (g.children || []).includes(key)))
+      .map((s) => s.id);
     applySiteSetupChange(({ sites, library, records }) => {
       const stripEst = (est) => {
         if (!est.expenses?.[key]) return est;
@@ -1441,7 +1419,7 @@ export default function SiteLedgerApp({ embedded = true }) {
         })),
         records: nextRecords,
       };
-    });
+    }, { scope: "masters", libraryChanged: true, pruneHeads: true, siteCodes: touched });
     if (!affectedKeys.length) return;
     const data = stateRef.current;
     const recordsSubset = Object.fromEntries(

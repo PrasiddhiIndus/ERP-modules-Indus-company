@@ -47,17 +47,21 @@ export function getDateVisibility(dayDate, cycleYear) {
   return { visible: false, editable: false };
 }
 
+/** Last working day (inactive/leaving date). Days after this are closed on the grid. */
+export function personInactiveDate(person) {
+  if (!person?.leaving_date) return null;
+  return parseDateOnlyLocal(person.leaving_date);
+}
+
 export function canMarkAttendance(employee, assignment, dayDate) {
   if (!employee) return false;
-  if (!employee.is_active && !employee.leaving_date) return false;
+  if (employee.is_active === false && !personInactiveDate(employee)) return false;
 
   const joiningDate = parseDateOnlyLocal(employee.joining_date);
   if (joiningDate && dayDate < joiningDate) return false;
 
-  if (employee.leaving_date) {
-    const leavingDate = parseDateOnlyLocal(employee.leaving_date);
-    if (leavingDate && dayDate > leavingDate) return false;
-  }
+  const leavingDate = personInactiveDate(employee);
+  if (leavingDate && dayDate > leavingDate) return false;
 
   if (assignment && assignment.to_date) {
     const assignmentEndDate = new Date(assignment.to_date);
@@ -68,12 +72,14 @@ export function canMarkAttendance(employee, assignment, dayDate) {
   return true;
 }
 
+/**
+ * Cell is closed (blank grey, non-editable): before joining or after inactive/leaving date.
+ * Does not delete saved attendance — callers only hide/disable display.
+ */
 export function isInactiveCellClosed(employee, dayDate) {
   if (!employee) return true;
-  if (employee.leaving_date) {
-    const leave = parseDateOnlyLocal(employee.leaving_date);
-    if (leave && dayDate > leave) return true;
-  }
+  const leave = personInactiveDate(employee);
+  if (leave && dayDate > leave) return true;
   const join = parseDateOnlyLocal(employee.joining_date);
   if (join && dayDate < join) return true;
   return false;
@@ -81,7 +87,7 @@ export function isInactiveCellClosed(employee, dayDate) {
 
 export function isRowEditingRestricted(employee) {
   if (!employee) return true;
-  if (employee.is_active === false && !employee.leaving_date) return true;
+  if (employee.is_active === false && !personInactiveDate(employee)) return true;
   return false;
 }
 
@@ -115,9 +121,15 @@ export function buildSiteRosterFromAssignments(assignmentsData, year, month, sta
   return Array.from(byPerson.values());
 }
 
+/**
+ * Show on the month grid when the salary cycle overlaps employment.
+ * Inactive without a leaving date never appears. With a leaving date, the person
+ * appears in the leaving month (cells after that date are closed) and is hidden
+ * from later months.
+ */
 export function personIsVisibleInAttendanceMonth(person, year, month, hasOpenAssignment = false, startDay = 1, endDay = 31) {
   const range = getRange(year, month, startDay, endDay);
-  if (hasOpenAssignment && person?.is_active === false && !person?.leaving_date) return false;
+  if (person?.is_active === false && !personInactiveDate(person)) return false;
   return personVisibleInRange(person, range);
 }
 

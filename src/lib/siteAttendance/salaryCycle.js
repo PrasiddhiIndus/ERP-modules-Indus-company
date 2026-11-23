@@ -103,6 +103,8 @@ export function personVisibleInRange(person, range, parseDateFn) {
   const join = parse(person.joining_date);
   if (join && join > range.endDate) return false;
 
+  // Leaving / inactive date: hide only in cycles that start after the last working day.
+  // The leaving-month cycle still includes the person (later days render as closed cells).
   if (person.leaving_date) {
     const leave = parse(person.leaving_date);
     if (leave && leave < range.startDate) return false;
