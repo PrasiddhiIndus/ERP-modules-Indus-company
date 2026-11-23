@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Lock, MessageSquare, Paperclip } from "lucide-react";
+import { ArrowLeft, ImagePlus, Lock, MessageSquare, Paperclip } from "lucide-react";
 import {
   EmptyState,
   FormField,
@@ -10,7 +10,6 @@ import {
   PrimaryButton,
   SecondaryButton,
   SectionCard,
-  Timeline,
   TinySelect,
   Modal,
 } from "../../components/erpUi";
@@ -42,6 +41,8 @@ import SlaTimer from "./components/SlaTimer";
 import RichTextField from "./components/RichTextField";
 import TicketFileList from "./components/TicketFileList";
 
+const COMMENT_IMAGE_EXT = /\.(jpe?g|png|webp|gif)$/i;
+
 function displayPerson(p) {
   if (!p) return "—";
   return p.username || p.email || "User";
@@ -60,6 +61,7 @@ export default function TicketDetailPage() {
   const [ccList, setCcList] = useState([]);
   const [agents, setAgents] = useState([]);
   const [commentBody, setCommentBody] = useState("");
+  const [commentImages, setCommentImages] = useState([]);
   const [internalNote, setInternalNote] = useState(false);
   const [busy, setBusy] = useState(false);
   const [statusModal, setStatusModal] = useState({ open: false, status: "", remark: "" });
@@ -123,6 +125,17 @@ export default function TicketDetailPage() {
     };
   }, [id, load]);
 
+  const attachmentsByComment = useMemo(() => {
+    const map = new Map();
+    (attachments || []).forEach((a) => {
+      if (!a?.comment_id) return;
+      const list = map.get(a.comment_id) || [];
+      list.push(a);
+      map.set(a.comment_id, list);
+    });
+    return map;
+  }, [attachments]);
+
   const timelineItems = useMemo(() => {
     const items = [];
     (history || []).forEach((h) => {
@@ -133,15 +146,32 @@ export default function TicketDetailPage() {
       });
     });
     (comments || []).forEach((c) => {
+      const files = attachmentsByComment.get(c.id) || [];
+      const text = stripHtml(c.body);
+      const fileNames = files.map((f) => f.file_name).filter(Boolean);
+      const titleBase = c.is_internal ? `[Internal] ${text}` : text;
+      const title =
+        titleBase ||
+        (fileNames.length
+          ? `Shared ${fileNames.length} image${fileNames.length === 1 ? "" : "s"}`
+          : "(empty comment)");
       items.push({
-        title: c.is_internal ? `[Internal] ${stripHtml(c.body)}` : stripHtml(c.body),
-        meta: `${displayPerson(c.author)} · ${c.created_at ? new Date(c.created_at).toLocaleString() : ""}`,
+        title,
+        meta: [
+          displayPerson(c.author),
+          c.created_at ? new Date(c.created_at).toLocaleString() : "",
+          fileNames.length ? fileNames.join(", ") : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
         at: c.created_at,
+        commentId: c.id,
+        attachments: files,
       });
     });
     items.sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0));
     return items;
-  }, [history, comments]);
+  }, [history, comments, attachmentsByComment]);
 
   /** Apply ticket-returning API results in place; soft-refresh activity. No full-page reload. */
   const run = async (fn, okMsg) => {
@@ -314,7 +344,40 @@ export default function TicketDetailPage() {
             {timelineItems.length === 0 ? (
               <p className="text-xs text-ink-muted">No activity yet.</p>
             ) : (
-              <Timeline items={timelineItems} />
+              <ul className="space-y-2 border-l-2 border-border ml-1 pl-3">
+                {timelineItems.map((it, i) => (
+                  <li key={`${it.at || "x"}-${i}`} className="relative">
+                    <span className="absolute -left-[7px] top-1.5 w-2 h-2 rounded-full bg-accent" />
+                    <p className="text-xs font-medium text-ink-strong whitespace-pre-wrap">{it.title}</p>
+                    <p className="text-[11px] text-ink-muted">{it.meta}</p>
+                    {(it.attachments || []).length ? (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {it.attachments.map((a) => (
+                          <button
+                            key={a.id}
+                            type="button"
+                            className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-[10px] font-medium text-accent hover:bg-surface-sunken"
+                            title={a.file_name || "Open image"}
+                            onClick={async () => {
+                              try {
+                                const key = attachmentObjectKey(a);
+                                if (!key) throw new Error("This file has no Cloudflare path.");
+                                const url = await presignItSupportR2Get(key);
+                                window.open(url, "_blank", "noopener,noreferrer");
+                              } catch (err) {
+                                toast.error(err.message || "Could not open image.");
+                              }
+                            }}
+                          >
+                            <ImagePlus className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{a.file_name || "Image"}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
             )}
           </SectionCard>
 
@@ -340,20 +403,106 @@ export default function TicketDetailPage() {
               placeholder={internalNote ? "Internal note (not visible to requester)…" : "Write a comment…"}
               minHeight="100px"
             />
+            <div className="mt-2 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 text-[11px] font-medium text-ink-secondary hover:bg-surface-sunken">
+                  <ImagePlus className="h-3.5 w-3.5" />
+                  Add images
+                  <input
+                    type="file"
+                    multiple
+                    accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    disabled={busy}
+                    onChange={(e) => {
+                      const picked = Array.from(e.target.files || []);
+                      e.target.value = "";
+                      if (!picked.length) return;
+                      const ok = [];
+                      const bad = [];
+                      for (const f of picked) {
+                        const typeOk =
+                          COMMENT_IMAGE_EXT.test(f.name) ||
+                          String(f.type || "").toLowerCase().startsWith("image/");
+                        if (!typeOk) {
+                          bad.push(`${f.name}: images only (jpg, png, webp, gif)`);
+                          continue;
+                        }
+                        if (f.size > IT_SUPPORT_MAX_FILE_BYTES) {
+                          bad.push(`${f.name}: over 10 MB`);
+                          continue;
+                        }
+                        ok.push(f);
+                      }
+                      if (ok.length) {
+                        setCommentImages((prev) => {
+                          const keys = new Set(prev.map((x) => `${x.name}|${x.size}|${x.lastModified}`));
+                          const next = [...prev];
+                          for (const f of ok) {
+                            const k = `${f.name}|${f.size}|${f.lastModified}`;
+                            if (!keys.has(k)) next.push(f);
+                          }
+                          return next;
+                        });
+                      }
+                      if (bad.length) {
+                        setError(bad.join(". "));
+                        toast.error(bad[0]);
+                      }
+                    }}
+                  />
+                </label>
+                <span className="text-[10px] text-ink-muted">jpg, png, webp, gif · max 10 MB each</span>
+              </div>
+              {commentImages.length ? (
+                <TicketFileList
+                  mode="pending"
+                  files={commentImages}
+                  disabled={busy}
+                  onRemovePending={(index) =>
+                    setCommentImages((prev) => prev.filter((_, i) => i !== index))
+                  }
+                />
+              ) : null}
+            </div>
             <div className="mt-3">
               <PrimaryButton
-                disabled={busy || !stripHtml(commentBody).trim()}
+                disabled={busy || (!stripHtml(commentBody).trim() && commentImages.length === 0)}
                 icon={MessageSquare}
                 onClick={() =>
                   run(async () => {
+                    const text = stripHtml(commentBody).trim();
+                    const bodyHtml =
+                      text || commentImages.length
+                        ? commentBody?.trim() || "<p></p>"
+                        : "";
                     const row = await addComment({
                       ticketId: ticket.id,
-                      body: commentBody,
+                      body: bodyHtml,
                       isInternal: agent && internalNote,
                       authorId: user.id,
                     });
+                    const uploadWarnings = [];
+                    for (const file of commentImages) {
+                      try {
+                        await uploadTicketAttachment({
+                          ticketId: ticket.id,
+                          file,
+                          uploadedBy: user?.id,
+                          commentId: row.id,
+                        });
+                      } catch (err) {
+                        uploadWarnings.push(`${file.name}: ${err.message || "upload failed"}`);
+                      }
+                    }
                     setCommentBody("");
+                    setCommentImages([]);
                     setInternalNote(false);
+                    if (uploadWarnings.length) {
+                      toast.error(
+                        `Comment posted, but some images failed: ${uploadWarnings.join("; ")}`
+                      );
+                    }
                     return row;
                   }, "Comment added")
                 }

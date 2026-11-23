@@ -1,5 +1,5 @@
-import React from "react";
-import { Download, FileText, Paperclip, X } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Download, FileText, Image as ImageIcon, Paperclip, X } from "lucide-react";
 
 function formatBytes(size) {
   const n = Number(size) || 0;
@@ -8,11 +8,37 @@ function formatBytes(size) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function FileIcon() {
+function isImageFile(fileOrRow) {
+  const type = String(fileOrRow?.type || fileOrRow?.content_type || "").toLowerCase();
+  if (type.startsWith("image/")) return true;
+  const name = String(fileOrRow?.name || fileOrRow?.file_name || "").toLowerCase();
+  return /\.(jpe?g|png|webp|gif)$/i.test(name);
+}
+
+function FileIcon({ image = false }) {
+  const Icon = image ? ImageIcon : FileText;
   return (
     <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface-sunken text-ink-secondary">
-      <FileText className="h-4 w-4" />
+      <Icon className="h-4 w-4" />
     </span>
+  );
+}
+
+function PendingImageThumb({ file }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    if (!file) return undefined;
+    const next = URL.createObjectURL(file);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [file]);
+  if (!url) return <FileIcon image />;
+  return (
+    <img
+      src={url}
+      alt=""
+      className="h-9 w-9 shrink-0 rounded-md border border-border object-cover bg-surface-sunken"
+    />
   );
 }
 
@@ -53,7 +79,7 @@ export default function TicketFileList({
             key={`${f.name}-${f.size}-${f.lastModified}-${index}`}
             className="flex items-center gap-2 rounded-md border border-border bg-surface px-2 py-1.5"
           >
-            <FileIcon />
+            {isImageFile(f) ? <PendingImageThumb file={f} /> : <FileIcon />}
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-medium text-ink-strong" title={f.name}>
                 {f.name}
@@ -86,7 +112,7 @@ export default function TicketFileList({
           key={a.id}
           className="flex items-center gap-2 rounded-md border border-border bg-surface px-2 py-1.5"
         >
-          <FileIcon />
+          <FileIcon image={isImageFile(a)} />
           <div className="min-w-0 flex-1">
             <button
               type="button"
@@ -99,6 +125,7 @@ export default function TicketFileList({
             <p className="text-[10px] text-ink-muted">
               {formatBytes(a.size_bytes)}
               {a.storage ? ` · ${String(a.storage).toUpperCase()}` : ""}
+              {a.comment_id ? " · on comment" : ""}
             </p>
           </div>
           <button
