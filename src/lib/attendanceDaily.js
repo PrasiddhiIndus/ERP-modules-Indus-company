@@ -1078,6 +1078,20 @@ export function isRegisterDayAfterLeaving(registerDateIso, dateOfLeaving) {
   return date > leaving;
 }
 
+/** True when register date is strictly before the employee's date of joining (DOJ). */
+export function isRegisterDayBeforeJoining(registerDateIso, dateOfJoining) {
+  const doj = normalizeDbDate(dateOfJoining);
+  const date = normalizeDbDate(registerDateIso);
+  if (!doj || !date) return false;
+  return date < doj;
+}
+
+/** WO / NH·PH marks that must not count before DOJ. */
+export function isRegisterPreJoiningExcludedMark(mark) {
+  const m = String(mark ?? "").trim();
+  return m === "WO" || isRegisterNhphMark(m);
+}
+
 /** Colored box behind the closed cell only (pair with registerMarkCellInlineStyle). */
 export function registerMarkCellWrapperClass(value, options) {
   if (!resolveRegisterMarkCellColors(value, options)) {
@@ -1266,6 +1280,7 @@ export function buildMonthlyRegisterGrid(
     const overrides = manualMarks[code] || {};
     const sources = markSources?.[code] || {};
     const dateOfLeaving = normalizeDbDate(emp.dateOfLeaving) || "";
+    const dateOfJoining = normalizeDbDate(emp.dateOfJoining) || "";
     const dayMarks = {};
 
     for (let day = 1; day <= daysInMonth; day += 1) {
@@ -1297,6 +1312,10 @@ export function buildMonthlyRegisterGrid(
           mark = hasPunch ? "P" : "";
         }
       }
+      // Before DOJ: do not show or carry WO / NH·PH (or any auto mark) into the grid.
+      if (dateOfJoining && isRegisterDayBeforeJoining(iso, dateOfJoining)) {
+        mark = "";
+      }
       if (applyLeavingDisplay && dateOfLeaving && isRegisterDayAfterLeaving(iso, dateOfLeaving)) {
         mark = REGISTER_MARK_LEFT;
       }
@@ -1311,6 +1330,7 @@ export function buildMonthlyRegisterGrid(
       department: emp.department || "",
       designation: emp.designation || "",
       dateOfLeaving,
+      dateOfJoining,
       dayMarks,
     };
   });
@@ -3537,8 +3557,11 @@ export async function syncRegisterAutoWeekoffMarks(
   await ensureAttendanceRulesLoaded(supabase);
 
   const departmentByCode = options.departmentByCode || {};
+  const dateOfJoiningByCode = options.dateOfJoiningByCode || {};
   const resolveDepartment = (normCode, dbCode) =>
     departmentByCode[normCode] ?? departmentByCode[dbCode] ?? "";
+  const resolveJoining = (normCode, dbCode) =>
+    normalizeDbDate(dateOfJoiningByCode[normCode] ?? dateOfJoiningByCode[dbCode]) || "";
 
   const fromDate = dates[0];
   const toDate = dates[dates.length - 1];
@@ -3562,8 +3585,16 @@ export async function syncRegisterAutoWeekoffMarks(
     const dbCode = toRegisterDbEmployeeCode(normCode, masterCodeMap);
     if (!dbCode) continue;
     const department = resolveDepartment(normCode, dbCode);
+    const dateOfJoining = resolveJoining(normCode, dbCode);
     for (const register_date of dates) {
       const existing = lookupRegisterRow(existingByKey, normCode, dbCode, register_date);
+      // Before DOJ: never write auto WO; clear any stale auto WO.
+      if (dateOfJoining && isRegisterDayBeforeJoining(register_date, dateOfJoining)) {
+        if (canClearStaleAutoWeekoff(existing)) {
+          deletes.push({ employee_code: dbCode, register_date });
+        }
+        continue;
+      }
       if (!isAutoWeekoffDate(register_date, department, normCode)) {
         if (canClearStaleAutoWeekoff(existing)) {
           deletes.push({ employee_code: dbCode, register_date });
@@ -3671,6 +3702,7 @@ export async function syncRegisterAutoHolidayMarks(
   for (const row of existingRows || []) indexRegisterRowByEmpDate(existingByKey, row);
 
   const departmentByCode = options.departmentByCode || {};
+  const dateOfJoiningByCode = options.dateOfJoiningByCode || {};
   const upserts = [];
   const deletes = [];
   let failed = 0;
@@ -3682,8 +3714,15 @@ export async function syncRegisterAutoHolidayMarks(
     const dbCode = toRegisterDbEmployeeCode(normCode, masterCodeMap);
     if (!dbCode) continue;
     const department = departmentByCode[normCode] ?? departmentByCode[dbCode] ?? "";
+    const dateOfJoining =
+      normalizeDbDate(dateOfJoiningByCode[normCode] ?? dateOfJoiningByCode[dbCode]) || "";
     for (const register_date of dates) {
       const existing = lookupRegisterRow(existingByKey, normCode, dbCode, register_date);
+      // Before DOJ: never write auto NH/PH; clear any stale auto holiday.
+      if (dateOfJoining && isRegisterDayBeforeJoining(register_date, dateOfJoining)) {
+        if (canClearStaleAutoHoliday(existing)) deletes.push({ employee_code: dbCode, register_date });
+        continue;
+      }
       if (!isAutoHolidayFor(register_date, { employeeCode: normCode, department })) {
         if (canClearStaleAutoHoliday(existing)) deletes.push({ employee_code: dbCode, register_date });
         continue;
@@ -4301,8 +4340,14 @@ export function computeEmployeeRegisterSummary(
 ) {
   const summary = { leave: 0, weekoff: 0, appliedWo: 0, nhph: 0, ot: 0, totalPresent: 0 };
   const excludeOffDayWork = isOffDayWorkExcludedFromPresentMonth(year, month);
+  const dateOfJoining = normalizeDbDate(row.dateOfJoining) || "";
   for (let day = 1; day <= daysInMonth; day += 1) {
     const mark = row.dayMarks[day] || "";
+    const iso = year && month ? registerDateFromDay(monthKeyFromParts(year, month), day) : "";
+    // Pre-DOJ days never count (WO / NH·PH and any leftover marks).
+    if (dateOfJoining && iso && isRegisterDayBeforeJoining(iso, dateOfJoining)) {
+      continue;
+    }
     const cellCtx = {
       year,
       month,
@@ -5192,6 +5237,7 @@ export function mapMasterEmployee(row) {
     employeeName: row.full_name || row.name || "",
     department: row.department || "",
     designation: row.designation || "",
+    dateOfJoining: normalizeDbDate(row.date_of_joining) || "",
     dateOfLeaving: normalizeDbDate(row.date_of_leaving) || "",
     employeeId: row.employee_id || "",
     employeeType: String(row.employee_type ?? "").trim().toLowerCase() || "in_house",
@@ -5472,7 +5518,9 @@ export async function fetchActiveEmployees(supabase) {
   const [{ data, error }] = await Promise.all([
     supabase
       .from(EMPLOYEE_MASTER_TABLE)
-      .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving,employee_type")
+      .select(
+        "employee_code,employee_id,full_name,department,designation,status,date_of_joining,date_of_leaving,employee_type"
+      )
       .eq("status", "Active"),
     ensureAttendanceRulesLoaded(supabase),
   ]);
@@ -5485,7 +5533,9 @@ export async function fetchInactiveEmployeesWithDateOfLeaving(supabase) {
   const [{ data, error }] = await Promise.all([
     supabase
       .from(EMPLOYEE_MASTER_TABLE)
-      .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving,employee_type")
+      .select(
+        "employee_code,employee_id,full_name,department,designation,status,date_of_joining,date_of_leaving,employee_type"
+      )
       .eq("status", "Inactive")
       .not("date_of_leaving", "is", null),
     ensureAttendanceRulesLoaded(supabase),
@@ -5561,7 +5611,9 @@ export async function fetchInactiveEmployeesFromMaster(supabase) {
   const [{ data, error }] = await Promise.all([
     supabase
       .from(EMPLOYEE_MASTER_TABLE)
-      .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving,employee_type")
+      .select(
+        "employee_code,employee_id,full_name,department,designation,status,date_of_joining,date_of_leaving,employee_type"
+      )
       .eq("status", "Inactive"),
     ensureAttendanceRulesLoaded(supabase),
   ]);
