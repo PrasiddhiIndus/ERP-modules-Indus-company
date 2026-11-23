@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   diffEnquiryFields,
   enquiryEditSaveMode,
+  isDateApprovalChange,
   isPastCompletedDateChange,
   isProgressDirectChange,
   normalizeEnquiryCompareValue,
@@ -56,7 +57,7 @@ describe('enquiry edit save mode', () => {
     vi.useRealTimers();
   });
 
-  it('does not require L1 for Not Started / Work in Progress', () => {
+  it('does not require L1 for Not Started / Work in Progress without date changes', () => {
     expect(
       isProgressDirectChange(
         [{ field_key: 'current_status', new_value: 'Work in Progress' }],
@@ -71,11 +72,22 @@ describe('enquiry edit save mode', () => {
     ).toBe('progress');
   });
 
-  it('requires L1 when Completed Date is in the past', () => {
+  it('requires L1 when Target Date changes, even on progress status', () => {
+    const changes = [{ field_key: 'target_date', old_value: '2026-11-20', new_value: '2026-11-25' }];
+    expect(isDateApprovalChange(changes)).toBe(true);
+    expect(isProgressDirectChange(changes, { current_status: 'Work in Progress', target_date: '2026-11-25' })).toBe(
+      false
+    );
+    expect(
+      enquiryEditSaveMode(changes, { current_status: 'Work in Progress', target_date: '2026-11-25' })
+    ).toBe('l1');
+  });
+
+  it('requires L1 whenever Completed Date is entered or changed', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 10, 13));
-    const changes = [{ field_key: 'completed_on', old_value: '', new_value: '2026-11-01' }];
-    expect(isPastCompletedDateChange(changes)).toBe(true);
+    const past = [{ field_key: 'completed_on', old_value: '', new_value: '2026-11-01' }];
+    expect(isPastCompletedDateChange(past)).toBe(true);
     expect(
       enquiryEditSaveMode(
         [
@@ -85,11 +97,6 @@ describe('enquiry edit save mode', () => {
         { current_status: 'Completed', completed_on: '2026-11-01' }
       )
     ).toBe('l1');
-  });
-
-  it('applies Completed immediately when Completed Date is today', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 10, 13));
     expect(
       enquiryEditSaveMode(
         [
@@ -98,6 +105,17 @@ describe('enquiry edit save mode', () => {
         ],
         { current_status: 'Completed', completed_on: '2026-11-13' }
       )
+    ).toBe('l1');
+  });
+
+  it('applies Completed immediately only when status alone changes to Completed', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 13));
+    expect(
+      enquiryEditSaveMode([{ field_key: 'current_status', new_value: 'Completed' }], {
+        current_status: 'Completed',
+        completed_on: '2026-11-13',
+      })
     ).toBe('completed');
   });
 });

@@ -77,6 +77,37 @@ if (typeof window !== 'undefined') {
   }
 }
 
+/**
+ * Local-only header a caller can attach to say who started a write and why
+ * ({ trigger: "user" | "automatic", action, batch }). It is removed before the request
+ * leaves the browser and recorded in the activity log instead of the gesture guess below.
+ */
+const ACTIVITY_CONTEXT_HEADER = 'x-erp-activity'
+
+function takeActivityContext(headers) {
+  if (!headers || typeof headers !== 'object') return null
+  let raw = null
+  for (const k of Object.keys(headers)) {
+    if (k.toLowerCase() === ACTIVITY_CONTEXT_HEADER) {
+      raw = headers[k]
+      delete headers[k]
+    }
+  }
+  if (!raw) return null
+  try {
+    const ctx = JSON.parse(String(raw))
+    if (!ctx || typeof ctx !== 'object') return null
+    const trigger = ctx.trigger === 'automatic' ? 'automatic' : ctx.trigger === 'user' ? 'user' : null
+    return {
+      trigger,
+      action: ctx.action ? String(ctx.action).slice(0, 64) : null,
+      batch: ctx.batch ? String(ctx.batch).slice(0, 64) : null,
+    }
+  } catch {
+    return null
+  }
+}
+
 function activityTriggerNow() {
   const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
   if (hidden) return 'automatic'
@@ -898,6 +929,8 @@ const customFetch = async (url, options = {}) => {
   // Plain-object headers (not Headers): some environments drop apikey when a Headers
   // instance is passed through after auth-header mutation.
   fetchOptions.headers = ensureSupabaseApiHeaders(fetchOptions.headers)
+  // Always strip the local audit header, logged or not — it must never reach the server.
+  const activityContext = takeActivityContext(fetchOptions.headers)
   const { signal, clearTimer } = resolveFetchSignal(fetchOptions, url)
   if (signal !== undefined) fetchOptions.signal = signal
 
@@ -915,7 +948,8 @@ const customFetch = async (url, options = {}) => {
   // database), the page it was sent from, and whether a user gesture preceded it.
   const auditActor = shouldLogRequest(url, options) ? requestActor(fetchOptions.headers) : null
   const auditRoute = auditActor && typeof window !== 'undefined' ? window.location.pathname : null
-  const auditTrigger = auditActor ? activityTriggerNow() : null
+  // Explicit context from the caller wins over the "recent click" guess.
+  const auditTrigger = auditActor ? (activityContext?.trigger || activityTriggerNow()) : null
 
   try {
     const res = await baseFetch(url, fetchOptions)
@@ -981,6 +1015,9 @@ const customFetch = async (url, options = {}) => {
               rows_affected: rows,
               http_method: details.http_method || method,
               trigger: auditTrigger,
+              trigger_source: activityContext?.trigger ? 'declared' : 'gesture_heuristic',
+              action_context: activityContext?.action || null,
+              batch_id: activityContext?.batch || null,
               origin: 'erp_web_client',
               outcome: failed ? (res.status === 401 || res.status === 403 ? 'denied' : 'failed') : 'success',
             },

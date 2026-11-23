@@ -71,6 +71,7 @@ import {
   isRegisterCommentMark,
   isRegisterDayAfterLeaving,
   isRegisterDayBeforeJoining,
+  resolveEmployeeDateOfJoining,
   upsertRegisterMark,
   upsertRegisterMarksBatch,
   writeStoredRegisterMarks,
@@ -476,8 +477,8 @@ export function EmployeeAttendanceDailyPage() {
         const dept = emp.department || "";
         const code = normalizeAttendanceEmpCode(emp.empCode);
         const raw = String(emp.registerEmpCode || emp.empCode || "").trim();
-        const doj = emp.dateOfJoining || "";
-        if (code) departmentByCode[code] = dept;
+      const doj = resolveEmployeeDateOfJoining(emp);
+      if (code) departmentByCode[code] = dept;
         if (raw) departmentByCode[raw] = dept;
         if (doj && code) dateOfJoiningByCode[code] = doj;
         if (doj && raw) dateOfJoiningByCode[raw] = doj;
@@ -588,6 +589,7 @@ export function EmployeeAttendanceDailyPage() {
             respectManualMarks: true,
             masterCodeMap,
             existingRegisterRows: rowsAfterAutoMarks,
+            dateOfJoiningByCode,
           });
 
           // After auto WO/NH·PH: convert sandwiched offs to leave so balance sync counts them.
@@ -883,7 +885,8 @@ export function EmployeeAttendanceDailyPage() {
     const map = new Map();
     for (const emp of activeEmployees) {
       const code = normalizeAttendanceEmpCode(emp.empCode);
-      if (code && emp.dateOfJoining) map.set(code, emp.dateOfJoining);
+      const doj = resolveEmployeeDateOfJoining(emp);
+      if (code && doj) map.set(code, doj);
     }
     return map;
   }, [activeEmployees]);
@@ -1776,13 +1779,17 @@ export function EmployeeAttendanceDailyPage() {
         headerClassName: SCROLL_DAY_COL_CLASS,
         cellClassName: SCROLL_DAY_COL_CLASS,
         render: (row) => {
-          const value = row.dayMarks[day] || "";
           const cellDate = monthKey ? registerDateFromDay(monthKey, day) : "";
-          const joiningLocked =
-            !!row.dateOfJoining && isRegisterDayBeforeJoining(cellDate, row.dateOfJoining);
+          const rowDoj =
+            resolveEmployeeDateOfJoining(row) ||
+            dateOfJoiningByEmp.get(normalizeAttendanceEmpCode(row.empCode)) ||
+            "";
+          const joiningLocked = !!rowDoj && isRegisterDayBeforeJoining(cellDate, rowDoj);
           const leavingLocked =
             !!row.dateOfLeaving && isRegisterDayAfterLeaving(cellDate, row.dateOfLeaving);
           const cellLocked = joiningLocked || leavingLocked;
+          // Never surface WO / NH·PH / punches before DOJ, even if a stale mark remains.
+          const value = joiningLocked ? "" : row.dayMarks[day] || "";
           const comment = String(manualRemarks[row.empCode]?.[day] || "").trim();
           const isCommentMark = isRegisterCommentMark(value);
           const commentMark = isCommentMark ? value : "";

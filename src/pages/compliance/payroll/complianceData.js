@@ -51,7 +51,13 @@ async function fetchAttendancePresentIndex(year, month) {
     );
     for (const row of result.rows || []) {
       const fromMarks = row.dayMarks
-        ? salaryPresentDaysFromDayMarks(row.dayMarks, y, m, row.department)
+        ? salaryPresentDaysFromDayMarks(
+            row.dayMarks,
+            y,
+            m,
+            row.department,
+            row.dateOfJoining || null
+          )
         : capPresentDaysToWorkingDays(row.summary?.totalPresent, cap);
       const days = Number.isFinite(Number(fromMarks)) ? Number(fromMarks) : 0;
       for (const raw of [row.empCode, row.employeeId]) {

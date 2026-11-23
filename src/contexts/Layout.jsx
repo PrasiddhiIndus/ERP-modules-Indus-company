@@ -33,6 +33,7 @@ import { Breadcrumbs } from "../components/erpUi";
 const EnquiryDueSoonPopup = lazy(() => import("../pages/projects/enquiry/EnquiryDueSoonPopup"));
 const EnquiryOverduePopup = lazy(() => import("../pages/projects/enquiry/EnquiryOverduePopup"));
 const EnquiryCompletedPopup = lazy(() => import("../pages/projects/enquiry/EnquiryCompletedPopup"));
+const EnquiryEditDecisionPopup = lazy(() => import("../pages/projects/enquiry/EnquiryEditDecisionPopup"));
 const QuotationStatusChangePopup = lazy(() => import("../pages/projects/quotation/QuotationStatusChangePopup"));
 import { beginProjectsVisit, endProjectsVisit } from "../pages/projects/enquiry/enquiryPopupVisit";
 import { canReceiveQuotationStatusNotifications } from "../pages/projects/quotation/quotationNotificationRoles";
@@ -2517,6 +2518,7 @@ const Layout = () => {
             {enquiryTabs.includes("enquiry-database") ? (
               <>
                 <EnquiryCompletedPopup />
+                <EnquiryEditDecisionPopup />
                 {/* Overdue: only on Enquiry Master Dashboard, once per Projects visit */}
                 {pathname.includes("/projects/enquiry/enquiry-dashboard") ? <EnquiryOverduePopup /> : null}
                 <EnquiryDueSoonPopup />
