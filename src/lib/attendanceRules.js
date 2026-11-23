@@ -77,6 +77,8 @@ export function ruleDepartmentKey(department) {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .replace(/\s*-\s*/g, "-");
+  // Keep "Dahej HR" / "Dahej - HR" on the same key as Employee Master "Dahej-HR".
+  if (key === "dahej hr") return "dahej-hr";
   return key || null;
 }
 

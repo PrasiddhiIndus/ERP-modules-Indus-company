@@ -422,12 +422,35 @@ async function fetchAssignmentsWhereIn(column, values) {
   return all;
 }
 
-/** Open assignment (no to-date), else the latest by from-date. */
-export function pickCurrentAssignment(assignments) {
+function assignmentDateOnly(value) {
+  if (value == null || value === "") return null;
+  return String(value).split("T")[0];
+}
+
+/** True when the assignment covers `asOf` (defaults to today, ISO date). */
+export function isCurrentSiteAssignment(assignment, asOf = new Date().toISOString().slice(0, 10)) {
+  if (!assignment) return false;
+  const today = String(asOf).split("T")[0];
+  const from = assignmentDateOnly(assignment.from_date);
+  const to = assignmentDateOnly(assignment.to_date);
+  if (from && from > today) return false;
+  if (to && to < today) return false;
+  return true;
+}
+
+/**
+ * Current site assignment: still covering today (open or future to-date),
+ * preferring open rows, else the latest from-date among active ones.
+ * Falls back to the latest historical row when none are active.
+ */
+export function pickCurrentAssignment(assignments, asOf = new Date().toISOString().slice(0, 10)) {
   const list = assignments || [];
-  const open = list.find((a) => !a.to_date);
+  if (!list.length) return undefined;
+  const active = list.filter((a) => isCurrentSiteAssignment(a, asOf));
+  const pool = active.length ? active : list;
+  const open = pool.find((a) => !assignmentDateOnly(a.to_date));
   if (open) return open;
-  return [...list].sort((a, b) => String(a.from_date || "").localeCompare(String(b.from_date || ""))).pop();
+  return [...pool].sort((a, b) => String(a.from_date || "").localeCompare(String(b.from_date || ""))).pop();
 }
 
 /**
@@ -444,10 +467,13 @@ export async function listPeopleForSites({ siteIds, search = "" } = {}) {
 
   const allAssigns = await fetchAssignmentsWhereIn("person_id", candidateIds);
   const byPerson = {};
-  for (const a of allAssigns) (byPerson[a.person_id] ||= []).push(a);
+  for (const a of allAssigns) {
+    const key = String(a.person_id);
+    (byPerson[key] ||= []).push(a);
+  }
 
   const keepIds = candidateIds.filter((id) => {
-    const current = pickCurrentAssignment(byPerson[id]);
+    const current = pickCurrentAssignment(byPerson[String(id)]);
     return current && allowed.has(String(current.site_id));
   });
 
@@ -462,7 +488,7 @@ export async function listPeopleForSites({ siteIds, search = "" } = {}) {
     .sort((a, b) => String(a.full_name || "").localeCompare(String(b.full_name || ""), undefined, { sensitivity: "base" }));
 
   const assignmentsByPerson = {};
-  for (const p of people) assignmentsByPerson[p.id] = byPerson[p.id] || [];
+  for (const p of people) assignmentsByPerson[p.id] = byPerson[String(p.id)] || [];
   return { rows: people, assignmentsByPerson };
 }
 
@@ -501,14 +527,36 @@ export async function generateUniqueCode() {
   throw new Error("Unable to generate code.");
 }
 
+async function fetchAssignmentsPaged(applyFilters) {
+  const all = [];
+  for (let from = 0; ; from += PAGE_FETCH_SIZE) {
+    let query = supabase
+      .from("site_assignments")
+      .select("*")
+      .order("id", { ascending: true })
+      .range(from, from + PAGE_FETCH_SIZE - 1);
+    query = applyFilters(query);
+    const { data, error } = await query;
+    throwIf(error, "Unable to load assignments.");
+    all.push(...(data || []));
+    if (!data || data.length < PAGE_FETCH_SIZE) break;
+  }
+  return all;
+}
+
 export async function listAssignments({ personId, personIds, siteId } = {}) {
-  let query = supabase.from("site_assignments").select("*");
-  if (personIds?.length) query = query.in("person_id", personIds);
-  else if (personId) query = query.eq("person_id", personId);
-  if (siteId) query = query.eq("site_id", siteId);
-  const { data, error } = await query;
-  throwIf(error, "Unable to load assignments.");
-  return data || [];
+  if (personIds?.length) {
+    const all = await fetchAssignmentsWhereIn("person_id", personIds);
+    if (siteId == null) return all;
+    const siteKey = String(siteId);
+    return all.filter((a) => String(a.site_id) === siteKey);
+  }
+  return fetchAssignmentsPaged((query) => {
+    let q = query;
+    if (personId) q = q.eq("person_id", personId);
+    if (siteId) q = q.eq("site_id", siteId);
+    return q;
+  });
 }
 
 export async function createAssignment(payload) {
@@ -616,7 +664,8 @@ export async function ensureGridPlacements(siteId, employees, cycleMonth, cycleY
 
   const missingDefaults = [];
   (employees || []).forEach((emp) => {
-    if (!dbRows.some((r) => r.person_id === emp.id)) {
+    const empKey = String(emp.id);
+    if (!dbRows.some((r) => String(r.person_id) === empKey)) {
       missingDefaults.push({
         person_id: emp.id,
         grid_designation: normalizeGridDesignation(emp.designation),

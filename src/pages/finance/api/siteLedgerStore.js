@@ -712,7 +712,11 @@ async function upsertRevenueHeads() {
   return Object.fromEntries((data || []).map((r) => [r.code, r.id]));
 }
 
-async function syncParents(parents) {
+/**
+ * Upsert parent heads. Prune only when allowPrune=true (explicit head deletion).
+ * Default is upsert-only so a stale browser tab cannot delete masters.
+ */
+async function syncParents(parents, { allowPrune = false } = {}) {
   invalidatePersistCaches();
   const existing = (await t("expense_parent_heads").select("id, code")).data || [];
   const keep = new Set(parents.map((p) => p.key));
@@ -738,16 +742,27 @@ async function syncParents(parents) {
     out[p.key] = data.id;
   }
 
-  const fallbackParentId = out.adminMisc || out.admin || Object.values(out)[0];
-  for (const row of existing) {
-    if (!keep.has(row.code)) {
-      await removeParentHeadRow(row, fallbackParentId);
+  if (allowPrune) {
+    const fallbackParentId = out.adminMisc || out.admin || Object.values(out)[0];
+    for (const row of existing) {
+      if (!keep.has(row.code)) {
+        await removeParentHeadRow(row, fallbackParentId);
+      }
+    }
+  } else {
+    // Keep DB-only parents in the id map so structure writes still resolve.
+    for (const row of existing) {
+      if (out[row.code] == null) out[row.code] = row.id;
     }
   }
   return out;
 }
 
-async function syncLibrary(library, parentIdByCode) {
+/**
+ * Upsert child heads. Prune only when allowPrune=true.
+ * Even then, never detach a head that still has structure rows or period figures.
+ */
+async function syncLibrary(library, parentIdByCode, { allowPrune = false } = {}) {
   const existing = (await t("expense_child_heads").select("id, code")).data || [];
   const keep = new Set(library.map((c) => c.key));
   const out = {};
@@ -782,9 +797,32 @@ async function syncLibrary(library, parentIdByCode) {
     throw new Error(`Cost lines not synced to database: ${missingParents.join(", ")}`);
   }
 
-  for (const row of existing) {
-    if (!keep.has(row.code)) {
-      await removeChildHeadRow(row);
+  if (allowPrune) {
+    const candidates = existing.filter((row) => !keep.has(row.code));
+    if (candidates.length) {
+      const ids = candidates.map((r) => r.id);
+      const protectedIds = new Set();
+      // Chunk IN filters for PostgREST URL limits.
+      for (let i = 0; i < ids.length; i += 80) {
+        const chunk = ids.slice(i, i + 80);
+        const [structRes, lineRes] = await Promise.all([
+          t("site_expense_structure").select("child_head_id").in("child_head_id", chunk),
+          t("expense_entry_lines").select("child_head_id").in("child_head_id", chunk),
+        ]);
+        for (const r of structRes.data || []) protectedIds.add(r.child_head_id);
+        for (const r of lineRes.data || []) protectedIds.add(r.child_head_id);
+      }
+      for (const row of candidates) {
+        if (protectedIds.has(row.id)) {
+          out[row.code] = row.id;
+          continue;
+        }
+        await removeChildHeadRow(row);
+      }
+    }
+  } else {
+    for (const row of existing) {
+      if (out[row.code] == null) out[row.code] = row.id;
     }
   }
   cachedHeadMaps = { parentIdByCode, childIdByCode: out };
@@ -1472,21 +1510,26 @@ async function ensureSiteUuid(siteCode, context = {}) {
   return uuid;
 }
 
-/** Persist site master rows (budgets, spreads, contract) without touching period figures. */
-export async function persistSitesNow({ sites, library, parents }) {
+/**
+ * Persist site master rows for an explicit site list only.
+ * Never loops the whole portfolio with replace_site_structure (that caused multi-user data loss).
+ */
+export async function persistSitesNow({ sites, library, parents, siteCodes } = {}) {
   return enqueueSave(async () => {
-    const revIdByCode = await upsertRevenueHeads();
-    const parentIdByCode = await syncParents(parents || []);
-    const normalizedSites = (sites || []).map((s) => ({
-      ...s,
-      structure: dedupeSiteStructure(s.structure),
-    }));
-    const childIdByCode = await syncLibrary(
-      libraryForSitesPersist(library || [], normalizedSites),
-      parentIdByCode,
-    );
-    for (let i = 0; i < normalizedSites.length; i++) {
-      await syncSite(normalizedSites[i], parentIdByCode, childIdByCode, revIdByCode, i);
+    const codes = [...new Set((siteCodes || []).filter(Boolean))];
+    if (!codes.length) {
+      throw new Error(
+        "persistSitesNow requires siteCodes — full-portfolio structure replace is disabled to prevent data loss.",
+      );
+    }
+    for (const siteCode of codes) {
+      await saveLedgerOneSiteInner({
+        siteCode,
+        sites,
+        library,
+        parents,
+        include: undefined,
+      });
     }
     invalidateFinanceCache({ notify: false });
     return true;
@@ -1711,23 +1754,45 @@ async function saveLedgerRecordsInner({ records, sites = [], library = [], paren
   return true;
 }
 
-async function saveLedgerStoreInner({ sites, records, library, parents, pruneSites = false, deletedSiteCodes = [] }) {
+async function saveLedgerStoreInner({
+  sites,
+  records,
+  library,
+  parents,
+  pruneSites = false,
+  deletedSiteCodes = [],
+}) {
+  const explicitDeletes = [...new Set((deletedSiteCodes || []).filter(Boolean))];
+  // Fast path: deleting one/more sites must not rewrite every other site's structure.
+  if (explicitDeletes.length && !pruneSites) {
+    for (const code of explicitDeletes) {
+      const existingId = await getSiteUuidByCode(code);
+      if (existingId) {
+        invalidateSiteUuidCache(code);
+        await t("sites").delete().eq("id", existingId);
+      }
+    }
+    invalidateFinanceCache();
+    return true;
+  }
+
   const revIdByCode = await upsertRevenueHeads();
-  const parentIdByCode = await syncParents(parents);
-  const normalizedSites = sites.map((s) => ({
+  const parentIdByCode = await syncParents(parents || [], { allowPrune: false });
+  const normalizedSites = (sites || []).map((s) => ({
     ...s,
     structure: dedupeSiteStructure(s.structure),
   }));
-  const childIdByCode = await syncLibrary(libraryForSitesPersist(library, normalizedSites), parentIdByCode);
+  const childIdByCode = await syncLibrary(
+    libraryForSitesPersist(library, normalizedSites),
+    parentIdByCode,
+    { allowPrune: false },
+  );
 
-  if (pruneSites || deletedSiteCodes.length) {
+  if (pruneSites) {
     const existingSites = (await t("sites").select("id, code")).data || [];
-    const keepSiteCodes = new Set(sites.map((s) => s.id));
-    const explicitDeletes = new Set(deletedSiteCodes);
+    const keepSiteCodes = new Set(normalizedSites.map((s) => s.id));
     for (const row of existingSites) {
-      const shouldDelete = explicitDeletes.has(row.code)
-        || (pruneSites && !keepSiteCodes.has(row.code));
-      if (shouldDelete) {
+      if (!keepSiteCodes.has(row.code)) {
         invalidateSiteUuidCache(row.code);
         await t("sites").delete().eq("id", row.id);
       }
@@ -1739,7 +1804,7 @@ async function saveLedgerStoreInner({ sites, records, library, parents, pruneSit
   }
 
   await syncRecords(records, childIdByCode, revIdByCode, {
-    pruneMissing: !!(pruneSites || deletedSiteCodes.length),
+    pruneMissing: !!pruneSites,
     sites: normalizedSites,
   });
 
@@ -1987,42 +2052,59 @@ async function saveLedgerStructureInner({ siteCode, sites, library, parents, lib
 }
 
 /**
- * Masters-only save — parent heads, library, and structure rows (no period entries / budgets / spreads).
+ * Masters-only save — upsert parents/library; rewrite structure only for touched siteCodes.
+ * Without siteCodes, never calls replace_site_structure (prevents stale-tab portfolio wipe).
  */
-async function saveLedgerMastersInner({ sites, library, parents }) {
-  const parentIdByCode = await syncParents(parents);
+async function saveLedgerMastersInner({ sites, library, parents, siteCode, siteCodes, pruneHeads = false }) {
+  const allowPrune = !!pruneHeads;
+  const parentIdByCode = await syncParents(parents || [], { allowPrune });
   const normalizedSites = (sites || []).map((s) => ({
     ...s,
     structure: dedupeSiteStructure(s.structure),
   }));
-  const childIdByCode = await syncLibrary(libraryForSitesPersist(library, normalizedSites), parentIdByCode);
+  const childIdByCode = await syncLibrary(
+    libraryForSitesPersist(library, normalizedSites),
+    parentIdByCode,
+    { allowPrune },
+  );
 
-  for (let i = 0; i < normalizedSites.length; i++) {
-    const site = normalizedSites[i];
+  const codes = [...new Set([
+    ...(siteCodes || []),
+    ...(siteCode ? [siteCode] : []),
+  ].filter(Boolean))];
+
+  for (const code of codes) {
+    const index = normalizedSites.findIndex((s) => s.id === code);
+    const site = index >= 0 ? normalizedSites[index] : null;
+    if (!site) continue;
     const siteUuid = await getSiteUuidByCode(site.id);
-    if (siteUuid) {
-      await upsertSiteRow(site, i);
-      await syncSiteStructureBatch(siteUuid, site.structure, parentIdByCode, childIdByCode);
-    }
+    if (!siteUuid) continue;
+    await upsertSiteRow(site, index >= 0 ? index : 0);
+    await syncSiteStructureBatch(siteUuid, site.structure, parentIdByCode, childIdByCode);
   }
 
   invalidateFinanceCache();
   return true;
 }
 
+/**
+ * Legacy "sites" scope — site meta + head upsert only.
+ * Does NOT replace structure/spreads/budgets for the whole portfolio.
+ */
 async function saveLedgerSitesInner({ sites, library, parents }) {
-  const revIdByCode = await upsertRevenueHeads();
-  const parentIdByCode = await syncParents(parents || []);
+  await upsertRevenueHeads();
+  const parentIdByCode = await syncParents(parents || [], { allowPrune: false });
   const normalizedSites = (sites || []).map((s) => ({
     ...s,
     structure: dedupeSiteStructure(s.structure),
   }));
-  const childIdByCode = await syncLibrary(
+  await syncLibrary(
     libraryForSitesPersist(library || [], normalizedSites),
     parentIdByCode,
+    { allowPrune: false },
   );
   for (let i = 0; i < normalizedSites.length; i++) {
-    await syncSite(normalizedSites[i], parentIdByCode, childIdByCode, revIdByCode, i);
+    await upsertSiteRow(normalizedSites[i], i);
   }
   invalidateFinanceCache();
   return true;

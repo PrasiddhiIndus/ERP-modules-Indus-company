@@ -11,6 +11,10 @@ import {
   isMultiDesignationEnabled,
 } from "../../../lib/siteAttendance/multiDesignation";
 import {
+  buildSiteRosterFromAssignments,
+  personIsVisibleInAttendanceMonth,
+} from "../../../lib/siteAttendance/attendanceRules";
+import {
   ensureGridPlacements,
   getSite,
   listAllSites,
@@ -55,15 +59,21 @@ export default function SummaryPage() {
       setSiteName(site.site_name);
       const dim = new Date(Number(year), Number(month), 0).getDate();
       setDaysInMonth(dim);
-      const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
-      const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(dim).padStart(2, "0")}`;
+      const startDay = site.salary_cycle_start_day || 1;
+      const endDay = site.salary_cycle_end_day || 31;
       const assignments = await listAssignments({ siteId: Number(siteId) });
-      const active = assignments.filter((a) => {
-        const fromDate = new Date(a.from_date);
-        const toDate = a.to_date ? new Date(a.to_date) : new Date("9999-12-31");
-        return fromDate <= new Date(monthEnd) && toDate >= new Date(monthStart);
+      const roster = buildSiteRosterFromAssignments(assignments, Number(year), Number(month), startDay, endDay);
+      const peopleRaw = await listPeopleByIds(roster.map((r) => r.personId));
+      const peopleMap = Object.fromEntries(peopleRaw.map((p) => [String(p.id), p]));
+      const people = [];
+      roster.forEach(({ personId, hasOpenAssignment }) => {
+        const person = peopleMap[String(personId)];
+        if (!person) return;
+        if (!personIsVisibleInAttendanceMonth(person, Number(year), Number(month), hasOpenAssignment, startDay, endDay)) {
+          return;
+        }
+        people.push(person);
       });
-      const people = await listPeopleByIds([...new Set(active.map((a) => a.person_id))]);
       let placements = [];
       if (isMultiDesignationEnabled(site)) {
         placements = await ensureGridPlacements(Number(siteId), people, Number(month), Number(year));

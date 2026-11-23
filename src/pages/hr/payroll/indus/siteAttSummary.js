@@ -42,12 +42,12 @@ export async function fetchSiteAttendanceSummary({ siteId, month, year }) {
   const assigns = await listAssignments({ siteId: id });
   const roster = buildSiteRosterFromAssignments(assigns, Number(year), Number(month), startDay, endDay);
   const people = await listPeopleByIds(roster.map((r) => r.personId));
-  const peopleMap = Object.fromEntries(people.map((p) => [p.id, p]));
+  const peopleMap = Object.fromEntries(people.map((p) => [String(p.id), p]));
 
   const employees = [];
   roster.forEach(({ personId, hasOpenAssignment }) => {
-    const person = peopleMap[personId];
-    if (!person || person.is_active === false) return;
+    const person = peopleMap[String(personId)];
+    if (!person) return;
     if (!personIsVisibleInAttendanceMonth(person, Number(year), Number(month), hasOpenAssignment, startDay, endDay)) {
       return;
     }
