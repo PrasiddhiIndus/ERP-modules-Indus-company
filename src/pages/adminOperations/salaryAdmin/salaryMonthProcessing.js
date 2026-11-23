@@ -260,9 +260,10 @@ export function presentDaysExceedWorkingDays(presentDaysOrLine, workingDays) {
 /**
  * Salary P.Days from the daily register: present + paid leave on Mon–Sat only.
  * Sundays (week off) are never counted; 3rd-Saturday WO counts for non-excluded departments.
+ * Days strictly before DOJ never count (including blank paid 3rd-Saturday cells).
  * Result is capped at the month slab.
  */
-export function salaryPresentDaysFromDayMarks(dayMarks, year, month, department) {
+export function salaryPresentDaysFromDayMarks(dayMarks, year, month, department, dateOfJoining = null) {
   const y = Number(year);
   const m = Number(month);
   const cap = workingDaysMonToSat(y, m);
@@ -273,7 +274,13 @@ export function salaryPresentDaysFromDayMarks(dayMarks, year, month, department)
   for (let day = 1; day <= last; day += 1) {
     if (new Date(y, m - 1, day).getDay() === 0) continue;
     const mark = marks[day] || marks[String(day)] || "";
-    total += registerPresentDaySummaryCreditForCell(mark, { year: y, month: m, day, department });
+    total += registerPresentDaySummaryCreditForCell(mark, {
+      year: y,
+      month: m,
+      day,
+      department,
+      dateOfJoining,
+    });
   }
   return capPresentDaysToWorkingDays(total, cap);
 }

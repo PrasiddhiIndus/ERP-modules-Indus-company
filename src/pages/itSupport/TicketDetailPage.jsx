@@ -40,6 +40,7 @@ import StatusBadge from "./components/StatusBadge";
 import SlaTimer from "./components/SlaTimer";
 import RichTextField from "./components/RichTextField";
 import TicketFileList from "./components/TicketFileList";
+import TicketActivityTimeline from "./components/TicketActivityTimeline";
 
 const COMMENT_IMAGE_EXT = /\.(jpe?g|png|webp|gif)$/i;
 
@@ -140,38 +141,47 @@ export default function TicketDetailPage() {
     const items = [];
     (history || []).forEach((h) => {
       items.push({
+        kind: "history",
         title: h.remark || `${h.event_type}: ${h.to_value || ""}`,
-        meta: `${displayPerson(h.actor)} · ${h.created_at ? new Date(h.created_at).toLocaleString() : ""}`,
+        actorLabel: displayPerson(h.actor),
         at: h.created_at,
+        isInternal: false,
+        attachments: [],
       });
     });
     (comments || []).forEach((c) => {
       const files = attachmentsByComment.get(c.id) || [];
       const text = stripHtml(c.body);
       const fileNames = files.map((f) => f.file_name).filter(Boolean);
-      const titleBase = c.is_internal ? `[Internal] ${text}` : text;
       const title =
-        titleBase ||
+        text ||
         (fileNames.length
           ? `Shared ${fileNames.length} image${fileNames.length === 1 ? "" : "s"}`
           : "(empty comment)");
       items.push({
+        kind: "comment",
         title,
-        meta: [
-          displayPerson(c.author),
-          c.created_at ? new Date(c.created_at).toLocaleString() : "",
-          fileNames.length ? fileNames.join(", ") : "",
-        ]
-          .filter(Boolean)
-          .join(" · "),
+        actorLabel: displayPerson(c.author),
         at: c.created_at,
         commentId: c.id,
+        isInternal: Boolean(c.is_internal),
         attachments: files,
       });
     });
     items.sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0));
     return items;
   }, [history, comments, attachmentsByComment]);
+
+  const openActivityAttachment = useCallback(async (a) => {
+    try {
+      const key = attachmentObjectKey(a);
+      if (!key) throw new Error("This file has no Cloudflare path.");
+      const url = await presignItSupportR2Get(key);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      toast.error(err.message || "Could not open attachment.");
+    }
+  }, []);
 
   /** Apply ticket-returning API results in place; soft-refresh activity. No full-page reload. */
   const run = async (fn, okMsg) => {
@@ -340,45 +350,20 @@ export default function TicketDetailPage() {
             </dl>
           </SectionCard>
 
-          <SectionCard title="Activity">
-            {timelineItems.length === 0 ? (
-              <p className="text-xs text-ink-muted">No activity yet.</p>
-            ) : (
-              <ul className="space-y-2 border-l-2 border-border ml-1 pl-3">
-                {timelineItems.map((it, i) => (
-                  <li key={`${it.at || "x"}-${i}`} className="relative">
-                    <span className="absolute -left-[7px] top-1.5 w-2 h-2 rounded-full bg-accent" />
-                    <p className="text-xs font-medium text-ink-strong whitespace-pre-wrap">{it.title}</p>
-                    <p className="text-[11px] text-ink-muted">{it.meta}</p>
-                    {(it.attachments || []).length ? (
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {it.attachments.map((a) => (
-                          <button
-                            key={a.id}
-                            type="button"
-                            className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-[10px] font-medium text-accent hover:bg-surface-sunken"
-                            title={a.file_name || "Open image"}
-                            onClick={async () => {
-                              try {
-                                const key = attachmentObjectKey(a);
-                                if (!key) throw new Error("This file has no Cloudflare path.");
-                                const url = await presignItSupportR2Get(key);
-                                window.open(url, "_blank", "noopener,noreferrer");
-                              } catch (err) {
-                                toast.error(err.message || "Could not open image.");
-                              }
-                            }}
-                          >
-                            <ImagePlus className="h-3 w-3 shrink-0" />
-                            <span className="truncate">{a.file_name || "Image"}</span>
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            )}
+          <SectionCard
+            title="Activity"
+            right={
+              timelineItems.length ? (
+                <span className="text-[10px] font-medium tabular-nums text-ink-muted">
+                  {timelineItems.length} event{timelineItems.length === 1 ? "" : "s"}
+                </span>
+              ) : null
+            }
+          >
+            <TicketActivityTimeline
+              items={timelineItems}
+              onOpenAttachment={openActivityAttachment}
+            />
           </SectionCard>
 
           <SectionCard

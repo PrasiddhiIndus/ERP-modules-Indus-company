@@ -157,8 +157,8 @@ describe("resolver honours dates and department overrides", () => {
     expect(isPlClSlOnPaidThirdSaturdayWeekoff("PL", sunday)).toBe(false);
     expect(registerPresentDaySummaryCreditForCell("PL", thirdSat)).toBe(1);
     expect(registerPresentDaySummaryCreditForCell("PL", sunday)).toBe(0);
-    // Leave tally and day-level present credit stay 0 on weekoff leave.
-    expect(registerSummaryLeaveCreditForCell("PL", thirdSat)).toBe(0);
+    // Leave tally still counts the PL mark; day-level present stays 0 on weekoff leave.
+    expect(registerSummaryLeaveCreditForCell("PL", thirdSat)).toBe(1);
     expect(registerPresentDayCreditForCell("PL", thirdSat)).toBe(0);
     expect(registerPresentDaySummaryCreditForCell("WO", thirdSat)).toBe(1);
   });

@@ -697,9 +697,15 @@ function isCoOnWoNhPhDate(mark, ctx = {}) {
  * P/PL, P/CL, P/SL count as 1 (display); 3rd-Saturday WO counts as 1 (see above).
  * PL/CL/SL on that paid 3rd-Saturday weekoff also counts as 1 (Total present only).
  * CO / P/CO / CO/P on a weekly off or NH/PH date count as 0; on any other date they count as 1.
+ * Days strictly before DOJ never credit (WO / NH·PH / blank 3rd-Saturday paid cells included).
  * Does not change day-level present/absent logic or compensatory-off balance deduction.
  */
 export function registerPresentDaySummaryCreditForCell(mark, ctx = {}) {
+  const { year, month, day, dateOfJoining = null } = ctx;
+  if (dateOfJoining && year && month && day) {
+    const iso = registerDateFromDay(monthKeyFromParts(year, month), day);
+    if (iso && isRegisterDayBeforeJoining(iso, dateOfJoining)) return 0;
+  }
   if (isCoOnWoNhPhDate(mark, ctx)) return 0;
   if (isPaidThirdSaturdayWeekoffCell(mark, ctx)) return 1;
   if (isPaidThirdSaturdayWorkingDeptCell(mark, ctx)) return 1;
@@ -1086,6 +1092,21 @@ export function isRegisterDayBeforeJoining(registerDateIso, dateOfJoining) {
   return date < doj;
 }
 
+/**
+ * Resolve DOJ from an employee / master row (several field names used across loaders).
+ * Returns YYYY-MM-DD or "".
+ */
+export function resolveEmployeeDateOfJoining(emp) {
+  if (!emp || typeof emp !== "object") return "";
+  return (
+    normalizeDbDate(emp.dateOfJoining) ||
+    normalizeDbDate(emp.date_of_joining) ||
+    normalizeDbDate(emp.joiningDate) ||
+    normalizeDbDate(emp.joining_date) ||
+    ""
+  );
+}
+
 /** WO / NH·PH marks that must not count before DOJ. */
 export function isRegisterPreJoiningExcludedMark(mark) {
   const m = String(mark ?? "").trim();
@@ -1279,8 +1300,8 @@ export function buildMonthlyRegisterGrid(
     const code = normalizeAttendanceEmpCode(emp.empCode);
     const overrides = manualMarks[code] || {};
     const sources = markSources?.[code] || {};
-    const dateOfLeaving = normalizeDbDate(emp.dateOfLeaving) || "";
-    const dateOfJoining = normalizeDbDate(emp.dateOfJoining) || "";
+    const dateOfLeaving = normalizeDbDate(emp.dateOfLeaving || emp.date_of_leaving) || "";
+    const dateOfJoining = resolveEmployeeDateOfJoining(emp);
     const dayMarks = {};
 
     for (let day = 1; day <= daysInMonth; day += 1) {
@@ -1288,6 +1309,11 @@ export function buildMonthlyRegisterGrid(
       let mark = "";
       const manual = overrides[day];
       const hasPunch = presentKeys.has(`${code}|${iso}`);
+      // Before DOJ: never apply punches, stored WO/NH·PH, or auto week-offs (incl. 3rd Saturday).
+      if (dateOfJoining && isRegisterDayBeforeJoining(iso, dateOfJoining)) {
+        dayMarks[day] = "";
+        continue;
+      }
       if (manual != null && manual !== "") {
         mark = manual;
       } else if (hasPunch) {
@@ -1311,10 +1337,6 @@ export function buildMonthlyRegisterGrid(
         if (!keepEditable) {
           mark = hasPunch ? "P" : "";
         }
-      }
-      // Before DOJ: do not show or carry WO / NH·PH (or any auto mark) into the grid.
-      if (dateOfJoining && isRegisterDayBeforeJoining(iso, dateOfJoining)) {
-        mark = "";
       }
       if (applyLeavingDisplay && dateOfLeaving && isRegisterDayAfterLeaving(iso, dateOfLeaving)) {
         mark = REGISTER_MARK_LEFT;
@@ -3588,10 +3610,15 @@ export async function syncRegisterAutoWeekoffMarks(
     const dateOfJoining = resolveJoining(normCode, dbCode);
     for (const register_date of dates) {
       const existing = lookupRegisterRow(existingByKey, normCode, dbCode, register_date);
-      // Before DOJ: never write auto WO; clear any stale auto WO.
+      // Before DOJ: never write auto WO; clear any leftover WO (incl. 3rd Saturday).
       if (dateOfJoining && isRegisterDayBeforeJoining(register_date, dateOfJoining)) {
-        if (canClearStaleAutoWeekoff(existing)) {
-          deletes.push({ employee_code: dbCode, register_date });
+        const preMark = String(existing?.mark ?? "").trim();
+        if (
+          canClearStaleAutoWeekoff(existing) ||
+          preMark === "WO" ||
+          isRegisterNhphMark(preMark)
+        ) {
+          if (existing?.mark) deletes.push({ employee_code: dbCode, register_date });
         }
         continue;
       }
@@ -3718,9 +3745,12 @@ export async function syncRegisterAutoHolidayMarks(
       normalizeDbDate(dateOfJoiningByCode[normCode] ?? dateOfJoiningByCode[dbCode]) || "";
     for (const register_date of dates) {
       const existing = lookupRegisterRow(existingByKey, normCode, dbCode, register_date);
-      // Before DOJ: never write auto NH/PH; clear any stale auto holiday.
+      // Before DOJ: never write auto NH/PH; clear leftover holiday offs.
       if (dateOfJoining && isRegisterDayBeforeJoining(register_date, dateOfJoining)) {
-        if (canClearStaleAutoHoliday(existing)) deletes.push({ employee_code: dbCode, register_date });
+        const preMark = String(existing?.mark ?? "").trim();
+        if (canClearStaleAutoHoliday(existing) || isRegisterNhphMark(preMark) || preMark === "WO") {
+          if (existing?.mark) deletes.push({ employee_code: dbCode, register_date });
+        }
         continue;
       }
       if (!isAutoHolidayFor(register_date, { employeeCode: normCode, department })) {
@@ -3794,6 +3824,7 @@ export async function syncRegisterMarksFromPunches(supabase, punches, options = 
   const masterCodeMap = options.masterCodeMap ?? null;
   await ensureAttendanceRulesLoaded(supabase);
   const departmentByCode = options.departmentByCode ?? null;
+  const dateOfJoiningByCode = options.dateOfJoiningByCode ?? null;
   const candidateRows = punchesToPresentRegisterRows(punches, {
     timesFor: (employeeCode, onDate) =>
       attendanceTimesFor({ employeeCode, department: departmentByCode?.[employeeCode] ?? null, onDate }),
@@ -3806,6 +3837,15 @@ export async function syncRegisterMarksFromPunches(supabase, punches, options = 
   }
 
   let toUpsert = candidateRows;
+  if (dateOfJoiningByCode && typeof dateOfJoiningByCode === "object") {
+    toUpsert = toUpsert.filter((row) => {
+      const code = normalizeAttendanceEmpCode(row.employee_code);
+      const doj =
+        normalizeDbDate(dateOfJoiningByCode[code] ?? dateOfJoiningByCode[row.employee_code]) || "";
+      if (!doj) return true;
+      return !isRegisterDayBeforeJoining(row.register_date, doj);
+    });
+  }
   const range = registerDateRangeFromRows(candidateRows);
   const fromDate = fromOverride || range.fromDate;
   const toDate = toOverride || range.toDate;
@@ -4293,6 +4333,7 @@ export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { 
       employeeName: row.employeeName,
       department: row.department,
       designation: row.designation,
+      dateOfJoining: row.dateOfJoining || "",
       summary: row.summary,
       dayMarks: row.dayMarks,
     })),
@@ -4340,7 +4381,7 @@ export function computeEmployeeRegisterSummary(
 ) {
   const summary = { leave: 0, weekoff: 0, appliedWo: 0, nhph: 0, ot: 0, totalPresent: 0 };
   const excludeOffDayWork = isOffDayWorkExcludedFromPresentMonth(year, month);
-  const dateOfJoining = normalizeDbDate(row.dateOfJoining) || "";
+  const dateOfJoining = resolveEmployeeDateOfJoining(row);
   for (let day = 1; day <= daysInMonth; day += 1) {
     const mark = row.dayMarks[day] || "";
     const iso = year && month ? registerDateFromDay(monthKeyFromParts(year, month), day) : "";
@@ -4355,6 +4396,7 @@ export function computeEmployeeRegisterSummary(
       department: row.department,
       employeeCode: row.empCode || null,
       holidayDates,
+      dateOfJoining,
     };
     const presentMark = excludeOffDayWork
       ? totalPresentCreditMark(mark, { ...cellCtx, holidayDates })
@@ -4425,10 +4467,18 @@ export function applyBulkRegisterMarks(manualMarks, gridRows, { empCodes, dayFro
   return next;
 }
 
-export function computeMonthlyRegisterKpis(rows, daysInMonth) {
+export function computeMonthlyRegisterKpis(rows, daysInMonth, { year = null, month = null } = {}) {
   const totals = { P: 0, L: 0, WO: 0, [REGISTER_MARK_NHPH]: 0, blank: 0 };
+  const y = Number(year);
+  const m = Number(month);
+  const hasYm = Number.isFinite(y) && m >= 1 && m <= 12;
   for (const row of rows) {
+    const dateOfJoining = normalizeDbDate(row.dateOfJoining) || "";
     for (let day = 1; day <= daysInMonth; day += 1) {
+      if (hasYm && dateOfJoining) {
+        const iso = registerDateFromDay(monthKeyFromParts(y, m), day);
+        if (iso && isRegisterDayBeforeJoining(iso, dateOfJoining)) continue;
+      }
       const mark = row.dayMarks[day] || "";
       if (mark === "P" || mark === "P(OD)") totals.P += 1;
       else if (mark === "WO") totals.WO += 1;
@@ -5237,8 +5287,8 @@ export function mapMasterEmployee(row) {
     employeeName: row.full_name || row.name || "",
     department: row.department || "",
     designation: row.designation || "",
-    dateOfJoining: normalizeDbDate(row.date_of_joining) || "",
-    dateOfLeaving: normalizeDbDate(row.date_of_leaving) || "",
+    dateOfJoining: resolveEmployeeDateOfJoining(row),
+    dateOfLeaving: normalizeDbDate(row.date_of_leaving || row.dateOfLeaving) || "",
     employeeId: row.employee_id || "",
     employeeType: String(row.employee_type ?? "").trim().toLowerCase() || "in_house",
   };
