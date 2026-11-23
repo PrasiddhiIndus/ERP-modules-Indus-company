@@ -34,8 +34,8 @@ export default function EnquiryEditRequests({ requests, serialById, onDecided })
   const decide = async (req, approve) => {
     const serial = serialById.get(req.enquiry_id) ?? req.enquiry_serial;
     const question = approve
-      ? `Apply the requested changes to enquiry #${serial}?`
-      : 'Reject this edit request? The enquiry stays as it is.';
+      ? `Apply the requested changes to enquiry #${serial}? Target Date and Completed Date update only on approval.`
+      : 'Reject this edit request? Proposed Target Date / Completed Date are discarded; existing dates stay.';
     if (!(await confirmDialog({
         title: approve ? 'Apply enquiry changes' : 'Reject edit request',
         message: question,
@@ -46,7 +46,11 @@ export default function EnquiryEditRequests({ requests, serialById, onDecided })
     setError('');
     try {
       await decideEnquiryEdit(req.id, approve);
-      await onDecided(approve ? 'Enquiry changes approved and applied.' : 'Edit request rejected.');
+      await onDecided(
+        approve
+          ? 'Enquiry changes approved and applied.'
+          : 'Edit request rejected. Existing dates were kept; the requester was notified.'
+      );
       if (requests.length === 1) setOpen(false);
     } catch (err) {
       setError(editErrorMessage(err, 'Could not save your decision. Please try again.'));
