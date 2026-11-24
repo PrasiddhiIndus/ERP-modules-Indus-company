@@ -1129,9 +1129,11 @@ export function computeProcessingRow({
 } = {}) {
   const declared = Boolean(structure?.declared);
   if (declared && structureIsTakeHomeOnly(structure)) {
+    // Monthly Net Salary rate; Gross / Net / Bank = rate × present ÷ working days.
     const net = round0(structure.take_home_monthly ?? structure.gross_monthly ?? structure.ctc_monthly ?? 0);
     const K = Number(presentDays);
     const TotalDays = Number(totalDays) || DEFAULT_MONTH_DAYS;
+    const earned = sheetProrate(net, Number.isFinite(K) ? K : 0, TotalDays);
     return {
       declared: true,
       take_home_only: true,
@@ -1144,7 +1146,7 @@ export function computeProcessingRow({
       basic_earned: 0,
       hra: 0,
       special_allowance: 0,
-      gross_wages: net,
+      gross_wages: earned,
       emp_pf: 0,
       emp_esic: 0,
       pt: 0,
@@ -1153,8 +1155,8 @@ export function computeProcessingRow({
       unpaid_paid: 0,
       tds: 0,
       total_ded: 0,
-      net_salary: net,
-      bank: net,
+      net_salary: earned,
+      bank: earned,
     };
   }
   const basicN = declared ? round0(structure.basic_monthly) : 0;
