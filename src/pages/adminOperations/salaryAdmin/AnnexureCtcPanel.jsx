@@ -67,10 +67,12 @@ import {
   isTakeHomeCategory,
   isTakeHomeStructure,
   recordToComponents,
+  readVoucherAmount,
   resultToStructurePayload,
   skillLabel,
   statusLabel,
   takeHomeToStructurePayload,
+  voucherPayloadFromMeta,
 } from "./annexureCtcRecord";
 import { printAnnexure } from "./annexurePrint";
 import { exportCtcDetailsExcel } from "./annexureCtcExcel";
@@ -204,6 +206,8 @@ function emptyForm(employee) {
     manual: {},
     perfIncentiveOn: false,
     extras: [],
+    generateVoucher: false,
+    voucherAmount: "",
   };
 }
 
@@ -267,6 +271,12 @@ function incompleteExtraRow(rows) {
 function formFromRecord(record, employee) {
   const base = emptyForm(employee);
   if (!record?.declared) return base;
+  const voucherOn = Boolean(record.generate_voucher);
+  const voucherAmt = readVoucherAmount(record);
+  const voucherFields = {
+    generateVoucher: voucherOn,
+    voucherAmount: voucherOn && voucherAmt > 0 ? String(roundRupee(voucherAmt)) : "",
+  };
   if (isTakeHomeStructure(record)) {
     return {
       ...base,
@@ -275,10 +285,16 @@ function formFromRecord(record, employee) {
       structureMode: STRUCTURE_MODE_TAKE_HOME,
       netSalary: record.take_home_monthly != null ? String(roundRupee(record.take_home_monthly)) : "",
       revisionType: "increment",
+      ...voucherFields,
     };
   }
   if (!isAnnexureRecord(record)) {
-    return { ...base, gross: record.gross_monthly ? String(roundRupee(record.gross_monthly)) : "", revisionType: "increment" };
+    return {
+      ...base,
+      gross: record.gross_monthly ? String(roundRupee(record.gross_monthly)) : "",
+      revisionType: "increment",
+      ...voucherFields,
+    };
   }
   const byCtc = record.input_basis === INPUT_CTC;
   const extras = extraRowsFromRecord(record);
@@ -305,6 +321,7 @@ function formFromRecord(record, employee) {
     entryMode: record.is_custom ? ENTRY_MANUAL : ENTRY_CALCULATE,
     manual: record.is_custom ? manualSeed(recordToComponents(record), record.custom_overrides_json) : {},
     perfIncentiveOn: Boolean(record.is_custom && record.perf_incentive_enabled),
+    ...voucherFields,
   };
 }
 
@@ -687,6 +704,21 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
   }, [load]);
 
   useEffect(() => {
+    if (editing) return;
+    if (!structure?.declared) {
+      setForm((f) => ({ ...f, generateVoucher: false, voucherAmount: "" }));
+      return;
+    }
+    const on = Boolean(structure.generate_voucher);
+    const amt = readVoucherAmount(structure);
+    setForm((f) => ({
+      ...f,
+      generateVoucher: on,
+      voucherAmount: on && amt > 0 ? String(roundRupee(amt)) : "",
+    }));
+  }, [structure, editing]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       const mk = /^\d{4}-\d{2}$/.test(remarkMonth) ? remarkMonth : currentMonthKey();
@@ -713,12 +745,56 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
 
   const setField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
+  const voucherMeta = () =>
+    voucherPayloadFromMeta({
+      generateVoucher: form.generateVoucher,
+      voucherAmount: parseEntered(form.voucherAmount),
+    });
+
   const startEdit = () => {
     const next = formFromRecord(current, employee);
     if (!current) next.revisionType = "initial";
     next.wef = todayIso();
+    next.generateVoucher = Boolean(form.generateVoucher);
+    next.voucherAmount = form.generateVoucher ? form.voucherAmount : "";
     setForm(next);
     setEditing(true);
+  };
+
+  const saveVoucherOnly = async () => {
+    if (salaryFiguresHidden()) {
+      toast.error("Not saved", "CTC changes are not saved for this login.");
+      return;
+    }
+    if (!current) {
+      toast.error("Create CTC first", "Save a CTC revision, then you can set the voucher amount.");
+      return;
+    }
+    if (form.generateVoucher) {
+      const amt = parseEntered(form.voucherAmount);
+      if (!(amt > 0)) {
+        toast.error("Voucher amount required", "Enter the voucher amount, or untick Generate voucher.");
+        return;
+      }
+    }
+    setSaving(true);
+    try {
+      await dbSaveSalaryStructure(employee.id, {
+        ...current,
+        ...voucherMeta(),
+      });
+      toast.success("Voucher saved", "Shown on salary process and payslip. Not added to CTC, gross, or net.");
+      await load();
+    } catch (err) {
+      console.error("CTC voucher: save failed", err);
+      const raw = `${err?.message || ""} ${err?.code || ""} ${err?.details || ""}`;
+      const msg = /generate_voucher|voucher_amount|column/i.test(raw)
+        ? "Apply the generate voucher database migration, then try again."
+        : err?.message || "Please try again.";
+      toast.error("Could not save voucher", msg);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const saveMonthRemark = async () => {
@@ -926,6 +1002,10 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
       }
       setSaving(true);
       try {
+        if (form.generateVoucher && !(parseEntered(form.voucherAmount) > 0)) {
+          toast.error("Voucher amount required", "Enter the voucher amount, or untick Generate voucher.");
+          return;
+        }
         const payload = takeHomeToStructurePayload(net, {
           category: form.category,
           revisionType: current ? form.revisionType : "initial",
@@ -935,6 +1015,8 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
           skill: form.skill,
           scheme: resolved.scheme,
           employee,
+          generateVoucher: form.generateVoucher,
+          voucherAmount: parseEntered(form.voucherAmount),
         });
         if (current) await dbReviseSalaryStructure(employee.id, payload, { wef_date: wef, reason: payload.revision_reason });
         else await dbSaveSalaryStructure(employee.id, payload);
@@ -943,9 +1025,12 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
         await load();
       } catch (err) {
         console.error("Take Home CTC: save failed", err);
-        const msg = /permission|row-level|42501/i.test(`${err?.message || ""} ${err?.code || ""}`)
+        const raw = `${err?.message || ""} ${err?.code || ""} ${err?.details || ""}`;
+        const msg = /permission|row-level|42501/i.test(raw)
           ? "You do not have access to change salary records."
-          : err?.message || "Please try again.";
+          : /annexure_values_chk|input_basis/i.test(raw)
+            ? "Take Home save needs a database update (allow take_home input). Apply the latest salary migration, then try again."
+            : err?.message || "Please try again.";
         toast.error("Could not save Take Home", msg);
       } finally {
         setSaving(false);
@@ -1004,12 +1089,20 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
       if (!ok) return;
     }
 
+    if (form.generateVoucher && !(parseEntered(form.voucherAmount) > 0)) {
+      return toast.error("Voucher amount required", "Enter the voucher amount, or untick Generate voucher.");
+    }
+
     setSaving(true);
     try {
       const reason = [form.reason.trim(), calc.final?.is_custom ? `Custom: ${form.overrideReason.trim()}` : ""]
         .filter(Boolean)
         .join(" · ");
       let hasRecord = Boolean(current);
+      const voucherOpts = {
+        generateVoucher: form.generateVoucher,
+        voucherAmount: parseEntered(form.voucherAmount),
+      };
       const write = async (payload, wefDate) => {
         const meta = { wef_date: wefDate, reason: payload.revision_reason };
         if (hasRecord) await dbReviseSalaryStructure(employee.id, payload, meta);
@@ -1030,6 +1123,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
               wefDate: wef,
               reason: reason || "Probation structure",
               employee,
+              ...voucherOpts,
             }),
             wef
           );
@@ -1044,6 +1138,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
             wefDate: confirmationWef,
             reason: reason || `Confirmation (${form.retain === RETAIN_CTC ? "Retain CTC" : "Retain Gross"})`,
             employee,
+            ...voucherOpts,
           }),
           confirmationWef
         );
@@ -1068,6 +1163,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
             wefDate: wef,
             reason,
             employee,
+            ...voucherOpts,
           }),
           wef
         );
@@ -1324,6 +1420,56 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
           <Fact label="DOB">{fmtDate(employee.date_of_birth)}</Fact>
           <Fact label="DOJ">{fmtDate(employee.date_of_joining)}</Fact>
         </div>
+
+        <div className="mt-4 rounded-lg border border-border bg-surface-sunken/40 px-3 py-3">
+          <label className="inline-flex items-center gap-2 text-xs font-medium text-ink cursor-pointer">
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={Boolean(form.generateVoucher)}
+              disabled={salaryFiguresHidden()}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setForm((f) => ({
+                  ...f,
+                  generateVoucher: on,
+                  voucherAmount: on ? f.voucherAmount : "",
+                }));
+              }}
+            />
+            Generate voucher
+          </label>
+          <p className="type-meta text-ink-muted mt-1.5">
+            Saved with CTC for salary process and payslip. Not added to CTC, gross, deductions, net, or bank.
+          </p>
+          {form.generateVoucher ? (
+            <div className="mt-3 flex flex-wrap items-end gap-2 max-w-md">
+              <label className="block flex-1 min-w-[160px]">
+                <span className="text-[11px] font-medium text-ink-secondary">Voucher amount</span>
+                <TinyInput
+                  className="mt-1 w-full"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="Enter voucher amount"
+                  value={form.voucherAmount}
+                  disabled={salaryFiguresHidden()}
+                  onChange={(e) => setField("voucherAmount", e.target.value)}
+                />
+              </label>
+              {!editing && current ? (
+                <button
+                  type="button"
+                  disabled={saving || salaryFiguresHidden()}
+                  onClick={saveVoucherOnly}
+                  className="h-9 rounded-lg border border-accent bg-accent px-3 text-xs font-semibold text-white hover:bg-accent-deep disabled:opacity-50"
+                >
+                  {saving ? "Saving…" : "Save voucher"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </SectionCard>
 
       {!editing ? (
@@ -1359,6 +1505,9 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   <Fact label="Employee Name">{employee.full_name || "—"}</Fact>
                   <Fact label="Designation">{employee.designation || "—"}</Fact>
                   <Fact label="Net Salary / month">₹{money(current.take_home_monthly)}</Fact>
+                  {readVoucherAmount(current) > 0 ? (
+                    <Fact label="Voucher amount">₹{money(readVoucherAmount(current))}</Fact>
+                  ) : null}
                 </div>
               </div>
             ) : currentIsAnnexure ? (
@@ -1372,6 +1521,12 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   groups={[{ title: "Current", values: recordToComponents(current) }]}
                   highlightCustom={current.is_custom ? current.system_values_json : null}
                 />
+                {readVoucherAmount(current) > 0 ? (
+                  <p className="text-xs text-ink-secondary">
+                    Voucher amount: <span className="font-semibold text-ink">₹{money(readVoucherAmount(current))}</span>
+                    <span className="text-ink-muted"> · not included in CTC</span>
+                  </p>
+                ) : null}
               </div>
             ) : (
               <div className="space-y-2 text-xs">
@@ -1384,6 +1539,9 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   <Fact label="Gross / month">₹{money(current.gross_monthly)}</Fact>
                   <Fact label="Take Home / month">₹{money(current.take_home_monthly)}</Fact>
                   <Fact label="CTC / month">₹{money(current.ctc_monthly)}</Fact>
+                  {readVoucherAmount(current) > 0 ? (
+                    <Fact label="Voucher amount">₹{money(readVoucherAmount(current))}</Fact>
+                  ) : null}
                 </div>
               </div>
             )}

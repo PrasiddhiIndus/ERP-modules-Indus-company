@@ -278,6 +278,12 @@ export default function PayslipTemplate({
           rows={padRows(earnRows, takeHomeOnly ? Math.max(earnRows.length, 1) : tableRows)}
           footerLabel={takeHomeOnly ? "Net Salary" : "Total gross earnings"}
           footerValue={takeHomeOnly ? payslip.net_salary : payslip.gross_wages}
+          afterFooter={[
+            {
+              label: "Voucher amount",
+              amount: Number(payslip.voucher_amount) || 0,
+            },
+          ]}
           whiteHeader={whiteHeader}
         />
         {!takeHomeOnly ? (
@@ -532,7 +538,8 @@ function MetaRow({ label, value, mutedFallback = false }) {
   );
 }
 
-function MoneyTable({ title, rows, footerLabel, footerValue, whiteHeader }) {
+function MoneyTable({ title, rows, footerLabel, footerValue, afterFooter = null, whiteHeader }) {
+  const extraRows = Array.isArray(afterFooter) ? afterFooter.filter((r) => r && r.label) : [];
   return (
     <table
       style={{
@@ -628,6 +635,34 @@ function MoneyTable({ title, rows, footerLabel, footerValue, whiteHeader }) {
             {money2(footerValue)}
           </td>
         </tr>
+        {extraRows.map((r) => (
+          <tr key={`after-${r.label}`} style={{ background: "#fff" }}>
+            <td
+              style={{
+                border: `1px solid ${LINE}`,
+                padding: "8px 10px",
+                fontWeight: 500,
+                color: MUTED,
+                fontSize: 10.5,
+              }}
+            >
+              {r.label}
+            </td>
+            <td
+              style={{
+                border: `1px solid ${LINE}`,
+                padding: "8px 10px",
+                textAlign: "right",
+                fontVariantNumeric: "tabular-nums",
+                fontWeight: 500,
+                color: INK,
+                fontSize: 10.5,
+              }}
+            >
+              {money2(r.amount ?? 0)}
+            </td>
+          </tr>
+        ))}
       </tbody>
     </table>
   );

@@ -135,6 +135,7 @@ const SCOPE_HEADERS = [
   "Tot Ded",
   "Net",
   "Bank",
+  "Voucher",
 ];
 
 function formatProcessDay(ymd) {
@@ -735,6 +736,16 @@ function EmployeeSalaryDetailPage({
               <Money value={line.gross_wages} strong />
             </StatementAmt>
           </StatementRow>
+          {Number(line.voucher_amount ?? line.computed_json?.voucher_amount) > 0 ? (
+            <StatementRow label="Voucher amount" hint="From CTC · not in gross or net">
+              <StatementAmt className="hidden sm:block">
+                <Money value={line.voucher_amount ?? line.computed_json?.voucher_amount} />
+              </StatementAmt>
+              <StatementAmt>
+                <Money value={line.voucher_amount ?? line.computed_json?.voucher_amount} />
+              </StatementAmt>
+            </StatementRow>
+          ) : null}
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
@@ -926,7 +937,7 @@ function ScopeSalarySheetTable({
               <th
                 key={h}
                 className={`px-2 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-700 border-b border-slate-200 whitespace-nowrap bg-slate-100 ${
-                  ["Gross W", "PF 12%", "ESIC", "PT", "Loan", "Sal Adv", "U/P", "TDS", "Custom−", "Tot Ded", "Net", "Bank"].includes(
+                  ["Gross W", "PF 12%", "ESIC", "PT", "Loan", "Sal Adv", "U/P", "TDS", "Custom−", "Tot Ded", "Net", "Bank", "Voucher"].includes(
                     h
                   )
                     ? "text-right"
@@ -1195,6 +1206,12 @@ function ScopeSalarySheetTable({
                 </td>
                 <td className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100">
                   <Money value={line.bank_amount} strong />
+                </td>
+                <td
+                  className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100"
+                  title="Voucher from CTC — not included in gross, net, or bank"
+                >
+                  <Money value={line.voucher_amount ?? line.computed_json?.voucher_amount} />
                 </td>
               </tr>
               );
@@ -2342,6 +2359,7 @@ export default function SalaryProcessing() {
     "Tot Ded",
     "Net",
     "Bank",
+    "Voucher",
   ];
 
   if (detailLine) {
@@ -2680,6 +2698,12 @@ export default function SalaryProcessing() {
                   </td>
                   <td className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100">
                     <Money value={line.bank_amount} strong />
+                  </td>
+                  <td
+                    className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100"
+                    title="Voucher from CTC — not included in gross, net, or bank"
+                  >
+                    <Money value={line.voucher_amount ?? line.computed_json?.voucher_amount} />
                   </td>
                 </tr>
                 );
