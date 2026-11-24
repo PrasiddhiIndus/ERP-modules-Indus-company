@@ -118,6 +118,11 @@ export async function fetchSiteAttendanceSummary({ siteId, month, year }) {
     ok: true,
     siteId: id,
     siteName: site.site_name || "",
+    site: {
+      id,
+      site_name: site.site_name || "",
+      site_type: site.site_type || "",
+    },
     month: Number(month),
     year: Number(year),
     rangeLabel: formatSalaryRangeLabel(range),

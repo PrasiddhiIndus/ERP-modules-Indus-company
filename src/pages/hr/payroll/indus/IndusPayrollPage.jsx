@@ -12,7 +12,7 @@ import sitesSource from "./runtime/sites.js?raw";
 import appSource from "./runtime/app.js?raw";
 
 /** Must match `window.__indusPayrollBuild` in runtime/app.js — bump both when app.js changes. */
-const PAYROLL_APP_BUILD = 10;
+const PAYROLL_APP_BUILD = 11;
 
 const BASE = "/app/hr/payroll/salary";
 

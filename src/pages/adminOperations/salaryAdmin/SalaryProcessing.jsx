@@ -232,7 +232,7 @@ const VIEW_TABS = [
   { id: "voucher", label: "Voucher" },
 ];
 
-/** Voucher tab only — Bank = fixed CTC voucher; Voucher = P.Days-based payable. */
+/** Voucher tab only — Fixed = CTC voucher entry; Voucher = P.Days-based payable. */
 const VOUCHER_HEADERS = [
   "Sr No",
   "Code",
@@ -242,7 +242,7 @@ const VOUCHER_HEADERS = [
   "Desig.",
   "Status",
   "P.Days",
-  "Bank",
+  "Fixed",
   "Voucher",
 ];
 
@@ -1262,7 +1262,7 @@ function ScopeSalarySheetTable({
   );
 }
 
-/** Voucher tab — Bank = fixed CTC entry; Voucher = P.Days payable for the slip. */
+/** Voucher tab — Fixed = CTC entry; Voucher = P.Days payable for the slip. */
 function VoucherSheetTable({
   lines,
   loading,
@@ -1304,7 +1304,7 @@ function VoucherSheetTable({
               <th
                 key={h}
                 className={`px-2 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-700 border-b border-slate-200 whitespace-nowrap bg-slate-100 ${
-                  ["P.Days", "Bank", "Voucher"].includes(h) ? "text-right" : "text-left"
+                  ["P.Days", "Fixed", "Voucher"].includes(h) ? "text-right" : "text-left"
                 }`}
               >
                 {h}
@@ -1406,7 +1406,7 @@ function VoucherSheetTable({
                   </td>
                   <td
                     className="px-2 py-1.5 border-b border-slate-100 text-right tabular-nums"
-                    title="Bank × P.Days ÷ working days — written to salary slip on Process voucher"
+                    title="Fixed × P.Days ÷ working days — written to salary slip on Process voucher"
                   >
                     <Money value={payablePreview} strong />
                   </td>
@@ -3005,7 +3005,7 @@ export default function SalaryProcessing() {
 
       <CollapsibleHelp label="how this works">
         On All Employees, click Process salary — those staff move to the Processed tab.
-        On Voucher, Bank is the fixed CTC voucher; Voucher is that amount by P.Days.
+        On Voucher, Fixed is the CTC voucher entry; Voucher is that amount by P.Days.
         Process voucher writes only that Voucher figure onto the salary slip (not CTC,
         gross, net, or bank credit). Salary process leaves slip voucher at zero.
         All Employees shows the P.Days voucher column; Processed and Generate Payslip do not.
