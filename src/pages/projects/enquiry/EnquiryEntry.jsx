@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ClipboardList, FileClock, Loader2, RotateCcw, Save, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ClipboardList, FileClock, Loader2, RotateCcw, Save, Send, X } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import {
   applyEnquiryDefaults,
@@ -61,7 +61,8 @@ function Field({ field, children }) {
       {field.field_key === 'target_date' && (
         <p className="text-[11px] text-slate-400 mt-1">
           Set automatically to {TARGET_WORKING_DAYS} working days (Mon–Sat) after the assigned on date. You can change it.
-          Non-managers: Target Date and Completed Date stay pending until your L1 manager approves them.
+          Non-managers: entering or changing Target Date sends it for L1 approval — it is not written to the Enquiry
+          Database until approved.
         </p>
       )}
     </label>
@@ -153,6 +154,18 @@ export default function EnquiryEntry({ onSaved, onClose }) {
 
   const hasContent = hasDraftContent(form, baselineRef.current);
   const unsavedToServer = hasContent && formKey(form) !== serverKeyRef.current;
+
+  /**
+   * Reuses existing request_enquiry_edit L1 flow for Target Date on Add Enquiry.
+   * Non-managers with a Target Date (entered or auto-filled) must send for L1 —
+   * the date is held off the live enquiry until approved.
+   */
+  const needsTargetDateL1 = useMemo(() => {
+    if (canSaveDatesDirect) return false;
+    if (hasDateValue(form.target_date)) return true;
+    if (hasDateValue(form[TARGET_BASIS_KEY])) return true; // submit will auto-fill target_date
+    return false;
+  }, [canSaveDatesDirect, form]);
 
   // Autosave every change to this browser (per user) so refresh / switching modules loses nothing.
   useEffect(() => {
@@ -296,15 +309,16 @@ export default function EnquiryEntry({ onSaved, onClose }) {
         data.target_date = addWorkingDays(data[TARGET_BASIS_KEY]) || null;
       }
 
-      // Non-managers: hold Target Date / Completed Date pending L1; other fields save now.
+      // Non-managers: hold Target Date (reuse DATE_APPROVAL_KEYS / request_enquiry_edit) off the live row until L1.
       const proposedData = { ...data };
-      let datesPendingL1 = false;
-      if (!canSaveDatesDirect) {
+      let targetDatePendingL1 = false;
+      if (!canSaveDatesDirect && hasDateValue(proposedData.target_date)) {
+        targetDatePendingL1 = true;
+        data = { ...data, target_date: null };
+        // Keep other DATE_APPROVAL_KEYS (e.g. completed_on) consistent with existing L1 date gate if present.
         for (const key of DATE_APPROVAL_KEYS) {
-          if (hasDateValue(proposedData[key])) {
-            datesPendingL1 = true;
-            data = { ...data, [key]: null };
-          }
+          if (key === 'target_date') continue;
+          if (hasDateValue(proposedData[key])) data = { ...data, [key]: null };
         }
       }
 
@@ -318,13 +332,13 @@ export default function EnquiryEntry({ onSaved, onClose }) {
       await clearAllDrafts(userId);
       resetToBlank();
 
-      if (datesPendingL1 && saved?.id) {
+      if (targetDatePendingL1 && saved?.id) {
         try {
           await requestEnquiryEdit(saved.id, proposedData, null);
         } catch (reqErr) {
           setMessage({
             type: 'error',
-            text: `Enquiry #${saved.serial_number} was saved, but date approval could not be sent: ${editErrorMessage(reqErr, projectsErrorMsg(reqErr, 'Send dates for approval'))}`,
+            text: `Enquiry #${saved.serial_number} was saved, but Target Date approval could not be sent: ${editErrorMessage(reqErr, projectsErrorMsg(reqErr, 'Send Target Date for approval'))}`,
           });
           if (onSaved) onSaved(saved);
           return;
@@ -333,11 +347,11 @@ export default function EnquiryEntry({ onSaved, onClose }) {
 
       if (onSaved) {
         onSaved(
-          datesPendingL1
+          targetDatePendingL1
             ? {
                 ...saved,
                 datesPendingL1: true,
-                notice: `Enquiry #${saved.serial_number} saved. Target Date / Completed Date sent for L1 approval and will apply only after approval.`,
+                notice: `Enquiry #${saved.serial_number} saved. Target Date sent for L1 approval and will appear in the Enquiry Database only after approval.`,
               }
             : saved
         );
@@ -345,8 +359,8 @@ export default function EnquiryEntry({ onSaved, onClose }) {
       }
       setMessage({
         type: 'success',
-        text: datesPendingL1
-          ? `Enquiry #${saved.serial_number} saved. Target Date / Completed Date sent for L1 approval.`
+        text: targetDatePendingL1
+          ? `Enquiry #${saved.serial_number} saved. Target Date sent for L1 approval.`
           : 'Enquiry saved successfully.',
       });
     } catch (err) {
@@ -407,10 +421,31 @@ export default function EnquiryEntry({ onSaved, onClose }) {
             <button
               type="submit"
               disabled={submitting || loading || fieldsLoading}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 shadow-sm"
+              title={
+                needsTargetDateL1
+                  ? 'Target Date will be sent to your L1 manager and will not update the Enquiry Database until approved'
+                  : undefined
+              }
+              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold disabled:opacity-60 shadow-sm ${
+                needsTargetDateL1
+                  ? 'bg-amber-600 hover:bg-amber-700'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              }`}
             >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Save
+              {submitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : needsTargetDateL1 ? (
+                <Send className="h-4 w-4" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {submitting
+                ? needsTargetDateL1
+                  ? 'Sending…'
+                  : 'Saving…'
+                : needsTargetDateL1
+                  ? 'Send for L1 Approval'
+                  : 'Save'}
             </button>
             <button
               type="button"
