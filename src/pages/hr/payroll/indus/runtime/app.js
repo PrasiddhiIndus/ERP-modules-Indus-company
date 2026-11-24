@@ -20,19 +20,46 @@ const siteList = () => Object.values(S.sites).sort((a, b) => a.name.localeCompar
 const empsOf = sid => (S.emps[sid] && S.emps[sid].list) || [];
 /** Same site ids/names as Attendance / Site Master (`sites` table). */
 const attSiteId = row => String(row && row.id != null ? row.id : '');
-/** Match Attendance page type filter when Site Attendance has Safety/Fire selected. */
+/**
+ * Process salary top lane: HR-Fire → Fire sites; HR-Site → Safety sites.
+ * Same `hr_selected_site_type` key as Site Attendance so both stay in sync.
+ */
 function attendanceSiteTypeFilter() {
   try {
     const val = localStorage.getItem('hr_selected_site_type');
-    return val === 'Safety' || val === 'Fire' ? val : '';
-  } catch (e) { return ''; }
+    if (val === 'Safety' || val === 'Fire') return val;
+  } catch (e) { /* ignore */ }
+  // Process salary always runs in one lane (default Fire — most live sites).
+  return 'Fire';
+}
+function processHrLane() {
+  return attendanceSiteTypeFilter() === 'Safety' ? 'site' : 'fire';
+}
+function setProcessHrLane(lane) {
+  const type = lane === 'site' ? 'Safety' : 'Fire';
+  try {
+    localStorage.setItem('hr_selected_site_type', type);
+  } catch (e) { /* ignore */ }
+  S.proc.attSummary = null;
+  S.proc.attSummaryKey = null;
+  S.proc.attSummaryLoading = false;
+  S.proc.siteMenuOpen = false;
+  // Drop site picks that belong to the other lane
+  if (Array.isArray(S.proc.sites) && S.proc.sites.length) {
+    const ok = new Set(processSiteList().map((s) => s.id));
+    S.proc.sites = S.proc.sites.map(String).filter((id) => ok.has(id));
+  }
+  if (S.proc.site && !(processSiteList().some((s) => s.id === String(S.proc.site)))) {
+    S.proc.site = (S.proc.sites && S.proc.sites[0]) || null;
+  }
+  S.proc.step = 1;
 }
 function processSiteList() {
   // Only Attendance / Site Master sites — never fall back to demo payroll templates.
   if (!S.attSitesLoaded) return [];
   const type = attendanceSiteTypeFilter();
   return (S.attSites || [])
-    .filter((row) => !type || (row && row.site_type === type))
+    .filter((row) => row && row.site_type === type)
     .map((row) => {
       const id = attSiteId(row);
       const live = S.sites[id];
@@ -538,6 +565,17 @@ async function loadSiteAttSummary(siteId) {
   const [y, m] = ym();
   const key = siteAttSummaryKey(siteId, S.month);
   if (S.proc.attSummaryKey === key && S.proc.attSummary) return S.proc.attSummary;
+  const laneType = attendanceSiteTypeFilter();
+  const attRow = (S.attSites || []).find((r) => attSiteId(r) === String(siteId));
+  if (attRow && attRow.site_type && attRow.site_type !== laneType) {
+    const wrong = {
+      ok: false,
+      error: `This site is ${attRow.site_type}. Switch to ${attRow.site_type === 'Safety' ? 'HR-Site' : 'HR-Fire'} to load its attendance.`,
+    };
+    S.proc.attSummaryKey = key;
+    S.proc.attSummary = wrong;
+    return wrong;
+  }
   const fetchFn = window.__indusPayrollFetchSiteAttSummary;
   if (typeof fetchFn !== 'function') {
     const missing = { ok: false, error: 'Attendance summary is not available.' };
@@ -549,6 +587,16 @@ async function loadSiteAttSummary(siteId) {
     const summary = await fetchFn({ siteId, month: m, year: y });
     // Ignore stale responses if the user changed site/month while fetching
     if (siteAttSummaryKey(siteId, S.month) !== key) return summary;
+    // Guard: summary site type must match Process salary lane
+    if (summary && summary.ok && summary.site && summary.site.site_type && summary.site.site_type !== laneType) {
+      const wrong = {
+        ok: false,
+        error: `Attendance is for ${summary.site.site_type} sites. Select ${summary.site.site_type === 'Safety' ? 'HR-Site' : 'HR-Fire'} above.`,
+      };
+      S.proc.attSummaryKey = key;
+      S.proc.attSummary = wrong;
+      return wrong;
+    }
     S.proc.attSummaryKey = key;
     S.proc.attSummary = summary;
     return summary;
@@ -863,6 +911,7 @@ function processSiteControls() {
   const focus = ensureProcFocusSite(S.proc.site);
   const focusSite = all.find((s) => s.id === focus) || S.sites[focus] || null;
   const type = attendanceSiteTypeFilter();
+  const lane = processHrLane();
   const summary = processSiteSummary(all, selected);
   const siteLabel = (id) => {
     const s = all.find((x) => x.id === id) || S.sites[id] || { id, name: id };
@@ -877,9 +926,9 @@ function processSiteControls() {
         </div>
         <div class="ps-list">
           ${all.map((s) => `<label class="chk ps-opt" data-ps-name="${esc(String(s.name || '').toLowerCase())}" data-ps-loc="${esc(String(s.location || '').toLowerCase())}" data-ps-client="${esc(String(s.client || '').toLowerCase())}"><input type="checkbox" data-ps="${esc(s.id)}" ${selected.includes(s.id) ? 'checked' : ''}><span title="${esc(s.name)}">${esc(s.name)}</span></label>`).join('')
-            || '<span class="small muted ps-empty-static">No sites from Attendance yet. Add them under Site Attendance → Site Master.</span>'}
+            || `<span class="small muted ps-empty-static">No ${esc(type)} sites in Attendance. Add them under Site Attendance → Site Master (type ${esc(type)}).</span>`}
         </div>
-        <div class="ps-menu-foot small muted">${selected.length} of ${all.length} selected${type ? ` · ${esc(type)}` : ''} · multi-select</div>
+        <div class="ps-menu-foot small muted">${selected.length} of ${all.length} selected · ${esc(type)} · multi-select</div>
       </div>`
     : '';
   // Match Run type: a normal select. Only needed when 2+ sites are ticked.
@@ -904,13 +953,21 @@ function processSiteControls() {
         }).join('')}</div>
       </div>`
     : '';
+  const laneSwitch = `<div class="ps-lane" role="tablist" aria-label="HR Fire or HR Site">
+      <button type="button" class="ps-lane-btn ${lane === 'fire' ? 'on' : ''}" data-hr-lane="fire" role="tab" aria-selected="${lane === 'fire' ? 'true' : 'false'}">HR-Fire</button>
+      <button type="button" class="ps-lane-btn ${lane === 'site' ? 'on' : ''}" data-hr-lane="site" role="tab" aria-selected="${lane === 'site' ? 'true' : 'false'}">HR-Site</button>
+    </div>`;
   return {
     focus,
     focusSite,
     selected,
     html: `<div class="card ps-card">
+      <div class="ps-lane-row">
+        ${laneSwitch}
+        <span class="ps-lane-hint small muted">${lane === 'fire' ? 'Fire sites · attendance from Site Attendance (Fire)' : 'Safety sites · attendance from Site Attendance (Safety)'}</span>
+      </div>
       <div class="ps-bar">
-        <label class="f ps-field ps-field-sites"><span class="small muted">Sites</span>
+        <label class="f ps-field ps-field-sites"><span class="small muted">Sites (${esc(type)})</span>
           <button type="button" class="in ps-trigger" id="ps_trigger" aria-haspopup="listbox" aria-expanded="${open ? 'true' : 'false'}">
             <span class="ps-trigger-label ${selected.length ? '' : 'placeholder'}">${esc(summary)}</span>
             <span class="ps-trigger-caret" aria-hidden="true"></span>
@@ -930,11 +987,25 @@ function processSiteControls() {
         </div>
       </div>
       ${chips}
-      <p class="ps-help small muted">Same site list as Attendance. Pick the month to process — attendance summary uses that month.</p>
+      <p class="ps-help small muted">Pick HR-Fire or HR-Site first — site list and attendance come from that Site Attendance type only.</p>
     </div>`,
   };
 }
 function bindProcessSiteControls(p) {
+  p.querySelectorAll('[data-hr-lane]').forEach((btn) => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const lane = btn.getAttribute('data-hr-lane');
+      if (lane !== 'fire' && lane !== 'site') return;
+      if (processHrLane() === lane) return;
+      setProcessHrLane(lane);
+      render();
+      toast(lane === 'fire'
+        ? 'HR-Fire — showing Fire sites and attendance'
+        : 'HR-Site — showing Safety sites and attendance');
+    };
+  });
   const trigger = $('#ps_trigger');
   if (trigger) trigger.onclick = (e) => {
     e.preventDefault();
@@ -1113,7 +1184,9 @@ function vProcess(p) {
     return;
   }
   if (!processSiteList().length) {
-    p.innerHTML = head + `<div class="card empty"><h2>No sites from Attendance</h2><p>Add sites under Site Attendance → Site Master. The same sites will appear in this dropdown for salary processing.</p></div>`;
+    const type = attendanceSiteTypeFilter();
+    const laneLabel = type === 'Safety' ? 'HR-Site' : 'HR-Fire';
+    p.innerHTML = head + `<div class="card empty"><h2>No ${esc(type)} sites from Attendance</h2><p>Switch lane (${esc(laneLabel)}) or add sites under Site Attendance → Site Master with type <b>${esc(type)}</b>. Attendance for Process salary is loaded only for that type.</p></div>`;
     finishHead();
     return;
   }
@@ -3946,7 +4019,7 @@ function __indusPayrollBoot(opts) {
   if (!S._connected) { S._connected = true; connect(); }
 }
 window.__indusPayrollBoot = __indusPayrollBoot;
-window.__indusPayrollBuild = 10;
+window.__indusPayrollBuild = 11;
 window.__indusPayrollSetView = function (v) {
   if (!v || v === S.view || !NAV.some(function (n) { return n[0] === v; })) return;
   S.view = v;

@@ -103,6 +103,12 @@
 .indus-payroll .chk{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
 .indus-payroll input[type=checkbox]{accent-color:var(--pri);width:15px;height:15px}
 .indus-payroll .ps-card{overflow:visible}
+.indus-payroll .ps-lane-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.indus-payroll .ps-lane{display:inline-flex;padding:3px;border-radius:9px;border:1px solid var(--line);background:var(--mutebg);gap:2px}
+.indus-payroll .ps-lane-btn{appearance:none;border:0;background:transparent;height:30px;padding:0 14px;border-radius:7px;font-weight:600;font-size:12.5px;color:var(--ink2);cursor:pointer}
+.indus-payroll .ps-lane-btn:hover{color:var(--ink)}
+.indus-payroll .ps-lane-btn.on{background:#fff;color:var(--pri);box-shadow:var(--sh)}
+.indus-payroll .ps-lane-hint{flex:1;min-width:12rem}
 .indus-payroll .ps-bar{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
 .indus-payroll .ps-field{margin:0;min-width:0}
 /* Sites + Run type + Month + Working on: same footprint */
