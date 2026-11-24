@@ -1,8 +1,30 @@
-import React from 'react';
-import { Send, UsersRound } from 'lucide-react';
+import React, { useCallback } from 'react';
+import { Download, Send, UsersRound } from 'lucide-react';
 import { CollapsibleHelp, PageTaskHeader } from '../../../components/erpUi';
 import EmployeePicker from './EmployeePicker';
 import { useInHouseOutreach } from './InHouseOutreachContext';
+
+function csvEscape(value) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+function exportEmployeesCsv(rows) {
+  const headers = ['Full Name', 'Email', 'Department', 'Designation', 'Employee Code'];
+  const lines = [
+    headers.map(csvEscape).join(','),
+    ...rows.map((e) =>
+      [e.name, e.email, e.department, e.designation, e.employeeCode].map(csvEscape).join(',')
+    ),
+  ];
+  const stamp = new Date().toISOString().slice(0, 10);
+  const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `mail-outreach-employees-${stamp}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function InHouseEmployees() {
   const {
@@ -22,12 +44,36 @@ export default function InHouseEmployees() {
     (employeeStats?.left || 0) +
     (employeeStats?.notEmployee || 0);
 
+  const handleExport = useCallback(() => {
+    const rows =
+      selectedEmployeeIds.size > 0
+        ? employees.filter((e) => selectedEmployeeIds.has(e.id))
+        : employees;
+    if (!rows.length) return;
+    exportEmployeesCsv(rows);
+  }, [employees, selectedEmployeeIds]);
+
   return (
     <div className="space-y-4">
       <PageTaskHeader
         title="Employees"
         subtitle="Pick employees to mail directly, or save them as a reusable group"
       >
+        <button
+          type="button"
+          className="erp-btn-secondary h-8 px-3 text-xs inline-flex items-center gap-1.5 disabled:opacity-50"
+          disabled={employees.length === 0}
+          onClick={handleExport}
+          title={
+            selectedEmployeeIds.size
+              ? `Export ${selectedEmployeeIds.size} selected employee${selectedEmployeeIds.size === 1 ? '' : 's'}`
+              : 'Export all listed employees'
+          }
+        >
+          <Download className="w-3.5 h-3.5" />
+          Export
+          {selectedEmployeeIds.size ? ` (${selectedEmployeeIds.size})` : ''}
+        </button>
         <button
           type="button"
           className="erp-btn-secondary h-8 px-3 text-xs inline-flex items-center gap-1.5 disabled:opacity-50"

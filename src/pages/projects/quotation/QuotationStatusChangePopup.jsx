@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Bell, X } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { formatDisplayDate, QUOTATION_BASE } from './quotationConstants';
-import { canReceiveQuotationStatusNotifications } from './quotationNotificationRoles';
+import { resolveCanReceiveQuotationStatusNotifications } from './quotationNotificationRoles';
 import { listQuotationStatusNotifications } from './quotationStatusNotificationsApi';
 
 const DISMISS_KEY = 'projects-quotation-status-dismissed';
@@ -20,17 +20,35 @@ function dismissStamp(ids) {
   return `${new Date().toDateString()}|${[...ids].sort().join(',')}`;
 }
 
+function kindBadge(kind) {
+  const k = String(kind || '').toLowerCase();
+  if (k === 'approved') return { label: 'Approved', className: 'bg-emerald-100 text-emerald-800' };
+  if (k === 'rejected') return { label: 'Rejected', className: 'bg-rose-100 text-rose-800' };
+  return { label: 'Updated', className: 'bg-sky-100 text-sky-800' };
+}
+
 /**
- * Projects quotation status-change feed (Manager / Executive only).
- * Separate from Enquiry Completed — own table, dismiss key, and deep-link.
- * Mount only under /app/projects for eligible recipients (see Layout).
+ * Projects quotation activity feed (status change + L1 approval / rejection).
+ * Recipients: Manager/Executive with Projects access, or Projects Department L1
+ * from Employee Master. Separate from Enquiry Completed.
  */
 export default function QuotationStatusChangePopup() {
   const navigate = useNavigate();
   const { user, userProfile, accessibleModules } = useAuth();
-  const eligible = canReceiveQuotationStatusNotifications(userProfile, accessibleModules);
+  const [eligible, setEligible] = useState(false);
   const [rows, setRows] = useState([]);
   const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const ok = await resolveCanReceiveQuotationStatusNotifications(userProfile, accessibleModules);
+      if (!cancelled) setEligible(ok);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userProfile, accessibleModules]);
 
   useEffect(() => {
     if (!eligible) {
@@ -89,9 +107,9 @@ export default function QuotationStatusChangePopup() {
         <Bell className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-sky-900">
-            {ids.length} quotation status change{ids.length === 1 ? '' : 's'} today
+            {ids.length} quotation activit{ids.length === 1 ? 'y' : 'ies'} today
           </p>
-          <p className="text-xs text-sky-800/80">Projects Quotation notification</p>
+          <p className="text-xs text-sky-800/80">Projects Quotation notification · L1</p>
         </div>
         <button
           type="button"
@@ -103,7 +121,9 @@ export default function QuotationStatusChangePopup() {
         </button>
       </div>
       <ul className="max-h-60 divide-y divide-slate-100 overflow-y-auto">
-        {rows.slice(0, MAX_LISTED).map((row) => (
+        {rows.slice(0, MAX_LISTED).map((row) => {
+          const badge = kindBadge(row.kind);
+          return (
           <li key={row.id}>
             <button
               type="button"
@@ -125,12 +145,13 @@ export default function QuotationStatusChangePopup() {
                   {row.created_by && user?.id && row.created_by === user.id ? ' (you)' : ''}
                 </span>
               </span>
-              <span className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-800">
-                Open
+              <span className={`shrink-0 rounded-full px-2 py-0.5 font-semibold ${badge.className}`}>
+                {badge.label}
               </span>
             </button>
           </li>
-        ))}
+          );
+        })}
       </ul>
       <div className="flex items-center justify-between gap-2 rounded-b-xl border-t border-slate-100 px-4 py-2.5">
         <span className="text-xs text-slate-500">
