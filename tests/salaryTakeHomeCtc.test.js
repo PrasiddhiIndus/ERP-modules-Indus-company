@@ -39,7 +39,7 @@ describe("Take Home Create CTC categories", () => {
     expect(isTakeHomeStructure(payload)).toBe(true);
   });
 
-  it("pays saved Net Salary with present days and no deductions", () => {
+  it("pays full Net Salary when present days equal working days", () => {
     const structure = takeHomeToStructurePayload(20000, {
       category: CATEGORY_VOUCHER_EMPLOYEE,
       wefDate: "2026-10-01",
@@ -53,6 +53,7 @@ describe("Take Home Create CTC categories", () => {
     });
     expect(row.take_home_only).toBe(true);
     expect(row.present_days).toBe(27);
+    expect(row.salary_rate).toBe(20000);
     expect(row.net_salary).toBe(20000);
     expect(row.gross_wages).toBe(20000);
     expect(row.emp_pf).toBe(0);
@@ -61,7 +62,24 @@ describe("Take Home Create CTC categories", () => {
     expect(row.loan).toBe(0);
   });
 
-  it("keeps Net Salary on sheet recompute", () => {
+  it("prorates apprentice Take Home by present days", () => {
+    const structure = takeHomeToStructurePayload(12500, {
+      category: CATEGORY_APPRENTICE,
+      wefDate: "2026-10-01",
+    });
+    const row = computeProcessingRow({
+      structure,
+      presentDays: 18,
+      totalDays: 27,
+    });
+    expect(row.take_home_only).toBe(true);
+    expect(row.salary_rate).toBe(12500);
+    expect(row.gross_wages).toBe(8333.33); // 12500 / 27 * 18 (2-dp)
+    expect(row.net_salary).toBe(8333.33);
+    expect(row.bank).toBe(8333.33);
+  });
+
+  it("prorates Net Salary on sheet recompute from P.Days", () => {
     const line = recomputeLineFromEdits(
       {
         salary_rate: 15000,
@@ -72,7 +90,10 @@ describe("Take Home Create CTC categories", () => {
       },
       27
     );
-    expect(line.net_salary).toBe(15000);
+    expect(line.salary_rate).toBe(15000);
+    expect(line.net_salary).toBe(12222); // round(15000 / 27 * 22)
+    expect(line.gross_wages).toBe(12222);
+    expect(line.bank_amount).toBe(12222);
     expect(line.present_days).toBe(22);
     expect(line.total_ded).toBe(0);
     expect(line.pt_amount).toBe(0);

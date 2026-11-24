@@ -722,11 +722,18 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
     line.take_home_only || cj.take_home_only || snap.take_home_only || isTakeHomeStructure(cj) || isTakeHomeStructure(snap)
   );
   if (takeHomeOnly) {
-    const net = round0(
+    // salary_rate = full monthly Take Home; Gross / Net / Bank prorated by P.Days.
+    const monthlyNet = round0(
       line.salary_rate != null && line.salary_rate !== ""
         ? line.salary_rate
-        : cj.salary_rate ?? snap.salary_rate ?? line.net_salary ?? cj.net_salary ?? 0
+        : cj.salary_rate ?? snap.salary_rate ?? 0
     );
+    const earned =
+      presentUnknown || K <= 0 || td <= 0 || monthlyNet === 0
+        ? 0
+        : Math.abs(K - td) < 1e-6
+          ? monthlyNet
+          : round0((monthlyNet / td) * K);
     const voucherOn = Boolean(
       line.generate_voucher ?? cj.generate_voucher ?? snap.generate_voucher
     );
@@ -740,7 +747,7 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
       ...line,
       present_days: presentUnknown ? rawPresent : K,
       total_days: td,
-      salary_rate: net,
+      salary_rate: monthlyNet,
       pf_basic: 0,
       pf_earned_basic: 0,
       basic_full: 0,
@@ -753,7 +760,7 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
       custom_ded_full: 0,
       custom_earn: 0,
       custom_ded: 0,
-      gross_wages: net,
+      gross_wages: earned,
       emp_pf: 0,
       emp_esic: 0,
       pt_amount: 0,
@@ -762,21 +769,21 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
       unpaid_paid: 0,
       tds: 0,
       total_ded: 0,
-      net_salary: net,
-      bank_amount: net,
+      net_salary: earned,
+      bank_amount: earned,
       take_home_only: true,
       ...voucherSnap,
       computed_json: {
         ...cj,
         take_home_only: true,
-        salary_rate: net,
-        gross_wages: net,
+        salary_rate: monthlyNet,
+        gross_wages: earned,
         emp_pf: 0,
         emp_esic: 0,
         pt: 0,
         total_ded: 0,
-        net_salary: net,
-        bank: net,
+        net_salary: earned,
+        bank: earned,
         custom_earn_full: 0,
         custom_ded_full: 0,
         custom_earn: 0,
@@ -784,7 +791,7 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
         custom_components: [],
         ...voucherSnap,
       },
-      source_snapshot_json: { ...snap, take_home_only: true, salary_rate: net, ...voucherSnap },
+      source_snapshot_json: { ...snap, take_home_only: true, salary_rate: monthlyNet, ...voucherSnap },
     };
   }
   const pfBasic = num(line.pf_basic);
