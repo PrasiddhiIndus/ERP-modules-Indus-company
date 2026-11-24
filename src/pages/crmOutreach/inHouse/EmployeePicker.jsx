@@ -4,17 +4,19 @@ import { Search } from 'lucide-react';
 const PAGE_SIZE = 100;
 
 const inputCls =
-  'h-9 w-full border border-slate-200 rounded-md px-2.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-accent/30';
+  'h-8 border border-slate-200 rounded-md px-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-accent/30';
 
-export function filterEmployees(employees, { search = '', team = 'all' } = {}) {
+export function filterEmployees(employees, { search = '', department = 'all' } = {}) {
   const q = String(search || '').trim().toLowerCase();
   return employees.filter((e) => {
-    if (team !== 'all' && (e.team || '') !== team) return false;
+    if (department !== 'all' && (e.department || '') !== department) return false;
     if (!q) return true;
     return (
       e.name.toLowerCase().includes(q) ||
       e.email.includes(q) ||
-      (e.employeeCode || '').toLowerCase().includes(q)
+      (e.employeeCode || '').toLowerCase().includes(q) ||
+      (e.department || '').toLowerCase().includes(q) ||
+      (e.designation || '').toLowerCase().includes(q)
     );
   });
 }
@@ -26,7 +28,7 @@ function initials(name) {
 
 /**
  * Searchable, paged employee table for large lists.
- * `selectedIds` is a Set of profile ids; `onChange` receives the next Set.
+ * Name, department, and designation come from Employee Master. `selectedIds` is a Set of profile ids.
  */
 export default function EmployeePicker({
   employees,
@@ -36,19 +38,19 @@ export default function EmployeePicker({
   emptyText = 'No employees match your search.',
 }) {
   const [search, setSearch] = useState('');
-  const [team, setTeam] = useState('all');
+  const [department, setDepartment] = useState('all');
   const [onlySelected, setOnlySelected] = useState(false);
   const [visible, setVisible] = useState(PAGE_SIZE);
 
-  const teams = useMemo(
-    () => [...new Set(employees.map((e) => e.team).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+  const departments = useMemo(
+    () => [...new Set(employees.map((e) => e.department).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
     [employees]
   );
 
   const filtered = useMemo(() => {
-    const rows = filterEmployees(employees, { search, team });
+    const rows = filterEmployees(employees, { search, department });
     return onlySelected ? rows.filter((e) => selectedIds.has(e.id)) : rows;
-  }, [employees, search, team, onlySelected, selectedIds]);
+  }, [employees, search, department, onlySelected, selectedIds]);
 
   const shown = filtered.slice(0, visible);
   const allFilteredSelected = filtered.length > 0 && filtered.every((e) => selectedIds.has(e.id));
@@ -72,12 +74,12 @@ export default function EmployeePicker({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[220px]">
-          <Search className="w-3.5 h-3.5 text-ink-muted absolute left-2.5 top-1/2 -translate-y-1/2" />
+      <div className="flex flex-nowrap items-center gap-1.5">
+        <div className="relative min-w-0 flex-1 max-w-xs">
+          <Search className="w-3 h-3 text-ink-muted absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
-            className={`${inputCls} pl-8`}
-            placeholder="Search by name, email or employee code"
+            className={`${inputCls} w-full pl-7`}
+            placeholder="Search name, email, code…"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -86,17 +88,17 @@ export default function EmployeePicker({
           />
         </div>
         <select
-          className={`${inputCls} w-auto min-w-[160px]`}
-          value={team}
+          className={`${inputCls} w-[7.5rem] shrink-0`}
+          value={department}
           onChange={(e) => {
-            setTeam(e.target.value);
+            setDepartment(e.target.value);
             resetPaging();
           }}
-          aria-label="Filter by team"
+          aria-label="Filter by department"
         >
-          <option value="all">All teams</option>
-          {teams.map((t) => (
-            <option key={t} value={t}>{t}</option>
+          <option value="all">All depts</option>
+          {departments.map((d) => (
+            <option key={d} value={d}>{d}</option>
           ))}
         </select>
         <button
@@ -105,7 +107,7 @@ export default function EmployeePicker({
             setOnlySelected((v) => !v);
             resetPaging();
           }}
-          className={`h-9 px-3 rounded-md border text-xs font-medium ${
+          className={`h-8 shrink-0 px-2.5 rounded-md border text-xs font-medium whitespace-nowrap ${
             onlySelected ? 'bg-accent text-white border-accent' : 'bg-white text-ink-secondary border-slate-200 hover:bg-slate-50'
           }`}
         >
@@ -147,14 +149,15 @@ export default function EmployeePicker({
               </th>
               <th className="px-3 py-2 text-left font-semibold">Employee</th>
               <th className="px-3 py-2 text-left font-semibold">Email</th>
-              <th className="px-3 py-2 text-left font-semibold hidden md:table-cell">Team</th>
+              <th className="px-3 py-2 text-left font-semibold hidden md:table-cell">Department</th>
+              <th className="px-3 py-2 text-left font-semibold hidden md:table-cell">Designation</th>
               <th className="px-3 py-2 text-left font-semibold hidden lg:table-cell">Emp. code</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
             {shown.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-10 text-center text-ink-muted">{emptyText}</td>
+                <td colSpan={6} className="px-3 py-10 text-center text-ink-muted">{emptyText}</td>
               </tr>
             ) : (
               shown.map((e) => {
@@ -182,7 +185,8 @@ export default function EmployeePicker({
                       </div>
                     </td>
                     <td className="px-3 py-2 text-ink-secondary truncate max-w-[260px]">{e.email}</td>
-                    <td className="px-3 py-2 text-ink-secondary hidden md:table-cell">{e.team || '—'}</td>
+                    <td className="px-3 py-2 text-ink-secondary hidden md:table-cell">{e.department || '—'}</td>
+                    <td className="px-3 py-2 text-ink-secondary hidden md:table-cell">{e.designation || '—'}</td>
                     <td className="px-3 py-2 text-ink-secondary font-mono hidden lg:table-cell">{e.employeeCode || '—'}</td>
                   </tr>
                 );
