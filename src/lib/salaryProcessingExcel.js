@@ -88,6 +88,7 @@ const SHEET_HEADERS = [
   "Total Ded.",
   "Net salary",
   "Bank",
+  "Voucher",
   "CTC",
   "Status",
   "Locked on",
@@ -254,6 +255,7 @@ export async function exportSalaryProcessingWorkbook({ run, lines }, opts = {}) 
       num(line.total_ded),
       num(line.net_salary),
       num(line.bank_amount),
+      num(line.voucher_amount ?? line.computed_json?.voucher_amount),
       lineCtcLabel(line),
       lineStatusLabel(line),
       fmtDay(line.lockedOn),
@@ -266,8 +268,8 @@ export async function exportSalaryProcessingWorkbook({ run, lines }, opts = {}) 
       ws.getCell(r, i + 1).value = v;
     });
     moneyCols(ws, r, [
-      10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 32, 33, 34,
-      ...(withPerfIncentive ? [35] : []),
+      10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 33, 34, 35,
+      ...(withPerfIncentive ? [36] : []),
       ...(withExtras ? [headers.length - 1, headers.length] : []),
     ]);
     if (line.salaryLocked || line.processStatus === "locked") {
@@ -291,7 +293,7 @@ export async function exportSalaryProcessingWorkbook({ run, lines }, opts = {}) 
     }
   }
 
-  const widths = [8, 12, 24, 16, 12, 16, 16, 11, 12, 12, 8, 10, 12, 10, 11, 10, 12, 12, 9, 9, 8, 8, 8, 10, 8, 10, 11, 10, 10, 18, 12];
+  const widths = [8, 12, 24, 16, 12, 16, 16, 11, 12, 12, 8, 10, 12, 10, 11, 10, 12, 12, 9, 9, 8, 8, 8, 10, 8, 10, 11, 10, 10, 10, 18, 12];
   widths.forEach((w, i) => {
     ws.getColumn(i + 1).width = w;
   });
@@ -320,6 +322,7 @@ const REPORT_HEADERS = [
   "Deductions",
   "Net salary",
   "Bank",
+  "Voucher",
   "Account Number",
   "IFSC",
 ];
@@ -353,11 +356,11 @@ export async function exportSalaryReportWorkbook(report, opts = {}) {
     views: [{ state: "frozen", ySplit: 4, xSplit: 3 }],
   });
 
-  ws.mergeCells("A1", "M1");
+  ws.mergeCells("A1", "N1");
   ws.getCell("A1").value = companyTitle;
   ws.getCell("A1").font = { bold: true, size: 14 };
 
-  ws.mergeCells("A2", "M2");
+  ws.mergeCells("A2", "N2");
   ws.getCell("A2").value = `Salary process report — ${label}`;
   ws.getCell("A2").font = { bold: true, size: 12 };
 
@@ -385,13 +388,14 @@ export async function exportSalaryReportWorkbook(report, opts = {}) {
       num(emp.total_ded ?? line.total_ded),
       num(emp.net_salary ?? line.net_salary),
       num(emp.bank_amount ?? line.bank_amount),
+      num(emp.voucher_amount ?? line.voucher_amount ?? line.computed_json?.voucher_amount),
       line.account_no || "",
       line.ifsc || "",
     ];
     values.forEach((v, i) => {
       ws.getCell(r, i + 1).value = v;
     });
-    moneyCols(ws, r, [8, 9, 10, 11]);
+    moneyCols(ws, r, [8, 9, 10, 11, 12]);
   });
 
   const t = 5 + rows.length;
@@ -403,7 +407,7 @@ export async function exportSalaryReportWorkbook(report, opts = {}) {
     ws.getCell(t, col).numFmt = "#,##0";
   }
 
-  [14, 8, 12, 24, 16, 16, 8, 12, 12, 12, 12, 16, 12].forEach((w, i) => {
+  [14, 8, 12, 24, 16, 16, 8, 12, 12, 12, 12, 10, 16, 12].forEach((w, i) => {
     ws.getColumn(i + 1).width = w;
   });
 

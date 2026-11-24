@@ -545,6 +545,12 @@ export function buildSheetLineFromSources({
     : resolvePersonComponentsForPayroll(employee.id, structureLike);
   const annexure = !takeHomeOnly && computed.declared ? annexureLineInputs(structure) : null;
   const pfBasicSeed = annexure ? annexure.pf_wage_full : computed.pf_basic;
+  const voucherOn = Boolean(structure?.generate_voucher);
+  const voucherAmt = voucherOn ? Number(structure?.voucher_amount) || 0 : 0;
+  const voucherSnap =
+    voucherOn && voucherAmt > 0
+      ? { generate_voucher: true, voucher_amount: voucherAmt }
+      : { generate_voucher: false, voucher_amount: null };
 
   const snapshot = {
     employee_code: employee.employee_code || employee.employee_id || "",
@@ -576,6 +582,7 @@ export function buildSheetLineFromSources({
     custom_components: personComps.items,
     ...(takeHomeOnly ? { take_home_only: true } : {}),
     ...(annexure ? { annexure } : {}),
+    ...voucherSnap,
   };
 
   const draft = {
@@ -615,6 +622,8 @@ export function buildSheetLineFromSources({
     total_ded: computed.total_ded,
     net_salary: computed.net_salary,
     bank_amount: computed.bank,
+    generate_voucher: voucherSnap.generate_voucher,
+    voucher_amount: voucherSnap.voucher_amount,
     source_snapshot_json: snapshot,
     overrides_json: {},
     computed_json: {
@@ -625,6 +634,7 @@ export function buildSheetLineFromSources({
       custom_components: personComps.items,
       ...(takeHomeOnly ? { take_home_only: true } : {}),
       ...(annexure ? { annexure } : {}),
+      ...voucherSnap,
     },
     line_revision_no: 1,
     has_master_variance: false,
@@ -633,6 +643,8 @@ export function buildSheetLineFromSources({
   const recomputed = recomputeLineFromEdits(draft, monthDays);
   return {
     ...recomputed,
+    generate_voucher: voucherSnap.generate_voucher,
+    voucher_amount: voucherSnap.voucher_amount,
     source_snapshot_json: snapshot,
     overrides_json: {},
     computed_json: {
@@ -641,6 +653,7 @@ export function buildSheetLineFromSources({
       custom_employer_full: personComps.custom_employer_full,
       ...(takeHomeOnly ? { take_home_only: true } : {}),
       ...(annexure ? { annexure } : {}),
+      ...voucherSnap,
     },
   };
 }
@@ -714,6 +727,15 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
         ? line.salary_rate
         : cj.salary_rate ?? snap.salary_rate ?? line.net_salary ?? cj.net_salary ?? 0
     );
+    const voucherOn = Boolean(
+      line.generate_voucher ?? cj.generate_voucher ?? snap.generate_voucher
+    );
+    const voucherAmt = voucherOn
+      ? num(line.voucher_amount ?? cj.voucher_amount ?? snap.voucher_amount)
+      : 0;
+    const voucherSnap = voucherOn && voucherAmt > 0
+      ? { generate_voucher: true, voucher_amount: voucherAmt }
+      : { generate_voucher: false, voucher_amount: null };
     return {
       ...line,
       present_days: presentUnknown ? rawPresent : K,
@@ -743,6 +765,7 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
       net_salary: net,
       bank_amount: net,
       take_home_only: true,
+      ...voucherSnap,
       computed_json: {
         ...cj,
         take_home_only: true,
@@ -759,8 +782,9 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
         custom_earn: 0,
         custom_ded: 0,
         custom_components: [],
+        ...voucherSnap,
       },
-      source_snapshot_json: { ...snap, take_home_only: true, salary_rate: net },
+      source_snapshot_json: { ...snap, take_home_only: true, salary_rate: net, ...voucherSnap },
     };
   }
   const pfBasic = num(line.pf_basic);
