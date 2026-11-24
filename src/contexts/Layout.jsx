@@ -2508,13 +2508,12 @@ const Layout = () => {
 
       {pathname.startsWith("/app/projects") &&
       (enquiryTabs.includes("enquiry-database") ||
+        accessibleModules?.has("projects") ||
         canReceiveQuotationStatusNotifications(userProfile, accessibleModules)) ? (
         <div className="fixed bottom-4 right-4 z-[900] flex w-[340px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] flex-col gap-3 overflow-y-auto">
           <Suspense fallback={null}>
-            {/* Quotation status feed — separate table/dismiss key from Enquiry Completed */}
-            {canReceiveQuotationStatusNotifications(userProfile, accessibleModules) ? (
-              <QuotationStatusChangePopup />
-            ) : null}
+            {/* Quotation activity feed — self-gates for Manager/Executive and Projects Department L1 */}
+            <QuotationStatusChangePopup />
             {enquiryTabs.includes("enquiry-database") ? (
               <>
                 <EnquiryCompletedPopup />

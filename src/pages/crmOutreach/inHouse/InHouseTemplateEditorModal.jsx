@@ -13,7 +13,7 @@ import { useInHouseOutreach } from './InHouseOutreachContext';
 const PREVIEW_EMPLOYEE = {
   name: 'Ravi Patel',
   email: 'ravi.patel@indusfire.com',
-  team: 'Operations',
+  department: 'Operations',
   employeeCode: 'IFS1024',
 };
 

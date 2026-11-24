@@ -7,7 +7,7 @@ export const INHOUSE_MERGE_TOKENS = [
   '{{employee_name}}',
   '{{first_name}}',
   '{{employee_email}}',
-  '{{team}}',
+  '{{department}}',
   '{{employee_code}}',
 ];
 
@@ -29,9 +29,13 @@ export const INHOUSE_BULK_BCC_LIMIT = 450;
 export const INHOUSE_PERSONAL_BATCH_SIZE = 50;
 export const INHOUSE_PERSONAL_CONCURRENCY = 5;
 
+/** Legacy alias still personalises old templates that used {{team}}. */
+const LEGACY_PERSONAL_TOKENS = ['{{team}}'];
+
 /** True when subject/body contain a per-employee token, so each employee needs their own copy. */
 export function usesPersonalTokens(...texts) {
-  return texts.some((text) => INHOUSE_MERGE_TOKENS.some((token) => String(text || '').includes(token)));
+  const tokens = [...INHOUSE_MERGE_TOKENS, ...LEGACY_PERSONAL_TOKENS];
+  return texts.some((text) => tokens.some((token) => String(text || '').includes(token)));
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -58,8 +62,9 @@ function nameFromEmail(email) {
     .join(' ');
 }
 
-export function employeeDisplayName(profile) {
-  const name = String(profile?.username || profile?.full_name || '').trim();
+/** Prefer Employee Master full name, then profile username / full_name, then email local-part. */
+export function employeeDisplayName(profile, master = null) {
+  const name = String(master?.full_name || profile?.username || profile?.full_name || '').trim();
   if (name) return name;
   return nameFromEmail(normalizeEmployeeEmail(profile?.email)) || 'Employee';
 }
@@ -80,6 +85,16 @@ export function indexEmployeeMaster(masterRows) {
   return { byUserId, byCode };
 }
 
+/** Linked Employee Master row for a login profile (by user_id, then employee code). */
+export function lookupEmployeeMaster(profile, masterIndex) {
+  if (!masterIndex || !profile) return null;
+  return (
+    masterIndex.byUserId.get(profile.id) ||
+    masterIndex.byCode.get(normEmpCode(profile.employee_code)) ||
+    null
+  );
+}
+
 /**
  * 'active' | 'inactive' | 'left' | 'not_employee' for one profile.
  * Active = login enabled AND linked Employee Master row is Active with no past leaving date.
@@ -87,8 +102,7 @@ export function indexEmployeeMaster(masterRows) {
 export function employeeActiveState(profile, masterIndex, today = new Date().toISOString().slice(0, 10)) {
   if (profile?.is_active === false) return 'inactive';
   if (!masterIndex) return 'active';
-  const master =
-    masterIndex.byUserId.get(profile?.id) || masterIndex.byCode.get(normEmpCode(profile?.employee_code));
+  const master = lookupEmployeeMaster(profile, masterIndex);
   if (!master) return 'not_employee';
   if (String(master.status || '').trim().toLowerCase() === 'inactive') return 'inactive';
   const leaving = String(master.date_of_leaving || '').slice(0, 10);
@@ -99,6 +113,7 @@ export function employeeActiveState(profile, masterIndex, today = new Date().toI
 /**
  * Build a mailable employee directory from raw profile rows.
  * - only active employees (login enabled + Active in Employee Master when `masterIndex` is given)
+ * - name, department, designation come from Employee Master
  * - drops missing / invalid emails
  * - keeps one entry per email (first profile wins)
  */
@@ -137,12 +152,14 @@ export function buildEmployeeDirectory(profileRows, { masterIndex = null, today 
       continue;
     }
     seenEmails.add(email);
+    const master = lookupEmployeeMaster(row, masterIndex);
     employees.push({
       id: row.id,
-      name: employeeDisplayName(row),
+      name: employeeDisplayName(row, master),
       email,
-      team: String(row.team || '').trim(),
-      employeeCode: String(row.employee_code || '').trim(),
+      department: String(master?.department || '').trim(),
+      designation: String(master?.designation || '').trim(),
+      employeeCode: String(master?.employee_code || row.employee_code || '').trim(),
     });
   }
 
@@ -154,11 +171,13 @@ export function renderInHouseTokens(text, employee) {
   if (!text) return '';
   const name = String(employee?.name || '').trim();
   const firstName = name.split(/\s+/)[0] || '';
+  const department = String(employee?.department || employee?.team || '').trim();
   return String(text)
     .replaceAll('{{employee_name}}', name)
     .replaceAll('{{first_name}}', firstName)
     .replaceAll('{{employee_email}}', String(employee?.email || ''))
-    .replaceAll('{{team}}', String(employee?.team || ''))
+    .replaceAll('{{department}}', department)
+    .replaceAll('{{team}}', department)
     .replaceAll('{{employee_code}}', String(employee?.employeeCode || ''));
 }
 

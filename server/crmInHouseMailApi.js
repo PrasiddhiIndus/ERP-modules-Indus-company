@@ -9,6 +9,7 @@ import {
   inHouseCampaignStatus,
   indexEmployeeMaster,
   isValidEmployeeEmail,
+  lookupEmployeeMaster,
   normalizeEmployeeEmail,
   renderInHouseTokens,
   usesPersonalTokens,
@@ -16,7 +17,9 @@ import {
 import { emailHtmlForSending, escapeTokenValues, looksLikeHtmlEmail } from '../shared/emailHtml.mjs';
 import { canUseSenderMailbox, isPersonalSenderMailbox, senderNotAllowedMessage } from './mail/senderAccess.js';
 
-const PROFILE_COLUMNS = 'id, email, username, team, employee_code, is_active';
+const PROFILE_COLUMNS = 'id, email, username, employee_code, is_active';
+const EMPLOYEE_MASTER_COLUMNS =
+  'user_id, employee_code, full_name, department, designation, status, date_of_leaving';
 const PROFILE_PAGE_SIZE = 1000;
 const IN_CHUNK = 200;
 const INSERT_CHUNK = 500;
@@ -120,7 +123,7 @@ async function fetchEmployeeMasterIndex(supabaseAdmin) {
   for (let from = 0; ; from += PROFILE_PAGE_SIZE) {
     const { data, error } = await supabaseAdmin
       .from('admin_ifsp_employee_master')
-      .select('user_id, employee_code, status, date_of_leaving')
+      .select(EMPLOYEE_MASTER_COLUMNS)
       .order('employee_code', { ascending: true })
       .range(from, from + PROFILE_PAGE_SIZE - 1);
     if (error) throw error;
@@ -230,7 +233,8 @@ export async function startInHouseCampaign({
       skipped.push({ profile_id: null, recipient_email: '', recipient_name: '', error_message: 'Employee not found' });
       continue;
     }
-    const name = employeeDisplayName(profile);
+    const master = lookupEmployeeMaster(profile, masterIndex);
+    const name = employeeDisplayName(profile, master);
     const email = normalizeEmployeeEmail(profile.email);
     const state = employeeActiveState(profile, masterIndex);
     if (state !== 'active') {
@@ -392,7 +396,10 @@ async function sendBulkBccMail(supabaseAdmin, campaign, rows) {
 /** Individual messages (per-employee tokens), several in flight at once. */
 async function sendPersonalMails(supabaseAdmin, campaign, rows) {
   const profileIds = uniqueIds(rows.map((r) => r.profile_id));
-  const profiles = profileIds.length ? await fetchProfilesByIds(supabaseAdmin, profileIds) : [];
+  const [profiles, masterIndex] = await Promise.all([
+    profileIds.length ? fetchProfilesByIds(supabaseAdmin, profileIds) : Promise.resolve([]),
+    fetchEmployeeMasterIndex(supabaseAdmin),
+  ]);
   const profilesById = new Map(profiles.map((p) => [p.id, p]));
 
   const results = new Array(rows.length);
@@ -403,11 +410,13 @@ async function sendPersonalMails(supabaseAdmin, campaign, rows) {
       next += 1;
       const row = rows[index];
       const profile = profilesById.get(row.profile_id);
+      const master = lookupEmployeeMaster(profile, masterIndex);
       const employee = {
-        name: row.recipient_name || '',
+        name: row.recipient_name || employeeDisplayName(profile, master),
         email: row.recipient_email,
-        team: String(profile?.team || '').trim(),
-        employeeCode: String(profile?.employee_code || '').trim(),
+        department: String(master?.department || '').trim(),
+        designation: String(master?.designation || '').trim(),
+        employeeCode: String(master?.employee_code || profile?.employee_code || '').trim(),
       };
       const renderedSubject = renderInHouseTokens(campaign.subject, employee);
       const renderedBody = looksLikeHtmlEmail(campaign.body_template)
