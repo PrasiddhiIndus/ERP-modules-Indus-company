@@ -166,7 +166,34 @@ export function takeHomeToStructurePayload(netSalary, meta = {}) {
     system_values_json: {},
     date_of_birth: meta.employee?.date_of_birth || null,
     date_of_joining: meta.employee?.date_of_joining || null,
+    ...voucherPayloadFromMeta(meta),
   };
+}
+
+/** Standalone voucher fields for CTC save (never added into CTC totals). */
+export function voucherPayloadFromMeta(meta = {}) {
+  const on = Boolean(meta.generateVoucher);
+  const amount = round2(meta.voucherAmount);
+  return {
+    generate_voucher: on,
+    voucher_amount: on && amount > 0 ? amount : null,
+  };
+}
+
+/** Read display-only voucher amount from a structure / line / payslip. */
+export function readVoucherAmount(row) {
+  if (!row) return 0;
+  const flag =
+    row.generate_voucher ??
+    row.computed_json?.generate_voucher ??
+    row.source_snapshot_json?.generate_voucher;
+  if (flag === false || flag === 0 || flag === "false") return 0;
+  const raw =
+    row.voucher_amount ??
+    row.computed_json?.voucher_amount ??
+    row.source_snapshot_json?.voucher_amount;
+  const amount = Number(raw);
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
 }
 
 function n(v) {
@@ -279,6 +306,7 @@ export function resultToStructurePayload(result, meta) {
     system_values_json: result.is_custom ? roundMap(result.system_values) : {},
     date_of_birth: meta.employee?.date_of_birth || null,
     date_of_joining: meta.employee?.date_of_joining || null,
+    ...voucherPayloadFromMeta(meta),
   };
 }
 

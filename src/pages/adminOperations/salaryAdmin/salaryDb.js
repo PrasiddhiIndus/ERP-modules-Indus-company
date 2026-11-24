@@ -28,6 +28,8 @@ const OPTIONAL_STRUCTURE_COLUMNS = [
   "pa_overrides_json",
   "custom_component_amounts_json",
   "formula_overrides_json",
+  "generate_voucher",
+  "voucher_amount",
 ];
 
 /** Annexure-I columns. Never dropped silently: saving without them would lose the breakup. */
@@ -227,6 +229,8 @@ export function structureRowToUi(row, revisions = []) {
     ...row,
     employee_master_id: String(row.employee_master_id),
     declared: Boolean(row.declared),
+    generate_voucher: Boolean(row.generate_voucher),
+    voucher_amount: numOrNull(row.voucher_amount),
     pa_overrides_json: paOverridesOrEmpty(row.pa_overrides_json),
     custom_component_amounts_json: customAmountsOrEmpty(row.custom_component_amounts_json),
     formula_overrides_json: formulaOverridesOrEmpty(row.formula_overrides_json),
@@ -292,6 +296,16 @@ export function uiPayloadToStructureColumns(payload, employeeMasterId) {
     date_of_birth: payload.date_of_birth || null,
     date_of_joining: payload.date_of_joining || null,
     ...annexureColumns(payload),
+    ...voucherColumns(payload),
+  };
+}
+
+/** Display-only voucher — never folded into CTC / gross / net. */
+function voucherColumns(payload) {
+  const on = Boolean(payload?.generate_voucher);
+  return {
+    generate_voucher: on,
+    voucher_amount: on ? numOrNull(payload?.voucher_amount) : null,
   };
 }
 
