@@ -607,19 +607,60 @@ export async function validateMaxWorkers(siteId, fromDate, toDate, excludePerson
   return { allowed: true };
 }
 
+/**
+ * Load attendance for a site.
+ * When `from`+`to` are set (Daily grid / import window), filter by att_date only —
+ * month/year are cycle labels, not part of the unique key. Crossing cycles (e.g. Aug
+ * 21–20 overlapping calendar July) must still see existing person+date+designation rows.
+ */
 export async function listAttendance({ siteId, month, year, from, to }) {
   let query = supabase.from("attendance").select("*").eq("site_id", siteId);
-  if (month != null) query = query.eq("month", month);
-  if (year != null) query = query.eq("year", year);
-  if (from) query = query.gte("att_date", from);
-  if (to) query = query.lte("att_date", to);
+  if (from && to) {
+    query = query.gte("att_date", from).lte("att_date", to);
+  } else {
+    if (month != null) query = query.eq("month", month);
+    if (year != null) query = query.eq("year", year);
+  }
   const { data, error } = await query.limit(20000);
   throwIf(error, "Unable to load attendance.");
   return data || [];
 }
 
+/** Existing row for unique (person_id, att_date, designation) — used when insert would collide. */
+export async function findAttendanceByPersonDateDesignation({ personId, attDate, designation, siteId }) {
+  let query = supabase
+    .from("attendance")
+    .select("*")
+    .eq("person_id", personId)
+    .eq("att_date", attDate);
+  if (siteId != null) query = query.eq("site_id", siteId);
+  const desig = designation != null ? String(designation).trim() : "";
+  if (desig) query = query.eq("designation", desig);
+  else query = query.or("designation.is.null,designation.eq.");
+  const { data, error } = await query.limit(5);
+  if (error) return null;
+  const rows = data || [];
+  if (!rows.length) return null;
+  if (desig) return rows[0];
+  return rows.find((r) => !String(r.designation || "").trim()) || rows[0];
+}
+
 export async function createAttendance(payload) {
   const { data, error } = await supabase.from("attendance").insert(payload).select("*");
+  if (!error) return firstRow(data);
+
+  // Unique idx_attendance_person_date_designation — row exists under another cycle month label.
+  if (/duplicate key|idx_attendance_person_date_designation/i.test(String(error.message || ""))) {
+    const existing = await findAttendanceByPersonDateDesignation({
+      personId: payload.person_id,
+      attDate: payload.att_date,
+      designation: payload.designation,
+      siteId: payload.site_id,
+    });
+    if (existing?.id) {
+      return updateAttendance(existing.id, { ...existing, ...payload });
+    }
+  }
   throwIf(error, "Unable to save attendance.");
   return firstRow(data);
 }
@@ -750,6 +791,9 @@ export function userFriendlyError(err) {
   if (msg) console.error("Site attendance:", msg);
   if (/duplicate key/i.test(msg)) {
     if (/unique_code|code/i.test(msg)) return "This code is already used by another person. Use Generate for a new code.";
+    if (/idx_attendance_person_date_designation/i.test(msg)) {
+      return "Attendance for this person and date is already saved. Reload the grid, then try again.";
+    }
     if (/_pkey/i.test(msg)) {
       return "The record could not be saved because record numbering is out of step. Ask an administrator to fix the numbering, then try again.";
     }
