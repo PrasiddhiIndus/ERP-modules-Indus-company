@@ -16,7 +16,7 @@ import { buildGraphMessagePayload } from '../server/mail/mailConfig.js';
 describe('In-House employee directory', () => {
   it('drops inactive, missing, invalid and duplicate emails', () => {
     const { employees, stats } = buildEmployeeDirectory([
-      { id: '1', username: 'Ravi Patel', email: ' Ravi@IndusFire.com ', team: 'HR', is_active: true },
+      { id: '1', username: 'Ravi Patel', email: ' Ravi@IndusFire.com ', is_active: true },
       { id: '2', username: 'Duplicate Ravi', email: 'ravi@indusfire.com', is_active: true },
       { id: '3', username: 'No Mail', email: null, is_active: true },
       { id: '4', username: 'Bad Mail', email: 'not-an-email', is_active: true },
@@ -27,6 +27,52 @@ describe('In-House employee directory', () => {
     expect(employees.find((e) => e.id === '1').email).toBe('ravi@indusfire.com');
     expect(employees.find((e) => e.id === '6').name).toBe('Asha Shah');
     expect(stats).toEqual({ total: 6, inactive: 1, left: 0, notEmployee: 0, missingEmail: 1, invalidEmail: 1, duplicateEmail: 1 });
+  });
+
+  it('uses Employee Master full name and department (not profile team)', () => {
+    const masterIndex = indexEmployeeMaster([
+      {
+        user_id: 'u1',
+        employee_code: 'E1',
+        full_name: 'Ravi K. Patel',
+        department: 'Projects',
+        designation: 'Manager',
+        status: 'Active',
+      },
+      {
+        user_id: 'u2',
+        employee_code: 'E2',
+        full_name: 'Asha Shah',
+        department: 'HR',
+        designation: 'Executive',
+        status: 'Active',
+      },
+    ]);
+    const { employees } = buildEmployeeDirectory(
+      [
+        { id: 'u1', username: 'ravi.patel', email: 'ravi@indusfire.com', employee_code: 'E1', team: 'Wrong Team' },
+        { id: 'u2', username: 'asha', email: 'asha@indusfire.com', employee_code: 'E2' },
+      ],
+      { masterIndex }
+    );
+    expect(employees).toEqual([
+      {
+        id: 'u2',
+        name: 'Asha Shah',
+        email: 'asha@indusfire.com',
+        department: 'HR',
+        designation: 'Executive',
+        employeeCode: 'E2',
+      },
+      {
+        id: 'u1',
+        name: 'Ravi K. Patel',
+        email: 'ravi@indusfire.com',
+        department: 'Projects',
+        designation: 'Manager',
+        employeeCode: 'E1',
+      },
+    ]);
   });
 
   it('keeps only employees Active in Employee Master and not past their leaving date', () => {
@@ -61,14 +107,18 @@ describe('In-House employee directory', () => {
 });
 
 describe('In-House merge tokens and status', () => {
-  it('renders employee tokens', () => {
-    const text = renderInHouseTokens('Hi {{first_name}} ({{employee_name}}, {{team}}, {{employee_code}}) {{employee_email}}', {
-      name: 'Ravi Patel',
-      email: 'ravi@indusfire.com',
-      team: 'HR',
-      employeeCode: 'E100',
-    });
+  it('renders employee tokens from Employee Master fields', () => {
+    const text = renderInHouseTokens(
+      'Hi {{first_name}} ({{employee_name}}, {{department}}, {{employee_code}}) {{employee_email}}',
+      {
+        name: 'Ravi Patel',
+        email: 'ravi@indusfire.com',
+        department: 'HR',
+        employeeCode: 'E100',
+      }
+    );
     expect(text).toBe('Hi Ravi (Ravi Patel, HR, E100) ravi@indusfire.com');
+    expect(renderInHouseTokens('Dept {{team}}', { department: 'Projects' })).toBe('Dept Projects');
   });
 
   it('derives campaign status from counts', () => {
@@ -84,7 +134,7 @@ describe('In-House delivery mode', () => {
   it('detects per-employee tokens', () => {
     expect(usesPersonalTokens('Office closed Friday', 'Dear team, …')).toBe(false);
     expect(usesPersonalTokens('Hello', 'Dear {{first_name}},')).toBe(true);
-    expect(usesPersonalTokens('{{team}} update', '')).toBe(true);
+    expect(usesPersonalTokens('{{department}} update', '')).toBe(true);
   });
 
   it('builds one Graph message with hidden BCC recipients', () => {

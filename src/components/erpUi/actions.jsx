@@ -58,16 +58,41 @@ export function EmptyState({ icon: Icon, title, message, description, action, cl
   );
 }
 
-export function FormField({ label, error, required, children, hint }) {
+/**
+ * @param {string} [htmlFor] — when set, label is associated via htmlFor (use for fields
+ *   that contain buttons / contentEditable so a wrapping <label> does not steal focus).
+ */
+export function FormField({ label, error, required, children, hint, htmlFor }) {
+  const caption = (
+    <>
+      {label}
+      {required ? <span className="text-critical ml-0.5">*</span> : null}
+    </>
+  );
+  const hintEl =
+    hint && !error ? <p className="text-[10px] text-ink-muted mt-0.5">{hint}</p> : null;
+  const errorEl = error ? <p className="text-[10px] text-critical mt-0.5">{error}</p> : null;
+
+  // Explicit id association: caption is a <label htmlFor>, children sit outside it.
+  if (htmlFor) {
+    return (
+      <div className="block">
+        <label htmlFor={htmlFor} className="text-[11px] font-medium text-ink-secondary">
+          {caption}
+        </label>
+        <div className="mt-1">{children}</div>
+        {hintEl}
+        {errorEl}
+      </div>
+    );
+  }
+
   return (
     <label className="block">
-      <span className="text-[11px] font-medium text-ink-secondary">
-        {label}
-        {required ? <span className="text-critical ml-0.5">*</span> : null}
-      </span>
+      <span className="text-[11px] font-medium text-ink-secondary">{caption}</span>
       <div className="mt-1">{children}</div>
-      {hint && !error ? <p className="text-[10px] text-ink-muted mt-0.5">{hint}</p> : null}
-      {error ? <p className="text-[10px] text-critical mt-0.5">{error}</p> : null}
+      {hintEl}
+      {errorEl}
     </label>
   );
 }

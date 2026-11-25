@@ -325,20 +325,21 @@ export default function AttendanceEntryPage({ readOnly = false }) {
                         </td>
                         <td className={`${FREEZE_BODY} ${COL_DESIG} ${freezeTone} px-2.5 py-0.5 whitespace-nowrap overflow-hidden text-ellipsis text-left text-[11px] text-ink-muted`} title={desig}>{desig}</td>
                         {g.days.map((d) => {
-                          const rec = g.getRecord(personId, d.dateString, desig);
-                          const disabled = g.isCellDisabled(row, d.dateString);
+                          const closed = g.isInactiveCellClosed(row, d.dateString);
+                          const rec = closed ? null : g.getRecord(personId, d.dateString, desig);
+                          const disabled = closed || g.isCellDisabled(row, d.dateString);
                           return (
                             <td
                               key={d.dateString}
-                              className={`att-daily-mark-cell border-b border-r border-divider p-0 ${g.isNhPh(d.dateString) && !rec?.att_code ? "bg-amber-50" : ""} ${codeClass(rec?.att_code)} ${rec?._selfie ? "ring-1 ring-inset ring-sky-400" : ""}`}
-                              title={rec?._selfie ? `Selfie punch — In ${formatPunchTime(rec._selfie.in)} · Out ${formatPunchTime(rec._selfie.out)}${rec._selfie.address ? `
+                              className={`att-daily-mark-cell border-b border-r border-divider p-0 ${closed ? "att-daily-mark-cell--closed" : ""} ${!closed && g.isNhPh(d.dateString) && !rec?.att_code ? "bg-amber-50" : ""} ${!closed ? codeClass(rec?.att_code) : ""} ${!closed && rec?._selfie ? "ring-1 ring-inset ring-sky-400" : ""}`}
+                              title={closed ? "Outside employment dates — not editable" : rec?._selfie ? `Selfie punch — In ${formatPunchTime(rec._selfie.in)} · Out ${formatPunchTime(rec._selfie.out)}${rec._selfie.address ? `
 ${rec._selfie.address}` : ""}
 Change to override.` : undefined}
                             >
                               <select
                                 className="att-daily-mark-select w-full h-8 bg-transparent text-[12px] font-semibold text-center"
                                 disabled={disabled}
-                                value={rec?.att_code || ""}
+                                value={closed ? "" : rec?.att_code || ""}
                                 onChange={(e) => g.persistCell({ personId, dateString: d.dateString, gridDesignation: desig, attCode: e.target.value, clear: e.target.value === "" })}
                               >
                                 {g.codes.map((c) => (
@@ -358,18 +359,22 @@ Change to override.` : undefined}
                         <td className={`${FREEZE_BODY} ${COL_NAME} ${freezeTone} text-[10px] font-medium uppercase tracking-wide text-ink-muted px-2.5 text-left`}>OT</td>
                         <td className={`${FREEZE_BODY} ${COL_DESIG} ${freezeTone}`} />
                         {g.days.map((d) => {
-                          const rec = g.getRecord(personId, d.dateString, desig);
-                          const disabled = g.isCellDisabled(row, d.dateString);
+                          const closed = g.isInactiveCellClosed(row, d.dateString);
+                          const rec = closed ? null : g.getRecord(personId, d.dateString, desig);
+                          const disabled = closed || g.isCellDisabled(row, d.dateString);
                           return (
-                            <td key={`ot-${d.dateString}`} className="border-b border-r border-divider p-0 bg-surface">
+                            <td
+                              key={`ot-${d.dateString}`}
+                              className={`border-b border-r border-divider p-0 ${closed ? "att-daily-mark-cell--closed" : "bg-surface"}`}
+                            >
                               <input
                                 type="number"
                                 min="0"
                                 max="16"
                                 disabled={disabled}
                                 className="w-full h-7 text-center text-[11px] tabular-nums bg-transparent"
-                                key={`${personId}-${d.dateString}-${desig}-${rec?.ot_hours || 0}`}
-                                defaultValue={rec?.ot_hours || ""}
+                                key={`${personId}-${d.dateString}-${desig}-${closed ? "closed" : rec?.ot_hours || 0}`}
+                                defaultValue={closed ? "" : rec?.ot_hours || ""}
                                 onBlur={(e) => g.persistOt({ personId, dateString: d.dateString, gridDesignation: desig, otHours: e.target.value })}
                               />
                             </td>

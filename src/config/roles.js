@@ -26,6 +26,7 @@ import {
   canAccessComplianceSection,
   canOpenCompliancePath,
   isCompliancePath,
+  resolveComplianceSectionKey,
 } from '../pages/compliance/payroll/complianceAccess';
 
 export const ROLES = {
@@ -302,11 +303,23 @@ export function canSeeSubModule(profile, accessibleModules, subModuleKey, userMe
     });
   }
 
-  // Compliance: Vivek, Vaisakh / Vaishak, and Rahul only.
+  // Compliance: allowlisted emails, Super Admin / full module, or User Management grant.
   if (String(subModuleKey || "").startsWith("compliance.")) {
-    return canAccessComplianceSection(profile, {
-      email: userMetadata?.email || profile?.email,
-    }, subModuleKey);
+    const sectionKey = resolveComplianceSectionKey(subModuleKey) || subModuleKey;
+    if (
+      canAccessComplianceSection(profile, {
+        email: userMetadata?.email || profile?.email,
+      }, sectionKey)
+    ) {
+      return true;
+    }
+    if (hasFullModuleAccess(accessibleModules, "compliance")) return true;
+    const granted = getEffectiveAllowedSubModules(profile, userMetadata);
+    return (
+      granted.includes(sectionKey) ||
+      granted.includes(subModuleKey) ||
+      granted.some((k) => String(k).startsWith(`${sectionKey}.`))
+    );
   }
 
   if (
@@ -1231,6 +1244,9 @@ export const NAV_MODULE_TREE = [
     value: "itIs",
     label: "IT/IS",
     subModules: [
+      { value: "itIs.helpdesk", label: "IT Support — Raise tickets", pathPrefix: "/app/it-support" },
+      { value: "itIs.helpdesk-agent", label: "IT Support — Agent (queue)", pathPrefix: "/app/it-support" },
+      { value: "itIs.helpdesk-admin", label: "IT Support — Admin (masters / reports)", pathPrefix: "/app/it-support" },
       { value: "itIs.subscriptions", label: "Software Subscriptions (View / Update / Delete)",  pathPrefix: "/app/software-subscriptions-reminders" },
       { value: "itIs.api-health",    label: "API Health",              pathPrefix: "/app/api-health" },
     ],
@@ -1298,8 +1314,8 @@ export const MODULE_PATH_PREFIXES = {
   settings: ["/app/settings"],
   userManagement: ["/app/user-management", "/app/all-employees"],
   softwareSubscriptions: ["/app/software-subscriptions-reminders"],
-  /** IT/IS team home — same routes as software subscriptions (not Super Admin–only module key). */
-  itIs: ["/app/software-subscriptions-reminders", "/app/api-health"],
+  /** IT/IS team home — subscriptions, API health, and helpdesk. */
+  itIs: ["/app/software-subscriptions-reminders", "/app/api-health", "/app/it-support"],
 };
 
 /**
@@ -1825,6 +1841,9 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
 
   if (accessibleModules.has("overview") && pathname === "/app/dashboard") return true;
   if (accessibleModules.has("settings") && pathname.startsWith("/app/settings")) return true;
+
+  // IT Support raise/my: every active user (inactive profiles get an empty module set).
+  if (accessibleModules.size > 0 && pathname.startsWith("/app/it-support")) return true;
 
   const normalizedPath = normalizeAppPath(pathname);
 

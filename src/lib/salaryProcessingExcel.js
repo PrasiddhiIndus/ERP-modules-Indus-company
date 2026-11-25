@@ -57,6 +57,7 @@ const TAB_FILE = {
   all: "All-Employees",
   processed: "Processed",
   held: "Held",
+  voucher: "Voucher",
 };
 
 const SHEET_HEADERS = [
@@ -291,7 +292,7 @@ export async function exportSalaryProcessingWorkbook({ run, lines }, opts = {}) 
     }
   }
 
-  const widths = [8, 12, 24, 16, 12, 16, 16, 11, 12, 12, 8, 10, 12, 10, 11, 10, 12, 12, 9, 9, 8, 8, 8, 10, 8, 10, 11, 10, 10, 18, 12];
+  const widths = [8, 12, 24, 16, 12, 16, 16, 11, 12, 12, 8, 10, 12, 10, 11, 10, 12, 12, 9, 9, 8, 8, 8, 10, 8, 10, 11, 10, 10, 10, 18, 12];
   widths.forEach((w, i) => {
     ws.getColumn(i + 1).width = w;
   });

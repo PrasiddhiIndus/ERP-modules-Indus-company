@@ -41,6 +41,7 @@ import {
   requestEnquiryEdit,
 } from './enquiryEditApi';
 import { isEnquiryApprover } from './enquiryRoles';
+import { loadLocalDraft, readFormOpenFlag, setFormOpenFlag } from './enquiryDraftStore';
 import { isProjectsEnquiryViewOnly } from '../../../config/roles';
 import { useAuth } from '../../../contexts/AuthContext';
 import { Modal } from '../../../components/erpUi';
@@ -84,9 +85,13 @@ export default function EnquiryDatabase() {
     [dashboardView]
   );
   const clearDashboardView = () => navigate(location.pathname, { replace: true, state: null });
-  const [addOpen, setAddOpen] = useState(Boolean(location.state?.openAddEnquiry));
+  const { user, userProfile } = useAuth();
+  const userId = user?.id || null;
+  // Reopen Add Enquiry after a refresh / module switch if the user left it open.
+  const [addOpen, setAddOpen] = useState(
+    () => Boolean(location.state?.openAddEnquiry) || readFormOpenFlag(userId)
+  );
   const [savedNotice, setSavedNotice] = useState('');
-  const { userProfile } = useAuth();
   const canApproveEdits = isEnquiryApprover(userProfile);
   // View-only access (User Management): read records; L1 keeps Approve / Reject on requests.
   const viewOnly = isProjectsEnquiryViewOnly(userProfile);
@@ -165,18 +170,43 @@ export default function EnquiryDatabase() {
     if (location.state?.openAddEnquiry) setAddOpen(true);
   }, [location.state]);
 
+  // Session user can arrive after first render — reopen the form if it was left open.
+  useEffect(() => {
+    if (userId && readFormOpenFlag(userId)) setAddOpen(true);
+  }, [userId]);
+
+  const openAdd = useCallback(() => {
+    setSavedNotice('');
+    setAddOpen(true);
+    setFormOpenFlag(userId, true);
+  }, [userId]);
+
+  useEffect(() => {
+    if (addOpen && !viewOnly) setFormOpenFlag(userId, true);
+  }, [addOpen, viewOnly, userId]);
+
+  const hasEnquiryDraft = useMemo(() => {
+    if (addOpen || !userId) return false;
+    const draft = loadLocalDraft(userId);
+    return Boolean(draft && Object.values(draft.form || {}).some((v) => v != null && String(v).trim() !== ''));
+  }, [addOpen, userId]);
+
   const closeAdd = useCallback(() => {
     setAddOpen(false);
+    setFormOpenFlag(userId, false);
     if (location.state?.openAddEnquiry) navigate(location.pathname, { replace: true, state: null });
-  }, [location.pathname, location.state, navigate]);
+  }, [location.pathname, location.state, navigate, userId]);
 
   const handleEnquirySaved = useCallback(
     (saved) => {
       closeAdd();
-      setSavedNotice(saved?.serial_number ? `Enquiry #${saved.serial_number} saved.` : 'Enquiry saved.');
-      fetchRows();
+      setSavedNotice(
+        saved?.notice ||
+          (saved?.serial_number ? `Enquiry #${saved.serial_number} saved.` : 'Enquiry saved.')
+      );
+      Promise.all([fetchRows(), saved?.datesPendingL1 ? fetchEditRequests() : Promise.resolve()]);
     },
-    [closeAdd, fetchRows]
+    [closeAdd, fetchRows, fetchEditRequests]
   );
 
   const toggleSort = (key) => {
@@ -306,8 +336,8 @@ export default function EnquiryDatabase() {
         return;
       }
 
-      // Non-managers: WIP / Not Started and Completed (not past date) apply now.
-      // Past completed date, Regret, and other edits go to that employee's L1.
+      // Non-managers: WIP / Not Started (without date changes) and Completed status-only apply now.
+      // Target Date, Completed Date, Regret, and other edits go to that employee's L1.
       const mode = enquiryEditSaveMode(changes, data);
       if (mode === 'progress') {
         await applyEnquiryProgress(editDraft.id, data);
@@ -327,10 +357,15 @@ export default function EnquiryDatabase() {
       }
 
       await requestEnquiryEdit(editDraft.id, data, null);
+      const dateChange = changes.some(
+        (c) => c.field_key === 'target_date' || c.field_key === 'completed_on'
+      );
       setSavedNotice(
         mode === 'regret' || isRegretStatus(data.current_status)
           ? `Regret for enquiry #${editDraft.serial_number} sent for L1 approval.`
-          : `Changes to enquiry #${editDraft.serial_number} sent for L1 approval.`
+          : dateChange
+            ? `Target Date / Completed Date for enquiry #${editDraft.serial_number} sent for L1 approval. Existing dates stay until approved.`
+            : `Changes to enquiry #${editDraft.serial_number} sent for L1 approval.`
       );
       await fetchEditRequests();
       cancelEdit();
@@ -573,11 +608,11 @@ export default function EnquiryDatabase() {
           {!viewOnly && (
           <button
             type="button"
-            onClick={() => { setSavedNotice(''); setAddOpen(true); }}
+            onClick={openAdd}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm"
           >
             <Plus className="h-4 w-4" />
-            Add Enquiry
+            {hasEnquiryDraft ? 'Add Enquiry · Resume draft' : 'Add Enquiry'}
           </button>
           )}
           <button
@@ -649,12 +684,12 @@ export default function EnquiryDatabase() {
               {!canApproveEdits && draftSaveMode !== 'none' && (
                 <p className="mt-0.5 text-[11px] text-amber-800">
                   {draftSaveMode === 'progress'
-                    ? 'Not Started and Work in Progress save immediately (no L1 approval).'
+                    ? 'Not Started and Work in Progress (status/remarks only) save immediately (no L1 approval).'
                     : draftSaveMode === 'completed'
-                      ? 'Marking Completed with today or a future date applies immediately and notifies the Projects module.'
+                      ? 'Marking Completed without changing dates applies immediately and notifies the Projects module.'
                       : draftSaveMode === 'regret'
                         ? 'Regret is sent to your L1 manager for approval before it applies.'
-                        : 'A past completed date and other changes are sent to your L1 manager for approval before they apply'}
+                        : 'Target Date and Completed Date changes are sent to your L1 manager for approval before they apply'}
                   {draftSaveMode !== 'progress' &&
                   draftSaveMode !== 'completed' &&
                   pendingEditByEnquiryId.has(editingId)

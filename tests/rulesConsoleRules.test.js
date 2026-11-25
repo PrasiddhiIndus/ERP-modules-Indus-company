@@ -78,6 +78,16 @@ describe("defaults match the behaviour before the Rules Console", () => {
     expect(ruleDepartmentKey("Production - Neotech")).toBe("production-neotech");
     expect(DEFAULT_RULE_VALUE_ROWS.length).toBeGreaterThan(0);
   });
+
+  it("Dahej HR spelling variants share one department key and keep weekly offs", () => {
+    expect(ruleDepartmentKey("Dahej-HR")).toBe("dahej-hr");
+    expect(ruleDepartmentKey("Dahej - HR")).toBe("dahej-hr");
+    expect(ruleDepartmentKey("Dahej HR")).toBe("dahej-hr");
+    for (const dept of ["Dahej-HR", "Dahej HR", "Dahej - HR"]) {
+      expect(isAutoWeekoffDate(SUNDAY, dept), dept).toBe(true);
+      expect(isAutoWeekoffDate(THIRD_SAT, dept), dept).toBe(true);
+    }
+  });
 });
 
 describe("resolver honours dates and department overrides", () => {
@@ -147,8 +157,8 @@ describe("resolver honours dates and department overrides", () => {
     expect(isPlClSlOnPaidThirdSaturdayWeekoff("PL", sunday)).toBe(false);
     expect(registerPresentDaySummaryCreditForCell("PL", thirdSat)).toBe(1);
     expect(registerPresentDaySummaryCreditForCell("PL", sunday)).toBe(0);
-    // Leave tally and day-level present credit stay 0 on weekoff leave.
-    expect(registerSummaryLeaveCreditForCell("PL", thirdSat)).toBe(0);
+    // Leave tally still counts the PL mark; day-level present stays 0 on weekoff leave.
+    expect(registerSummaryLeaveCreditForCell("PL", thirdSat)).toBe(1);
     expect(registerPresentDayCreditForCell("PL", thirdSat)).toBe(0);
     expect(registerPresentDaySummaryCreditForCell("WO", thirdSat)).toBe(1);
   });

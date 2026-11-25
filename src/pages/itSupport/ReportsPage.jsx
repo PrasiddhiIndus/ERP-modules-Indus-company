@@ -32,9 +32,13 @@ const PIE_COLORS = ["#7c3aed", "#0284c7", "#d97706", "#dc2626", "#059669", "#647
 function toCsv(rows) {
   const headers = [
     "ticket_id",
+    "ticket_no",
     "status",
     "priority",
+    "module",
+    "sub_module",
     "category",
+    "raised_by",
     "created_at",
     "resolved_at",
     "first_response_breached",
@@ -44,9 +48,13 @@ function toCsv(rows) {
   rows.forEach((r) => {
     const vals = [
       r.id,
+      r.ticket_no || "",
       r.status,
       r.priority || "",
+      r.erp_module_label || r.erp_module_key || "",
+      r.erp_submodule_label || r.erp_submodule_key || "",
       r.category?.name || "",
+      r.requester?.username || r.requester_display_name || r.requester?.email || "",
       r.created_at || "",
       r.resolved_at || "",
       r.first_response_breached ? "1" : "0",

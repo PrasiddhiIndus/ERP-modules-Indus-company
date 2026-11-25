@@ -106,12 +106,12 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
       const assigns = await listAssignments({ siteId: Number(siteId) });
       const roster = buildSiteRosterFromAssignments(assigns, Number(year), Number(month), startDay, endDay);
       const people = await listPeopleByIds(roster.map((r) => r.personId));
-      const peopleMap = Object.fromEntries(people.map((p) => [p.id, p]));
+      const peopleMap = Object.fromEntries(people.map((p) => [String(p.id), p]));
       const emps = [];
       const assignMap = {};
       roster.forEach(({ personId, assignment, hasOpenAssignment }) => {
-        const person = peopleMap[personId];
-        if (!person || person.is_active === false) return;
+        const person = peopleMap[String(personId)];
+        if (!person) return;
         if (!personIsVisibleInAttendanceMonth(person, Number(year), Number(month), hasOpenAssignment, startDay, endDay)) {
           return;
         }
@@ -455,6 +455,10 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
     persistOt,
     bulkMark,
     isCellDisabled,
+    isInactiveCellClosed: (row, dateString) => {
+      const dayDate = parseDateOnlyLocal(dateString);
+      return isInactiveCellClosed(row, dayDate);
+    },
     lockMonth,
     persistCoff,
     copyToDesignation,

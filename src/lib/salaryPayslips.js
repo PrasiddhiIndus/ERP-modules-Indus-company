@@ -167,6 +167,41 @@ export function buildPayslipFromLine(run, line, opts = {}) {
     total_ded: num(line.total_ded),
     net_salary: num(line.net_salary),
     bank_amount: num(line.bank_amount),
+    generate_voucher: Boolean(
+      line.generate_voucher ??
+        line.computed_json?.generate_voucher ??
+        line.source_snapshot_json?.generate_voucher
+    ),
+    voucher_full: num(
+      line.voucher_full ??
+        line.computed_json?.voucher_full ??
+        line.source_snapshot_json?.voucher_full
+    ),
+    voucher_processed: Boolean(
+      line.voucher_processed ??
+        line.computed_json?.voucher_processed ??
+        line.source_snapshot_json?.voucher_processed
+    ),
+    voucher_amount: (() => {
+      const on = Boolean(
+        line.generate_voucher ??
+          line.computed_json?.generate_voucher ??
+          line.source_snapshot_json?.generate_voucher
+      );
+      if (!on) return 0;
+      // Payable voucher only after Voucher tab Process (salary process leaves 0).
+      const processed = Boolean(
+        line.voucher_processed ??
+          line.computed_json?.voucher_processed ??
+          line.source_snapshot_json?.voucher_processed
+      );
+      if (!processed) return 0;
+      return num(
+        line.voucher_amount ??
+          line.computed_json?.voucher_amount ??
+          line.source_snapshot_json?.voucher_amount
+      );
+    })(),
     /** Optional note for this pay month (from CTC Details). */
     month_remarks: monthRemarks || "",
     /** When false, PayslipTemplate hides the Remarks section entirely. */

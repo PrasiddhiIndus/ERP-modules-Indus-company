@@ -23,7 +23,15 @@ import {
   seedSalaryDeductionsMapFromDb,
 } from "../../admin/employeeMaster/deductions/deductionsDb";
 import { resolvePersonComponentsForPayroll } from "./salaryComponentsCatalog";
-import { annexureFromLine, annexureLineInputs, isTakeHomeStructure } from "./annexureCtcRecord";
+import {
+  annexureFromLine,
+  annexureLineInputs,
+  isTakeHomeStructure,
+  voucherLineSnapFromStructure,
+  readVoucherFull,
+  hasGenerateVoucher,
+  prorateVoucherByPresentDays,
+} from "./annexureCtcRecord";
 import {
   appendProcessBatch,
   applyRevisionToRunSheet,
@@ -260,9 +268,10 @@ export function presentDaysExceedWorkingDays(presentDaysOrLine, workingDays) {
 /**
  * Salary P.Days from the daily register: present + paid leave on Mon–Sat only.
  * Sundays (week off) are never counted; 3rd-Saturday WO counts for non-excluded departments.
+ * Days strictly before DOJ never count (including blank paid 3rd-Saturday cells).
  * Result is capped at the month slab.
  */
-export function salaryPresentDaysFromDayMarks(dayMarks, year, month, department) {
+export function salaryPresentDaysFromDayMarks(dayMarks, year, month, department, dateOfJoining = null) {
   const y = Number(year);
   const m = Number(month);
   const cap = workingDaysMonToSat(y, m);
@@ -273,7 +282,13 @@ export function salaryPresentDaysFromDayMarks(dayMarks, year, month, department)
   for (let day = 1; day <= last; day += 1) {
     if (new Date(y, m - 1, day).getDay() === 0) continue;
     const mark = marks[day] || marks[String(day)] || "";
-    total += registerPresentDaySummaryCreditForCell(mark, { year: y, month: m, day, department });
+    total += registerPresentDaySummaryCreditForCell(mark, {
+      year: y,
+      month: m,
+      day,
+      department,
+      dateOfJoining,
+    });
   }
   return capPresentDaysToWorkingDays(total, cap);
 }
@@ -383,6 +398,17 @@ function toDbLinePayload(line, { includeRunId = false } = {}) {
     line.source_snapshot_json && typeof line.source_snapshot_json === "object"
       ? line.source_snapshot_json
       : {};
+  const voucherFields = {
+    generate_voucher:
+      line.generate_voucher ?? prevCj.generate_voucher ?? prevSnap.generate_voucher ?? false,
+    voucher_full:
+      line.voucher_full ?? prevCj.voucher_full ?? prevSnap.voucher_full ?? null,
+    voucher_amount:
+      line.voucher_amount ?? prevCj.voucher_amount ?? prevSnap.voucher_amount ?? 0,
+    voucher_processed: Boolean(
+      line.voucher_processed ?? prevCj.voucher_processed ?? prevSnap.voucher_processed
+    ),
+  };
   const cj = {
     ...prevCj,
     custom_earn_full: line.custom_earn_full,
@@ -395,6 +421,7 @@ function toDbLinePayload(line, { includeRunId = false } = {}) {
     esic_no: line.esic_no || prevCj.esic_no || prevSnap.esic_no || "",
     ctc_monthly: line.ctc_monthly ?? prevCj.ctc_monthly ?? prevSnap.ctc_monthly ?? null,
     pay_month_key: line.pay_month_key || prevCj.pay_month_key || "",
+    ...voucherFields,
   };
   const snap = {
     ...prevSnap,
@@ -403,6 +430,7 @@ function toDbLinePayload(line, { includeRunId = false } = {}) {
     uan_no: cj.uan_no,
     esic_no: cj.esic_no,
     ctc_monthly: cj.ctc_monthly,
+    ...voucherFields,
   };
   const out = {};
   for (const key of LINE_DB_COLUMNS) {
@@ -538,6 +566,12 @@ export function buildSheetLineFromSources({
     : resolvePersonComponentsForPayroll(employee.id, structureLike);
   const annexure = !takeHomeOnly && computed.declared ? annexureLineInputs(structure) : null;
   const pfBasicSeed = annexure ? annexure.pf_wage_full : computed.pf_basic;
+  // Salary process never writes payable voucher — Voucher tab Process does that.
+  const voucherSnap = voucherLineSnapFromStructure(structure, {
+    processed: false,
+    presentDays: payableDays,
+    workingDays: monthDays,
+  });
 
   const snapshot = {
     employee_code: employee.employee_code || employee.employee_id || "",
@@ -569,6 +603,7 @@ export function buildSheetLineFromSources({
     custom_components: personComps.items,
     ...(takeHomeOnly ? { take_home_only: true } : {}),
     ...(annexure ? { annexure } : {}),
+    ...voucherSnap,
   };
 
   const draft = {
@@ -608,6 +643,8 @@ export function buildSheetLineFromSources({
     total_ded: computed.total_ded,
     net_salary: computed.net_salary,
     bank_amount: computed.bank,
+    generate_voucher: voucherSnap.generate_voucher,
+    voucher_amount: voucherSnap.voucher_amount,
     source_snapshot_json: snapshot,
     overrides_json: {},
     computed_json: {
@@ -618,6 +655,7 @@ export function buildSheetLineFromSources({
       custom_components: personComps.items,
       ...(takeHomeOnly ? { take_home_only: true } : {}),
       ...(annexure ? { annexure } : {}),
+      ...voucherSnap,
     },
     line_revision_no: 1,
     has_master_variance: false,
@@ -626,6 +664,8 @@ export function buildSheetLineFromSources({
   const recomputed = recomputeLineFromEdits(draft, monthDays);
   return {
     ...recomputed,
+    generate_voucher: voucherSnap.generate_voucher,
+    voucher_amount: voucherSnap.voucher_amount,
     source_snapshot_json: snapshot,
     overrides_json: {},
     computed_json: {
@@ -634,6 +674,7 @@ export function buildSheetLineFromSources({
       custom_employer_full: personComps.custom_employer_full,
       ...(takeHomeOnly ? { take_home_only: true } : {}),
       ...(annexure ? { annexure } : {}),
+      ...voucherSnap,
     },
   };
 }
@@ -673,14 +714,33 @@ export function applyCurrentCtcToSavedLine(saved, structure, monthDays, emp) {
       tds: saved.tds,
     },
   });
+  const prevProcessed = Boolean(
+    saved.voucher_processed ??
+      saved.computed_json?.voucher_processed ??
+      saved.source_snapshot_json?.voucher_processed
+  );
+  const voucherSnap = voucherLineSnapFromStructure(structure, {
+    processed: prevProcessed,
+    presentDays: built.present_days,
+    workingDays: monthDays,
+  });
+  const cj =
+    built.computed_json && typeof built.computed_json === "object" ? built.computed_json : {};
+  const snap =
+    built.source_snapshot_json && typeof built.source_snapshot_json === "object"
+      ? built.source_snapshot_json
+      : {};
   return {
     ...built,
+    ...voucherSnap,
     id: saved.id || built.id,
     run_id: saved.run_id,
     account_no: saved.account_no || built.account_no,
     ifsc: saved.ifsc || built.ifsc,
     confirmation_date: saved.confirmation_date ?? built.confirmation_date,
     line_revision_no: saved.line_revision_no,
+    computed_json: { ...cj, ...voucherSnap },
+    source_snapshot_json: { ...snap, ...voucherSnap },
   };
 }
 
@@ -702,16 +762,24 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
     line.take_home_only || cj.take_home_only || snap.take_home_only || isTakeHomeStructure(cj) || isTakeHomeStructure(snap)
   );
   if (takeHomeOnly) {
-    const net = round0(
+    // salary_rate = full monthly Take Home; Gross / Net / Bank prorated by P.Days.
+    const monthlyNet = round0(
       line.salary_rate != null && line.salary_rate !== ""
         ? line.salary_rate
-        : cj.salary_rate ?? snap.salary_rate ?? line.net_salary ?? cj.net_salary ?? 0
+        : cj.salary_rate ?? snap.salary_rate ?? 0
     );
+    const earned =
+      presentUnknown || K <= 0 || td <= 0 || monthlyNet === 0
+        ? 0
+        : Math.abs(K - td) < 1e-6
+          ? monthlyNet
+          : round0((monthlyNet / td) * K);
+    const voucherSnap = resolveVoucherSnapOnRecompute(line, cj, snap, K, td);
     return {
       ...line,
       present_days: presentUnknown ? rawPresent : K,
       total_days: td,
-      salary_rate: net,
+      salary_rate: monthlyNet,
       pf_basic: 0,
       pf_earned_basic: 0,
       basic_full: 0,
@@ -724,7 +792,7 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
       custom_ded_full: 0,
       custom_earn: 0,
       custom_ded: 0,
-      gross_wages: net,
+      gross_wages: earned,
       emp_pf: 0,
       emp_esic: 0,
       pt_amount: 0,
@@ -733,27 +801,29 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
       unpaid_paid: 0,
       tds: 0,
       total_ded: 0,
-      net_salary: net,
-      bank_amount: net,
+      net_salary: earned,
+      bank_amount: earned,
       take_home_only: true,
+      ...voucherSnap,
       computed_json: {
         ...cj,
         take_home_only: true,
-        salary_rate: net,
-        gross_wages: net,
+        salary_rate: monthlyNet,
+        gross_wages: earned,
         emp_pf: 0,
         emp_esic: 0,
         pt: 0,
         total_ded: 0,
-        net_salary: net,
-        bank: net,
+        net_salary: earned,
+        bank: earned,
         custom_earn_full: 0,
         custom_ded_full: 0,
         custom_earn: 0,
         custom_ded: 0,
         custom_components: [],
+        ...voucherSnap,
       },
-      source_snapshot_json: { ...snap, take_home_only: true, salary_rate: net },
+      source_snapshot_json: { ...snap, take_home_only: true, salary_rate: monthlyNet, ...voucherSnap },
     };
   }
   const pfBasic = num(line.pf_basic);
@@ -873,6 +943,7 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
   const totalDed = empPf + empEsic + pt + loan + salAdv + unpaid + tds + customDed + extraDedTotal;
   const net = gross - totalDed;
   const bank = round0(net);
+  const voucherSnap = resolveVoucherSnapOnRecompute(line, cj, snap, K, td);
   return {
     ...line,
     present_days: presentUnknown ? rawPresent : K,
@@ -913,6 +984,7 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
     total_ded: totalDed,
     net_salary: net,
     bank_amount: bank,
+    ...voucherSnap,
     computed_json: {
       ...cj,
       custom_earn_full: customEarnFull,
@@ -930,8 +1002,30 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
             ...extraFields,
           }
         : {}),
+      ...voucherSnap,
     },
+    source_snapshot_json: { ...snap, ...voucherSnap },
   };
+}
+
+/** Keep CTC fixed voucher; payable amount only when Voucher tab has processed. */
+function resolveVoucherSnapOnRecompute(line, cj, snap, presentDays, workingDays) {
+  const on = hasGenerateVoucher(line) || hasGenerateVoucher(cj) || hasGenerateVoucher(snap);
+  const full = readVoucherFull({
+    ...snap,
+    ...cj,
+    ...line,
+    generate_voucher: on,
+    computed_json: cj,
+    source_snapshot_json: snap,
+  });
+  const processed = Boolean(
+    line.voucher_processed ?? cj.voucher_processed ?? snap.voucher_processed
+  );
+  return voucherLineSnapFromStructure(
+    { generate_voucher: on, voucher_amount: full },
+    { processed, presentDays, workingDays }
+  );
 }
 
 export async function listMonthRuns() {
@@ -1430,6 +1524,21 @@ export function decorateScopeLine(line, emp, extras = {}) {
       snap.ctc_monthly ??
       emp.ctc_monthly ??
       null,
+    generate_voucher:
+      line.generate_voucher ??
+      snap.generate_voucher ??
+      emp.generate_voucher ??
+      Boolean(emp._structure?.generate_voucher),
+    voucher_full:
+      line.voucher_full ??
+      snap.voucher_full ??
+      emp.voucher_full ??
+      (emp._structure?.generate_voucher ? Number(emp._structure?.voucher_amount) || 0 : 0),
+    voucher_processed:
+      line.voucher_processed ??
+      line.computed_json?.voucher_processed ??
+      snap.voucher_processed ??
+      false,
     pay_month_key: extras.pay_month_key || line.pay_month_key || "",
   };
   return withIdentityOnLine(decorated, emp, extras.identityStats);
@@ -1597,6 +1706,11 @@ export async function fetchSalaryProcessCandidates({
       ctc_monthly: hasCtc ? Number(structure?.ctc_monthly) || 0 : null,
       take_home_monthly: hasCtc ? Number(structure?.take_home_monthly) || 0 : null,
       gross_monthly: hasCtc ? Number(structure?.gross_monthly) || 0 : null,
+      generate_voucher: Boolean(structure?.generate_voucher),
+      voucher_full:
+        structure?.generate_voucher && Number(structure?.voucher_amount) > 0
+          ? Number(structure.voucher_amount)
+          : 0,
       processStatus: processStatusFromFlags({
         onHold,
         salaryLocked,
@@ -2283,6 +2397,163 @@ export async function processSalaryMonth({
       })),
       fullReprocess,
     },
+  };
+}
+
+/**
+ * Voucher tab Process — writes P.Days-based voucher onto month lines / salary slips.
+ * Never changes CTC, gross, deductions, net, or bank.
+ */
+export async function processVoucherForMonth({
+  year,
+  month,
+  monthDays = DEFAULT_MONTH_DAYS,
+  employeeIds = [],
+} = {}) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isFinite(y) || m < 1 || m > 12) {
+    throw new Error("Select a valid month and year.");
+  }
+  const ids = [...new Set((employeeIds || []).map(String).filter(Boolean))];
+  if (!ids.length) {
+    throw new Error("Select at least one employee on the Voucher tab.");
+  }
+
+  const key = monthKey(y, m);
+  const days = resolveSalaryMonthWorkingDays(y, m, monthDays);
+  const existing = await getMonthRunByKey(key);
+  if (!existing?.id) {
+    throw new Error("Process salary for these employees first, then Process voucher.");
+  }
+  assertMonthRunUnlocked(existing);
+
+  const bundle = await getMonthRunWithLines(existing.id);
+  const allLines = bundle.lines || [];
+  const idSet = new Set(ids);
+  const target = allLines.filter((line) => idSet.has(String(line.employee_master_id)));
+  if (!target.length) {
+    throw new Error(
+      "Selected employees are not on this month's salary sheet yet. Process their salary first, then Process voucher."
+    );
+  }
+
+  const salaryMap = await fetchSalaryStructureMapForMonth(y, m);
+  const processAt = new Date().toISOString();
+  const stamped = [];
+  const skippedNoVoucher = [];
+
+  for (const line of target) {
+    const structure =
+      salaryMap.get(String(line.employee_master_id)) ||
+      salaryMap.get(line.employee_master_id) ||
+      null;
+    const on =
+      hasGenerateVoucher(structure) ||
+      hasGenerateVoucher(line) ||
+      hasGenerateVoucher(line.computed_json) ||
+      hasGenerateVoucher(line.source_snapshot_json);
+    const fromCtc =
+      on && Number(structure?.voucher_amount) > 0 ? Number(structure.voucher_amount) : 0;
+    const full = fromCtc || readVoucherFull({ ...line, _structure: structure });
+    if (!on || !(full > 0)) {
+      skippedNoVoucher.push(line.employee_code || line.employee_name || line.employee_master_id);
+      continue;
+    }
+    const present = presentDaysFromRegisterTotal(line.present_days);
+    const working = num(line.total_days, days) || days;
+    const earned = prorateVoucherByPresentDays(full, present, working);
+    const voucherSnap = {
+      generate_voucher: true,
+      voucher_full: full,
+      voucher_amount: earned,
+      voucher_processed: true,
+      voucher_processed_at: processAt,
+    };
+    const cj =
+      line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
+    const snap =
+      line.source_snapshot_json && typeof line.source_snapshot_json === "object"
+        ? line.source_snapshot_json
+        : {};
+    // Patch voucher only — leave gross / net / bank / payslip salary figures untouched.
+    const prevSlip = cj.payslip && typeof cj.payslip === "object" ? cj.payslip : null;
+    const nextSlip = prevSlip
+      ? {
+          ...prevSlip,
+          generate_voucher: true,
+          voucher_amount: earned,
+          voucher_full: full,
+          voucher_processed: true,
+        }
+      : null;
+    stamped.push({
+      ...line,
+      ...voucherSnap,
+      computed_json: {
+        ...cj,
+        ...voucherSnap,
+        ...(nextSlip ? { payslip: nextSlip } : {}),
+      },
+      source_snapshot_json: { ...snap, ...voucherSnap },
+      updated_at: processAt,
+    });
+  }
+
+  if (!stamped.length) {
+    throw new Error(
+      skippedNoVoucher.length
+        ? `No CTC voucher amount for: ${skippedNoVoucher.slice(0, 6).join(", ")}.`
+        : "No voucher amounts to process."
+    );
+  }
+
+  for (const line of stamped) {
+    if (!line.id) continue;
+    const payload = toDbLinePayload(line, { includeRunId: false });
+    const { error } = await supabase
+      .from(MONTH_LINES_TABLE)
+      .update({
+        ...payload,
+        updated_at: processAt,
+      })
+      .eq("id", line.id);
+    if (error) throw error;
+  }
+
+  const { buildPayslipFromLine, upsertPayslipsToDb, generatePayslipsForRun } = await import(
+    "../../../lib/salaryPayslips"
+  );
+  const slips = [];
+  for (const line of stamped) {
+    const cj =
+      line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
+    if (cj.payslip) {
+      slips.push(cj.payslip);
+      continue;
+    }
+    // Salary processed but slip not built yet — seed slip JSON with voucher for later Generate Payslip.
+    const slip = buildPayslipFromLine(bundle.run, line, {
+      processedOn: cj.processed_on || salaryLockedOn(line) || processAt.slice(0, 10),
+      generatedAt: processAt,
+      monthRemarks: cj.month_remarks || "",
+      showMonthRemarks: cj.show_month_remarks,
+    });
+    if (slip) slips.push(slip);
+  }
+  if (slips.length) {
+    generatePayslipsForRun(bundle.run, stamped, {
+      processedOn: processAt.slice(0, 10),
+      generatedAt: processAt,
+      skipExisting: false,
+    });
+    await upsertPayslipsToDb(slips);
+  }
+
+  return {
+    processedCount: stamped.length,
+    skippedNoVoucher: skippedNoVoucher.length,
+    monthKey: key,
   };
 }
 

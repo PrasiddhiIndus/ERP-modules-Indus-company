@@ -10,7 +10,6 @@ import {
 } from "../pages/adminOperations/salaryAdmin/salaryAccess";
 import { canAccessRulesConsole } from "../pages/adminOperations/rulesConsole/rulesConsoleAccess";
 import { syncSalaryFiguresHidden } from "../pages/adminOperations/salaryAdmin/salaryPrivacy";
-import { canAccessCompliance } from "../pages/compliance/payroll/complianceAccess";
 import { fetchMyMisAccess } from "../pages/adminOperations/salaryAdmin/mis/misDb";
 import { useProbationReviewsAccess } from "../pages/adminOperations/probationReviews/probationAccess";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
@@ -19,6 +18,10 @@ import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import { SALARY_SUB_NAV, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
 import { OPERATIONS_NAV, operationsNavHref, operationsNavIsActive } from "../pages/operations/navConfig";
 import { MARKETING_NAV_ITEMS } from "../pages/marketing/marketingNav";
+import {
+  ADMIN_EMPLOYEE_SIDEBAR_PAGES,
+  COMPLIANCE_PAYROLL_SIDEBAR_PAGES,
+} from "../config/sidebarNavPages";
 import PoApprovalBell from "../components/PoApprovalBell";
 import CommandPalette from "../components/CommandPalette";
 import { COMMAND_DESTINATIONS } from "../lib/commandDestinations";
@@ -30,6 +33,7 @@ import { Breadcrumbs } from "../components/erpUi";
 const EnquiryDueSoonPopup = lazy(() => import("../pages/projects/enquiry/EnquiryDueSoonPopup"));
 const EnquiryOverduePopup = lazy(() => import("../pages/projects/enquiry/EnquiryOverduePopup"));
 const EnquiryCompletedPopup = lazy(() => import("../pages/projects/enquiry/EnquiryCompletedPopup"));
+const EnquiryEditDecisionPopup = lazy(() => import("../pages/projects/enquiry/EnquiryEditDecisionPopup"));
 const QuotationStatusChangePopup = lazy(() => import("../pages/projects/quotation/QuotationStatusChangePopup"));
 import { beginProjectsVisit, endProjectsVisit } from "../pages/projects/enquiry/enquiryPopupVisit";
 import { canReceiveQuotationStatusNotifications } from "../pages/projects/quotation/quotationNotificationRoles";
@@ -87,7 +91,27 @@ import {
   PanelLeftClose,
   PanelLeft,
   Search as SearchIcon,
+  Headphones,
+  HardHat,
+  Hammer,
+  FolderKanban,
+  HeartPulse,
+  CalendarCheck,
+  CalendarClock,
+  CalendarRange,
+  Send,
+  PiggyBank,
+  FileBarChart,
+  Landmark,
+  ScrollText,
+  FileSignature,
+  ListChecks,
+  Fingerprint,
+  Plane,
+  Handshake,
+  LayoutGrid,
 } from "lucide-react";
+import { AMC_NAV } from "../pages/amc/navConfig";
 
 const SALARY_NAV_ICONS = {
   dashboard: LayoutDashboard,
@@ -103,6 +127,58 @@ const SALARY_NAV_ICONS = {
   components: Package,
   formulas: Calculator,
 };
+
+/** Admin → Employee Administration first-level pages (keys = ADMIN_EMPLOYEE_SIDEBAR_PAGES[].value). */
+const ADMIN_EMPLOYEE_NAV_ICONS = {
+  "admin.employee.onboarding": UserPlus,
+  "admin.employee.policies": ScrollText,
+  "admin.employee.official-letters": FileSignature,
+  "admin.employee.surveys": ListChecks,
+  "admin.employee.attendance-inputs": Fingerprint,
+  "admin.employee.attendance-daily": CalendarCheck,
+  "admin.employee.national-holidays": CalendarDays,
+  "admin.employee.leaves-permissions": CalendarClock,
+  "admin.employee.tour-approvals": Plane,
+  "admin.employee.leave-management": CalendarRange,
+  "admin.employee.inactive": UserX,
+  "admin.employee.exit-ff": Handshake,
+};
+
+/** Compliance → Payroll Compliance pages (keys = COMPLIANCE_PAYROLL_SIDEBAR_PAGES[].value). */
+const COMPLIANCE_PAYROLL_NAV_ICONS = {
+  "compliance.payroll.dashboard": LayoutDashboard,
+  "compliance.payroll.forms": FileCheck,
+  "compliance.payroll.process": ClipboardCheck,
+};
+
+/** AMC links reuse the AMC module's own nav icons (src/pages/amc/navConfig.js). */
+const AMC_NAV_ICONS = Object.fromEntries(AMC_NAV.map((n) => [n.id, n.icon]));
+
+/** Sidebar search results: icon of the module the destination belongs to. */
+const NAV_GROUP_ICONS = {
+  Overview: BarChart3,
+  "IN-House HR/Admin": Cog,
+  Commercial: Briefcase,
+  "HR Site": UserCheck,
+  "Site Operations": HardHat,
+  Projects: FolderKanban,
+  Maintenance: Wrench,
+  Marketing: TrendingUp,
+  Procurement: ShoppingCart,
+  Billing: Receipt,
+  Compliance: Shield,
+  IEV: Car,
+  AMC: CalendarCheck,
+  "IT / IS": Headphones,
+  "Internal Utilities": LayoutGrid,
+  System: Settings,
+};
+
+/** Sub-nav icon slot: always renders a 16px icon so rows stay aligned in every sidebar state. */
+function NavIcon({ icon: Icon, className = "text-sidebar-accent" }) {
+  const Glyph = Icon || FileText;
+  return <Glyph className={`h-4 w-4 shrink-0 ${className}`} aria-hidden="true" />;
+}
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
 const RupeeIcon = ({ className = '' }) => {
@@ -266,6 +342,7 @@ function resolveWorkspaceContext(pathname) {
     [/\/app\/commercial|\/app\/manpower/, "Commercial", "Manpower & training"],
     [/\/app\/marketing/, "Go-to-market", "Marketing"],
     [/\/app\/crm-outreach/, "Internal Utilities", "Mail Outreach"],
+    [/\/app\/it-support/, "Internal Utilities", "IT Support"],
     [/\/app\/activity-history/, "Internal Utilities", "Activity history"],
     [/\/app\/maintenance/, "Service", "Maintenance"],
     [/\/app\/projects-billing/, "Projects", "Billing"],
@@ -362,6 +439,7 @@ const Layout = () => {
   const { theme, toggleTheme } = useTheme();
   const [isAccessDenied, setIsAccessDenied] = useState(false);
   const [pendingRequisitionCount, setPendingRequisitionCount] = useState(0);
+  const [itSupportOpenCount, setItSupportOpenCount] = useState(0);
   const canSeeActivityLog =
     userProfile?.role === ROLES.SUPER_ADMIN || userProfile?.role === ROLES.SUPER_ADMIN_PRO;
   const workspace = resolveWorkspaceContext(pathname);
@@ -520,6 +598,58 @@ const Layout = () => {
       cancelled = true;
     };
   }, [userProfile, accessibleModules, user?.user_metadata, pathname]);
+
+  useEffect(() => {
+    const showItSupport = Boolean(userProfile) && userProfile.is_active !== false;
+    if (!showItSupport) {
+      setItSupportOpenCount(0);
+      return undefined;
+    }
+    let cancelled = false;
+    let unsubRealtime = () => {};
+    let scheduler = { schedule: () => {}, cancel: () => {} };
+
+    const refresh = () => {
+      import("../pages/itSupport/itSupportApi")
+        .then((m) => m.countOpenTickets())
+        .then((n) => {
+          if (!cancelled) setItSupportOpenCount(Number(n) || 0);
+        })
+        .catch(() => {
+          if (!cancelled) setItSupportOpenCount(0);
+        });
+    };
+
+    import("../pages/itSupport/itSupportApi").then((m) => {
+      if (cancelled) return;
+      scheduler = m.createItSupportRefreshScheduler(refresh, 300);
+      refresh();
+      unsubRealtime = m.subscribeItSupportRealtime(() => scheduler.schedule(), {
+        channelName: "it-support-nav-open-count",
+        includeNotifications: false,
+      });
+    });
+
+    const onChanged = () => refresh();
+    const onFocus = () => refresh();
+    const onVis = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("it-support-open-count-changed", onChanged);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVis);
+    // Slow fallback only — primary updates are realtime + local events.
+    const interval = window.setInterval(refresh, 120_000);
+    return () => {
+      cancelled = true;
+      scheduler.cancel();
+      unsubRealtime();
+      window.removeEventListener("it-support-open-count-changed", onChanged);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVis);
+      window.clearInterval(interval);
+    };
+  }, [userProfile, userProfile?.is_active, pathname]);
 
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [contractMgmtOpen, setContractMgmtOpen] = useState(false);
@@ -725,6 +855,8 @@ const Layout = () => {
     amc: AMC_NAV_PATHS.some((path) => canSubPath(path)),
     itIsSubscriptions: isSuperAdminTier || (can("itIs") && canSub("itIs.subscriptions")),
     itIsApiHealth: isSuperAdminTier || (can("itIs") && canSub("itIs.api-health")),
+    // Raise/my tickets: every active signed-in user (agent/admin still grant-gated inside the page).
+    itIsHelpdesk: Boolean(userProfile) && userProfile.is_active !== false,
   };
   const ievVisible =
     can("fireTender") && (canOpenPath("/app/fire-tender") || ievCostingTabs.length > 0 || canOpenPath("/app/fire-tender-manufacturing"));
@@ -739,7 +871,7 @@ const Layout = () => {
     can("procurement") ||
     (can("billing") && navHas.billing) ||
     (can("finance") && navHas.finance) ||
-    (canAccessCompliance(userProfile, user) && navHas.compliance) ||
+    navHas.compliance ||
     misScopedOnly;
   const showIevGroup =
     ievVisible ||
@@ -754,6 +886,7 @@ const Layout = () => {
     can("settings") ||
     navHas.itIsSubscriptions ||
     navHas.itIsApiHealth ||
+    navHas.itIsHelpdesk ||
     canSeeActivityLog ||
     userProfile?.role === ROLES.SUPER_ADMIN ||
     userProfile?.role === ROLES.SUPER_ADMIN_PRO;
@@ -915,6 +1048,11 @@ const Layout = () => {
                         className={subNavClass}
                         onClick={() => setSidebarOpen(false)}
                       >
+                        {d.group === "Finance" ? (
+                          <RupeeIcon className="w-4 h-4 shrink-0 text-sidebar-accent" />
+                        ) : (
+                          <NavIcon icon={NAV_GROUP_ICONS[d.group]} />
+                        )}
                         <span className="type-meta type-truncate min-w-0 flex-1 text-left">{d.label}</span>
                       </NavLink>
                     ))
@@ -994,64 +1132,17 @@ const Layout = () => {
                       </NavLink>
                   )}
 
-                  {canSub("admin.employee") && (
-                  <>
-                      <NavLink to="admin/employee/onboarding" className={subNavClass}>
-                        <UserPlus className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Onboarding</span>
+                  {canSub("admin.employee") &&
+                    ADMIN_EMPLOYEE_SIDEBAR_PAGES.map((item) => (
+                      <NavLink
+                        key={item.value}
+                        to={String(item.path || "").replace(/^\/app\//, "")}
+                        className={subNavClass}
+                      >
+                        <NavIcon icon={ADMIN_EMPLOYEE_NAV_ICONS[item.value]} />
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">{item.label}</span>
                       </NavLink>
-                      <NavLink to="admin/employee/policies" className={subNavClass}>
-                        <BookOpen className="h-4 w-4 shrink-0 text-sky-700" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Policies &amp; Terms</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/official-letters" className={subNavClass}>
-                        <FileText className="h-4 w-4 shrink-0 text-indigo-700" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Official Letters</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/surveys" className={subNavClass}>
-                        <ClipboardList className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Surveys</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/attendance-inputs" className={subNavClass}>
-                        <Clock className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Raw Attendance Data</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/attendance-daily" className={subNavClass}>
-                        <Calendar className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Daily Attendance Register</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/national-holidays" className={subNavClass}>
-                        <CalendarDays className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">National / Public Holidays</span>
-                      </NavLink>
-                      {/* NAV_HIDDEN: Attendance Sheets */}
-                      {/* <NavLink to="admin/employee/attendance-sheets" className={subNavClass}>
-                        <FileText className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Attendance Sheets</span>
-                      </NavLink> */}
-                      <NavLink to="admin/employee/leaves-permissions" className={subNavClass}>
-                        <Calendar className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Leave Approvals</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/tour-approvals" className={subNavClass}>
-                        <MapPin className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Tour Approvals</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/leave-management" className={subNavClass}>
-                        <CalendarDays className="h-4 w-4 shrink-0 text-sidebar-accent" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Leave Management</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/inactive" className={subNavClass}>
-                        <UserX className="h-4 w-4 shrink-0 text-ink-muted" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">Inactive Employees</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/exit-ff" className={subNavClass}>
-                        <FileSpreadsheet className="h-4 w-4 shrink-0 text-rose-700" />
-                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">F &amp; F</span>
-                      </NavLink>
-                      {/* NAV_HIDDEN: Compliance & Documents, Salary Inputs */}
-                  </>
-                  )}
+                    ))}
 
                   {canSeeProbationReviews && (
                   <NavLink to="admin/probation-reviews" className={subNavClass}>
@@ -1393,7 +1484,7 @@ const Layout = () => {
                                 to={salaryNavPath(item.to).replace(/^\/app\//, "")}
                                 className={() => subNavClass({ isActive: active })}
                               >
-                                {Icon ? <Icon className="w-4 h-4 shrink-0 text-sidebar-accent" /> : <span className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                                <NavIcon icon={Icon} />
                                 <span className="type-meta min-w-0 flex-1 text-left leading-snug">{item.label}</span>
                               </NavLink>
                             </div>
@@ -1435,7 +1526,7 @@ const Layout = () => {
                 className={sectionBtnClass(pathname.startsWith("/app/operations"))}
               >
                 <span className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <Wrench className="w-4 h-4 shrink-0" />
+                  <HardHat className="w-4 h-4 shrink-0" />
                   <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Site Operations</span>
                 </span>
                 <ChevronDown
@@ -1491,7 +1582,7 @@ const Layout = () => {
                                   end={!item.path}
                                   className={() => subNavClass({ isActive: operationsNavIsActive(item, pathname) })}
                                 >
-                                  {Icon && <Icon className="w-4 h-4 shrink-0 text-sidebar-accent" />}
+                                  <NavIcon icon={Icon} />
                                   <span className="type-meta type-truncate min-w-0 flex-1 text-left">{item.label}</span>
                                 </NavLink>
                               );
@@ -1504,7 +1595,7 @@ const Layout = () => {
                             end={!entry.path}
                             className={() => subNavClass({ isActive: operationsNavIsActive(entry, pathname) })}
                           >
-                            {entry.icon && <entry.icon className="w-4 h-4 shrink-0 text-sidebar-accent" />}
+                            <NavIcon icon={entry.icon} />
                             <span className="type-meta type-truncate min-w-0 flex-1 text-left">{entry.label}</span>
                           </NavLink>
                         )
@@ -1533,7 +1624,7 @@ const Layout = () => {
                 )}
               >
                 <span className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <Activity className="w-4 h-4 shrink-0" />
+                  <FolderKanban className="w-4 h-4 shrink-0" />
                   <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">Projects</span>
                 </span>
                 <ChevronDown
@@ -1590,19 +1681,19 @@ const Layout = () => {
                         <div className="ml-4 mt-0.5 space-y-0.5 border-l border-sidebar-border pl-2">
                           {contractTabs.includes("po-wo-sub-coordinator") && (
                             <NavLink to="projects/po/po-wo-sub-coordinator" className={subNavClass}>
-                              <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                              <NavIcon icon={Send} />
                               <span className="type-meta type-truncate min-w-0 flex-1 text-left">PO/WO to Sub-Coordinator</span>
                             </NavLink>
                           )}
                           {contractTabs.includes("budget") && (
                             <NavLink to="projects/po/budget" className={subNavClass}>
-                              <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                              <NavIcon icon={PiggyBank} />
                               <span className="type-meta type-truncate min-w-0 flex-1 text-left">Budget</span>
                             </NavLink>
                           )}
                           {contractTabs.includes("expense") && (
                             <NavLink to="projects/po/expense" className={subNavClass}>
-                              <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                              <NavIcon icon={Receipt} />
                               <span className="type-meta type-truncate min-w-0 flex-1 text-left">Expense</span>
                             </NavLink>
                           )}
@@ -1768,9 +1859,9 @@ const Layout = () => {
                       >
                         {item.useRupee ? (
                           <RupeeIcon className={`w-4 h-4 ${item.iconClass}`} />
-                        ) : Icon ? (
-                          <Icon className={`w-4 h-4 shrink-0 ${item.iconClass}`} />
-                        ) : null}
+                        ) : (
+                          <NavIcon icon={Icon} className={item.iconClass || "text-sidebar-accent"} />
+                        )}
                         <span className="type-meta type-truncate min-w-0 flex-1 text-left">{item.label}</span>
                       </NavLink>
                     );
@@ -1889,19 +1980,19 @@ const Layout = () => {
                 <div data-title="Finance" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
                   {canSeeFinancePl && (
                   <NavLink to="/app/accounts-finance/reports/site-ledger" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={FileBarChart} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">P&amp;L</span>
                   </NavLink>
                   )}
                   {canSub("finance.bank-formats") && (
                   <NavLink to="/app/accounts-finance/bank-formats" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={Landmark} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Bank formats</span>
                   </NavLink>
                   )}
                   {canSub(FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY) && (
                   <NavLink to="/app/accounts-finance/po-at-glance" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={ClipboardList} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Master PO At Glance</span>
                   </NavLink>
                   )}
@@ -1910,8 +2001,8 @@ const Layout = () => {
             </div>
             )}
 
-            {/* Compliance */}
-            {canAccessCompliance(userProfile, user) && navHas.compliance && (
+            {/* Compliance — allowlist, Super Admin / full module, or User Management grant */}
+            {navHas.compliance && (
             <div className="rail-section">
               <button
                 onClick={() => setComplianceOpen(!complianceOpen)}
@@ -1935,51 +2026,27 @@ const Layout = () => {
 
               {(complianceOpen || isRail) && (
                 <div data-title="Compliance" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
-                  {canSub("compliance.payroll") && (
-                  <>
-                  <NavLink
-                    to="compliance/dashboard"
-                    className={() =>
-                      `${subLinkBase} ${
-                        pathname === "/app/compliance" ||
-                        pathname === "/app/compliance/" ||
-                        pathname === "/app/compliance/dashboard"
-                          ? activeClass
-                          : "border-l-transparent text-sidebar-strong"
-                      }`
-                    }
-                  >
-                    <LayoutDashboard className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
-                  </NavLink>
-                  <NavLink
-                    to="compliance/forms"
-                    className={() =>
-                      `${subLinkBase} ${
-                        pathname.startsWith("/app/compliance/forms")
-                          ? activeClass
-                          : "border-l-transparent text-sidebar-strong"
-                      }`
-                    }
-                  >
-                    <FileText className="w-4 h-4 shrink-0 text-ink-muted" />
-                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Compliance Forms</span>
-                  </NavLink>
-                  <NavLink
-                    to="compliance/payroll-process"
-                    className={() =>
-                      `${subLinkBase} ${
-                        pathname.startsWith("/app/compliance/payroll-process")
-                          ? activeClass
-                          : "border-l-transparent text-sidebar-strong"
-                      }`
-                    }
-                  >
-                    <FileSpreadsheet className="w-4 h-4 shrink-0 text-ink-muted" />
-                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Payroll Compliance</span>
-                  </NavLink>
-                  </>
-                  )}
+                  {canSub("compliance.payroll") &&
+                    COMPLIANCE_PAYROLL_SIDEBAR_PAGES.map((item) => (
+                      <NavLink
+                        key={item.value}
+                        to={String(item.path || "").replace(/^\/app\//, "")}
+                        className={() =>
+                          subNavClass({
+                            isActive:
+                              pathname === item.path ||
+                              pathname === `${item.path}/` ||
+                              (item.path === "/app/compliance/dashboard" &&
+                                (pathname === "/app/compliance" || pathname === "/app/compliance/")) ||
+                              (item.path !== "/app/compliance/dashboard" &&
+                                pathname.startsWith(item.path)),
+                          })
+                        }
+                      >
+                        <NavIcon icon={COMPLIANCE_PAYROLL_NAV_ICONS[item.value]} />
+                        <span className="type-meta type-truncate min-w-0 flex-1 text-left">{item.label}</span>
+                      </NavLink>
+                    ))}
                   {canSub("compliance.ifspl") && (
                   <NavLink to="ifsp-employee-compliance" className={subNavClass}>
                     <CheckCircle className="w-4 h-4 shrink-0 text-sidebar-accent" />
@@ -2073,7 +2140,7 @@ const Layout = () => {
                 className={sectionBtnClass(pathname.startsWith("/app/commercial/rm-mm-amc-iev"))}
               >
                 <span className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <Briefcase className="w-4 h-4 shrink-0" />
+                  <Hammer className="w-4 h-4 shrink-0" />
                   <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">R&amp;M</span>
                 </span>
                 <ChevronDown
@@ -2140,7 +2207,7 @@ const Layout = () => {
                 className={sectionBtnClass(pathname.startsWith("/app/amc"))}
               >
                 <span className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <FileText className="w-4 h-4 shrink-0" />
+                  <CalendarCheck className="w-4 h-4 shrink-0" />
                   <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">AMC Management</span>
                 </span>
                 <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${amcOpen ? "rotate-180" : ""}`} />
@@ -2149,79 +2216,79 @@ const Layout = () => {
                 <div data-title="AMC Management" className="rail-flyout ml-5 mt-1 space-y-0.5 border-l border-sidebar-border pl-2 max-h-64 overflow-y-auto">
                   {canSubPath("/app/amc") && (
                   <NavLink to="/app/amc" end className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={AMC_NAV_ICONS.dashboard} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
                   </NavLink>
                   )}
                   {canSubPath("/app/amc/customers") && (
                   <NavLink to="/app/amc/customers" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={AMC_NAV_ICONS["customers"]} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Customers</span>
                   </NavLink>
                   )}
                   {canSubPath("/app/amc/contracts") && (
                   <NavLink to="/app/amc/contracts" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={AMC_NAV_ICONS["contracts"]} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Contracts</span>
                   </NavLink>
                   )}
                   {canSubPath("/app/amc/sites") && (
                   <NavLink to="/app/amc/sites" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={AMC_NAV_ICONS["sites"]} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Covered Sites</span>
                   </NavLink>
                   )}
                   {canSubPath("/app/amc/assets") && (
                   <NavLink to="/app/amc/assets" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={AMC_NAV_ICONS["assets"]} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Covered Assets</span>
                   </NavLink>
                   )}
                   {canSubPath("/app/amc/pm-schedule") && (
                   <NavLink to="/app/amc/pm-schedule" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={AMC_NAV_ICONS["pm-schedule"]} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">PM Schedule</span>
                   </NavLink>
                   )}
                   {canSubPath("/app/amc/complaints") && (
                   <NavLink to="/app/amc/complaints" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={AMC_NAV_ICONS["complaints"]} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Complaint Calls</span>
                   </NavLink>
                   )}
                   {canSubPath("/app/amc/visits") && (
                   <NavLink to="/app/amc/visits" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={AMC_NAV_ICONS["visits"]} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Service Visits</span>
                   </NavLink>
                   )}
                   {canSubPath("/app/amc/technicians") && (
                   <NavLink to="/app/amc/technicians" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={AMC_NAV_ICONS["technicians"]} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Technician Allocation</span>
                   </NavLink>
                   )}
                   {canSubPath("/app/amc/service-reports") && (
                   <NavLink to="/app/amc/service-reports" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={AMC_NAV_ICONS["service-reports"]} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Service Reports</span>
                   </NavLink>
                   )}
                   {canSubPath("/app/amc/alerts") && (
                   <NavLink to="/app/amc/alerts" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={AMC_NAV_ICONS["alerts"]} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Alerts & SLA</span>
                   </NavLink>
                   )}
                   {canSubPath("/app/amc/reports") && (
                   <NavLink to="/app/amc/reports" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={AMC_NAV_ICONS["reports"]} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Reports</span>
                   </NavLink>
                   )}
                   {canSubPath("/app/amc/settings") && (
                   <NavLink to="/app/amc/settings" className={subNavClass}>
-                    <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <NavIcon icon={AMC_NAV_ICONS["settings"]} />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Settings</span>
                   </NavLink>
                   )}
@@ -2250,6 +2317,23 @@ const Layout = () => {
             <NavLink to="all-employees" className={topNavClass}>
               <Users className="w-4 h-4 shrink-0" />
               <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">All Employees</span>
+            </NavLink>
+            )}
+
+            {navHas.itIsHelpdesk && (
+            <NavLink to="it-support" className={topNavClass} title="IT Support">
+              <Headphones className="w-4 h-4 shrink-0" />
+              <span className="type-body-medium min-w-0 flex-1 text-left flex items-center gap-1.5 overflow-hidden">
+                <span className="type-truncate min-w-0">IT Support</span>
+                {itSupportOpenCount > 0 ? (
+                  <span
+                    className="shrink-0 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white"
+                    aria-label={`${itSupportOpenCount} open tickets`}
+                  >
+                    {itSupportOpenCount > 99 ? "99+" : itSupportOpenCount}
+                  </span>
+                ) : null}
+              </span>
             </NavLink>
             )}
 
@@ -2424,16 +2508,16 @@ const Layout = () => {
 
       {pathname.startsWith("/app/projects") &&
       (enquiryTabs.includes("enquiry-database") ||
+        accessibleModules?.has("projects") ||
         canReceiveQuotationStatusNotifications(userProfile, accessibleModules)) ? (
         <div className="fixed bottom-4 right-4 z-[900] flex w-[340px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] flex-col gap-3 overflow-y-auto">
           <Suspense fallback={null}>
-            {/* Quotation status feed — separate table/dismiss key from Enquiry Completed */}
-            {canReceiveQuotationStatusNotifications(userProfile, accessibleModules) ? (
-              <QuotationStatusChangePopup />
-            ) : null}
+            {/* Quotation activity feed — self-gates for Manager/Executive and Projects Department L1 */}
+            <QuotationStatusChangePopup />
             {enquiryTabs.includes("enquiry-database") ? (
               <>
                 <EnquiryCompletedPopup />
+                <EnquiryEditDecisionPopup />
                 {/* Overdue: only on Enquiry Master Dashboard, once per Projects visit */}
                 {pathname.includes("/projects/enquiry/enquiry-dashboard") ? <EnquiryOverduePopup /> : null}
                 <EnquiryDueSoonPopup />

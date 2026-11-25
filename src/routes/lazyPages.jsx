@@ -396,6 +396,15 @@ export const CrmOutreach = lazy(() => import("../pages/crmOutreach/CrmOutreach")
 export const UserManagement = lazy(() => import("../pages/userAccess/UserManagementHub"));
 export const SoftwareSubscriptions = lazy(() => import("../pages/SoftwareSubscriptions"));
 export const ApiHealthDashboard = lazy(() => import("../pages/apiMonitoring/ApiHealthDashboard"));
+
+export const ItSupportLayout = lazy(() => import("../pages/itSupport/ItSupportLayout"));
+export const ItSupportDashboardPage = lazy(() => import("../pages/itSupport/DashboardPage"));
+export const ItSupportRaiseTicketPage = lazy(() => import("../pages/itSupport/RaiseTicketPage"));
+export const ItSupportMyTicketsPage = lazy(() => import("../pages/itSupport/MyTicketsPage"));
+export const ItSupportTicketQueuePage = lazy(() => import("../pages/itSupport/TicketQueuePage"));
+export const ItSupportTicketDetailPage = lazy(() => import("../pages/itSupport/TicketDetailPage"));
+export const ItSupportMastersPage = lazy(() => import("../pages/itSupport/MastersPage"));
+export const ItSupportReportsPage = lazy(() => import("../pages/itSupport/ReportsPage"));
 export const IndusLmsTrainings = lazy(() => import("../pages/IndusLmsTrainings"));
 
 // Marketing

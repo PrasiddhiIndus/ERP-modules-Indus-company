@@ -873,6 +873,15 @@ main.erp-app-shell header.sticky {
 .att-daily-mark-cell {
   vertical-align: middle;
 }
+.att-daily-mark-cell--closed {
+  background-color: #e2e8f0 !important; /* slate-200 */
+  color: transparent !important;
+}
+.att-daily-mark-cell--closed .att-daily-mark-select,
+.att-daily-mark-cell--closed input {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent;
+}
 .att-daily-mark-select {
   color: inherit;
   font: inherit;
@@ -882,6 +891,11 @@ main.erp-app-shell header.sticky {
 .att-daily-mark-select:disabled {
   cursor: default;
   opacity: 0.85;
+}
+.att-daily-mark-cell--closed .att-daily-mark-select:disabled,
+.att-daily-mark-cell--closed input:disabled {
+  opacity: 1;
+  cursor: default;
 }
 /* Present (P / ABCG shifts) — green */
 .att-mark-present {

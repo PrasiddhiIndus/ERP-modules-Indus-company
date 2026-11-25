@@ -178,6 +178,14 @@ import {
   UserManagement,
   SoftwareSubscriptions,
   ApiHealthDashboard,
+  ItSupportLayout,
+  ItSupportDashboardPage,
+  ItSupportRaiseTicketPage,
+  ItSupportMyTicketsPage,
+  ItSupportTicketQueuePage,
+  ItSupportTicketDetailPage,
+  ItSupportMastersPage,
+  ItSupportReportsPage,
   IndusLmsTrainings,
   MarketingDashboard,
   LeadDashboard,
@@ -787,6 +795,15 @@ function App() {
             <Route path="all-employees" element={<AllEmployeesDirectoryPage />} />
             <Route path="software-subscriptions-reminders" element={<SoftwareSubscriptions />} />
             <Route path="api-health" element={<ApiHealthDashboard />} />
+            <Route path="it-support" element={<ItSupportLayout />}>
+              <Route index element={<ItSupportDashboardPage />} />
+              <Route path="raise" element={<ItSupportRaiseTicketPage />} />
+              <Route path="my" element={<ItSupportMyTicketsPage />} />
+              <Route path="queue" element={<ItSupportTicketQueuePage />} />
+              <Route path="tickets/:id" element={<ItSupportTicketDetailPage />} />
+              <Route path="masters" element={<ItSupportMastersPage />} />
+              <Route path="reports" element={<ItSupportReportsPage />} />
+            </Route>
             <Route
               path="activity-history"
               element={<ActivityLogGuard><ActivityLogHistoryPage /></ActivityLogGuard>}

@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { listAllSites } from "../../../../lib/siteAttendance/siteAttendanceApi";
 import { browserDownloads, openLocalPayrollDb } from "./payDb";
+import { fetchSiteAttendanceSummary } from "./siteAttSummary";
 import "./indusPayroll.css";
 import engineSource from "./runtime/engine.js?raw";
 import structureSource from "./runtime/structure.js?raw";
@@ -11,7 +12,7 @@ import sitesSource from "./runtime/sites.js?raw";
 import appSource from "./runtime/app.js?raw";
 
 /** Must match `window.__indusPayrollBuild` in runtime/app.js — bump both when app.js changes. */
-const PAYROLL_APP_BUILD = 8;
+const PAYROLL_APP_BUILD = 11;
 
 const BASE = "/app/hr/payroll/salary";
 
@@ -63,8 +64,7 @@ const ALIAS = {
 
 const SHELL = `<div class="app">
   <main><div class="top"><div><h1 id="ptitle">Dashboard</h1><div class="ctx" id="pctx"></div></div><span class="sp"></span>
-    <span id="dbstate" class="dbs"><i></i>Connecting…</span>
-    <input type="month" class="in" id="month" title="Payroll month"></div>
+    <span id="dbstate" class="dbs"><i></i>Connecting…</span></div>
     <div class="page" id="page"></div></main>
 </div>
 <div id="modal"></div>`;
@@ -160,6 +160,7 @@ export function PayrollScreen({ view }) {
       const path = `${BASE}/${next}`;
       if (window.location.pathname.replace(/\/$/, "") !== path) navigate(path);
     };
+    window.__indusPayrollFetchSiteAttSummary = (args) => fetchSiteAttendanceSummary(args);
 
     if (!window.PayEngine) runClassic(engineSource);
     if (!window.STRUCT) runClassic(structureSource);

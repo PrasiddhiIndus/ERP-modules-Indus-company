@@ -13,7 +13,7 @@ import {
   TinyInput,
   TinySelect,
 } from "../../../components/erpUi";
-import { addDaysIso, formatDateDisplay, parseLooseDateToIso } from "../../../lib/siteAttendance/dateFormat";
+import { addDaysIso, formatDateDisplay, parseDateOnlyLocal, parseLooseDateToIso } from "../../../lib/siteAttendance/dateFormat";
 import { filterSitesByType } from "../../../lib/siteAttendance/siteTypes";
 import {
   countPeopleByStatus,
@@ -25,6 +25,7 @@ import {
   listAllSites,
   listAssignments,
   listDesignationMaster,
+  isCurrentSiteAssignment,
   listPeopleForSites,
   listPeoplePage,
   listSiteDesignations,
@@ -201,8 +202,8 @@ export default function PeopleMasterPage() {
         nextCounts = statusCounts;
         const allAssigns = rows.length ? await listAssignments({ personIds: rows.map((p) => p.id) }) : [];
         byPerson = {};
-        for (const p of rows) byPerson[p.id] = [];
-        for (const a of allAssigns) (byPerson[a.person_id] ||= []).push(a);
+        for (const p of rows) byPerson[String(p.id)] = [];
+        for (const a of allAssigns) (byPerson[String(a.person_id)] ||= []).push(a);
       } else {
         const typedIds = filterSitesByType(allSites, siteType).map((s) => s.id);
         const siteIds = siteFilter ? typedIds.filter((id) => String(id) === String(siteFilter)) : typedIds;
@@ -223,7 +224,7 @@ export default function PeopleMasterPage() {
       setCounts(nextCounts);
       const map = {};
       for (const p of rows) {
-        const assigns = byPerson[p.id] || [];
+        const assigns = byPerson[String(p.id)] || byPerson[p.id] || [];
         map[p.id] = { all: assigns, current: pickCurrentAssignment(assigns) };
       }
       setAssignmentsByPerson(map);
@@ -289,7 +290,7 @@ export default function PeopleMasterPage() {
 
   const openEdit = async (person) => {
     const assigns = assignmentsByPerson[person.id]?.all || (await listAssignments({ personId: person.id }));
-    const current = assigns.find((a) => !a.to_date) || assigns[assigns.length - 1];
+    const current = pickCurrentAssignment(assigns) || assigns[assigns.length - 1];
     setEditingId(person.id);
     setEditingAssignmentId(current?.id || null);
     setForm({
@@ -322,6 +323,10 @@ export default function PeopleMasterPage() {
     }
     if (!form.joining_date) {
       toast.error("Joining date is required.");
+      return;
+    }
+    if (!form.is_active && !form.leaving_date) {
+      toast.error("Leaving date is required when the person is inactive.");
       return;
     }
     if (form.leaving_date && form.leaving_date < form.joining_date) {
@@ -364,7 +369,7 @@ export default function PeopleMasterPage() {
         await updatePerson(editingId, personPayload);
         const assigns = await listAssignments({ personId: editingId });
         const endDate = addDaysIso(form.transfer_date, -1);
-        for (const a of assigns.filter((x) => !x.to_date)) {
+        for (const a of assigns.filter((x) => isCurrentSiteAssignment(x, form.transfer_date))) {
           await updateAssignment(a.id, { to_date: endDate });
         }
         const check = await validateMaxWorkers(Number(form.transfer_site_id), form.transfer_date, null, editingId);
@@ -387,6 +392,18 @@ export default function PeopleMasterPage() {
         if (form.from_date < form.joining_date) {
           toast.error("Assignment cannot start before joining date.");
           return;
+        }
+        {
+          const join = parseDateOnlyLocal(form.joining_date);
+          const from = parseDateOnlyLocal(form.from_date);
+          if (join && from) {
+            const maxStart = new Date(join);
+            maxStart.setFullYear(maxStart.getFullYear() + 1);
+            if (from > maxStart) {
+              toast.error("Assignment start is more than a year after joining. Check the year on the from-date.");
+              return;
+            }
+          }
         }
         if (form.to_date && form.to_date < form.from_date) {
           toast.error("Assignment to-date must be after the from-date.");
@@ -704,7 +721,7 @@ export default function PeopleMasterPage() {
               <Field label="Joining date" required>
                 <FormDateInput value={form.joining_date} compact onChange={(e) => setField("joining_date", e.target.value)} />
               </Field>
-              <Field label="Leaving date">
+              <Field label="Leaving date" required={!form.is_active}>
                 <FormDateInput value={form.leaving_date} compact onChange={(e) => setField("leaving_date", e.target.value)} />
               </Field>
               <label className="flex items-center gap-2 text-xs mt-5">

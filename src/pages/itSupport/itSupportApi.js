@@ -1,4 +1,5 @@
 import { supabase } from "../../lib/supabase";
+import { isSupabaseRealtimeEnabled } from "../../lib/supabaseConfig";
 import { ACCESS_KEYS } from "./itSupportConstants";
 import { uploadItSupportFileToR2 } from "../../lib/itSupportR2";
 
@@ -25,6 +26,7 @@ const TICKET_SELECT = `
   id, ticket_no, title, description, category_id, subcategory_id,
   requester_id, requester_employee_code, requester_department,
   requester_display_name, assignee_display_name,
+  erp_module_key, erp_module_label, erp_submodule_key, erp_submodule_label,
   impact, priority, status, assignee_id,
   first_response_due_at, resolution_due_at, first_responded_at,
   sla_paused_at, sla_paused_total_mins, first_response_breached, resolution_breached,
@@ -56,6 +58,19 @@ function liveTickets(query) {
 }
 
 export async function listMyTickets({ userId, search = "", status = "" } = {}) {
+  // Prefer RPC: raised by me OR I am on CC, with viewer_role.
+  const rpc = await supabase.rpc("it_list_my_tickets", {
+    p_search: search?.trim() || null,
+    p_status: status || null,
+  });
+  if (!rpc.error && Array.isArray(rpc.data)) {
+    return rpc.data.map((row) => ({
+      ...row,
+      viewer_role: row.viewer_role || (row.requester_id === userId ? "requester" : "cc"),
+    }));
+  }
+
+  // Fallback if migration not applied yet — own tickets only.
   let q = liveTickets(
     supabase
       .from("it_tickets")
@@ -66,11 +81,29 @@ export async function listMyTickets({ userId, search = "", status = "" } = {}) {
   if (status) q = q.eq("status", status);
   if (search.trim()) {
     const s = `%${search.trim()}%`;
-    q = q.or(`title.ilike.${s},ticket_no.ilike.${s}`);
+    q = q.or(
+      `title.ilike.${s},ticket_no.ilike.${s},erp_module_label.ilike.${s},erp_submodule_label.ilike.${s}`
+    );
   }
   const { data, error } = await q;
-  throwIf(error, "Could not load your tickets.");
-  return data || [];
+  throwIf(error || rpc.error, "Could not load your tickets.");
+  return (data || []).map((row) => ({ ...row, viewer_role: "requester" }));
+}
+
+/** Employee Master typeahead for Raise Ticket CC. */
+export async function searchEmployeesForCc(term) {
+  const q = String(term || "").trim();
+  if (q.length < 2) return [];
+  const { data, error } = await supabase.rpc("it_support_search_employees", { p_term: q });
+  if (error) throwIf(error, "Could not search employees.");
+  return (data || [])
+    .map((r) => ({
+      profileId: r.profile_id,
+      fullName: String(r.full_name || "").trim(),
+      employeeCode: String(r.employee_code || "").trim(),
+      designation: String(r.designation || "").trim(),
+    }))
+    .filter((r) => r.profileId && r.fullName);
 }
 
 export async function listQueueTickets({
@@ -79,6 +112,7 @@ export async function listQueueTickets({
   priority = "",
   assigneeId = "",
   categoryId = "",
+  erpModuleKey = "",
   breachedOnly = false,
 } = {}) {
   let q = liveTickets(
@@ -89,12 +123,15 @@ export async function listQueueTickets({
   if (assigneeId === "unassigned") q = q.is("assignee_id", null);
   else if (assigneeId) q = q.eq("assignee_id", assigneeId);
   if (categoryId) q = q.eq("category_id", categoryId);
+  if (erpModuleKey) q = q.eq("erp_module_key", erpModuleKey);
   if (breachedOnly) {
     q = q.or("first_response_breached.eq.true,resolution_breached.eq.true");
   }
   if (search.trim()) {
     const s = `%${search.trim()}%`;
-    q = q.or(`title.ilike.${s},ticket_no.ilike.${s}`);
+    q = q.or(
+      `title.ilike.${s},ticket_no.ilike.${s},erp_module_label.ilike.${s},erp_submodule_label.ilike.${s}`
+    );
   }
   const { data, error } = await q;
   throwIf(error, "Could not load the ticket queue.");
@@ -121,7 +158,7 @@ export async function getTicketDetail({ ticketId, includeInternal = false }) {
     .order("created_at", { ascending: true });
   if (!includeInternal) commentsQ = commentsQ.eq("is_internal", false);
 
-  const [commentsRes, historyRes, attachmentsRes] = await Promise.all([
+  const [commentsRes, historyRes, attachmentsRes, ccRes] = await Promise.all([
     commentsQ,
     supabase
       .from("it_ticket_history")
@@ -134,6 +171,11 @@ export async function getTicketDetail({ ticketId, includeInternal = false }) {
       .eq("ticket_id", ticketId)
       .is("deleted_at", null)
       .order("created_at", { ascending: true }),
+    supabase
+      .from("it_ticket_cc")
+      .select("id, user_id, employee_code, display_name, created_at")
+      .eq("ticket_id", ticketId)
+      .order("created_at", { ascending: true }),
   ]);
 
   throwIf(commentsRes.error, "Could not load comments.");
@@ -145,6 +187,7 @@ export async function getTicketDetail({ ticketId, includeInternal = false }) {
     comments: commentsRes.data || [],
     history: historyRes.data || [],
     attachments: attachmentsRes.data || [],
+    cc: ccRes.error ? [] : ccRes.data || [],
   };
 }
 
@@ -192,6 +235,11 @@ export async function createTicket({
   categoryId,
   subcategoryId,
   impact,
+  erpModuleKey,
+  erpModuleLabel,
+  erpSubmoduleKey,
+  erpSubmoduleLabel,
+  ccUserIds = [],
   requesterId,
   requesterEmployeeCode,
   requesterDepartment,
@@ -203,10 +251,16 @@ export async function createTicket({
     category_id: categoryId || null,
     subcategory_id: subcategoryId || null,
     impact: impact || "only_me",
+    erp_module_key: erpModuleKey || null,
+    erp_module_label: erpModuleLabel || null,
+    erp_submodule_key: erpSubmoduleKey || null,
+    erp_submodule_label: erpSubmoduleLabel || null,
     requester_id: requesterId,
     requester_employee_code: requesterEmployeeCode || null,
     requester_department: requesterDepartment || null,
   };
+
+  const ccIds = [...new Set((ccUserIds || []).filter(Boolean))];
 
   let ticket = null;
 
@@ -216,6 +270,11 @@ export async function createTicket({
     p_category_id: payload.category_id,
     p_subcategory_id: payload.subcategory_id,
     p_impact: payload.impact,
+    p_erp_module_key: payload.erp_module_key,
+    p_erp_module_label: payload.erp_module_label,
+    p_erp_submodule_key: payload.erp_submodule_key,
+    p_erp_submodule_label: payload.erp_submodule_label,
+    p_cc_user_ids: ccIds.length ? ccIds : null,
   });
 
   if (!rpc.error && rpc.data) {
@@ -235,6 +294,14 @@ export async function createTicket({
     const { data, error } = await supabase.from("it_tickets").insert(insertRow).select(TICKET_SELECT).single();
     throwIf(error || rpc.error, "Could not create the ticket.");
     ticket = data;
+    if (ticket?.id && ccIds.length) {
+      const rows = ccIds
+        .filter((id) => id !== requesterId)
+        .map((id) => ({ ticket_id: ticket.id, user_id: id, added_by: requesterId }));
+      if (rows.length) {
+        await supabase.from("it_ticket_cc").insert(rows);
+      }
+    }
   }
 
   const uploadErrors = [];
@@ -261,6 +328,7 @@ export async function createTicket({
     };
   }
 
+  notifyItSupportOpenCountChanged();
   return ticket;
 }
 
@@ -345,6 +413,7 @@ export async function changeStatus({ ticketId, status, remark = "" }) {
     toValue: status,
     remark: remark || `Status → ${status}`,
   });
+  notifyItSupportOpenCountChanged();
   return data;
 }
 
@@ -391,7 +460,24 @@ async function appendHistory({ ticketId, eventType, fromValue = null, toValue = 
   }
 }
 
-export async function listCategories() {
+/**
+ * Issue-type masters.
+ * @param {{ forRaise?: boolean }} [opts] — forRaise uses SECURITY DEFINER RPC so any
+ *   active user gets active values without Masters-page access.
+ */
+export async function listCategories({ forRaise = false } = {}) {
+  if (forRaise) {
+    const rpc = await supabase.rpc("it_list_raise_masters");
+    if (!rpc.error && rpc.data && typeof rpc.data === "object") {
+      const payload = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
+      return {
+        categories: Array.isArray(payload?.categories) ? payload.categories : [],
+        subcategories: Array.isArray(payload?.subcategories) ? payload.subcategories : [],
+      };
+    }
+    // Fall through to table select if RPC not deployed yet.
+  }
+
   const [{ data: cats, error: cErr }, { data: subs, error: sErr }] = await Promise.all([
     supabase
       .from("it_ticket_categories")
@@ -476,12 +562,83 @@ export async function upsertSlaRule(row) {
   return data;
 }
 
-/** IT agents for assign dropdown (RPC — profiles are otherwise self-only under RLS). */
+/** Soft-remove an uploaded attachment (keeps R2 object; hides from ticket). */
+export async function removeTicketAttachment(attachmentId) {
+  if (!attachmentId) throw new Error("Attachment id is required.");
+  const { data, error } = await supabase
+    .from("it_ticket_attachments")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", attachmentId)
+    .is("deleted_at", null)
+    .select(ATTACHMENT_SELECT)
+    .maybeSingle();
+  throwIf(error, "Could not remove the attachment.");
+  return data;
+}
+
+/** Assignees master (Assigned to dropdown) — same pattern as categories. */
+export async function listAssigneeMaster() {
+  const { data, error } = await supabase
+    .from("it_support_assignees")
+    .select("id, profile_id, display_name, employee_code, is_active, sort_order, created_at, updated_at")
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true })
+    .order("display_name", { ascending: true });
+  throwIf(error, "Could not load assignees master.");
+  return data || [];
+}
+
+export async function upsertAssigneeMaster(row) {
+  const payload = {
+    profile_id: row.profile_id,
+    display_name: String(row.display_name || "").trim(),
+    employee_code: row.employee_code ? String(row.employee_code).trim() : null,
+    is_active: row.is_active !== false,
+    sort_order: Number(row.sort_order) || 0,
+    updated_at: new Date().toISOString(),
+  };
+  if (row.id) payload.id = row.id;
+  if (!payload.profile_id) throw new Error("Select an employee from Employee Master.");
+  if (!payload.display_name) throw new Error("Display name is required.");
+  const { data, error } = await supabase
+    .from("it_support_assignees")
+    .upsert(payload, { onConflict: "id" })
+    .select("*")
+    .single();
+  throwIf(error, "Could not save assignee.");
+  return data;
+}
+
+export async function softDeleteAssigneeMaster(id) {
+  const { error } = await supabase
+    .from("it_support_assignees")
+    .update({ deleted_at: new Date().toISOString(), is_active: false, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  throwIf(error, "Could not remove assignee.");
+}
+
+/** IT agents for assign dropdown — from assignees master via RPC. */
 export async function listAgents() {
   const { data, error } = await supabase.rpc("it_list_support_agents");
   if (!error && Array.isArray(data)) return data;
 
-  // Fallback if RPC not deployed yet
+  // Fallback: assignees master table
+  try {
+    const rows = await listAssigneeMaster();
+    const active = (rows || []).filter((r) => r.is_active !== false);
+    if (active.length) {
+      return active.map((r) => ({
+        id: r.profile_id,
+        username: r.display_name,
+        email: null,
+        employee_code: r.employee_code,
+        role: null,
+      }));
+    }
+  } catch {
+    /* fall through */
+  }
+
   const { data: rows, error: err2 } = await supabase
     .from("profiles")
     .select("id, username, email, employee_code, role, allowed_modules, allowed_sub_modules")
@@ -499,6 +656,85 @@ export async function listAgents() {
       subs.some((s) => s.includes("helpdesk-agent") || s.includes("helpdesk-admin"))
     );
   });
+}
+
+/** Browser event so the sidebar badge refreshes after create / status changes. */
+export const IT_SUPPORT_OPEN_COUNT_EVENT = "it-support-open-count-changed";
+
+export function notifyItSupportOpenCountChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(IT_SUPPORT_OPEN_COUNT_EVENT));
+}
+
+/**
+ * Open tickets = not resolved/closed (respects RLS: agents see all, requesters see own).
+ * Always queried live from Supabase — never mocked.
+ */
+export async function countOpenTickets() {
+  const { count, error } = await liveTickets(
+    supabase
+      .from("it_tickets")
+      .select("id", { count: "exact", head: true })
+      .not("status", "in", '("closed","resolved")')
+  );
+  throwIf(error, "Could not load open ticket count.");
+  return count || 0;
+}
+
+/**
+ * Subscribe to live ticket / notification changes (Supabase Realtime).
+ * Falls back to a no-op unsubscribe when realtime is disabled.
+ * @param {(payload?: object) => void} onChange
+ * @param {{ channelName?: string, includeNotifications?: boolean }} [opts]
+ * @returns {() => void} unsubscribe
+ */
+export function subscribeItSupportRealtime(onChange, opts = {}) {
+  if (!isSupabaseRealtimeEnabled() || typeof onChange !== "function") {
+    return () => {};
+  }
+  const channelName = opts.channelName || `it-support-live-${Math.random().toString(36).slice(2, 9)}`;
+  let channel = supabase.channel(channelName);
+  channel = channel.on(
+    "postgres_changes",
+    { event: "*", schema: "public", table: "it_tickets" },
+    onChange
+  );
+  if (opts.includeNotifications !== false) {
+    channel = channel.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "it_notifications" },
+      onChange
+    );
+  }
+  channel.subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
+/**
+ * Debounced scheduler for realtime / focus refreshes.
+ * @param {() => void} fn
+ * @param {number} [ms]
+ * @returns {{ schedule: () => void, cancel: () => void }}
+ */
+export function createItSupportRefreshScheduler(fn, ms = 350) {
+  let timer = null;
+  return {
+    schedule() {
+      if (timer != null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = null;
+        fn();
+      }, ms);
+    },
+    cancel() {
+      if (timer != null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    },
+  };
 }
 
 export async function dashboardCounts({ userId } = {}) {
@@ -543,7 +779,7 @@ export async function reportAggregates({ fromDate, toDate } = {}) {
     supabase
       .from("it_tickets")
       .select(
-        "id, status, priority, category_id, created_at, resolved_at, first_response_breached, resolution_breached, category:it_ticket_categories!category_id(name)"
+        "id, ticket_no, status, priority, category_id, created_at, resolved_at, first_response_breached, resolution_breached, erp_module_key, erp_module_label, erp_submodule_key, erp_submodule_label, requester_display_name, category:it_ticket_categories!category_id(name), requester:profiles!requester_id(username, email)"
       )
   );
   if (fromDate) q = q.gte("created_at", fromDate);

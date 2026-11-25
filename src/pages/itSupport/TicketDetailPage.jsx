@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Download, Lock, MessageSquare, Paperclip } from "lucide-react";
+import { ArrowLeft, ImagePlus, Lock, MessageSquare, Paperclip } from "lucide-react";
 import {
   EmptyState,
   FormField,
@@ -10,7 +10,6 @@ import {
   PrimaryButton,
   SecondaryButton,
   SectionCard,
-  Timeline,
   TinySelect,
   Modal,
 } from "../../components/erpUi";
@@ -26,17 +25,24 @@ import {
   attachmentObjectKey,
   changeStatus,
   confirmFixed,
+  createItSupportRefreshScheduler,
   getTicketDetail,
   IT_SUPPORT_MAX_FILE_BYTES,
   listAgents,
   reopenTicket,
   setPriority,
+  subscribeItSupportRealtime,
+  removeTicketAttachment,
   uploadTicketAttachment,
 } from "./itSupportApi";
 import PriorityBadge from "./components/PriorityBadge";
 import StatusBadge from "./components/StatusBadge";
 import SlaTimer from "./components/SlaTimer";
 import RichTextField from "./components/RichTextField";
+import TicketFileList from "./components/TicketFileList";
+import TicketActivityTimeline from "./components/TicketActivityTimeline";
+
+const COMMENT_IMAGE_EXT = /\.(jpe?g|png|webp|gif)$/i;
 
 function displayPerson(p) {
   if (!p) return "—";
@@ -53,68 +59,156 @@ export default function TicketDetailPage() {
   const [comments, setComments] = useState([]);
   const [history, setHistory] = useState([]);
   const [attachments, setAttachments] = useState([]);
+  const [ccList, setCcList] = useState([]);
   const [agents, setAgents] = useState([]);
   const [commentBody, setCommentBody] = useState("");
+  const [commentImages, setCommentImages] = useState([]);
   const [internalNote, setInternalNote] = useState(false);
   const [busy, setBusy] = useState(false);
   const [statusModal, setStatusModal] = useState({ open: false, status: "", remark: "" });
+  const agentsLoadedRef = useRef(false);
 
   const isOwner = ticket?.requester_id === user?.id;
+  const isOnCc = Boolean(
+    user?.id && (ccList || []).some((c) => c.user_id === user.id)
+  );
 
-  const load = useCallback(async () => {
-    if (!id) return;
-    setLoading(true);
-    setError("");
-    try {
-      const detail = await getTicketDetail({ ticketId: id, includeInternal: agent });
-      setTicket(detail.ticket);
-      setComments(detail.comments);
-      setHistory(detail.history);
-      setAttachments(detail.attachments);
-      if (agent) {
-        const a = await listAgents();
-        setAgents(a);
+  const applyDetail = useCallback((detail) => {
+    if (!detail) return;
+    setTicket(detail.ticket);
+    setComments(detail.comments);
+    setHistory(detail.history);
+    setAttachments(detail.attachments);
+    setCcList(detail.cc || []);
+  }, []);
+
+  const load = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!id) return;
+      if (!silent) setLoading(true);
+      setError("");
+      try {
+        const detail = await getTicketDetail({ ticketId: id, includeInternal: agent });
+        applyDetail(detail);
+        if (agent && !agentsLoadedRef.current) {
+          const a = await listAgents();
+          setAgents(a);
+          agentsLoadedRef.current = true;
+        }
+      } catch (err) {
+        setError(err.message || "Could not load ticket.");
+        if (!silent) setTicket(null);
+      } finally {
+        if (!silent) setLoading(false);
       }
-    } catch (err) {
-      setError(err.message || "Could not load ticket.");
-      setTicket(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [id, agent]);
+    },
+    [id, agent, applyDetail]
+  );
 
   useEffect(() => {
-    load();
+    agentsLoadedRef.current = false;
+    load({ silent: false });
   }, [load]);
+
+  useEffect(() => {
+    if (!id) return undefined;
+    const scheduler = createItSupportRefreshScheduler(() => load({ silent: true }), 400);
+    const unsub = subscribeItSupportRealtime(() => scheduler.schedule(), {
+      channelName: `it-support-ticket-${id}`,
+      includeNotifications: false,
+    });
+    const onFocus = () => scheduler.schedule();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      scheduler.cancel();
+      unsub();
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [id, load]);
+
+  const attachmentsByComment = useMemo(() => {
+    const map = new Map();
+    (attachments || []).forEach((a) => {
+      if (!a?.comment_id) return;
+      const list = map.get(a.comment_id) || [];
+      list.push(a);
+      map.set(a.comment_id, list);
+    });
+    return map;
+  }, [attachments]);
 
   const timelineItems = useMemo(() => {
     const items = [];
     (history || []).forEach((h) => {
       items.push({
+        kind: "history",
         title: h.remark || `${h.event_type}: ${h.to_value || ""}`,
-        meta: `${displayPerson(h.actor)} · ${h.created_at ? new Date(h.created_at).toLocaleString() : ""}`,
+        actorLabel: displayPerson(h.actor),
         at: h.created_at,
+        isInternal: false,
+        attachments: [],
       });
     });
     (comments || []).forEach((c) => {
+      const files = attachmentsByComment.get(c.id) || [];
+      const text = stripHtml(c.body);
+      const fileNames = files.map((f) => f.file_name).filter(Boolean);
+      const title =
+        text ||
+        (fileNames.length
+          ? `Shared ${fileNames.length} image${fileNames.length === 1 ? "" : "s"}`
+          : "(empty comment)");
       items.push({
-        title: c.is_internal ? `[Internal] ${stripHtml(c.body)}` : stripHtml(c.body),
-        meta: `${displayPerson(c.author)} · ${c.created_at ? new Date(c.created_at).toLocaleString() : ""}`,
+        kind: "comment",
+        title,
+        actorLabel: displayPerson(c.author),
         at: c.created_at,
+        commentId: c.id,
+        isInternal: Boolean(c.is_internal),
+        attachments: files,
       });
     });
     items.sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0));
     return items;
-  }, [history, comments]);
+  }, [history, comments, attachmentsByComment]);
 
+  const openActivityAttachment = useCallback(async (a) => {
+    try {
+      const key = attachmentObjectKey(a);
+      if (!key) throw new Error("This file has no Cloudflare path.");
+      const url = await presignItSupportR2Get(key);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      toast.error(err.message || "Could not open attachment.");
+    }
+  }, []);
+
+  /** Apply ticket-returning API results in place; soft-refresh activity. No full-page reload. */
   const run = async (fn, okMsg) => {
+    if (busy) return;
     setBusy(true);
     setError("");
+    const snapshot = {
+      ticket,
+      comments,
+      history,
+      attachments,
+    };
     try {
-      await fn();
+      const result = await fn();
+      if (result?.id && (result.status != null || result.ticket_no != null)) {
+        setTicket((t) => ({ ...(t || {}), ...result }));
+      } else if (result?.id && result.body != null) {
+        setComments((prev) => [...prev, result]);
+      }
       if (okMsg) toast.success(okMsg);
-      await load();
+      // Sync timeline / attachments without blanking the page.
+      await load({ silent: true });
     } catch (err) {
+      setTicket(snapshot.ticket);
+      setComments(snapshot.comments);
+      setHistory(snapshot.history);
+      setAttachments(snapshot.attachments);
       setError(err.message || "Action failed.");
       toast.error(err.message || "Action failed.");
     } finally {
@@ -171,6 +265,11 @@ export default function TicketDetailPage() {
       <div className="flex flex-wrap items-center gap-2 mb-2">
         <StatusBadge status={ticket.status} />
         <PriorityBadge priority={ticket.priority} />
+        {isOnCc && !isOwner ? (
+          <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-800">
+            You are on CC
+          </span>
+        ) : null}
         <SlaTimer
           label="First response"
           dueAt={ticket.first_response_due_at}
@@ -194,19 +293,43 @@ export default function TicketDetailPage() {
             />
             <dl className="mt-4 grid grid-cols-2 gap-2 text-xs">
               <div>
-                <dt className="text-ink-muted">Category</dt>
+                <dt className="text-ink-muted">Module</dt>
+                <dd className="font-medium text-ink-strong">
+                  {ticket.erp_module_label || ticket.erp_module_key || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">Page / sub-module</dt>
+                <dd className="font-medium text-ink-strong">
+                  {ticket.erp_submodule_label || ticket.erp_submodule_key || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">Issue type</dt>
                 <dd className="font-medium text-ink-strong">{ticket.category?.name || "—"}</dd>
               </div>
               <div>
-                <dt className="text-ink-muted">Subcategory</dt>
+                <dt className="text-ink-muted">Issue detail</dt>
                 <dd className="font-medium text-ink-strong">{ticket.subcategory?.name || "—"}</dd>
               </div>
               <div>
                 <dt className="text-ink-muted">Impact</dt>
                 <dd className="font-medium text-ink-strong">{impactLabel(ticket.impact)}</dd>
               </div>
+              <div className="col-span-2">
+                <dt className="text-ink-muted">CC</dt>
+                <dd className="font-medium text-ink-strong">
+                  {(ccList || []).length
+                    ? ccList
+                        .map((c) =>
+                          [c.display_name, c.employee_code].filter(Boolean).join(" · ")
+                        )
+                        .join(", ")
+                    : "—"}
+                </dd>
+              </div>
               <div>
-                <dt className="text-ink-muted">Requester</dt>
+                <dt className="text-ink-muted">Raised by</dt>
                 <dd className="font-medium text-ink-strong">
                   {ticket.requester?.username ||
                     ticket.requester?.email ||
@@ -227,12 +350,20 @@ export default function TicketDetailPage() {
             </dl>
           </SectionCard>
 
-          <SectionCard title="Activity">
-            {timelineItems.length === 0 ? (
-              <p className="text-xs text-ink-muted">No activity yet.</p>
-            ) : (
-              <Timeline items={timelineItems} />
-            )}
+          <SectionCard
+            title="Activity"
+            right={
+              timelineItems.length ? (
+                <span className="text-[10px] font-medium tabular-nums text-ink-muted">
+                  {timelineItems.length} event{timelineItems.length === 1 ? "" : "s"}
+                </span>
+              ) : null
+            }
+          >
+            <TicketActivityTimeline
+              items={timelineItems}
+              onOpenAttachment={openActivityAttachment}
+            />
           </SectionCard>
 
           <SectionCard
@@ -257,20 +388,107 @@ export default function TicketDetailPage() {
               placeholder={internalNote ? "Internal note (not visible to requester)…" : "Write a comment…"}
               minHeight="100px"
             />
+            <div className="mt-2 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 text-[11px] font-medium text-ink-secondary hover:bg-surface-sunken">
+                  <ImagePlus className="h-3.5 w-3.5" />
+                  Add images
+                  <input
+                    type="file"
+                    multiple
+                    accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    disabled={busy}
+                    onChange={(e) => {
+                      const picked = Array.from(e.target.files || []);
+                      e.target.value = "";
+                      if (!picked.length) return;
+                      const ok = [];
+                      const bad = [];
+                      for (const f of picked) {
+                        const typeOk =
+                          COMMENT_IMAGE_EXT.test(f.name) ||
+                          String(f.type || "").toLowerCase().startsWith("image/");
+                        if (!typeOk) {
+                          bad.push(`${f.name}: images only (jpg, png, webp, gif)`);
+                          continue;
+                        }
+                        if (f.size > IT_SUPPORT_MAX_FILE_BYTES) {
+                          bad.push(`${f.name}: over 10 MB`);
+                          continue;
+                        }
+                        ok.push(f);
+                      }
+                      if (ok.length) {
+                        setCommentImages((prev) => {
+                          const keys = new Set(prev.map((x) => `${x.name}|${x.size}|${x.lastModified}`));
+                          const next = [...prev];
+                          for (const f of ok) {
+                            const k = `${f.name}|${f.size}|${f.lastModified}`;
+                            if (!keys.has(k)) next.push(f);
+                          }
+                          return next;
+                        });
+                      }
+                      if (bad.length) {
+                        setError(bad.join(". "));
+                        toast.error(bad[0]);
+                      }
+                    }}
+                  />
+                </label>
+                <span className="text-[10px] text-ink-muted">jpg, png, webp, gif · max 10 MB each</span>
+              </div>
+              {commentImages.length ? (
+                <TicketFileList
+                  mode="pending"
+                  files={commentImages}
+                  disabled={busy}
+                  onRemovePending={(index) =>
+                    setCommentImages((prev) => prev.filter((_, i) => i !== index))
+                  }
+                />
+              ) : null}
+            </div>
             <div className="mt-3">
               <PrimaryButton
-                disabled={busy || !stripHtml(commentBody).trim()}
+                disabled={busy || (!stripHtml(commentBody).trim() && commentImages.length === 0)}
                 icon={MessageSquare}
                 onClick={() =>
                   run(async () => {
-                    await addComment({
+                    const text = stripHtml(commentBody).trim();
+                    const bodyHtml =
+                      text || commentImages.length
+                        ? commentBody?.trim() || "<p></p>"
+                        : "";
+                    const row = await addComment({
                       ticketId: ticket.id,
-                      body: commentBody,
+                      body: bodyHtml,
                       isInternal: agent && internalNote,
                       authorId: user.id,
                     });
+                    const uploadWarnings = [];
+                    for (const file of commentImages) {
+                      try {
+                        await uploadTicketAttachment({
+                          ticketId: ticket.id,
+                          file,
+                          uploadedBy: user?.id,
+                          commentId: row.id,
+                        });
+                      } catch (err) {
+                        uploadWarnings.push(`${file.name}: ${err.message || "upload failed"}`);
+                      }
+                    }
                     setCommentBody("");
+                    setCommentImages([]);
                     setInternalNote(false);
+                    if (uploadWarnings.length) {
+                      toast.error(
+                        `Comment posted, but some images failed: ${uploadWarnings.join("; ")}`
+                      );
+                    }
+                    return row;
                   }, "Comment added")
                 }
               >
@@ -320,6 +538,7 @@ export default function TicketDetailPage() {
                     {agents.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.username || a.email}
+                        {a.employee_code ? ` · ${a.employee_code}` : ""}
                       </option>
                     ))}
                   </TinySelect>
@@ -422,36 +641,39 @@ export default function TicketDetailPage() {
               </label>
             }
           >
-            {attachments.length === 0 ? (
-              <p className="text-xs text-ink-muted">No attachments yet. Files are stored in Cloudflare R2.</p>
-            ) : (
-              <ul className="space-y-2">
-                {attachments.map((a) => (
-                  <li key={a.id} className="flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline min-w-0"
-                      onClick={async () => {
-                        try {
-                          const key = attachmentObjectKey(a);
-                          if (!key) throw new Error("This file has no Cloudflare path.");
-                          const url = await presignItSupportR2Get(key);
-                          window.open(url, "_blank", "noopener,noreferrer");
-                        } catch (err) {
-                          toast.error(err.message || "Could not open file.");
-                        }
-                      }}
-                    >
-                      <Download className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">{a.file_name || "File"}</span>
-                    </button>
-                    <span className="text-[10px] text-ink-muted shrink-0 uppercase tracking-wide">
-                      {a.storage || "r2"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <TicketFileList
+              mode="uploaded"
+              attachments={attachments}
+              disabled={busy}
+              onOpenUploaded={async (a) => {
+                try {
+                  const key = attachmentObjectKey(a);
+                  if (!key) throw new Error("This file has no Cloudflare path.");
+                  const url = await presignItSupportR2Get(key);
+                  window.open(url, "_blank", "noopener,noreferrer");
+                } catch (err) {
+                  toast.error(err.message || "Could not open file.");
+                }
+              }}
+              onRemoveUploaded={async (a) => {
+                const ok = await confirmDialog({
+                  title: "Remove attachment",
+                  message: `Remove “${a.file_name || "this file"}” from the ticket?`,
+                  confirmLabel: "Remove",
+                });
+                if (!ok) return;
+                setBusy(true);
+                try {
+                  await removeTicketAttachment(a.id);
+                  setAttachments((prev) => prev.filter((x) => x.id !== a.id));
+                  toast.success("Attachment removed.");
+                } catch (err) {
+                  toast.error(err.message || "Could not remove attachment.");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            />
           </SectionCard>
 
           <SectionCard title="Details">
@@ -492,12 +714,13 @@ export default function TicketDetailPage() {
               disabled={busy}
               onClick={() =>
                 run(async () => {
-                  await changeStatus({
+                  const updated = await changeStatus({
                     ticketId: ticket.id,
                     status: statusModal.status,
                     remark: statusModal.remark,
                   });
                   setStatusModal({ open: false, status: "", remark: "" });
+                  return updated;
                 }, "Status updated")
               }
             >

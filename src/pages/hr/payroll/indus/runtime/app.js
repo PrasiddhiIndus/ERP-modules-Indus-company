@@ -20,19 +20,46 @@ const siteList = () => Object.values(S.sites).sort((a, b) => a.name.localeCompar
 const empsOf = sid => (S.emps[sid] && S.emps[sid].list) || [];
 /** Same site ids/names as Attendance / Site Master (`sites` table). */
 const attSiteId = row => String(row && row.id != null ? row.id : '');
-/** Match Attendance page type filter when Site Attendance has Safety/Fire selected. */
+/**
+ * Process salary top lane: HR-Fire → Fire sites; HR-Site → Safety sites.
+ * Same `hr_selected_site_type` key as Site Attendance so both stay in sync.
+ */
 function attendanceSiteTypeFilter() {
   try {
     const val = localStorage.getItem('hr_selected_site_type');
-    return val === 'Safety' || val === 'Fire' ? val : '';
-  } catch (e) { return ''; }
+    if (val === 'Safety' || val === 'Fire') return val;
+  } catch (e) { /* ignore */ }
+  // Process salary always runs in one lane (default Fire — most live sites).
+  return 'Fire';
+}
+function processHrLane() {
+  return attendanceSiteTypeFilter() === 'Safety' ? 'site' : 'fire';
+}
+function setProcessHrLane(lane) {
+  const type = lane === 'site' ? 'Safety' : 'Fire';
+  try {
+    localStorage.setItem('hr_selected_site_type', type);
+  } catch (e) { /* ignore */ }
+  S.proc.attSummary = null;
+  S.proc.attSummaryKey = null;
+  S.proc.attSummaryLoading = false;
+  S.proc.siteMenuOpen = false;
+  // Drop site picks that belong to the other lane
+  if (Array.isArray(S.proc.sites) && S.proc.sites.length) {
+    const ok = new Set(processSiteList().map((s) => s.id));
+    S.proc.sites = S.proc.sites.map(String).filter((id) => ok.has(id));
+  }
+  if (S.proc.site && !(processSiteList().some((s) => s.id === String(S.proc.site)))) {
+    S.proc.site = (S.proc.sites && S.proc.sites[0]) || null;
+  }
+  S.proc.step = 1;
 }
 function processSiteList() {
   // Only Attendance / Site Master sites — never fall back to demo payroll templates.
   if (!S.attSitesLoaded) return [];
   const type = attendanceSiteTypeFilter();
   return (S.attSites || [])
-    .filter((row) => !type || (row && row.site_type === type))
+    .filter((row) => row && row.site_type === type)
     .map((row) => {
       const id = attSiteId(row);
       const live = S.sites[id];
@@ -531,6 +558,195 @@ async function importFromHR(site, run) {
   run.hr = { version: h.version || 1, approvedBy: h.approvedBy || '', approvedAt: h.approvedAt || '', importedAt: new Date().toISOString() };
   delete run.attFinalAt; validateAtt(site, run); await saveRun(run); S.proc.step = 2; render(); toast(`Attendance imported from HR for ${run.att.length} employees`);
 }
+function siteAttSummaryKey(siteId, month) {
+  return String(siteId) + '_' + String(month || S.month);
+}
+async function loadSiteAttSummary(siteId) {
+  const [y, m] = ym();
+  const key = siteAttSummaryKey(siteId, S.month);
+  if (S.proc.attSummaryKey === key && S.proc.attSummary) return S.proc.attSummary;
+  const laneType = attendanceSiteTypeFilter();
+  const attRow = (S.attSites || []).find((r) => attSiteId(r) === String(siteId));
+  if (attRow && attRow.site_type && attRow.site_type !== laneType) {
+    const wrong = {
+      ok: false,
+      error: `This site is ${attRow.site_type}. Switch to ${attRow.site_type === 'Safety' ? 'HR-Site' : 'HR-Fire'} to load its attendance.`,
+    };
+    S.proc.attSummaryKey = key;
+    S.proc.attSummary = wrong;
+    return wrong;
+  }
+  const fetchFn = window.__indusPayrollFetchSiteAttSummary;
+  if (typeof fetchFn !== 'function') {
+    const missing = { ok: false, error: 'Attendance summary is not available.' };
+    S.proc.attSummaryKey = key;
+    S.proc.attSummary = missing;
+    return missing;
+  }
+  try {
+    const summary = await fetchFn({ siteId, month: m, year: y });
+    // Ignore stale responses if the user changed site/month while fetching
+    if (siteAttSummaryKey(siteId, S.month) !== key) return summary;
+    // Guard: summary site type must match Process salary lane
+    if (summary && summary.ok && summary.site && summary.site.site_type && summary.site.site_type !== laneType) {
+      const wrong = {
+        ok: false,
+        error: `Attendance is for ${summary.site.site_type} sites. Select ${summary.site.site_type === 'Safety' ? 'HR-Site' : 'HR-Fire'} above.`,
+      };
+      S.proc.attSummaryKey = key;
+      S.proc.attSummary = wrong;
+      return wrong;
+    }
+    S.proc.attSummaryKey = key;
+    S.proc.attSummary = summary;
+    return summary;
+  } catch (err) {
+    console.error('Site attendance summary failed', err);
+    const failed = { ok: false, error: (err && err.message) || 'Could not load attendance summary.' };
+    if (siteAttSummaryKey(siteId, S.month) === key) {
+      S.proc.attSummaryKey = key;
+      S.proc.attSummary = failed;
+    }
+    return failed;
+  }
+}
+async function importFromSiteAttendance(site, run, summary) {
+  const rows = (summary && summary.rows) || [];
+  if (!rows.length) {
+    toast('No attendance marked in Site Attendance for ' + monthName());
+    return false;
+  }
+  run.att = rows.map((r) => ({
+    code: String(r.code),
+    PD: +r.PD || 0,
+    OTD: +r.OTD || 0,
+    OTH: +r.OTH || 0,
+    NH: +r.NH || 0,
+    WOT: +r.WOT || 0,
+  }));
+  run.attSource = 'HR';
+  delete run.uploadReason;
+  run.source = 'Site Attendance';
+  run.format = 'site attendance totals';
+  run.hr = {
+    version: 1,
+    approvedBy: 'Site Attendance',
+    approvedAt: new Date().toISOString(),
+    importedAt: new Date().toISOString(),
+    fromSiteAttendance: true,
+    rangeLabel: summary.rangeLabel || '',
+  };
+  delete run.attFinalAt;
+  validateAtt(site, run);
+  await saveRun(run);
+  return true;
+}
+function renderSiteAttSummaryCard(site, run, locked) {
+  const has = run.att && run.att.length;
+  const sum = S.proc.attSummary;
+  const key = siteAttSummaryKey(site.id, S.month);
+  const loading = S.proc.attSummaryKey !== key || S.proc.attSummaryLoading;
+  let body = '';
+  if (loading && !sum) {
+    body = `<div class="ps-sum-empty muted">Loading attendance from Site Attendance…</div>`;
+  } else if (!sum || !sum.ok) {
+    body = `<div class="ps-sum-empty muted">${esc((sum && sum.error) || 'Could not load attendance for this site and month.')}</div>`;
+  } else {
+    const t = sum.totals || {};
+    const ready = (sum.markedPeople || 0) > 0 || (sum.recordCount || 0) > 0;
+    body = `
+      <div class="ps-sum-meta">
+        <span class="pill ${sum.locked ? 'p-warn' : ready ? 'p-ok' : 'p-mute'}">${sum.locked ? 'Month locked' : ready ? 'Marks found' : 'No marks yet'}</span>
+        <span class="small muted">${esc(sum.rangeLabel || monthName())}</span>
+      </div>
+      <div class="ps-sum-kpis">
+        <div><span>Roster</span><b>${sum.peopleCount || 0}</b></div>
+        <div><span>Marked</span><b>${sum.markedPeople || 0}</b></div>
+        <div><span>Present</span><b>${inr(t.PD || 0, 1)}</b></div>
+        <div><span>Leave</span><b>${inr(t.leave || 0, 1)}</b></div>
+        <div><span>Week-off</span><b>${inr(t.weekoff || 0, 1)}</b></div>
+        <div><span>NH / PH</span><b>${inr(t.NH || 0, 1)}</b></div>
+        <div><span>OT</span><b>${inr(t.OT || 0, 1)}</b></div>
+      </div>
+      <div class="small muted ps-sum-rules">Duty <b>${sum.dutyHours || 8} hrs</b> · Cycle day <b>${sum.cycleStart || 1}</b>–<b>${sum.cycleEnd || 31}</b>${has ? ` · This run: <b>${run.att.length}</b> loaded` : ''}</div>`;
+  }
+  const canNext = !locked && ((has && run.att.length) || (sum && sum.ok && ((sum.markedPeople || 0) > 0 || (sum.rows || []).length > 0)));
+  return `<div class="card ps-sum" id="ps_sum_card">
+    <div class="row" style="margin-bottom:10px;align-items:flex-start">
+      <div class="grow"><h2 style="margin:0">Site attendance summary</h2>
+        <div class="small muted">${esc(site.name)} · ${monthName()}</div>
+      </div>
+    </div>
+    ${body}
+    <div class="ps-sum-actions">
+      ${locked
+        ? `<div class="note warn" style="margin:0">This run is locked. Unlock in step 4 to change attendance.</div>`
+        : `<button type="button" class="btn pri" id="ps_next" ${canNext ? '' : 'disabled'} title="${canNext ? '' : 'Mark attendance in Site Attendance for this month first'}">${has ? 'Process to next step →' : 'Load attendance & continue →'}</button>
+           <button type="button" class="btn sm" id="ps_sum_refresh">Refresh</button>`}
+    </div>
+    ${!has && !(sum && sum.ok && (sum.markedPeople || 0) > 0)
+      ? `<p class="small muted" style="margin:10px 0 0">Open Site Attendance for this site and month, mark the grid, then continue here.</p>`
+      : ''}
+  </div>`;
+}
+async function bindSiteAttSummary(site, run, locked) {
+  const key = siteAttSummaryKey(site.id, S.month);
+  const needFetch = S.proc.attSummaryKey !== key || !S.proc.attSummary;
+  const paint = () => {
+    const host = $('#ps_sum_card');
+    if (!host) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = renderSiteAttSummaryCard(site, run, locked);
+    const next = wrap.firstElementChild;
+    if (next) host.replaceWith(next);
+    wireSummaryActions();
+  };
+  const wireSummaryActions = () => {
+    const nextBtn = $('#ps_next');
+    if (nextBtn) nextBtn.onclick = async () => {
+      if (locked) return;
+      if (run.att && run.att.length) {
+        S.proc.step = 2;
+        render();
+        return;
+      }
+      const summary = S.proc.attSummary;
+      if (!summary || !summary.ok) {
+        toast('Attendance summary is still loading');
+        return;
+      }
+      nextBtn.disabled = true;
+      nextBtn.textContent = 'Loading…';
+      const ok = await importFromSiteAttendance(site, run, summary);
+      if (!ok) {
+        nextBtn.disabled = false;
+        nextBtn.textContent = 'Load attendance & continue →';
+        return;
+      }
+      S.proc.step = 2;
+      render();
+      toast(`Attendance loaded for ${run.att.length} employees · ${monthName()}`);
+    };
+    const refBtn = $('#ps_sum_refresh');
+    if (refBtn) refBtn.onclick = async () => {
+      S.proc.attSummary = null;
+      S.proc.attSummaryKey = null;
+      S.proc.attSummaryLoading = true;
+      paint();
+      await loadSiteAttSummary(site.id);
+      S.proc.attSummaryLoading = false;
+      paint();
+    };
+  };
+  wireSummaryActions();
+  if (!needFetch) return;
+  S.proc.attSummaryLoading = true;
+  paint();
+  await loadSiteAttSummary(site.id);
+  if (siteAttSummaryKey(site.id, S.month) !== key) return;
+  S.proc.attSummaryLoading = false;
+  paint();
+}
 function returnToHRModal(site) {
   const h = hrDoc(site.id);
   $('#modal').innerHTML = `<div class="modal-bg"><div class="modal" style="max-width:520px"><h2>Send attendance back to HR</h2><p class="small muted">${esc(site.name)} · ${monthName()}. HR corrects it in the HR module and approves it again; payroll can then import the corrected version.</p>
@@ -695,6 +911,7 @@ function processSiteControls() {
   const focus = ensureProcFocusSite(S.proc.site);
   const focusSite = all.find((s) => s.id === focus) || S.sites[focus] || null;
   const type = attendanceSiteTypeFilter();
+  const lane = processHrLane();
   const summary = processSiteSummary(all, selected);
   const siteLabel = (id) => {
     const s = all.find((x) => x.id === id) || S.sites[id] || { id, name: id };
@@ -709,9 +926,9 @@ function processSiteControls() {
         </div>
         <div class="ps-list">
           ${all.map((s) => `<label class="chk ps-opt" data-ps-name="${esc(String(s.name || '').toLowerCase())}" data-ps-loc="${esc(String(s.location || '').toLowerCase())}" data-ps-client="${esc(String(s.client || '').toLowerCase())}"><input type="checkbox" data-ps="${esc(s.id)}" ${selected.includes(s.id) ? 'checked' : ''}><span title="${esc(s.name)}">${esc(s.name)}</span></label>`).join('')
-            || '<span class="small muted ps-empty-static">No sites from Attendance yet. Add them under Site Attendance → Site Master.</span>'}
+            || `<span class="small muted ps-empty-static">No ${esc(type)} sites in Attendance. Add them under Site Attendance → Site Master (type ${esc(type)}).</span>`}
         </div>
-        <div class="ps-menu-foot small muted">${selected.length} of ${all.length} selected${type ? ` · ${esc(type)}` : ''} · multi-select</div>
+        <div class="ps-menu-foot small muted">${selected.length} of ${all.length} selected · ${esc(type)} · multi-select</div>
       </div>`
     : '';
   // Match Run type: a normal select. Only needed when 2+ sites are ticked.
@@ -736,13 +953,21 @@ function processSiteControls() {
         }).join('')}</div>
       </div>`
     : '';
+  const laneSwitch = `<div class="ps-lane" role="tablist" aria-label="HR Fire or HR Site">
+      <button type="button" class="ps-lane-btn ${lane === 'fire' ? 'on' : ''}" data-hr-lane="fire" role="tab" aria-selected="${lane === 'fire' ? 'true' : 'false'}">HR-Fire</button>
+      <button type="button" class="ps-lane-btn ${lane === 'site' ? 'on' : ''}" data-hr-lane="site" role="tab" aria-selected="${lane === 'site' ? 'true' : 'false'}">HR-Site</button>
+    </div>`;
   return {
     focus,
     focusSite,
     selected,
     html: `<div class="card ps-card">
+      <div class="ps-lane-row">
+        ${laneSwitch}
+        <span class="ps-lane-hint small muted">${lane === 'fire' ? 'Fire sites · attendance from Site Attendance (Fire)' : 'Safety sites · attendance from Site Attendance (Safety)'}</span>
+      </div>
       <div class="ps-bar">
-        <label class="f ps-field ps-field-sites"><span class="small muted">Sites</span>
+        <label class="f ps-field ps-field-sites"><span class="small muted">Sites (${esc(type)})</span>
           <button type="button" class="in ps-trigger" id="ps_trigger" aria-haspopup="listbox" aria-expanded="${open ? 'true' : 'false'}">
             <span class="ps-trigger-label ${selected.length ? '' : 'placeholder'}">${esc(summary)}</span>
             <span class="ps-trigger-caret" aria-hidden="true"></span>
@@ -752,6 +977,9 @@ function processSiteControls() {
         <label class="f ps-field ps-field-rtype"><span class="small muted">Run type</span>
           <select class="in" id="rtype">${[['REG', 'Regular monthly'], ['ARR', 'Arrears'], ['FNF', 'Full & Final'], ['SUP', 'Supplementary / revised']].map(([k, t]) => `<option value="${k}" ${S.proc.type === k ? 'selected' : ''}>${t}</option>`).join('')}</select>
         </label>
+        <label class="f ps-field ps-field-month"><span class="small muted">Month</span>
+          <input type="month" class="in" id="ps_month" value="${esc(S.month || '')}" title="Salary month — attendance loads for this month">
+        </label>
         ${focusSelect}
         <div class="ps-status">
           ${focus && S.sites[focus] ? patPill(S.sites[focus], focus) : ''}
@@ -759,11 +987,25 @@ function processSiteControls() {
         </div>
       </div>
       ${chips}
-      <p class="ps-help small muted">Same site list as Attendance. Open Sites and tick one or more to process.</p>
+      <p class="ps-help small muted">Pick HR-Fire or HR-Site first — site list and attendance come from that Site Attendance type only.</p>
     </div>`,
   };
 }
 function bindProcessSiteControls(p) {
+  p.querySelectorAll('[data-hr-lane]').forEach((btn) => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const lane = btn.getAttribute('data-hr-lane');
+      if (lane !== 'fire' && lane !== 'site') return;
+      if (processHrLane() === lane) return;
+      setProcessHrLane(lane);
+      render();
+      toast(lane === 'fire'
+        ? 'HR-Fire — showing Fire sites and attendance'
+        : 'HR-Site — showing Safety sites and attendance');
+    };
+  });
   const trigger = $('#ps_trigger');
   if (trigger) trigger.onclick = (e) => {
     e.preventDefault();
@@ -819,6 +1061,18 @@ function bindProcessSiteControls(p) {
   if (focusEl) focusEl.onchange = () => {
     ensureProcFocusSite(focusEl.value);
     S.proc.step = 1;
+    S.proc.attSummary = null;
+    S.proc.attSummaryKey = null;
+    render();
+  };
+  const monthEl = $('#ps_month');
+  if (monthEl) monthEl.onchange = () => {
+    const next = monthEl.value || S.month;
+    if (next === S.month) return;
+    S.month = next;
+    S.proc.step = 1;
+    S.proc.attSummary = null;
+    S.proc.attSummaryKey = null;
     render();
   };
   p.querySelectorAll('[data-ps]').forEach((c) => {
@@ -930,7 +1184,9 @@ function vProcess(p) {
     return;
   }
   if (!processSiteList().length) {
-    p.innerHTML = head + `<div class="card empty"><h2>No sites from Attendance</h2><p>Add sites under Site Attendance → Site Master. The same sites will appear in this dropdown for salary processing.</p></div>`;
+    const type = attendanceSiteTypeFilter();
+    const laneLabel = type === 'Safety' ? 'HR-Site' : 'HR-Fire';
+    p.innerHTML = head + `<div class="card empty"><h2>No ${esc(type)} sites from Attendance</h2><p>Switch lane (${esc(laneLabel)}) or add sites under Site Attendance → Site Master with type <b>${esc(type)}</b>. Attendance for Process salary is loaded only for that type.</p></div>`;
     finishHead();
     return;
   }
@@ -998,14 +1254,9 @@ function stepUpload(b, site, run, locked) {
      <p class="small muted">Day-wise codes, punch times or monthly totals are recognised; the column mapping is saved for the site. The upload is marked on the salary sheet and dashboard.</p>
      <div class="row" style="gap:8px"><button class="btn sm" id="tmpl">Download standard template</button></div></div>` : ''}</div>`}
    </div>
-   <div class="card"><h2>This run</h2>
-    ${has ? `<p style="margin-top:0"><b>${run.att.length}</b> employees · ${run.attSource === 'HR' ? `<span class="pill p-ok">From HR module</span>` : run.attSource === 'UPLOAD' ? `<span class="pill p-warn">Uploaded directly</span>` : `<span class="pill p-mute">${esc(run.source || 'loaded')}</span>`}</p>
-     ${run.attSource === 'UPLOAD' && run.uploadReason ? `<p class="small muted">Reason: ${esc(run.uploadReason)}${run.source ? ` · file ${esc(run.source)}` : ''}</p>` : ''}
-     <p class="small muted">${run.att.filter(a => a.flags && a.flags.length).length} rows flagged · last changed ${run.updatedAt ? new Date(run.updatedAt).toLocaleString('en-IN') : '—'}</p>
-     <button class="btn pri" onclick="S.proc.step=2;render()">Review & clean →</button>` : '<p class="muted">No attendance loaded yet.</p>'}
-    <h3>Site rules applied to attendance</h3>
-    <div class="small">Divisor: <b>${site.divisor.type === 'fixed' ? site.divisor.days + ' days (fixed)' : 'calendar — ' + siteCalWD(site) + ' days this month'}</b> · Shift: <b>${(site.params || {}).HRS || 8} hrs</b> · Pay period from day <b>${(site.payPeriod || {}).startDay || 1}</b></div>
-   </div></div>`;
+   ${renderSiteAttSummaryCard(site, run, locked)}
+   </div>`;
+  bindSiteAttSummary(site, run, locked);
   const sp = $('#hr_spec'); if (sp) sp.onclick = e => { e.preventDefault(); hrSpecModal(); };
   if (locked) return;
   const hd = $('#hr_demo'); if (hd) hd.onclick = e => { e.preventDefault(); demoHR([site.id]); };
@@ -3761,19 +4012,14 @@ function __indusPayrollBoot(opts) {
     S.month = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
     S._monthSet = true;
   }
-  var monthEl = $('#month');
-  if (monthEl) {
-    if (monthEl.value !== S.month) monthEl.value = S.month;
-    if (!monthEl._bound) {
-      monthEl._bound = true;
-      monthEl.onchange = function (e) { S.month = e.target.value || S.month; render(); };
-    }
-  }
+  // Month lives on Process salary bar (#ps_month) — strip leftover top-bar picker
+  var legacyMonth = $('#month');
+  if (legacyMonth && legacyMonth.closest && legacyMonth.closest('.top')) legacyMonth.remove();
   render();
   if (!S._connected) { S._connected = true; connect(); }
 }
 window.__indusPayrollBoot = __indusPayrollBoot;
-window.__indusPayrollBuild = 8;
+window.__indusPayrollBuild = 11;
 window.__indusPayrollSetView = function (v) {
   if (!v || v === S.view || !NAV.some(function (n) { return n[0] === v; })) return;
   S.view = v;

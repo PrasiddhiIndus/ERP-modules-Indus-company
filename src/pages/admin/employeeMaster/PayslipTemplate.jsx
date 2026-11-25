@@ -44,16 +44,16 @@ export default function PayslipTemplate({
               { label: "Special Allowance", amount: payslip.special_allowance },
               { label: "Performance Incentive", amount: payslip.perf_incentive_earned },
               ...(payslip.extra_earnings || []),
-            ].filter((r) => Number(r.amount) > 0)
+            ]
           : [
               { label: "Earned basic", amount: payslip.basic_earned },
               { label: "HRA", amount: payslip.hra_earned },
               { label: "Other allowances", amount: payslip.special_allowance },
             ]),
         ...(payslip.custom_components || [])
-          .filter((c) => c.kind === "earning" && Number(c.amount) > 0)
+          .filter((c) => c.kind === "earning")
           .map((c) => ({ label: c.name || c.code || "Earning", amount: c.amount })),
-      ];
+      ].filter((r) => r?.label && Number(r.amount) > 0);
 
   const dedRows = takeHomeOnly
     ? []
@@ -67,9 +67,9 @@ export default function PayslipTemplate({
         { label: "TDS", amount: payslip.tds },
         ...(payslip.extra_deductions || []),
         ...(payslip.custom_components || [])
-          .filter((c) => c.kind === "deduction" && Number(c.amount) > 0)
+          .filter((c) => c.kind === "deduction")
           .map((c) => ({ label: c.name || c.code || "Deduction", amount: c.amount })),
-      ].filter((r) => Number(r.amount) > 0 || ["Employee PF", "Professional tax"].includes(r.label));
+      ].filter((r) => r?.label && Number(r.amount) > 0);
 
   const monthDays = Number(payslip.month_days) || 0;
   const presentDays = Number(payslip.present_days) || 0;
@@ -103,7 +103,6 @@ export default function PayslipTemplate({
 
   const metaLine = payslip.employee_code ? `Employee code ${payslip.employee_code}` : "";
 
-  const tableRows = Math.max(earnRows.length, dedRows.length, 3);
   const whiteHeader = {
     color: "#ffffff",
     WebkitTextFillColor: "#ffffff",
@@ -275,15 +274,21 @@ export default function PayslipTemplate({
       >
         <MoneyTable
           title={takeHomeOnly ? "Payable" : "Earnings"}
-          rows={padRows(earnRows, takeHomeOnly ? Math.max(earnRows.length, 1) : tableRows)}
+          rows={earnRows}
           footerLabel={takeHomeOnly ? "Net Salary" : "Total gross earnings"}
           footerValue={takeHomeOnly ? payslip.net_salary : payslip.gross_wages}
+          afterFooter={[
+            {
+              label: "Voucher amount",
+              amount: Number(payslip.voucher_amount) || 0,
+            },
+          ]}
           whiteHeader={whiteHeader}
         />
         {!takeHomeOnly ? (
           <MoneyTable
             title="Deductions"
-            rows={padRows(dedRows, tableRows)}
+            rows={dedRows}
             footerLabel="Total deductions"
             footerValue={payslip.total_ded}
             whiteHeader={whiteHeader}
@@ -532,7 +537,8 @@ function MetaRow({ label, value, mutedFallback = false }) {
   );
 }
 
-function MoneyTable({ title, rows, footerLabel, footerValue, whiteHeader }) {
+function MoneyTable({ title, rows, footerLabel, footerValue, afterFooter = null, whiteHeader }) {
+  const extraRows = Array.isArray(afterFooter) ? afterFooter.filter((r) => r && r.label) : [];
   return (
     <table
       style={{
@@ -576,17 +582,20 @@ function MoneyTable({ title, rows, footerLabel, footerValue, whiteHeader }) {
         </tr>
       </thead>
       <tbody>
-        {rows.map((r, i) => (
-          <tr key={`${r.label || "blank"}-${i}`} style={{ background: i % 2 === 0 ? "#fff" : BLUE_ROW }}>
+        {rows
+          .filter((r) => r?.label && (r.amount != null && r.amount !== ""))
+          .filter((r) => Number(r.amount) > 0 || r.label === "Net Salary")
+          .map((r, i) => (
+          <tr key={`${r.label}-${i}`} style={{ background: i % 2 === 0 ? "#fff" : BLUE_ROW }}>
             <td
               style={{
                 border: `1px solid ${LINE}`,
                 padding: "7px 10px",
-                color: r.label ? MUTED : "transparent",
+                color: MUTED,
                 fontWeight: 400,
               }}
             >
-              {r.label || "—"}
+              {r.label}
             </td>
             <td
               style={{
@@ -594,11 +603,11 @@ function MoneyTable({ title, rows, footerLabel, footerValue, whiteHeader }) {
                 padding: "7px 10px",
                 textAlign: "right",
                 fontVariantNumeric: "tabular-nums",
-                color: r.label ? INK : "transparent",
+                color: INK,
                 fontWeight: 400,
               }}
             >
-              {r.label ? money2(r.amount) : "0.00"}
+              {money2(r.amount)}
             </td>
           </tr>
         ))}
@@ -628,15 +637,37 @@ function MoneyTable({ title, rows, footerLabel, footerValue, whiteHeader }) {
             {money2(footerValue)}
           </td>
         </tr>
+        {extraRows.map((r) => (
+          <tr key={`after-${r.label}`} style={{ background: "#fff" }}>
+            <td
+              style={{
+                border: `1px solid ${LINE}`,
+                padding: "8px 10px",
+                fontWeight: 500,
+                color: MUTED,
+                fontSize: 10.5,
+              }}
+            >
+              {r.label}
+            </td>
+            <td
+              style={{
+                border: `1px solid ${LINE}`,
+                padding: "8px 10px",
+                textAlign: "right",
+                fontVariantNumeric: "tabular-nums",
+                fontWeight: 500,
+                color: INK,
+                fontSize: 10.5,
+              }}
+            >
+              {money2(r.amount ?? 0)}
+            </td>
+          </tr>
+        ))}
       </tbody>
     </table>
   );
-}
-
-function padRows(rows, minLen) {
-  const out = [...rows];
-  while (out.length < minLen) out.push({ label: "", amount: null });
-  return out;
 }
 
 function money2(v) {

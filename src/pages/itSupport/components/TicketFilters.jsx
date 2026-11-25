@@ -10,9 +10,11 @@ import { PRIORITIES, STATUSES } from "../itSupportConstants";
  *   priority?: string,
  *   assigneeId?: string,
  *   categoryId?: string,
+ *   erpModuleKey?: string,
  *   breachedOnly?: boolean,
  *   agents?: Array<{id:string,username?:string,email?:string}>,
  *   categories?: Array<{id:string,name:string}>,
+ *   modules?: Array<{value:string,label:string}>,
  *   onChange: (patch: object) => void,
  *   showAgentFilters?: boolean,
  * }} props
@@ -23,9 +25,11 @@ export default function TicketFilters({
   priority = "",
   assigneeId = "",
   categoryId = "",
+  erpModuleKey = "",
   breachedOnly = false,
   agents = [],
   categories = [],
+  modules = [],
   onChange,
   showAgentFilters = false,
 }) {
@@ -84,12 +88,28 @@ export default function TicketFilters({
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.username || a.email || a.id}
+                  {a.employee_code ? ` · ${a.employee_code}` : ""}
                 </option>
               ))}
             </TinySelect>
           </div>
           <div className="w-[150px]">
-            <label className="block text-[10px] font-medium text-ink-muted mb-0.5">Category</label>
+            <label className="block text-[10px] font-medium text-ink-muted mb-0.5">Module</label>
+            <TinySelect
+              value={erpModuleKey}
+              onChange={(e) => onChange({ erpModuleKey: e.target.value })}
+              className="w-full"
+            >
+              <option value="">All</option>
+              {modules.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </TinySelect>
+          </div>
+          <div className="w-[150px]">
+            <label className="block text-[10px] font-medium text-ink-muted mb-0.5">Issue type</label>
             <TinySelect
               value={categoryId}
               onChange={(e) => onChange({ categoryId: e.target.value })}

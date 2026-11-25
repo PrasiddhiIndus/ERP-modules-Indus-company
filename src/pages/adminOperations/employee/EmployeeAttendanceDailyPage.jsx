@@ -70,6 +70,8 @@ import {
   registerMarkDisplayValue,
   isRegisterCommentMark,
   isRegisterDayAfterLeaving,
+  isRegisterDayBeforeJoining,
+  resolveEmployeeDateOfJoining,
   upsertRegisterMark,
   upsertRegisterMarksBatch,
   writeStoredRegisterMarks,
@@ -85,6 +87,7 @@ import {
 import { RegisterMarkPicker } from "./RegisterMarkPicker";
 import { BulkMarkEmployeePicker } from "./BulkMarkEmployeePicker";
 import { RegisterDepartmentFilter } from "./RegisterDepartmentFilter";
+import { departmentInSelection } from "../../../lib/employeeMasterDepartments";
 import {
   REGISTER_LEAVE_ANNUAL_LIMITS,
   aggregateLeaveUsageByEmployee,
@@ -469,12 +472,16 @@ export function EmployeeAttendanceDailyPage() {
       const registerEmpCodes = collectRegisterEmployeeCodes(registerEmployees);
       const weekoffDates = listAutoWeekoffDatesForMonthAndNext(monthMeta);
       const departmentByCode = {};
+      const dateOfJoiningByCode = {};
       for (const emp of registerEmployees || []) {
         const dept = emp.department || "";
         const code = normalizeAttendanceEmpCode(emp.empCode);
         const raw = String(emp.registerEmpCode || emp.empCode || "").trim();
-        if (code) departmentByCode[code] = dept;
+      const doj = resolveEmployeeDateOfJoining(emp);
+      if (code) departmentByCode[code] = dept;
         if (raw) departmentByCode[raw] = dept;
+        if (doj && code) dateOfJoiningByCode[code] = doj;
+        if (doj && raw) dateOfJoiningByCode[raw] = doj;
       }
 
       setPunches(punchRows);
@@ -546,6 +553,7 @@ export function EmployeeAttendanceDailyPage() {
             {
               existingRegisterRows: monthRegisterRowsRef.current,
               departmentByCode,
+              dateOfJoiningByCode,
             }
           );
 
@@ -561,7 +569,11 @@ export function EmployeeAttendanceDailyPage() {
             registerEmpCodes,
             holidayDates,
             masterCodeMap,
-            { existingRegisterRows: monthRegisterRowsRef.current, departmentByCode }
+            {
+              existingRegisterRows: monthRegisterRowsRef.current,
+              departmentByCode,
+              dateOfJoiningByCode,
+            }
           );
           const rowsAfterAutoMarks = mergeManualRowsIntoRegisterCache(
             await fetchRegisterMarkRowsInRange(supabase, {
@@ -577,6 +589,7 @@ export function EmployeeAttendanceDailyPage() {
             respectManualMarks: true,
             masterCodeMap,
             existingRegisterRows: rowsAfterAutoMarks,
+            dateOfJoiningByCode,
           });
 
           // After auto WO/NH·PH: convert sandwiched offs to leave so balance sync counts them.
@@ -868,6 +881,16 @@ export function EmployeeAttendanceDailyPage() {
     return map;
   }, [activeEmployees]);
 
+  const dateOfJoiningByEmp = useMemo(() => {
+    const map = new Map();
+    for (const emp of activeEmployees) {
+      const code = normalizeAttendanceEmpCode(emp.empCode);
+      const doj = resolveEmployeeDateOfJoining(emp);
+      if (code && doj) map.set(code, doj);
+    }
+    return map;
+  }, [activeEmployees]);
+
   const employeeNameByCode = useMemo(() => {
     const map = new Map();
     for (const emp of activeEmployees) {
@@ -896,7 +919,10 @@ export function EmployeeAttendanceDailyPage() {
     async (empCodeKey, day, value) => {
       if (!monthMeta?.monthKey) return;
       const registerDate = registerDateFromDay(monthMeta.monthKey, day);
-      const dateOfLeaving = dateOfLeavingByEmp.get(normalizeAttendanceEmpCode(empCodeKey));
+      const empKey = normalizeAttendanceEmpCode(empCodeKey);
+      const dateOfLeaving = dateOfLeavingByEmp.get(empKey);
+      const dateOfJoining = dateOfJoiningByEmp.get(empKey);
+      if (isRegisterDayBeforeJoining(registerDate, dateOfJoining)) return;
       if (isRegisterDayAfterLeaving(registerDate, dateOfLeaving)) return;
       const oldMark = manualMarks[empCodeKey]?.[day] || "";
       const empYearRows = yearRegisterRows.filter(
@@ -1087,6 +1113,7 @@ export function EmployeeAttendanceDailyPage() {
     },
     [
       calendarYear,
+      dateOfJoiningByEmp,
       dateOfLeavingByEmp,
       employeeNameByCode,
       holidayDatesInYear,
@@ -1160,7 +1187,7 @@ export function EmployeeAttendanceDailyPage() {
     return gridRows.filter((row) => {
       if (
         selectedDepartments.length > 0 &&
-        !selectedDepartments.includes(row.department || "")
+        !departmentInSelection(row.department || "", selectedDepartments)
       ) {
         return false;
       }
@@ -1454,8 +1481,10 @@ export function EmployeeAttendanceDailyPage() {
       const nextRemarks = { ...manualRemarks };
       for (const code of empCodes) {
         const dateOfLeaving = dateOfLeavingByEmp.get(code);
+        const dateOfJoining = dateOfJoiningByEmp.get(code);
         for (let day = dayFrom; day <= dayTo; day += 1) {
           const register_date = registerDateFromDay(monthMeta.monthKey, day);
+          if (isRegisterDayBeforeJoining(register_date, dateOfJoining)) continue;
           if (isRegisterDayAfterLeaving(register_date, dateOfLeaving)) continue;
           const prev = manualMarks[code]?.[day];
           const updated = next[code]?.[day];
@@ -1541,7 +1570,18 @@ export function EmployeeAttendanceDailyPage() {
         setSavingMark(false);
       }
     },
-    [bulkDayRange, bulkOverwrite, dateOfLeavingByEmp, gridRows, manualMarks, manualRemarks, masterRegisterCodeMap, monthMeta, yearRegisterRows]
+    [
+      bulkDayRange,
+      bulkOverwrite,
+      dateOfJoiningByEmp,
+      dateOfLeavingByEmp,
+      gridRows,
+      manualMarks,
+      manualRemarks,
+      masterRegisterCodeMap,
+      monthMeta,
+      yearRegisterRows,
+    ]
   );
 
   const handleClearSelectedRange = useCallback(async () => {
@@ -1557,11 +1597,13 @@ export function EmployeeAttendanceDailyPage() {
     for (const code of bulkSelectedCodes) {
       const empCodeKey = normalizeAttendanceEmpCode(code);
       const dateOfLeaving = dateOfLeavingByEmp.get(empCodeKey);
+      const dateOfJoining = dateOfJoiningByEmp.get(empCodeKey);
       const empMarks = { ...(next[empCodeKey] || {}) };
       const empRemarks = { ...(nextRemarks[empCodeKey] || {}) };
 
       for (let day = dayFrom; day <= dayTo; day += 1) {
         const register_date = registerDateFromDay(monthMeta.monthKey, day);
+        if (isRegisterDayBeforeJoining(register_date, dateOfJoining)) continue;
         if (isRegisterDayAfterLeaving(register_date, dateOfLeaving)) continue;
         const punchKey = `${empCodeKey}|${register_date}`;
         const hasPunch = presentKeys.has(punchKey);
@@ -1640,7 +1682,17 @@ export function EmployeeAttendanceDailyPage() {
     } finally {
       setSavingMark(false);
     }
-  }, [bulkDayRange, bulkSelectedCodes, dateOfLeavingByEmp, manualMarks, manualRemarks, masterRegisterCodeMap, monthMeta, punches]);
+  }, [
+    bulkDayRange,
+    bulkSelectedCodes,
+    dateOfJoiningByEmp,
+    dateOfLeavingByEmp,
+    manualMarks,
+    manualRemarks,
+    masterRegisterCodeMap,
+    monthMeta,
+    punches,
+  ]);
 
   const applyBulkPickerMark = useCallback(async () => {
     if (!bulkPickerMark || !bulkSelectedCodes.length) return;
@@ -1727,10 +1779,17 @@ export function EmployeeAttendanceDailyPage() {
         headerClassName: SCROLL_DAY_COL_CLASS,
         cellClassName: SCROLL_DAY_COL_CLASS,
         render: (row) => {
-          const value = row.dayMarks[day] || "";
           const cellDate = monthKey ? registerDateFromDay(monthKey, day) : "";
+          const rowDoj =
+            resolveEmployeeDateOfJoining(row) ||
+            dateOfJoiningByEmp.get(normalizeAttendanceEmpCode(row.empCode)) ||
+            "";
+          const joiningLocked = !!rowDoj && isRegisterDayBeforeJoining(cellDate, rowDoj);
           const leavingLocked =
             !!row.dateOfLeaving && isRegisterDayAfterLeaving(cellDate, row.dateOfLeaving);
+          const cellLocked = joiningLocked || leavingLocked;
+          // Never surface WO / NH·PH / punches before DOJ, even if a stale mark remains.
+          const value = joiningLocked ? "" : row.dayMarks[day] || "";
           const comment = String(manualRemarks[row.empCode]?.[day] || "").trim();
           const isCommentMark = isRegisterCommentMark(value);
           const commentMark = isCommentMark ? value : "";
@@ -1783,7 +1842,7 @@ export function EmployeeAttendanceDailyPage() {
               <RegisterMarkPicker
                 value={value}
                 displayMark={displayMark}
-                readOnly={leavingLocked}
+                readOnly={cellLocked}
                 purplePresent={purplePresent}
                 hoverTitle={cellHoverTitle}
                 onChange={(next) => {

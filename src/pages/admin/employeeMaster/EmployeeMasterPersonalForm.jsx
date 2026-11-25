@@ -346,6 +346,9 @@ export default function EmployeeMasterPersonalForm({
           employee_id,
           ...hierarchyCheck.fields,
         };
+        // Creation audit stamps are immutable — never send on update.
+        delete payload.created_by;
+        delete payload.created_at;
         // Never wipe existing bank fields with blanks unless the user edited that field
         for (const key of BANK_FIELD_KEYS) {
           const formVal = String(formData[key] ?? '').trim();

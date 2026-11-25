@@ -166,6 +166,121 @@ export function takeHomeToStructurePayload(netSalary, meta = {}) {
     system_values_json: {},
     date_of_birth: meta.employee?.date_of_birth || null,
     date_of_joining: meta.employee?.date_of_joining || null,
+    ...voucherPayloadFromMeta(meta),
+  };
+}
+
+/** Standalone voucher fields for CTC save (never added into CTC totals). */
+export function voucherPayloadFromMeta(meta = {}) {
+  const on = Boolean(meta.generateVoucher);
+  const amount = round2(meta.voucherAmount);
+  return {
+    generate_voucher: on,
+    voucher_amount: on && amount > 0 ? amount : null,
+  };
+}
+
+/** Whether Generate voucher is on for a CTC / line / slip row. */
+export function hasGenerateVoucher(row) {
+  if (!row) return false;
+  const flag =
+    row.generate_voucher ??
+    row.computed_json?.generate_voucher ??
+    row.source_snapshot_json?.generate_voucher ??
+    row._structure?.generate_voucher;
+  return flag === true || flag === 1 || flag === "true";
+}
+
+/**
+ * Fixed monthly voucher entered on CTC (not P.Days-adjusted).
+ * Prefer voucher_full on payroll lines; fall back to CTC voucher_amount.
+ */
+export function readVoucherFull(row) {
+  if (!row) return 0;
+  const on =
+    hasGenerateVoucher(row) ||
+    hasGenerateVoucher(row._structure) ||
+    hasGenerateVoucher(row.computed_json) ||
+    hasGenerateVoucher(row.source_snapshot_json);
+  if (!on) return 0;
+  const candidates = [
+    row.voucher_full,
+    row.computed_json?.voucher_full,
+    row.source_snapshot_json?.voucher_full,
+    row._structure?.voucher_amount,
+  ];
+  for (const raw of candidates) {
+    const amount = Number(raw);
+    if (Number.isFinite(amount) && amount > 0) return amount;
+  }
+  const processed =
+    row.voucher_processed ??
+    row.computed_json?.voucher_processed ??
+    row.source_snapshot_json?.voucher_processed;
+  // CTC structure, or legacy payroll before voucher_full existed (unprocessed stored full in voucher_amount).
+  if (processed !== true && processed !== 1 && processed !== "true") {
+    const amount = Number(
+      row.voucher_amount ??
+        row.computed_json?.voucher_amount ??
+        row.source_snapshot_json?.voucher_amount
+    );
+    if (Number.isFinite(amount) && amount > 0) return amount;
+  }
+  return 0;
+}
+
+/** Payable voucher on slip/sheet — only after Voucher tab Process (else 0). */
+export function readVoucherAmount(row) {
+  if (!row) return 0;
+  if (!hasGenerateVoucher(row)) return 0;
+  const processed =
+    row.voucher_processed ??
+    row.computed_json?.voucher_processed ??
+    row.source_snapshot_json?.voucher_processed;
+  if (processed === false || processed === 0 || processed === "false") return 0;
+  // Unprocessed payroll lines keep voucher_amount at 0; CTC structures have no processed flag.
+  if (processed == null && (row.present_days != null || row.gross_wages != null || row.pay_month_key)) {
+    return 0;
+  }
+  const raw =
+    row.voucher_amount ??
+    row.computed_json?.voucher_amount ??
+    row.source_snapshot_json?.voucher_amount;
+  const amount = Number(raw);
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
+/** Fixed voucher × present ÷ working days (whole rupees). */
+export function prorateVoucherByPresentDays(fixedAmount, presentDays, workingDays) {
+  const full = Number(fixedAmount);
+  const k = Number(presentDays);
+  const td = Number(workingDays);
+  if (!Number.isFinite(full) || full <= 0) return 0;
+  if (!Number.isFinite(k) || k <= 0 || !Number.isFinite(td) || td <= 0) return 0;
+  if (Math.abs(k - td) < 1e-6) return Math.round(full);
+  return Math.round((full / td) * k);
+}
+
+/** Snapshot fields for salary lines — payable stays 0 until Voucher tab Process. */
+export function voucherLineSnapFromStructure(structure, { processed = false, presentDays, workingDays } = {}) {
+  const on = Boolean(structure?.generate_voucher);
+  const full = on ? Number(structure?.voucher_amount) || 0 : 0;
+  if (!on || full <= 0) {
+    return {
+      generate_voucher: false,
+      voucher_full: null,
+      voucher_amount: 0,
+      voucher_processed: false,
+    };
+  }
+  const earned = processed
+    ? prorateVoucherByPresentDays(full, presentDays, workingDays)
+    : 0;
+  return {
+    generate_voucher: true,
+    voucher_full: full,
+    voucher_amount: earned,
+    voucher_processed: Boolean(processed),
   };
 }
 
@@ -279,6 +394,7 @@ export function resultToStructurePayload(result, meta) {
     system_values_json: result.is_custom ? roundMap(result.system_values) : {},
     date_of_birth: meta.employee?.date_of_birth || null,
     date_of_joining: meta.employee?.date_of_joining || null,
+    ...voucherPayloadFromMeta(meta),
   };
 }
 

@@ -7,7 +7,11 @@ const rpc = (name, args) => supabase.schema(PROJECTS_SCHEMA).rpc(name, args);
 /** After first save, only these fields stay editable on the enquiry. */
 export const POST_SAVE_EDITABLE_KEYS = ['target_date', 'completed_on', 'current_status', 'remarks'];
 
+/** Target Date / Completed Date always require L1 for non-managers (enter or change). */
+export const DATE_APPROVAL_KEYS = ['target_date', 'completed_on'];
+
 const POST_SAVE_EDITABLE = new Set(POST_SAVE_EDITABLE_KEYS);
+const DATE_APPROVAL = new Set(DATE_APPROVAL_KEYS);
 
 /** Normalize a stored / draft value for change comparison. */
 export function normalizeEnquiryCompareValue(value) {
@@ -48,7 +52,7 @@ export function editErrorMessage(err, fallback = 'Something went wrong. Please t
   if (/enquiry_edit_requests|request_enquiry_edit|decide_enquiry_edit|apply_enquiry_completed|apply_enquiry_progress|enquiry_notifications|schema cache|does not exist/i.test(msg)) {
     return 'Edit approval is not set up yet. Ask your administrator to apply the latest update.';
   }
-  if (/view-only access|only a manager|only this employee|reporting manager|no longer exists|already (approved|rejected)|do not have access|no field changes|managers can save|Regret must be sent|Only Completed status|Only Not Started|past completed date|Completed date is not/i.test(msg)) {
+  if (/view-only access|only a manager|only this employee|reporting manager|no longer exists|already (approved|rejected)|do not have access|no field changes|managers can save|Regret must be sent|Only Completed status|Only Not Started|past completed date|Completed date is not|Target Date|Completed Date|must be sent for L1/i.test(msg)) {
     return msg;
   }
   if (/row-level security|42501/i.test(msg)) {
@@ -123,6 +127,11 @@ export function isPastCompletedDateChange(changes = []) {
   return isPastCompletedOnValue(row.new_value);
 }
 
+/** Target Date or Completed Date was entered or changed — always L1 for non-managers. */
+export function isDateApprovalChange(changes = []) {
+  return (changes || []).some((c) => DATE_APPROVAL.has(c.field_key));
+}
+
 /** True when the only edits are Completed status and/or Completed Date. */
 export function isCompletedOnlyChange(changes = []) {
   const keys = new Set((changes || []).map((c) => c.field_key));
@@ -137,7 +146,7 @@ export function isCompletedOnlyChange(changes = []) {
 
 /**
  * Progress status (Not Started / Work in Progress) with only post-save fields —
- * applies immediately without L1.
+ * applies immediately without L1. Target Date / Completed Date are never direct.
  */
 export function isProgressDirectChange(changes = [], data = {}) {
   const status = statusFromData(data);
@@ -146,8 +155,8 @@ export function isProgressDirectChange(changes = [], data = {}) {
   if (!keys.size) return false;
   for (const key of keys) {
     if (!POST_SAVE_EDITABLE.has(key)) return false;
+    if (DATE_APPROVAL.has(key)) return false;
   }
-  if (isPastCompletedDateChange(changes)) return false;
   return true;
 }
 
@@ -162,7 +171,7 @@ export function isRegretStatusChange(changes = []) {
  */
 export function enquiryEditSaveMode(changes = [], data = {}) {
   if (!changes?.length) return 'none';
-  if (isPastCompletedDateChange(changes)) return 'l1';
+  if (isDateApprovalChange(changes)) return 'l1';
   if (isRegretStatusChange(changes) || statusFromData(data) === 'regret') return 'regret';
   if (isProgressDirectChange(changes, data)) return 'progress';
   if (

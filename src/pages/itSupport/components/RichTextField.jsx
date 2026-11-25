@@ -10,9 +10,10 @@ const BTNS = [
 
 /**
  * Lightweight rich-text editor — contentEditable + document.execCommand.
- * No TipTap / Quill dependency.
+ * Syncs from props only when not focused so React state updates do not fight typing.
  */
 export default function RichTextField({
+  id,
   value = "",
   onChange,
   placeholder = "Describe the issue…",
@@ -21,15 +22,26 @@ export default function RichTextField({
   className = "",
 }) {
   const ref = useRef(null);
-  const lastExternal = useRef(value);
+  const focusedRef = useRef(false);
+  const lastEmittedRef = useRef(value);
 
+  // Mount: seed editor once. Later external resets only apply when blurred.
   useEffect(() => {
     if (!ref.current) return;
-    if (value !== lastExternal.current && value !== ref.current.innerHTML) {
-      ref.current.innerHTML = value || "";
-      lastExternal.current = value;
+    if (focusedRef.current) return;
+    const next = value || "";
+    if (ref.current.innerHTML !== next) {
+      ref.current.innerHTML = next;
     }
+    lastEmittedRef.current = next;
   }, [value]);
+
+  const emit = () => {
+    if (!ref.current) return;
+    const html = ref.current.innerHTML;
+    lastEmittedRef.current = html;
+    onChange?.(html);
+  };
 
   const run = (cmd) => {
     if (disabled) return;
@@ -40,13 +52,6 @@ export default function RichTextField({
       /* ignore */
     }
     emit();
-  };
-
-  const emit = () => {
-    if (!ref.current) return;
-    const html = ref.current.innerHTML;
-    lastExternal.current = html;
-    onChange?.(html);
   };
 
   return (
@@ -69,15 +74,28 @@ export default function RichTextField({
         ))}
       </div>
       <div
+        id={id}
         ref={ref}
         role="textbox"
+        tabIndex={disabled ? -1 : 0}
         aria-multiline="true"
+        aria-placeholder={placeholder}
         contentEditable={!disabled}
         suppressContentEditableWarning
         data-placeholder={placeholder}
+        onFocus={() => {
+          focusedRef.current = true;
+        }}
+        onBlur={() => {
+          focusedRef.current = false;
+          emit();
+        }}
         onInput={emit}
-        onBlur={emit}
-        className="px-3 py-2 text-sm text-ink outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-ink-muted prose prose-sm max-w-none"
+        onMouseDown={(e) => {
+          // Keep focus in the editor when clicking text; toolbar uses preventDefault separately.
+          e.stopPropagation();
+        }}
+        className="px-3 py-2 text-sm text-ink outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-ink-muted empty:before:pointer-events-none prose prose-sm max-w-none min-h-[140px] cursor-text"
         style={{ minHeight }}
       />
     </div>

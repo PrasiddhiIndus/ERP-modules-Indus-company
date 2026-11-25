@@ -10,6 +10,12 @@ import {
   CollapsibleHelp,
 } from "../../../components/erpUi";
 import { formatINRPlain } from "./salaryData";
+import {
+  hasGenerateVoucher,
+  readVoucherFull,
+  prorateVoucherByPresentDays,
+  readVoucherAmount,
+} from "./annexureCtcRecord";
 import { MASKED_SECRET, salaryFiguresHidden } from "./salaryPrivacy";
 import { departmentInSelection } from "../../../lib/employeeMasterDepartments";
 import { RegisterDepartmentFilter } from "../employee/RegisterDepartmentFilter";
@@ -19,6 +25,7 @@ import {
   monthKey,
   monthLabel,
   processSalaryMonth,
+  processVoucherForMonth,
   publishSalarySlipsForMonth,
   recomputeLineFromEdits,
   saveMonthRunEdits,
@@ -135,6 +142,7 @@ const SCOPE_HEADERS = [
   "Tot Ded",
   "Net",
   "Bank",
+  "Voucher",
 ];
 
 function formatProcessDay(ymd) {
@@ -215,12 +223,27 @@ function StatementAmt({ children, strong = false, className = "" }) {
   );
 }
 
-/** Overview list tabs — all staff / already processed / held / payslips. */
+/** Overview list tabs — all staff / already processed / held / voucher / payslips. */
 const VIEW_TABS = [
   { id: "all", label: "All Employees" },
   { id: "processed", label: "Processed" },
   { id: "payslips", label: "Generate Payslip" },
   { id: "held", label: "Held" },
+  { id: "voucher", label: "Voucher" },
+];
+
+/** Voucher tab only — Fixed = CTC voucher entry; Voucher = P.Days-based payable. */
+const VOUCHER_HEADERS = [
+  "Sr No",
+  "Code",
+  "Name",
+  "Account",
+  "IFSC",
+  "Desig.",
+  "Status",
+  "P.Days",
+  "Fixed",
+  "Voucher",
 ];
 
 function IdentityErrorNote({ errors }) {
@@ -735,6 +758,16 @@ function EmployeeSalaryDetailPage({
               <Money value={line.gross_wages} strong />
             </StatementAmt>
           </StatementRow>
+          {readVoucherAmount(line) > 0 ? (
+            <StatementRow label="Voucher amount" hint="From Voucher process · not in gross or net">
+              <StatementAmt className="hidden sm:block">
+                <Money value={readVoucherAmount(line)} />
+              </StatementAmt>
+              <StatementAmt>
+                <Money value={readVoucherAmount(line)} />
+              </StatementAmt>
+            </StatementRow>
+          ) : null}
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
@@ -888,6 +921,8 @@ function ScopeSalarySheetTable({
   onToggleSelectAll,
   readOnly = false,
   showSelect = true,
+  /** All Employees only — Processed / Payslip / Held hide voucher. */
+  showVoucherColumn = false,
 }) {
   const selectableIds = lines
     .filter((l) => !lineIsSalaryLocked(l))
@@ -898,7 +933,10 @@ function ScopeSalarySheetTable({
     selectableIds.length > 0 && selectableIds.every((id) => selectedSet.has(id));
   const someSelected =
     !allSelected && selectableIds.some((id) => selectedSet.has(id));
-  const colCount = SCOPE_HEADERS.length + (showSelect ? 1 : 0);
+  const headers = showVoucherColumn
+    ? SCOPE_HEADERS
+    : SCOPE_HEADERS.filter((h) => h !== "Voucher");
+  const colCount = headers.length + (showSelect ? 1 : 0);
 
   return (
     <div className="overflow-auto rounded-lg border border-slate-200 max-h-[min(42rem,70vh)] shadow-sm">
@@ -922,11 +960,11 @@ function ScopeSalarySheetTable({
                 />
               </th>
             ) : null}
-            {SCOPE_HEADERS.map((h) => (
+            {headers.map((h) => (
               <th
                 key={h}
                 className={`px-2 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-700 border-b border-slate-200 whitespace-nowrap bg-slate-100 ${
-                  ["Gross W", "PF 12%", "ESIC", "PT", "Loan", "Sal Adv", "U/P", "TDS", "Custom−", "Tot Ded", "Net", "Bank"].includes(
+                  ["Gross W", "PF 12%", "ESIC", "PT", "Loan", "Sal Adv", "U/P", "TDS", "Custom−", "Tot Ded", "Net", "Bank", "Voucher"].includes(
                     h
                   )
                     ? "text-right"
@@ -1196,7 +1234,183 @@ function ScopeSalarySheetTable({
                 <td className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100">
                   <Money value={line.bank_amount} strong />
                 </td>
+                {showVoucherColumn ? (
+                  <td
+                    className="px-1.5 py-1 text-[11px] text-right border-b border-slate-100"
+                    title="P.Days-based voucher (not in gross, net, or bank credit)"
+                  >
+                    <Money
+                      value={
+                        readVoucherFull(line) > 0
+                          ? prorateVoucherByPresentDays(
+                              readVoucherFull(line),
+                              line.present_days,
+                              workingDays || line.total_days
+                            )
+                          : 0
+                      }
+                    />
+                  </td>
+                ) : null}
               </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Voucher tab — Fixed = CTC entry; Voucher = P.Days payable for the slip. */
+function VoucherSheetTable({
+  lines,
+  loading,
+  workingDays,
+  emptyHint,
+  selectedIds = [],
+  onToggleSelect,
+  onToggleSelectAll,
+  onOpenEmployee,
+}) {
+  const selectableIds = lines.map((l) => String(l.employee_master_id || "")).filter(Boolean);
+  const selectedSet = new Set((selectedIds || []).map(String));
+  const allSelected =
+    selectableIds.length > 0 && selectableIds.every((id) => selectedSet.has(id));
+  const someSelected =
+    !allSelected && selectableIds.some((id) => selectedSet.has(id));
+  const colCount = VOUCHER_HEADERS.length + 1;
+
+  return (
+    <div className="overflow-auto rounded-lg border border-slate-200 max-h-[min(42rem,70vh)] shadow-sm">
+      <table className="min-w-[980px] w-full border-collapse text-[11px]">
+        <thead className="sticky top-0 z-10 bg-slate-100">
+          <tr>
+            <th className="w-9 px-2 py-2.5 border-b border-slate-200 bg-slate-100">
+              <input
+                type="checkbox"
+                className="rounded border-slate-300"
+                checked={allSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = someSelected;
+                }}
+                disabled={!selectableIds.length}
+                onChange={() => onToggleSelectAll?.(!allSelected)}
+                aria-label="Select all voucher employees"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </th>
+            {VOUCHER_HEADERS.map((h) => (
+              <th
+                key={h}
+                className={`px-2 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-700 border-b border-slate-200 whitespace-nowrap bg-slate-100 ${
+                  ["P.Days", "Fixed", "Voucher"].includes(h) ? "text-right" : "text-left"
+                }`}
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {loading && !lines.length ? (
+            <tr>
+              <td colSpan={colCount} className="px-3 py-6 text-center text-xs text-slate-500">
+                Loading voucher list…
+              </td>
+            </tr>
+          ) : !lines.length ? (
+            <tr>
+              <td colSpan={colCount} className="px-3 py-6 text-center text-xs text-slate-500">
+                {emptyHint || "No employees with Generate voucher on CTC."}
+              </td>
+            </tr>
+          ) : (
+            lines.map((line, idx) => {
+              const empKey = String(line.employee_master_id);
+              const checked = selectedIds.some((id) => String(id) === empKey);
+              const fixed = readVoucherFull(line);
+              const payablePreview = prorateVoucherByPresentDays(
+                fixed,
+                line.present_days,
+                workingDays || line.total_days
+              );
+              const processed = Boolean(
+                line.voucher_processed ??
+                  line.computed_json?.voucher_processed ??
+                  line.source_snapshot_json?.voucher_processed
+              );
+              return (
+                <tr
+                  key={line.id || empKey}
+                  role={onOpenEmployee ? "button" : undefined}
+                  tabIndex={onOpenEmployee ? 0 : undefined}
+                  onClick={() => onOpenEmployee?.(line)}
+                  onKeyDown={(e) => {
+                    if (!onOpenEmployee) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onOpenEmployee(line);
+                    }
+                  }}
+                  className={`hover:bg-slate-50/80 ${checked ? "bg-accent-soft/30" : ""} ${
+                    processed ? "bg-emerald-50/40" : ""
+                  }`}
+                >
+                  <td className="px-2 py-1.5 border-b border-slate-100" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300"
+                      checked={checked}
+                      onChange={() => onToggleSelect?.(line.employee_master_id)}
+                      aria-label={`Select ${line.employee_name || line.employee_code}`}
+                    />
+                  </td>
+                  <td className="px-2 py-1.5 border-b border-slate-100 tabular-nums text-slate-500">
+                    {idx + 1}
+                  </td>
+                  <td className="px-2 py-1.5 border-b border-slate-100 font-mono text-[10px]">
+                    {line.employee_code || "—"}
+                  </td>
+                  <td className="px-2 py-1.5 border-b border-slate-100 font-medium text-slate-900">
+                    <TruncateTip text={line.employee_name} />
+                  </td>
+                  <td className="px-2 py-1.5 border-b border-slate-100 font-mono text-[10px]">
+                    <TruncateTip text={line.account_no} />
+                  </td>
+                  <td className="px-2 py-1.5 border-b border-slate-100 font-mono text-[10px]">
+                    <TruncateTip text={line.ifsc} />
+                  </td>
+                  <td className="px-2 py-1.5 border-b border-slate-100">
+                    <TruncateTip text={line.designation} />
+                  </td>
+                  <td className="px-2 py-1.5 border-b border-slate-100">
+                    <ProcessStatusBadge
+                      status={resolveLineProcessStatus(line)}
+                      lockedOn={line.lockedOn}
+                    />
+                    {processed ? (
+                      <span className="mt-0.5 block text-[10px] font-medium text-emerald-700">
+                        Voucher processed
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-2 py-1.5 border-b border-slate-100 text-right tabular-nums">
+                    {line.present_days ?? "—"}
+                  </td>
+                  <td
+                    className="px-2 py-1.5 border-b border-slate-100 text-right tabular-nums"
+                    title="Fixed voucher amount entered on CTC"
+                  >
+                    <Money value={fixed} />
+                  </td>
+                  <td
+                    className="px-2 py-1.5 border-b border-slate-100 text-right tabular-nums"
+                    title="Fixed × P.Days ÷ working days — written to salary slip on Process voucher"
+                  >
+                    <Money value={payablePreview} strong />
+                  </td>
+                </tr>
               );
             })
           )}
@@ -1293,6 +1507,7 @@ const api = {
     USE_MOCK_SALARY_PROCESSING
       ? Promise.resolve(mockProcessSalaryMonth(args))
       : processSalaryMonth(args),
+  processVoucher: (args) => processVoucherForMonth(args),
   publishSlips: (args) =>
     USE_MOCK_SALARY_PROCESSING
       ? Promise.resolve(publishSalarySlipsForMonth(args))
@@ -1559,6 +1774,14 @@ export default function SalaryProcessing() {
 
       if (viewTab === "processed" && status !== "processed") return false;
       if (viewTab === "held" && status !== "held") return false;
+      if (viewTab === "voucher") {
+        const hasVoucher =
+          Boolean(e.generate_voucher) ||
+          hasGenerateVoucher(e) ||
+          hasGenerateVoucher(e._structure) ||
+          (Number(e.voucher_full) > 0);
+        if (!hasVoucher) return false;
+      }
 
       if (selectedDepartments.length > 0 && !departmentInSelection(e.department, selectedDepartments)) {
         return false;
@@ -1660,8 +1883,18 @@ export default function SalaryProcessing() {
 
   const visibleScopeLines = useMemo(() => {
     const needle = tableSearch.trim().toLowerCase();
-    if (!needle) return scopeLines;
-    return scopeLines.filter((line) => {
+    const base =
+      viewTab === "voucher"
+        ? (scopeLines || []).filter(
+            (line) =>
+              hasGenerateVoucher(line) ||
+              hasGenerateVoucher(line.computed_json) ||
+              hasGenerateVoucher(line.source_snapshot_json) ||
+              readVoucherFull(line) > 0
+          )
+        : scopeLines;
+    if (!needle) return base;
+    return base.filter((line) => {
       const hay = [
         line.employee_code,
         line.employee_name,
@@ -1675,7 +1908,16 @@ export default function SalaryProcessing() {
         .toLowerCase();
       return hay.includes(needle);
     });
-  }, [scopeLines, tableSearch]);
+  }, [scopeLines, tableSearch, viewTab]);
+
+  const voucherEligibleCount = useMemo(() => {
+    return (rosterEmployees || []).filter(
+      (e) =>
+        Boolean(e.generate_voucher) ||
+        hasGenerateVoucher(e._structure) ||
+        Number(e.voucher_full) > 0
+    ).length;
+  }, [rosterEmployees]);
 
   const toggleSelectEmployee = useCallback((empId) => {
     const s = String(empId);
@@ -1687,7 +1929,9 @@ export default function SalaryProcessing() {
   const toggleSelectAllVisible = useCallback(
     (selectAll) => {
       const visible =
-        listView === "overview"
+        viewTab === "voucher"
+          ? visibleScopeLines.map((l) => String(l.employee_master_id)).filter(Boolean)
+          : listView === "overview"
           ? overviewRows
               .filter((e) => !(e.salaryLocked || e.processStatus === "locked"))
               .map((e) => String(e.id))
@@ -1707,8 +1951,36 @@ export default function SalaryProcessing() {
         return [...merged];
       });
     },
-    [listView, overviewRows, visibleScopeLines]
+    [listView, overviewRows, visibleScopeLines, viewTab]
   );
+
+  const doProcessVoucher = useCallback(async () => {
+    if (!selectedIds.length) {
+      toast.warning("Select at least one employee on the Voucher tab.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await api.processVoucher({
+        year,
+        month,
+        monthDays,
+        employeeIds: selectedIds,
+      });
+      const count = result.processedCount || 0;
+      toast.success(
+        `${count} voucher${count === 1 ? "" : "s"} processed for ${monthLabel(year, month)} — amount is on the salary slip (P.Days based).`
+      );
+      setSelectedIds([]);
+      setSheetRefreshAt((n) => n + 1);
+      await loadCandidates();
+    } catch (err) {
+      console.error(err);
+      toast.error(err?.message || "Voucher processing failed.");
+    } finally {
+      setBusy(false);
+    }
+  }, [selectedIds, year, month, monthDays, loadCandidates]);
 
   const holdSelectedEmployees = useCallback(() => {
     if (!selectedIds.length) {
@@ -2733,6 +3005,10 @@ export default function SalaryProcessing() {
 
       <CollapsibleHelp label="how this works">
         On All Employees, click Process salary — those staff move to the Processed tab.
+        On Voucher, Fixed is the CTC voucher entry; Voucher is that amount by P.Days.
+        Process voucher writes only that Voucher figure onto the salary slip (not CTC,
+        gross, net, or bank credit). Salary process leaves slip voucher at zero.
+        All Employees shows the P.Days voucher column; Processed and Generate Payslip do not.
         On Processed, select employees and click Processed to lock them for this month
         (green rows). Locked staff stay on the day they were processed and cannot be changed.
         On Generate Payslip, create payslips for processed staff, filter by department or
@@ -2825,7 +3101,9 @@ export default function SalaryProcessing() {
                   ? rosterKpis.total
                   : opt.id === "processed" || opt.id === "payslips"
                     ? rosterKpis.processed
-                    : rosterKpis.held;
+                    : opt.id === "voucher"
+                      ? voucherEligibleCount
+                      : rosterKpis.held;
               return (
                 <button
                   key={opt.id}
@@ -2947,7 +3225,24 @@ export default function SalaryProcessing() {
             </div>
           </div>
 
-          {listView === "sheet" ? (
+          {viewTab === "voucher" ? (
+            <VoucherSheetTable
+              lines={visibleScopeLines}
+              loading={candidatesLoading || scopeLinesLoading}
+              workingDays={monthDays}
+              emptyHint={
+                tableSearch.trim()
+                  ? "No voucher employees match this search."
+                  : selectedDepartments.length
+                    ? "No voucher employees match the current department filter."
+                    : "No employees have Generate voucher set on CTC for this month."
+              }
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelectEmployee}
+              onToggleSelectAll={toggleSelectAllVisible}
+              onOpenEmployee={handleOpenScopeEmployee}
+            />
+          ) : listView === "sheet" ? (
             <ScopeSalarySheetTable
               lines={visibleScopeLines}
               loading={candidatesLoading || scopeLinesLoading}
@@ -2970,6 +3265,7 @@ export default function SalaryProcessing() {
               onToggleSelectAll={toggleSelectAllVisible}
               readOnly={false}
               showSelect
+              showVoucherColumn={viewTab === "all"}
             />
           ) : (
             <OverviewProcessTable
@@ -3023,7 +3319,10 @@ export default function SalaryProcessing() {
                   </span>
                 </>
               ) : null}
-              {processPreview.blockedPresentDays.length && viewTab !== "held" && viewTab !== "processed" ? (
+              {processPreview.blockedPresentDays.length &&
+              viewTab !== "held" &&
+              viewTab !== "processed" &&
+              viewTab !== "voucher" ? (
                 <>
                   {" "}
                   ·{" "}
@@ -3031,7 +3330,10 @@ export default function SalaryProcessing() {
                     Processing blocked — {processPreview.blockedPresentDays.length} with P.Days above working days
                   </span>
                 </>
-              ) : processPreview.toProcess.length && viewTab !== "held" && viewTab !== "processed" ? (
+              ) : processPreview.toProcess.length &&
+                viewTab !== "held" &&
+                viewTab !== "processed" &&
+                viewTab !== "voucher" ? (
                 <>
                   {" "}
                   ·{" "}
@@ -3091,6 +3393,27 @@ export default function SalaryProcessing() {
                   }}
                 >
                   Release selected
+                </button>
+              ) : viewTab === "voucher" ? (
+                <button
+                  type="button"
+                  className={btnPrimary}
+                  disabled={busy || candidatesLoading || !selectedIds.length || monthLocked}
+                  title={
+                    monthLocked
+                      ? "Month is locked. Unlock it to process vouchers."
+                      : !selectedIds.length
+                        ? "Select employees with a CTC voucher amount, then Process voucher."
+                        : "Write P.Days-based voucher onto the salary slip (does not change gross or net)."
+                  }
+                  onClick={doProcessVoucher}
+                >
+                  <RefreshCw className={`h-3 w-3 ${busy ? "animate-spin" : ""}`} />
+                  {busy
+                    ? "Processing voucher…"
+                    : selectedIds.length
+                      ? `Process voucher (${selectedIds.length})`
+                      : "Process voucher"}
                 </button>
               ) : viewTab === "processed" ? (
                 <button
