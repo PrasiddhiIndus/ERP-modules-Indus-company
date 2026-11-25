@@ -147,11 +147,13 @@ describe('5. Editing an existing quotation', () => {
     calls.length = 0;
   });
 
-  it('Offer Status, Last Follow-up Date, and Remark are editable', () => {
-    expect(EDITABLE_DETAIL_KEYS).toEqual(['offer_status', 'last_followup_date', 'remark']);
+  it('Offer Status and Remark are editable; Last Follow-up Date is auto-stamped', () => {
+    expect(EDITABLE_DETAIL_KEYS).toEqual(['offer_status', 'remark']);
   });
 
-  it('sends editable fields including remark, even if the form carries others', async () => {
+  it('sends editable fields including remark, and stamps Last Follow-up Date to today when requested', async () => {
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     await updateQuotationMasterDetails(
       'q1',
       { offer_status: 'Draft', last_followup_date: '2026-11-10', client_name: 'Hacked', quoted_rate: 1, remark: 'r' },
@@ -164,6 +166,17 @@ describe('5. Editing an existing quotation', () => {
       'updated_at',
     ]);
     expect(calls[0].payload.remark).toBe('r');
+    // Always system today — never the typed/stale form date.
+    expect(calls[0].payload.last_followup_date).toBe(today);
+  });
+
+  it('does not change Last Follow-up Date when the field is omitted (open + save with no edit)', async () => {
+    await updateQuotationMasterDetails(
+      'q1',
+      { offer_status: 'Draft', remark: 'unchanged' },
+      { previousStatus: 'Draft' }
+    );
+    expect(calls.at(-1).payload.last_followup_date).toBeUndefined();
   });
 
   it('Super Admin can move to any offer status', async () => {

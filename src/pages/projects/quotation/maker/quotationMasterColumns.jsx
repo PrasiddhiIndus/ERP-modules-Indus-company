@@ -14,7 +14,6 @@ export const MASTER_COLUMNS = [
   { key: 'quoted_rate', label: 'Quoted Rate', type: 'money' },
   { key: 'offer_status', label: 'Offer Status', type: 'status' },
   { key: 'offer_type', label: 'Offer Type', nowrap: true },
-  { key: 'offer_link', label: 'Offer Link', type: 'link' },
   { key: 'scope', label: 'Scope', width: 'min-w-[260px]', maxW: 'max-w-[340px]', clamp: true },
   { key: 'last_followup_date', label: 'Last Follow-up Date', type: 'date' },
   { key: 'enquiry_received_from', label: 'Enquiry Received From', width: 'min-w-[160px]', maxW: 'max-w-[220px]', clamp: true },
@@ -47,7 +46,8 @@ export const GRID_EXTRA_COLUMNS = MASTER_COLUMNS.filter((c) => !GRID_PRIMARY_KEY
 export const GRID_COLUMNS = [...GRID_PRIMARY_COLUMNS, ...GRID_EXTRA_COLUMNS];
 
 /** Fields that can be changed when editing an existing quotation (Edit details). */
-export const EDITABLE_DETAIL_KEYS = ['offer_status', 'last_followup_date', 'remark'];
+export const EDITABLE_DETAIL_KEYS = ['offer_status', 'remark'];
+/** Last Follow-up Date is stamped automatically to today on every remark / details save. */
 
 /** Fields editable from "Edit details" (sheet order; Quarter is derived). */
 export const DETAIL_FIELDS = [
