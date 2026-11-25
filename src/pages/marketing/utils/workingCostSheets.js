@@ -71,7 +71,7 @@ export const DOMESTIC_COST_COLUMNS = [
 /**
  * International Procurement — Rate Workout (IMPORT COST + SUPPLY COST).
  * Blue = input, yellow = formula, green = key totals, purple = per unit rate.
- * Formulas match Cost_Sheet_Columns_and_Formulas.pdf (AM uses qty D, not clearance V).
+ * Formulas match Cost_Sheet_Columns_and_Formulas.pdf / Rate Workout sheet (AM = AL × V Clearance).
  */
 export const INTERNATIONAL_COST_COLUMNS = [
   // —— IMPORT COST ——
@@ -209,7 +209,7 @@ function computeDomestic(getVal) {
 }
 
 /**
- * International Procurement (Rate Workout PDF):
+ * International Procurement (Rate Workout sheet):
  * G = E − F (discounted $)
  * I = G × H (per item INR)
  * J = I × D (consignment)
@@ -221,9 +221,10 @@ function computeDomestic(getVal) {
  * AI = (AF + AH) / D (per unit rate)
  * AK = AI × incentive %
  * AL = AI + AK (rate to be quoted)
- * AM = AL × D (total without GST — qty, not clearance charge)
+ * AM = AL × V (rate × Clearance Charge — sheet formula)
  * AO = AM × GST %
  * AP = AM + AO
+ * Each formula cell is ROUND(..., 2) so displayed AL/AM/AO add up to AP (no 0.01 drift).
  */
 function computeInternational(getVal) {
   const qty = Math.max(0, getVal('qty'));
@@ -263,10 +264,13 @@ function computeInternational(getVal) {
   const marginAmount = round2(pctOf(basePrice, getVal('margin_pct')));
   const perUnitRate = qty > 0 ? round2((basePrice + marginAmount) / qty) : 0;
   const incentiveAmount = round2(pctOf(perUnitRate, getVal('incentive_pct')));
+  // AL = AI + AK
   const rateToQuote = round2(perUnitRate + incentiveAmount);
-  // AM = AL × Item Qty (PDF note: sheet used Clearance by mistake; quoting uses qty).
-  const totalWithoutGst = round2(rateToQuote * qty);
+  // AM = AL × V (Clearance Charge) — Rate Workout sheet formula
+  const totalWithoutGst = round2(rateToQuote * clearance);
+  // AO = AM × AN%
   const gstAmount = round2(pctOf(totalWithoutGst, getVal('gst_pct')));
+  // AP = AM + AO
   const totalWithGst = round2(totalWithoutGst + gstAmount);
 
   return {
