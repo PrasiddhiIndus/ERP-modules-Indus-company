@@ -4,8 +4,11 @@ import {
   presentDaysExceedWorkingDays,
   presentDaysFromRegisterMap,
   presentDaysFromRegisterTotal,
+  calendarDaysInMonth,
+  resolveLineWorkingDays,
   resolveSalaryMonthWorkingDays,
   salaryPresentDaysFromDayMarks,
+  usesSalaryDay31Basis,
   workingDaysMonToSat,
 } from "../src/pages/adminOperations/salaryAdmin/salaryMonthProcessing.js";
 import { defaultPtForGross } from "../src/pages/adminOperations/salaryAdmin/salaryData.js";
@@ -27,10 +30,20 @@ describe("salary working-day slab", () => {
     expect(workingDaysMonToSat(2024, 2)).toBe(25);
   });
 
-  it("never lets requested days exceed the calendar slab", () => {
-    expect(resolveSalaryMonthWorkingDays(2026, 2, 31)).toBe(24);
-    expect(resolveSalaryMonthWorkingDays(2026, 8, 30)).toBe(26);
+  it("defaults to Mon–Sat and may raise up to calendar days (Dahej day-31)", () => {
+    expect(calendarDaysInMonth(2026, 1)).toBe(31);
+    expect(calendarDaysInMonth(2026, 2)).toBe(28);
+    expect(calendarDaysInMonth(2026, 8)).toBe(31);
+    // Default when unset / invalid
+    expect(resolveSalaryMonthWorkingDays(2026, 1, null)).toBe(27);
+    expect(resolveSalaryMonthWorkingDays(2026, 2, 0)).toBe(24);
+    // May lower below Mon–Sat or raise up to calendar days
     expect(resolveSalaryMonthWorkingDays(2026, 1, 26)).toBe(26);
+    expect(resolveSalaryMonthWorkingDays(2026, 1, 31)).toBe(31);
+    expect(resolveSalaryMonthWorkingDays(2026, 8, 30)).toBe(30);
+    expect(resolveSalaryMonthWorkingDays(2026, 8, 31)).toBe(31);
+    // Never above calendar days
+    expect(resolveSalaryMonthWorkingDays(2026, 2, 31)).toBe(28);
   });
 
   it("caps P.Days at the month slab", () => {
@@ -107,6 +120,24 @@ describe("salary P.Days from register Total present", () => {
     expect(presentDaysExceedWorkingDays({ present_days: 28 }, 27)).toBe(true);
     expect(presentDaysExceedWorkingDays({ present_days: 27 }, 27)).toBe(false);
     expect(presentDaysExceedWorkingDays({ present_days: "" }, 27)).toBe(false);
+  });
+
+  it("uses a fixed 31-day basis for Dahej codes 8962, FTC-66, V-00002", () => {
+    expect(usesSalaryDay31Basis("8962")).toBe(true);
+    expect(usesSalaryDay31Basis("ftc-66")).toBe(true);
+    expect(usesSalaryDay31Basis({ employee_code: "V-00002" })).toBe(true);
+    expect(usesSalaryDay31Basis("2086")).toBe(false);
+    expect(resolveLineWorkingDays("8962", 27)).toBe(31);
+    expect(resolveLineWorkingDays({ employee_code: "FTC-66" }, 26)).toBe(31);
+    expect(resolveLineWorkingDays({ employee_code: "V-00002" }, 27)).toBe(31);
+    expect(resolveLineWorkingDays("2086", 27)).toBe(27);
+    // 31 present is OK for day-31 staff even when month Working days is 27
+    expect(
+      presentDaysExceedWorkingDays({ employee_code: "8962", present_days: 31 }, 27)
+    ).toBe(false);
+    expect(
+      presentDaysExceedWorkingDays({ employee_code: "2086", present_days: 31 }, 27)
+    ).toBe(true);
   });
 
   it("keeps the register Total present for that month, including a half day", () => {

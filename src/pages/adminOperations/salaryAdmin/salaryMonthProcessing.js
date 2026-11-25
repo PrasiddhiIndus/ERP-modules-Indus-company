@@ -219,12 +219,56 @@ export function workingDaysMonToSat(year, month) {
   return count;
 }
 
-/** Working-days slab for salary: never above Mon–Sat count; may be lowered. */
+/** Calendar days in the pay month (28–31). Used when Working days is raised for day-31 payroll. */
+export function calendarDaysInMonth(year, month) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isFinite(y) || m < 1 || m > 12) return 31;
+  return new Date(y, m, 0).getDate();
+}
+
+/**
+ * Working-days slab for salary: default Mon–Sat; may be lowered or raised up to calendar days
+ * (e.g. enter 31 for Dahej calendar-day payroll).
+ */
 export function resolveSalaryMonthWorkingDays(year, month, requestedDays) {
-  const calendar = workingDaysMonToSat(year, month);
+  const monSat = workingDaysMonToSat(year, month);
+  const calendar = calendarDaysInMonth(year, month);
   const n = Number(requestedDays);
-  if (Number.isFinite(n) && n > 0 && n < calendar) return n;
-  return calendar;
+  if (!Number.isFinite(n) || n <= 0) return monSat;
+  return Math.min(Math.max(1, n), calendar);
+}
+
+/**
+ * Dahej staff paid on a fixed 31-day salary basis (present ÷ 31).
+ * Only these codes — other employees keep the month Working days field.
+ */
+export const SALARY_DAY31_BASIS_CODES = Object.freeze(["8962", "FTC-66", "V-00002"]);
+
+const SALARY_DAY31_BASIS_CODE_SET = new Set(
+  SALARY_DAY31_BASIS_CODES.map((c) => String(c).trim().toUpperCase())
+);
+
+export function normalizeSalaryEmpCode(code) {
+  return String(code || "").trim().toUpperCase();
+}
+
+export function usesSalaryDay31Basis(empOrLineOrCode) {
+  const code =
+    typeof empOrLineOrCode === "string"
+      ? empOrLineOrCode
+      : empOrLineOrCode?.employee_code ?? empOrLineOrCode?.employeeCode;
+  return SALARY_DAY31_BASIS_CODE_SET.has(normalizeSalaryEmpCode(code));
+}
+
+/**
+ * Effective working days for one salary line.
+ * Day-31 Dahej codes always use 31; everyone else uses the month Working days value.
+ */
+export function resolveLineWorkingDays(empOrLineOrCode, monthDays) {
+  if (usesSalaryDay31Basis(empOrLineOrCode)) return 31;
+  const n = Number(monthDays);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_MONTH_DAYS;
 }
 
 /** Never pay more P.Days than the month’s working-day slab. */
@@ -249,7 +293,7 @@ export function presentDaysFromRegisterTotal(totalPresent) {
   return Math.min(rounded, 31);
 }
 
-/** True when P.Days are above the month’s working days. Does not change amounts. */
+/** True when P.Days are above the effective working days for that employee. Does not change amounts. */
 export function presentDaysExceedWorkingDays(presentDaysOrLine, workingDays) {
   const present = Number(
     presentDaysOrLine != null && typeof presentDaysOrLine === "object"
@@ -257,9 +301,14 @@ export function presentDaysExceedWorkingDays(presentDaysOrLine, workingDays) {
       : presentDaysOrLine
   );
   const working = Number(
-    workingDays != null && workingDays !== ""
-      ? workingDays
-      : presentDaysOrLine?.total_days
+    presentDaysOrLine != null && typeof presentDaysOrLine === "object"
+      ? resolveLineWorkingDays(
+          presentDaysOrLine,
+          workingDays != null && workingDays !== ""
+            ? workingDays
+            : presentDaysOrLine?.total_days
+        )
+      : workingDays
   );
   if (!Number.isFinite(present) || !Number.isFinite(working)) return false;
   return present > working;
@@ -514,10 +563,11 @@ export function buildSheetLineFromSources({
 }) {
   const ded = deductions || emptyDedSeed();
   const payableDays = presentDaysFromRegisterTotal(presentDays);
+  const lineWorkingDays = resolveLineWorkingDays(employee, monthDays);
   const computed = computeProcessingRow({
     structure,
     presentDays: payableDays,
-    totalDays: monthDays,
+    totalDays: lineWorkingDays,
     loan: ded.loan,
     salAdv: ded.salAdv,
     unpaidPaid: ded.unpaidPaid,
@@ -570,7 +620,7 @@ export function buildSheetLineFromSources({
   const voucherSnap = voucherLineSnapFromStructure(structure, {
     processed: false,
     presentDays: payableDays,
-    workingDays: monthDays,
+    workingDays: lineWorkingDays,
   });
 
   const snapshot = {
@@ -623,7 +673,7 @@ export function buildSheetLineFromSources({
     salary_rate: computed.salary_rate,
     ctc_monthly: structure?.ctc_monthly ?? null,
     present_days: payableDays,
-    total_days: monthDays,
+    total_days: lineWorkingDays,
     pf_basic: pfBasicSeed,
     pf_earned_basic: computed.pf_earned_basic,
     basic_full: basicFull,
@@ -722,7 +772,7 @@ export function applyCurrentCtcToSavedLine(saved, structure, monthDays, emp) {
   const voucherSnap = voucherLineSnapFromStructure(structure, {
     processed: prevProcessed,
     presentDays: built.present_days,
-    workingDays: monthDays,
+    workingDays: resolveLineWorkingDays(saved, monthDays),
   });
   const cj =
     built.computed_json && typeof built.computed_json === "object" ? built.computed_json : {};
@@ -748,7 +798,7 @@ export function applyCurrentCtcToSavedLine(saved, structure, monthDays, emp) {
 export function recomputeLineFromEdits(lineIn, monthDays, opts) {
   const options = opts || {};
   const { extra_earnings: _staleEarn, extra_deductions: _staleDed, ...line } = lineIn;
-  const td = num(monthDays, DEFAULT_MONTH_DAYS) || DEFAULT_MONTH_DAYS;
+  const td = resolveLineWorkingDays(line, monthDays);
   const rawPresent = line.present_days;
   const presentUnknown = rawPresent === "" || rawPresent == null;
   const K = presentUnknown ? 0 : presentDaysFromRegisterTotal(rawPresent);
@@ -1458,7 +1508,7 @@ export function emptyPreviewLineFromEmployee(emp, monthDays = DEFAULT_MONTH_DAYS
     department: emp.department || "—",
     date_of_joining: emp.date_of_joining || null,
     present_days: null,
-    total_days: monthDays,
+    total_days: resolveLineWorkingDays(emp, monthDays),
     salary_rate: 0,
     pf_basic: 0,
     basic_full: 0,
@@ -2461,7 +2511,7 @@ export async function processVoucherForMonth({
       continue;
     }
     const present = presentDaysFromRegisterTotal(line.present_days);
-    const working = num(line.total_days, days) || days;
+    const working = resolveLineWorkingDays(line, num(line.total_days, days) || days);
     const earned = prorateVoucherByPresentDays(full, present, working);
     const voucherSnap = {
       generate_voucher: true,
