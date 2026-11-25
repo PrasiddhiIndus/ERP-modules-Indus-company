@@ -55,6 +55,7 @@ import {
   updateCandidate,
   isRecruitmentConflict,
   withdrawOffer,
+  attachRecruitmentCtcToEmployeeMaster,
 } from "./recruitmentService";
 
 const CANDIDATE_CONFLICT_MESSAGE =
@@ -517,8 +518,44 @@ function NextStep({ data, caps, open }) {
         break;
       case "employee_created":
         title = `Employee created${c.employeeCode ? ` · ${c.employeeCode}` : ""}`;
-        hint = `Converted ${fmtDate(c.convertedAt)}${c.convertedBy ? ` by ${c.convertedBy}` : ""}.`;
+        hint = `Converted ${fmtDate(c.convertedAt)}${c.convertedBy ? ` by ${c.convertedBy}` : ""}. Sync recruitment CTC to Employee Master so Salary Processing can use it.`;
         actions.push({ label: "Open in Employee Master", href: `/app/admin/employee/master/${c.employeeMasterId}`, Icon: ExternalLink, primary: true });
+        if (c.employeeMasterId && (c.expectedSalary > 0 || c.expectedCtcBreakup)) {
+          add(
+            "conversion",
+            "Sync CTC to Employee Master",
+            async () => {
+              showRecruitmentBusy("Syncing recruitment CTC…");
+              try {
+                const out = await attachRecruitmentCtcToEmployeeMaster(c.id, c.employeeMasterId);
+                if (out?.status === "saved") {
+                  toast.success(
+                    "CTC saved on Employee Master",
+                    out.ctcMonthly
+                      ? `₹${Number(out.ctcMonthly).toLocaleString("en-IN")} / month · ${out.employeeName || c.name || "employee"}`
+                      : undefined
+                  );
+                  return;
+                }
+                if (out?.status === "skipped") {
+                  toast.error(
+                    "CTC not updated",
+                    out.reason === "ctc_exists"
+                      ? "This employee already has a CTC profile in Salary Admin — recruitment CTC was not overwritten."
+                      : out.message || "CTC was not updated."
+                  );
+                  return;
+                }
+                toast.error("Could not sync CTC", out?.message || "Please try again.");
+              } catch (err) {
+                toast.error("Could not sync CTC", err?.message || "Please try again.");
+              } finally {
+                hideRecruitmentBusy();
+              }
+            },
+            Calculator
+          );
+        }
         break;
       default:
         break;
@@ -599,29 +636,67 @@ function Workspace({ data, onReload }) {
           return [k, v];
         })
       );
+      showRecruitmentBusy(
+        c.employeeMasterId ? "Saving CTC to Employee Master…" : "Saving candidate CTC…",
+        c.employeeMasterId
+          ? `${c.name || "Employee"}${c.employeeCode ? ` · ${c.employeeCode}` : ""}`
+          : "Used on offer letters; applied to Employee Master when the employee is created."
+      );
       const saved = await updateCandidate(
         c.id,
         { expectedCtc: Number(ctc), expectedCtcBreakup: breakup },
         candidateVersion
       );
       if (saved?.version != null) setCandidateVersion(saved.version);
+
       const openOffer = (offers || []).find((o) =>
         ["generated", "sent", "viewed", "accepted"].includes(o.status)
       );
       if (openOffer?.id) {
-        showRecruitmentBusy("Updating offer letter…", "Refreshing Annexure A with the new CTC.");
         try {
           await prepareOfferLetter(openOffer.id);
         } catch {
           /* letter can be regenerated before send */
-        } finally {
-          hideRecruitmentBusy();
         }
       }
-      toast.success(
-        "CTC saved",
-        `Monthly CTC ₹${Number(ctc).toLocaleString("en-IN")} — exact calculator breakup used on offer & appointment letters.`
-      );
+
+      // When already linked/converted, push the same calculator breakup onto that Employee Master id
+      // so Salary Processing / Annexure CTC see it under the employee name & code.
+      let ctcAttach = null;
+      if (c.employeeMasterId) {
+        ctcAttach = await attachRecruitmentCtcToEmployeeMaster(c.id, c.employeeMasterId);
+      }
+
+      hideRecruitmentBusy();
+
+      const amount = `₹${Number(ctc).toLocaleString("en-IN")} / month`;
+      if (ctcAttach?.status === "saved") {
+        toast.success(
+          "CTC saved on Employee Master",
+          `${amount} · ${ctcAttach.employeeName || c.name || "employee"}${
+            ctcAttach.employeeCode || c.employeeCode
+              ? ` (${ctcAttach.employeeCode || c.employeeCode})`
+              : ""
+          } — ready for Salary Processing`
+        );
+      } else if (ctcAttach?.status === "skipped" && ctcAttach.reason === "ctc_exists") {
+        toast.success(
+          "CTC saved on candidate",
+          `${amount}. ${ctcAttach.employeeName || c.name || "This employee"} already has a CTC in Salary Admin — open Employee Master to revise it.`
+        );
+      } else if (ctcAttach?.status === "error" || ctcAttach?.status === "missing_ctc") {
+        toast.warning(
+          "CTC saved on candidate only",
+          ctcAttach.message || "Could not write Employee Master CTC. Use Sync CTC or Salary Admin."
+        );
+      } else if (c.employeeMasterId) {
+        toast.success("CTC saved", `${amount} on candidate${ctcAttach?.message ? ` — ${ctcAttach.message}` : ""}`);
+      } else {
+        toast.success(
+          "CTC saved on candidate",
+          `${amount} — used on offer & appointment letters. It will hit Employee Master when you create/link the employee.`
+        );
+      }
       close();
       await onReload?.();
     } catch (err) {
@@ -991,12 +1066,40 @@ function Workspace({ data, onReload }) {
       <ResumeModal open={is("resume")} candidate={c} onClose={close} />
       <NoteModal open={is("note")} candidate={c} onClose={close} />
       <CloseCandidateModal open={is("close")} candidate={c} onClose={close} />
-      <Modal open={is("ctc")} title="CTC Calculator" onClose={close} widthClass="max-w-5xl">
+      <Modal
+        open={is("ctc")}
+        title="CTC Calculator"
+        onClose={close}
+        widthClass="max-w-5xl"
+      >
+        {c.employeeMasterId ? (
+          <div className="mb-3 rounded-md border border-accent-border/50 bg-accent-soft/40 px-3 py-2 text-[12px] text-ink">
+            <p className="font-medium text-ink-strong">Linked Employee Master</p>
+            <p className="mt-0.5 text-ink-secondary">
+              {c.name || "—"}
+              {c.employeeCode ? ` · code ${c.employeeCode}` : ""}
+              {c.employeeSystemId ? ` · id ${c.employeeSystemId}` : ""}
+              {" · "}
+              master #{c.employeeMasterId}
+            </p>
+            <p className="mt-1 text-[11px] text-ink-muted">
+              Save writes this calculator breakup onto that employee so Salary Processing can use it.
+            </p>
+          </div>
+        ) : STAGE_INDEX[c.stage] >= STAGE_INDEX.offer_accepted ? (
+          <div className="mb-3 rounded-md border border-border bg-surface-sunken/60 px-3 py-2 text-[12px] text-ink-secondary">
+            Offer accepted — CTC is stored on this candidate for letters. After{" "}
+            <span className="font-medium text-ink">Create employee</span>, the same CTC is applied to
+            Employee Master (name &amp; code) for salary.
+          </div>
+        ) : null}
         <CtcCalculator
           embedded
           initialCtc={c.expectedSalary ?? ""}
-          saveLabel="Save CTC"
-          onSave={caps.candidates && c.stage !== "employee_created" ? saveCandidateCtc : null}
+          saveLabel={
+            c.employeeMasterId ? "Save CTC to Employee Master" : "Save CTC"
+          }
+          onSave={caps.candidates ? saveCandidateCtc : null}
         />
       </Modal>
       <ReasonModal
