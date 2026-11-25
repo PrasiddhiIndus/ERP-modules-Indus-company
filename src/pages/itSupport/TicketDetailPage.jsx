@@ -41,6 +41,7 @@ import SlaTimer from "./components/SlaTimer";
 import RichTextField from "./components/RichTextField";
 import TicketFileList from "./components/TicketFileList";
 import TicketActivityTimeline from "./components/TicketActivityTimeline";
+import TicketRichHtml from "./components/TicketRichHtml";
 
 const COMMENT_IMAGE_EXT = /\.(jpe?g|png|webp|gif)$/i;
 
@@ -284,14 +285,13 @@ export default function TicketDetailPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 space-y-4">
-          <SectionCard title="Description">
-            <div
-              className="prose prose-sm max-w-none text-ink"
-              dangerouslySetInnerHTML={{ __html: ticket.description || "<p>—</p>" }}
-            />
-            <dl className="mt-4 grid grid-cols-2 gap-2 text-xs">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 min-w-0">
+        <div className="lg:col-span-2 space-y-4 min-w-0">
+          <SectionCard title="Description" className="!overflow-hidden min-w-0">
+            <div className="min-w-0 max-w-full overflow-hidden">
+              <TicketRichHtml html={ticket.description} />
+            </div>
+            <dl className="mt-4 grid grid-cols-2 gap-2 text-xs min-w-0">
               <div>
                 <dt className="text-ink-muted">Module</dt>
                 <dd className="font-medium text-ink-strong">
@@ -498,7 +498,7 @@ export default function TicketDetailPage() {
           </SectionCard>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4 min-w-0">
           {agent ? (
             <SectionCard title="Agent actions">
               <div className="space-y-3">
@@ -645,12 +645,21 @@ export default function TicketDetailPage() {
               mode="uploaded"
               attachments={attachments}
               disabled={busy}
-              onOpenUploaded={async (a) => {
+              resolveAttachmentUrl={async (a) => {
+                const key = attachmentObjectKey(a);
+                if (!key) return null;
+                return presignItSupportR2Get(key);
+              }}
+              onOpenUploaded={async (a, helpers) => {
                 try {
                   const key = attachmentObjectKey(a);
                   if (!key) throw new Error("This file has no Cloudflare path.");
                   const url = await presignItSupportR2Get(key);
-                  window.open(url, "_blank", "noopener,noreferrer");
+                  const isImg =
+                    String(a.content_type || "").startsWith("image/") ||
+                    /\.(jpe?g|png|webp|gif)$/i.test(a.file_name || "");
+                  if (isImg && helpers?.openImage) helpers.openImage(url);
+                  else window.open(url, "_blank", "noopener,noreferrer");
                 } catch (err) {
                   toast.error(err.message || "Could not open file.");
                 }
