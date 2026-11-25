@@ -111,6 +111,7 @@ export async function listQueueTickets({
   status = "",
   priority = "",
   assigneeId = "",
+  requesterId = "",
   categoryId = "",
   erpModuleKey = "",
   breachedOnly = false,
@@ -122,6 +123,7 @@ export async function listQueueTickets({
   if (priority) q = q.eq("priority", priority);
   if (assigneeId === "unassigned") q = q.is("assignee_id", null);
   else if (assigneeId) q = q.eq("assignee_id", assigneeId);
+  if (requesterId) q = q.eq("requester_id", requesterId);
   if (categoryId) q = q.eq("category_id", categoryId);
   if (erpModuleKey) q = q.eq("erp_module_key", erpModuleKey);
   if (breachedOnly) {

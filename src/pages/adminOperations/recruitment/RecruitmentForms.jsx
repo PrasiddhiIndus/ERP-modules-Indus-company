@@ -21,6 +21,7 @@ import {
   recordOfferResponse,
   recordSignedAppointment,
   reviewDocument,
+  reviseOfferAndRegenerate,
   saveOfferDraft,
   searchEmployees,
   listCommunicationSenders,
@@ -342,6 +343,7 @@ export function ScreeningModal({ open, candidate, onClose }) {
 export function OfferModal({ open, candidate, offer, onClose }) {
   const [form, setForm] = useState({});
   const [generate, setGenerate] = useState(true);
+  const isRevise = ["generated", "sent", "viewed", "accepted"].includes(String(offer?.status || ""));
   useEffect(() => {
     if (!open) return;
     setGenerate(true);
@@ -359,16 +361,43 @@ export function OfferModal({ open, candidate, offer, onClose }) {
   return (
     <ActionModal
       open={open}
-      title={offer ? `Edit offer · ${candidate?.name || ""}` : `Prepare offer · ${candidate?.name || ""}`}
+      title={
+        isRevise
+          ? `Edit & regenerate letter · ${candidate?.name || ""}`
+          : offer
+            ? `Edit offer · ${candidate?.name || ""}`
+            : `Prepare offer · ${candidate?.name || ""}`
+      }
       onClose={onClose}
       widthClass="max-w-xl"
-      submitLabel={generate ? "Save & generate offer" : "Save draft"}
-      busyMessage={generate ? "Generating offer letter…" : "Saving offer draft…"}
-      busyDetail={generate ? "Building the Word letter and PDF — please wait." : undefined}
+      submitLabel={
+        isRevise
+          ? "Save & regenerate letter"
+          : generate
+            ? "Save & generate offer"
+            : "Save draft"
+      }
+      busyMessage={
+        isRevise || generate ? "Regenerating offer letter…" : "Saving offer draft…"
+      }
+      busyDetail={
+        isRevise || generate ? "Updating details and rebuilding the Word/PDF letter — please wait." : undefined
+      }
       canSubmit={Boolean(form.designation?.trim()) && Number(ctcMonthly) > 0}
       onSubmit={async () => {
         // Monthly amount always comes from CTC calculator (candidate expected_ctc) — not entered here.
         const payload = { ...form };
+        if (isRevise) {
+          await reviseOfferAndRegenerate(offer.id, payload, offer.version);
+          toast.success(
+            "Letter regenerated",
+            offer.status === "generated"
+              ? "Send the updated offer from the offer card."
+              : "Resend the updated offer from the offer card."
+          );
+          onClose();
+          return;
+        }
         const saved = await saveOfferDraft(candidate.id, offer?.id, payload, offer?.version);
         if (generate) {
           await generateOffer(saved.id, saved.version);
@@ -379,6 +408,12 @@ export function OfferModal({ open, candidate, offer, onClose }) {
         onClose();
       }}
     >
+      {isRevise ? (
+        <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+          This offer was already {offer?.status}. Edit the fields below (including additional points), then save to
+          rebuild the letter. Resend it afterwards so the candidate gets the updated PDF.
+        </p>
+      ) : null}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Position *">
           <input className={inputClass} value={form.designation || ""} onChange={set("designation")} />
@@ -404,16 +439,31 @@ export function OfferModal({ open, candidate, offer, onClose }) {
           </p>
         </Field>
         <Field label="Proposed joining date">
-          <input type="date" min={todayIso()} className={inputClass} value={form.joiningDate || ""} onChange={set("joiningDate")} />
+          <input
+            type="date"
+            min={isRevise ? undefined : todayIso()}
+            className={inputClass}
+            value={form.joiningDate || ""}
+            onChange={set("joiningDate")}
+          />
         </Field>
-        <Field label="Additional terms" className="sm:col-span-2">
-          <textarea className={textareaClass} value={form.terms || ""} onChange={set("terms")} />
+        <Field label="Additional points / terms" className="sm:col-span-2">
+          <textarea
+            className={textareaClass}
+            rows={5}
+            placeholder={"e.g.\nRelocation support as discussed\nReporting to Site Head from day one"}
+            value={form.terms || ""}
+            onChange={set("terms")}
+          />
+          <span className="text-[10px] text-ink-muted">One point per line. These are added into the regenerated offer letter.</span>
         </Field>
       </div>
-      <label className="flex items-center gap-2 text-xs text-ink">
-        <input type="checkbox" checked={generate} onChange={(e) => setGenerate(e.target.checked)} />
-        Generate the offer now (assigns the reference number, validity and letter)
-      </label>
+      {!isRevise ? (
+        <label className="flex items-center gap-2 text-xs text-ink">
+          <input type="checkbox" checked={generate} onChange={(e) => setGenerate(e.target.checked)} />
+          Generate the offer now (assigns the reference number, validity and letter)
+        </label>
+      ) : null}
     </ActionModal>
   );
 }

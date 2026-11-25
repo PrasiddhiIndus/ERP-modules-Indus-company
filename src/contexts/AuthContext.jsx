@@ -145,8 +145,12 @@ export const AuthProvider = ({ children }) => {
     const applySessionUser = (sessionUser) => {
       const newUser = sessionUser ?? null;
       const newUserId = newUser?.id ?? null;
+      const sameUser = Boolean(newUserId && userRef.current === newUserId);
       userRef.current = newUserId;
       setUser(newUser);
+      // Same user (e.g. token refresh): keep the in-memory profile so ProtectedRoute
+      // does not flash "Loading permissions…" and unmount open forms/modals.
+      if (sameUser) return;
       setProfileRow(newUserId ? readCachedProfileRow(newUserId) : null);
       profileSyncAttemptedRef.current = null;
       if (newUserId && useProfilesTable) {
@@ -249,7 +253,11 @@ export const AuthProvider = ({ children }) => {
       }
 
       if (event === 'TOKEN_REFRESHED' && session?.user) {
-        applySessionUser(session.user);
+        // Quiet JWT renewal — never reset profile / permissions (that remounted /app
+        // and closed mid-edit dialogs about once a minute during proactive refresh).
+        const refreshed = session.user;
+        userRef.current = refreshed.id;
+        setUser(refreshed);
         return;
       }
 

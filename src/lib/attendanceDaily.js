@@ -641,16 +641,31 @@ export function isPaidThirdSaturdayWeekoffCell(mark, { year, month, day, departm
 }
 
 /**
+ * Employees who work the 3rd Saturday (Employee Master "3rd Saturday off" unticked) and must
+ * NOT get Total-present credit for a blank/WO cell that day — no punch = 0 present.
+ * Everyone else keeps the Mon–Sat salary-slab blank credit.
+ * Emp codes match Daily Register / Employee Master (e.g. A-00004).
+ */
+const NO_BLANK_THIRD_SAT_PRESENT_CREDIT_EMP_CODES = new Set(["A-00004"]);
+
+function skipsBlankThirdSaturdayPresentCredit(employeeCode) {
+  const code = normalizeAttendanceEmpCode(employeeCode);
+  return Boolean(code && NO_BLANK_THIRD_SAT_PRESENT_CREDIT_EMP_CODES.has(code));
+}
+
+/**
  * Total present only: blank/WO on a 3rd Saturday that is not a weekly off for this employee
  * (works that day, e.g. Production sun_only) still credits 1 — salary slab counts Mon–Sat.
  * Uses employee+department weekly-off resolution only (no department-only gate).
  * Present marks (P, etc.) are unchanged (they already credit via normal present credit).
+ * Exception: NO_BLANK_THIRD_SAT_PRESENT_CREDIT_EMP_CODES (e.g. A-00004) → false.
  */
 export function isPaidThirdSaturdayWorkingDeptCell(mark, { year, month, day, department, employeeCode = null } = {}) {
   const m = String(mark ?? "").trim();
   if (m && m !== "WO") return false;
   if (!year || !month || !day) return false;
   if (!isThirdSaturdayOfMonth(year, month, day)) return false;
+  if (skipsBlankThirdSaturdayPresentCredit(employeeCode)) return false;
   const iso = registerDateFromDay(monthKeyFromParts(year, month), day);
   if (!iso) return false;
   return !isWeeklyOffDate(iso, department, employeeCode);

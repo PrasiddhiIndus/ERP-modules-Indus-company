@@ -23,6 +23,7 @@ import {
   COMPLIANCE_PAYROLL_SIDEBAR_PAGES,
 } from "../config/sidebarNavPages";
 import PoApprovalBell from "../components/PoApprovalBell";
+import SessionExpiryBanner from "../components/SessionExpiryBanner";
 import CommandPalette from "../components/CommandPalette";
 import { COMMAND_DESTINATIONS } from "../lib/commandDestinations";
 import { prefetchRouteModule } from "../lib/routePrefetch";
@@ -2505,6 +2506,8 @@ const Layout = () => {
           </Suspense>
         </main>
       </div>
+
+      <SessionExpiryBanner />
 
       {pathname.startsWith("/app/projects") &&
       (enquiryTabs.includes("enquiry-database") ||
