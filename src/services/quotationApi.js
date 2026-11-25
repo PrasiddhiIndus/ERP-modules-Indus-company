@@ -386,14 +386,16 @@ function todayLocalIso() {
 
 /**
  * Persist a Quotation Master edit to projects.quotations.
- * An existing quotation can only change Offer Status and Last Follow-up Date; every other field
- * stays as it is (nothing else is sent). When the status changes, the Order Status Date
- * (order_converted_date) is set to today — the database trigger 20261118190000 does the same
- * for every other save path.
+ * An existing quotation can change Offer Status and Remark.
+ * Last Follow-up Date is stamped to the current system (local) date when the caller includes
+ * `last_followup_date` (after a remark/status edit) — never requires manual entry.
+ * When the status changes, the Order Status Date (order_converted_date) is set to today —
+ * the database trigger 20261118190000 does the same for every other save path.
  * @param {string} id
  * @param {{ offer_status?: string, last_followup_date?: string, remark?: string }} form
- * @param {{ previousStatus?: string, statusRemark?: string }} [opts]
+ * @param {{ previousStatus?: string, statusRemark?: string, stampFollowup?: boolean, profile?: object }} [opts]
  *   statusRemark — reason for Lost / Hold, appended to the remark as "[Status → X] reason".
+ *   stampFollowup — force Last Follow-up Date = today (system local date).
  */
 export async function updateQuotationMasterDetails(id, form, opts = {}) {
   if (!id) throw new Error('Quotation id is required.');
@@ -417,11 +419,19 @@ export async function updateQuotationMasterDetails(id, form, opts = {}) {
     throw new Error('A reason is required when marking Lost or Hold.');
   }
 
+  const shouldStampFollowup =
+    Boolean(opts.stampFollowup) ||
+    Object.prototype.hasOwnProperty.call(form, 'last_followup_date') ||
+    statusChanged;
+
   const payload = {
     offer_status: nextStatus,
-    last_followup_date: normalizeToIsoDate(form.last_followup_date) || null,
     updated_at: new Date().toISOString(),
   };
+  // Always use the computer/system local date — never trust a manually typed follow-up date.
+  if (shouldStampFollowup) {
+    payload.last_followup_date = todayLocalIso();
+  }
   if (statusChanged) {
     payload.status_changed_at = new Date().toISOString();
     payload.order_converted_date = todayLocalIso();

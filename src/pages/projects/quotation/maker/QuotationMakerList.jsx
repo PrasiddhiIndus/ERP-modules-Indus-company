@@ -985,11 +985,17 @@ function EditDetailsModal({
   );
   const [localError, setLocalError] = useState('');
   const [lostReason, setLostReason] = useState('');
+  /** True after any remark / status / reason keystroke — opening the modal alone does not set this. */
+  const [hasEdited, setHasEdited] = useState(false);
+  const baselineRemark = String(row.remark ?? '');
+  const baselineStatus = String(row.offer_status ?? '');
   const choosingOrderLost = form.offer_status === ORDER_LOST_STATUS && row.offer_status !== ORDER_LOST_STATUS;
   const choosingHold = form.offer_status === HOLD_STATUS && row.offer_status !== HOLD_STATUS;
   const needsReason = choosingOrderLost || choosingHold;
   const editable = new Set(EDITABLE_DETAIL_KEYS);
-  const statusChanged = form.offer_status !== (row.offer_status || '');
+  const statusChanged = String(form.offer_status ?? '') !== baselineStatus;
+  const remarkChanged = String(form.remark ?? '') !== baselineRemark;
+  const detailsDirty = hasEdited || remarkChanged || statusChanged || Boolean(lostReason);
   /** Order Status Date / quarter as they will be after saving (date = today on a status change). */
   const previewRow = {
     ...row,
@@ -1006,10 +1012,19 @@ function EditDetailsModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, saving]);
 
-  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const set = (key) => (e) => {
+    const next = e.target.value;
+    if (key === 'remark' || key === 'offer_status') setHasEdited(true);
+    setForm((f) => ({ ...f, [key]: next }));
+  };
   const statusOptions = OFFER_STATUS_OPTIONS.includes(form.offer_status)
     ? OFFER_STATUS_OPTIONS
     : [form.offer_status, ...OFFER_STATUS_OPTIONS].filter(Boolean);
+
+  // Show today’s system date only after the user edits — not merely opening Edit details.
+  const followupDisplayIso = detailsDirty
+    ? localTodayIso()
+    : normalizeToIsoDate(row.last_followup_date) || '';
 
   const submit = async (e) => {
     e.preventDefault();
@@ -1025,9 +1040,12 @@ function EditDetailsModal({
     }
     const patch = {
       offer_status: form.offer_status,
-      last_followup_date: form.last_followup_date,
       remark: form.remark ?? '',
     };
+    // Only stamp Last Follow-up Date when the user actually edited (incl. adding/removing spaces).
+    if (detailsDirty) {
+      patch.last_followup_date = localTodayIso();
+    }
     try {
       await onSave(patch, needsReason ? lostReason.trim() : '');
     } catch (err) {
@@ -1071,6 +1089,27 @@ function EditDetailsModal({
                   <span className="mt-0.5 block text-[10px] text-slate-500">
                     {statusChanged ? 'Will be set to today on save' : 'Updates automatically when the Offer Status changes'}
                     {quarterPreview ? ` · ${quarterPreview}` : ''}
+                  </span>
+                </label>
+              );
+            }
+            if (f.key === 'last_followup_date') {
+              return (
+                <label key={f.key}>
+                  <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">
+                    {f.label}
+                    <span className="ml-1 normal-case font-normal text-slate-400">(auto)</span>
+                  </span>
+                  <input
+                    className={`${input} bg-slate-100 text-slate-600`}
+                    readOnly
+                    value={formatDisplayDate(followupDisplayIso) || '—'}
+                    title="Updates to today’s system date when you edit remark or status, then save"
+                  />
+                  <span className="mt-0.5 block text-[10px] text-slate-500">
+                    {detailsDirty
+                      ? 'Will save as today’s computer date (set when you edited remark / status)'
+                      : 'Open only keeps the previous date. Edit remark or status (even a space) — then this becomes today'}
                   </span>
                 </label>
               );
@@ -1122,7 +1161,10 @@ function EditDetailsModal({
                 className={`${input} h-auto py-2`}
                 rows={3}
                 value={lostReason}
-                onChange={(e) => setLostReason(e.target.value)}
+                onChange={(e) => {
+                  setHasEdited(true);
+                  setLostReason(e.target.value);
+                }}
                 placeholder="e.g. price gap, competitor selected, client dropped the requirement…"
                 disabled={saving || (choosingOrderLost && orderLostPending)}
               />
@@ -1147,7 +1189,7 @@ function EditDetailsModal({
         ) : null}
         <div className="px-4 py-2.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] text-slate-500">
-            Offer Status, Last Follow-up Date, and Remark can be changed on an existing quotation.
+            Offer Status and Remark can be changed. Last Follow-up Date updates to today’s system date automatically when you edit and save — no manual date entry.
           </p>
           <div className="flex gap-2">
             <button

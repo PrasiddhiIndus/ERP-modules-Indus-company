@@ -40,15 +40,19 @@ import { alertDialog, confirmDialog } from "../../../lib/dialog";
 import { needsOrderLostApproval, orderLostErrorMessage, requestOrderLost } from './quotationOrderLostApi';
 
 /** Editing an existing quotation: only these fields can change (the rest stay read-only). */
-const DRAWER_EDITABLE_KEYS = new Set(['offer_status', 'last_followup_date', 'next_followup_date', 'remark']);
+const DRAWER_EDITABLE_KEYS = new Set(['offer_status', 'next_followup_date', 'remark']);
+/** last_followup_date is stamped to today automatically whenever remark / details are saved. */
 
 /** Only the editable fields are written; nothing else on the quotation is touched. */
-function editablePayload(draft) {
+function editablePayload(draft, { stampFollowup = true } = {}) {
   return {
     offer_status: draft.offer_status || 'Draft',
-    last_followup_date: normalizeToIsoDate(draft.last_followup_date) || null,
+    // Current system date when the user edited remark/details; keep existing if nothing changed.
+    last_followup_date: stampFollowup
+      ? localTodayIso()
+      : normalizeToIsoDate(draft.last_followup_date) || localTodayIso(),
     next_followup_date: normalizeToIsoDate(draft.next_followup_date) || null,
-    remark: draft.remark != null ? String(draft.remark).trim() || null : null,
+    remark: draft.remark != null ? String(draft.remark) || null : null,
     updated_at: new Date().toISOString(),
   };
 }
@@ -120,6 +124,17 @@ export default function QuotationDetailDrawer({
 
   const setField = (key, value) => setDraft((prev) => ({ ...prev, [key]: value }));
 
+  const detailsDirty = Boolean(
+    draft &&
+      row &&
+      (String(draft.remark ?? '') !== String(row.remark ?? '') ||
+        String(draft.offer_status ?? '') !== String(row.offer_status ?? '') ||
+        String(draft.next_followup_date ?? '') !== String(row.next_followup_date ?? ''))
+  );
+  const lastFollowupDisplayIso = detailsDirty
+    ? localTodayIso()
+    : normalizeToIsoDate(row?.last_followup_date) || '';
+
   const saveDetails = async () => {
     if (!draft?.id) return;
     setSaving(true);
@@ -147,7 +162,9 @@ export default function QuotationDetailDrawer({
         } catch (err) {
           throw new Error(orderLostErrorMessage(err, 'Could not send the Order Lost request. Please try again.'));
         }
-        const rest = editablePayload({ ...draft, offer_status: prevStatus });
+        const rest = {
+          ...editablePayload({ ...draft, offer_status: prevStatus }, { stampFollowup: true }),
+        };
         const { error: restErr } = await projectsTable('quotations').update(rest).eq('id', draft.id);
         if (restErr) throw restErr;
         await load();
@@ -163,7 +180,13 @@ export default function QuotationDetailDrawer({
         return;
       }
 
-      const payload = editablePayload(draft);
+      const payload = editablePayload(draft, {
+        stampFollowup: detailsDirty || Boolean(statusRemark.trim()),
+      });
+      // When nothing was edited, do not overwrite Last Follow-up Date on the row.
+      if (!(detailsDirty || statusRemark.trim())) {
+        delete payload.last_followup_date;
+      }
       if (statusRemark.trim() && prevStatus !== nextStatus) {
         payload.remark = [String(draft.remark || '').trim() || null, `[Status → ${nextStatus}] ${statusRemark.trim()}`]
           .filter(Boolean)
@@ -515,11 +538,19 @@ export default function QuotationDetailDrawer({
                     </Field>
                     <Field label="Last Followup">
                       {editing ? (
-                        <DateInput
-                          className={qInput}
-                          value={draft.last_followup_date || ''}
-                          onChange={(v) => setField('last_followup_date', v)}
-                        />
+                        <>
+                          <input
+                            className={`${qInput} bg-slate-100 text-slate-600`}
+                            readOnly
+                            value={formatDisplayDate(lastFollowupDisplayIso) || '—'}
+                            title="Updates to today’s system date when you edit remark or details, then save"
+                          />
+                          <span className="mt-0.5 block text-[10px] text-slate-500">
+                            {detailsDirty
+                              ? 'Will save as today’s system date (set when you edited)'
+                              : 'Edit remark or details — then this date switches to today automatically'}
+                          </span>
+                        </>
                       ) : (
                         <ReadVal>{formatDisplayDate(row.last_followup_date)}</ReadVal>
                       )}
