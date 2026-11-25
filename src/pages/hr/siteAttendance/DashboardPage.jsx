@@ -2,7 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "../../../lib/toast";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { FilterBar, KpiTile, PageTaskHeader, SectionCard, TinySelect } from "../../../components/erpUi";
-import { categorizeAttendanceRecord, emptyMetrics } from "../../../lib/siteAttendance/attendanceRules";
+import {
+  categorizeAttendanceRecord,
+  emptyMetrics,
+  getOtDutyContribution,
+  roundDutyTotal,
+} from "../../../lib/siteAttendance/attendanceRules";
 import { filterSitesByType } from "../../../lib/siteAttendance/siteTypes";
 import { getSite, listAllSites, listAttendance, listSiteDesignations, userFriendlyError } from "../../../lib/siteAttendance/siteAttendanceApi";
 import { siteIdsForQuery } from "../../../lib/siteAttendance/siteAttendanceAccess";
@@ -75,15 +80,20 @@ export default function DashboardPage() {
           const day = String(rec.att_date).slice(8, 10);
           if (!daily[day]) daily[day] = { present: 0 };
           if (cat === "present" || cat === "half") daily[day].present += cat === "half" ? 0.5 : 1;
+          // OT also counts toward on-duty / shortfall (same rule as grid Duty total)
+          daily[day].present += getOtDutyContribution(rec.ot_hours, full);
         });
       }
       setMetrics(totals);
       setCodeBars(Object.entries(codeCounts).map(([label, value]) => ({ label, value })));
-      const trend = Object.keys(daily).sort().map((day) => ({
-        label: day,
-        onDuty: daily[day].present,
-        shortfall: strength ? Math.max(0, strength - daily[day].present) : 0,
-      }));
+      const trend = Object.keys(daily).sort().map((day) => {
+        const onDuty = roundDutyTotal(daily[day].present);
+        return {
+          label: day,
+          onDuty,
+          shortfall: strength ? Math.max(0, roundDutyTotal(strength - onDuty)) : 0,
+        };
+      });
       setShortfall(trend);
       const values = trend.map((t) => t.shortfall);
       const { slope, intercept } = linearRegression(values);

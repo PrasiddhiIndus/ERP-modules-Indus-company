@@ -12,7 +12,10 @@ import {
 } from "../../../lib/siteAttendance/multiDesignation";
 import {
   buildSiteRosterFromAssignments,
+  getDutyContribution,
+  getOtDutyContribution,
   personIsVisibleInAttendanceMonth,
+  roundDutyTotal,
 } from "../../../lib/siteAttendance/attendanceRules";
 import {
   ensureGridPlacements,
@@ -101,9 +104,8 @@ export default function SummaryPage() {
         const emps = byDesig[designation];
         const authDuty = emps.length * dim;
         let dutyPerf = 0;
-        let otTotal = 0;
+        let otDisplay = 0;
         let woCount = 0;
-        let otDays = 0;
         emps.forEach((employee) => {
           const joiningDate = parseDateOnlyLocal(employee.joining_date);
           const gridDesig = employee.grid_designation || employee.designation;
@@ -116,18 +118,15 @@ export default function SummaryPage() {
               : map[`${employee.id}_${dateStr}`];
             if (!record) continue;
             const code = String(record.att_code || "").trim().toUpperCase();
-            if (code === "P") dutyPerf++;
+            dutyPerf += getDutyContribution(code);
             if (code === "WO") woCount++;
-            if (record.ot_hours) {
-              otTotal += record.ot_hours || 0;
-              if (record.ot_hours > 0) otDays++;
-            }
+            // Same OT→duty conversion as attendance grid Duty total (designation-scoped)
+            otDisplay += getOtDutyContribution(record.ot_hours, site);
           }
         });
-        let otDisplay = 0;
-        if (site.regular_ot) otDisplay = otDays;
-        else otDisplay = Math.round((otTotal / 8) * 100) / 100;
-        const total = dutyPerf + otDisplay + woCount;
+        dutyPerf = roundDutyTotal(dutyPerf);
+        otDisplay = roundDutyTotal(otDisplay);
+        const total = roundDutyTotal(dutyPerf + otDisplay + woCount);
         const saved = remarksMap[designation] || {};
         const customDays = saved.custom_days || null;
         const auth = customDays || authDuty;
