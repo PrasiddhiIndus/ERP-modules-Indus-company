@@ -5,12 +5,16 @@ import { filterEmptyCostingItems, dedupeCostingItemsById, pruneCostingCellData, 
 import { sanitizePdfText } from '../utils/pdfTextSanitize';
 import {
   WORKING_COST_SHEET_OPTIONS,
+  WORKING_COST_TONES,
   normalizeWorkingCostSheetType,
   workingCostSheetLabel,
   getWorkingCostColumns,
   getManualInputIds,
   computeWorkingCostRow,
   costingDataLooksLegacy,
+  internationalSheetBands,
+  itemColumnLabel,
+  totalRowLabel,
 } from '../utils/workingCostSheets';
 
 import { toast } from "../../../lib/toast";
@@ -939,7 +943,10 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   }
 
   const workingSheet = sheetType === 'domestic' || sheetType === 'international';
+  const isInternational = sheetType === 'international';
+  const internationalBands = isInternational ? internationalSheetBands(costHeads) : [];
   const sheetTitle = workingCostSheetLabel(sheetType);
+  const toneFill = (tone) => (tone && WORKING_COST_TONES[tone]) || null;
   const chooseSheet = (type) => {
     const next = normalizeWorkingCostSheetType(type);
     if (!next || next === sheetType) return;
@@ -966,9 +973,23 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
           <h3 className="text-sm font-semibold text-gray-900">Costing Sheet</h3>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <p className="text-[11px] text-gray-500">Items as rows, cost heads as columns.</p>
-            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-red-50 text-red-800 border border-red-200">
-              Tint = Manual entry
-            </span>
+            {isInternational ? (
+              <>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium border border-sky-200" style={{ background: WORKING_COST_TONES.blue }}>
+                  Blue = entry
+                </span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium border border-amber-200" style={{ background: WORKING_COST_TONES.yellow }}>
+                  Yellow = formula
+                </span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium border border-emerald-200" style={{ background: WORKING_COST_TONES.green }}>
+                  Green = key total
+                </span>
+              </>
+            ) : (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-red-50 text-red-800 border border-red-200">
+                Tint = Manual entry
+              </span>
+            )}
           </div>
           <p className="text-[11px] text-gray-500 mt-1">{sheetHint}</p>
         </div>
@@ -1048,31 +1069,74 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
             <col style={{ width: '32px', minWidth: '32px' }} />
           </colgroup>
           <thead>
-            <tr className="bg-gradient-to-r from-gray-100 to-gray-200 border-b-2 border-gray-400">
+            {isInternational && internationalBands.length ? (
+              <tr>
+                <th
+                  className="px-1 py-1.5 text-center text-[10px] font-bold text-white border-r border-red-900 sticky left-0 z-20"
+                  style={{ background: '#C00000' }}
+                  colSpan={2}
+                >
+                  #
+                </th>
+                {internationalBands.map((band) => (
+                  <th
+                    key={band.id}
+                    colSpan={band.columns.length}
+                    className="px-1.5 py-1.5 text-center text-[11px] font-bold text-white border-r border-red-900 tracking-wide"
+                    style={{ background: band.color }}
+                  >
+                    {band.label}
+                  </th>
+                ))}
+                <th className="border-l border-red-900" style={{ background: '#C00000' }} />
+              </tr>
+            ) : null}
+            <tr className={isInternational ? '' : 'bg-gradient-to-r from-gray-100 to-gray-200 border-b-2 border-gray-400'}>
               <th
-                className="px-1.5 py-2 text-center text-[10px] font-bold text-gray-800 border-r border-gray-400 sticky left-0 z-10 whitespace-nowrap align-middle bg-gradient-to-r from-gray-100 to-gray-200"
+                className={`px-1.5 py-2 text-center text-[10px] font-bold border-r border-gray-400 sticky left-0 z-10 whitespace-nowrap align-middle ${
+                  isInternational ? 'text-gray-900' : 'text-gray-800 bg-gradient-to-r from-gray-100 to-gray-200'
+                }`}
+                style={isInternational ? { background: WORKING_COST_TONES.blue } : undefined}
                 title="Serial Number"
               >
-                Sr. No.
+                {isInternational ? '#' : 'Sr. No.'}
               </th>
               <th
-                className="px-1.5 py-2 text-left text-[10px] font-bold text-gray-800 border-r border-gray-400 sticky z-10 align-middle bg-gradient-to-r from-gray-100 to-gray-200 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]"
-                style={{ left: '36px' }}
+                className={`px-1.5 py-2 text-left text-[10px] font-bold border-r border-gray-400 sticky z-10 align-middle shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)] ${
+                  isInternational ? 'text-gray-900' : 'text-gray-800 bg-gradient-to-r from-gray-100 to-gray-200'
+                }`}
+                style={{ left: '36px', ...(isInternational ? { background: WORKING_COST_TONES.blue } : {}) }}
                 title="Item name"
               >
-                Item Name
+                {isInternational ? itemColumnLabel('international') : 'Item Name'}
               </th>
-              {costHeads.map((head) => (
-                <th
-                  key={head.id}
-                  className={`px-1.5 py-2 text-[10px] font-bold text-gray-800 border-r border-gray-400 align-middle bg-gradient-to-r from-gray-100 to-gray-200 ${head.isCalculated ? 'text-right' : 'text-center'}`}
-                  title={head.label}
-                  style={{ minWidth: head.id.includes('_pct') || head.id === 'gst_pct' ? '72px' : '96px', maxWidth: '120px', whiteSpace: 'normal', lineHeight: 1.2 }}
-                >
-                  <span className={head.isCalculated ? 'font-bold' : ''}>{head.label}</span>
-                </th>
-              ))}
-              <th className="px-1 py-1.5 w-8 border-l border-gray-400 z-10 bg-gradient-to-r from-gray-100 to-gray-200"></th>
+              {costHeads.map((head) => {
+                const fill = isInternational ? toneFill(head.tone) : null;
+                return (
+                  <th
+                    key={head.id}
+                    className={`px-1.5 py-2 text-[10px] font-bold border-r border-gray-400 align-middle ${
+                      head.isCalculated ? 'text-right' : 'text-center'
+                    } ${isInternational ? 'text-gray-900' : 'text-gray-800 bg-gradient-to-r from-gray-100 to-gray-200'}`}
+                    title={head.label}
+                    style={{
+                      minWidth: head.id.includes('_pct') || head.id === 'gst_pct' ? '72px' : '96px',
+                      maxWidth: '130px',
+                      whiteSpace: 'normal',
+                      lineHeight: 1.2,
+                      ...(fill ? { background: fill } : {}),
+                    }}
+                  >
+                    <span className={head.isCalculated ? 'font-bold' : ''}>{head.label}</span>
+                  </th>
+                );
+              })}
+              <th
+                className={`px-1 py-1.5 w-8 border-l border-gray-400 z-10 ${
+                  isInternational ? '' : 'bg-gradient-to-r from-gray-100 to-gray-200'
+                }`}
+                style={isInternational ? { background: WORKING_COST_TONES.blue } : undefined}
+              />
             </tr>
           </thead>
           <tbody>
@@ -1206,12 +1270,20 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                   const numericValue = parseFloat(cellValue) || 0;
                   const isText = head.inputType === 'text';
                   const isManualEntry = !head.isCalculated;
-                  const moneyPrefix = head.money === 'usd' ? '$' : '₹';
+                  const isPctHead = head.id.includes('_pct') || head.id === 'gst_pct';
+                  const moneyPrefix = head.money === 'usd' ? '$' : (head.money === 'inr' || head.isCalculated ? '₹' : '');
+                  const intlFill = isInternational ? toneFill(head.tone) : null;
+                  const cellBgClass = isInternational
+                    ? ''
+                    : isManualEntry
+                      ? 'costing-manual-entry bg-red-50'
+                      : 'bg-white';
 
                   return (
                     <td
                       key={`${item.id}_${head.id}`}
-                      className={`px-1.5 py-1 border-r border-gray-400 align-middle ${isManualEntry ? 'costing-manual-entry bg-red-50' : 'bg-white'}`}
+                      className={`px-1.5 py-1 border-r border-gray-400 align-middle ${cellBgClass}`}
+                      style={intlFill ? { background: intlFill } : undefined}
                     >
                       {head.isCalculated ? (
                         <div className="text-xs font-semibold text-gray-900 text-right whitespace-nowrap">
@@ -1225,7 +1297,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                             type="text"
                             value={cellValue}
                             onChange={(e) => setCellValue(item.id, head.id, e.target.value)}
-                            className="w-full px-1 py-0.5 border border-red-300 text-xs focus:outline-none focus:border-red-500 rounded bg-white"
+                            className="w-full px-1 py-0.5 border border-sky-400 text-xs focus:outline-none focus:border-sky-600 rounded bg-white/90"
                             placeholder="Enter"
                           />
                         )
@@ -1253,7 +1325,11 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                           title={isViewMode ? 'Read only' : 'Manual entry - click to edit'}
                         >
                           {cellValue !== '' && cellValue != null ? (
-                            <span>{head.money === 'usd' ? '$' : ''}{formatNumber(numericValue, head.money ? 2 : null)}</span>
+                            <span>
+                              {!isPctHead && head.money === 'usd' ? '$' : ''}
+                              {formatNumber(numericValue, head.money || isPctHead ? 2 : null)}
+                              {isPctHead ? '%' : ''}
+                            </span>
                           ) : (
                             <span className="text-gray-500 text-[10px]">Enter</span>
                           )}
@@ -1301,7 +1377,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
             <tr className="text-gray-900 font-bold border-t-2 border-gray-500">
               <td className="px-1 py-1 text-xs border-r border-gray-400 sticky z-20 bg-gradient-to-r from-gray-200 to-gray-300" style={{ left: 0 }}></td>
               <td className="px-1 py-1 text-xs border-r border-gray-400 sticky z-20 font-semibold bg-gradient-to-r from-gray-200 to-gray-300" style={{ left: '36px' }}>
-                Grand Total
+                {isInternational ? totalRowLabel('international') : workingSheet ? totalRowLabel('domestic') : 'Grand Total'}
               </td>
               {costHeads.map((head) => {
                 const showSum = workingSheet ? head.sumTotal : head.id === 'grand_total_supply_cost_with_gst';
