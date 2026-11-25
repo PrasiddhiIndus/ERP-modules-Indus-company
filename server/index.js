@@ -364,6 +364,9 @@ const IS_PRODUCTION = String(process.env.NODE_ENV || '').toLowerCase() === 'prod
 const debugInvoiceSnapshots = new Map();
 const DEBUG_SNAPSHOT_MAX = 200;
 
+// nginx terminates TLS and sets X-Forwarded-*; required for rate-limit + client IP.
+app.set('trust proxy', 1);
+
 const corsOrigins = String(process.env.CORS_ORIGINS || '')
   .split(',')
   .map((s) => s.trim())
@@ -425,10 +428,20 @@ const apiRateLimit = rateLimit({
     const path = String(req.originalUrl || req.url || '').split('?')[0];
     // Leave inbox is one HR dashboard read; do not count it toward the global cap
     // (list + counts + Strict Mode + realtime used to 429 and fall back to slow RLS).
-    return (
+    if (
       req.method === 'GET' &&
       (path === '/api/admin/leave-requests' || path === '/api/admin/tour-requests')
-    );
+    ) {
+      return true;
+    }
+    // Public candidate/employee portals have their own limiter — keep them off the ERP cap.
+    if (
+      path.startsWith('/api/recruitment-portal/') ||
+      path.startsWith('/api/employee-document-portal/')
+    ) {
+      return true;
+    }
+    return false;
   },
 });
 const einvoiceRateLimit = rateLimit({

@@ -201,16 +201,45 @@ export function registerAdminRecruitmentRoutes(app, deps) {
     const safe = sanitizeFileName(name);
     const objectKey = `${KEY_PREFIX}${candidateId}/${category}/${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${safe}`;
     const contentType = CONTENT_TYPES[ext] || 'application/octet-stream';
-    await putObject(objectKey, file.buffer, contentType);
+    try {
+      await putObject(objectKey, file.buffer, contentType);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[admin-recruitment] R2 put failed:', err?.message || err);
+      throw httpError(503, 'Could not store the file. Please try again in a moment.');
+    }
     return { objectKey, fileName: safe, contentType, size: file.size || file.buffer.length };
   };
 
   const withUpload = (req, res, next) => {
+    // JSON/base64 fallback from the candidate portal skips multer.
+    if (String(req.headers['content-type'] || '').includes('application/json')) return next();
     upload.single('file')(req, res, (err) => {
       if (!err) return next();
       if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ message: 'The file is too large (max 25 MB).' });
       return res.status(400).json({ message: err.message || 'Upload failed.' });
     });
+  };
+
+  const fileFromPortalBody = (req) => {
+    if (req.file?.buffer) return req.file;
+    const b64 = String(req.body?.contentBase64 || '').trim();
+    if (!b64) return null;
+    let buffer;
+    try {
+      buffer = Buffer.from(b64, 'base64');
+    } catch {
+      throw httpError(400, 'The uploaded file could not be read. Please try again.');
+    }
+    if (!buffer.length) throw httpError(400, 'Choose a file to upload.');
+    if (buffer.length > 25 * 1024 * 1024) throw httpError(400, 'The file is too large (max 25 MB).');
+    const fileName = String(req.body?.fileName || 'upload.bin').trim() || 'upload.bin';
+    return {
+      buffer,
+      originalname: fileName,
+      size: buffer.length,
+      mimetype: String(req.body?.contentType || '').trim() || undefined,
+    };
   };
 
   /** Last 10 digits for matching Employee Master personal_no / candidate phone. */
@@ -1018,13 +1047,14 @@ export function registerAdminRecruitmentRoutes(app, deps) {
       const hash = tokenHashFrom(req);
       const kind = String(req.body?.kind || '').trim();
       if (!['appointment_signed', 'document', 'offer_signed'].includes(kind)) throw httpError(400, 'Unknown upload type.');
-      if (!req.file?.buffer) throw httpError(400, 'Choose a file to upload.');
+      const uploaded = fileFromPortalBody(req);
+      if (!uploaded?.buffer) throw httpError(400, 'Choose a file to upload.');
       const svc = serviceClient();
       const info = await rpc(svc, 'admin_recruitment_portal_resolve', { p_token_hash: hash });
       const candidateId = info?.candidateId || info?.candidate_id;
       if (!isUuid(candidateId)) throw httpError(400, 'This link could not be verified for upload.');
       const category = kind === 'document' ? 'document' : kind === 'offer_signed' ? 'offer' : 'appointment';
-      const file = await storeUpload(candidateId, category, req.file, req.body?.fileName || req.file.originalname);
+      const file = await storeUpload(candidateId, category, uploaded, req.body?.fileName || uploaded.originalname);
       await rpc(svc, 'admin_recruitment_portal_attach', {
         p_token_hash: hash,
         p_kind: kind,
