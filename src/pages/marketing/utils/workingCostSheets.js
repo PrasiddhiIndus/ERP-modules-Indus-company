@@ -68,35 +68,65 @@ export const DOMESTIC_COST_COLUMNS = [
   col({ id: 'total_with_gst', label: 'TOTAL AMOUNT WITH GST', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true }),
 ];
 
+/**
+ * International Procurement — Rate Workout (IMPORT COST + SUPPLY COST).
+ * Blue = input, yellow = formula, green = key totals, purple = per unit rate.
+ * Formulas match Cost_Sheet_Columns_and_Formulas.pdf (AM uses qty D, not clearance V).
+ */
 export const INTERNATIONAL_COST_COLUMNS = [
-  col({ id: 'hsn_code', label: 'HSN Code', tone: 'blue', inputType: 'text' }),
-  col({ id: 'qty', label: 'Item Qty', tone: 'blue', sumTotal: true }),
-  col({ id: 'item_cost_dollar', label: 'Item Cost (DOLLAR)', tone: 'blue', money: 'usd', sumTotal: true }),
-  col({ id: 'discount_from_vendor', label: 'Discount From Vendor', tone: 'blue', money: 'usd', sumTotal: true }),
-  col({ id: 'discounted_item_cost', label: 'Discounted Item Cost', tone: 'yellow', isCalculated: true, money: 'usd', sumTotal: true }),
-  col({ id: 'currency_rate', label: 'Currency Rate (INR)', tone: 'blue', money: 'inr' }),
-  col({ id: 'per_item_cost_inr', label: 'Per Item Cost (INR)', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true }),
-  col({ id: 'total_consignment_cost', label: 'Total Consignment Cost (INR)', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true }),
-  col({ id: 'duty_pct', label: 'Duty %', tone: 'blue', group: 'import' }),
-  col({ id: 'duty_amount', label: 'Duty Amount', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, group: 'import' }),
-  col({ id: 'sws_pct', label: 'SWS %', tone: 'blue', group: 'import' }),
-  col({ id: 'sws_amount', label: 'SWS Amount', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, group: 'import' }),
-  col({ id: 'aidc_pct', label: 'AIDC %', tone: 'blue', group: 'import' }),
-  col({ id: 'aidc_amount', label: 'AIDC Amount', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, group: 'import' }),
-  col({ id: 'igst_pct', label: 'IGST %', tone: 'blue', group: 'import' }),
-  col({ id: 'igst_amount', label: 'IGST Amount', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, group: 'import' }),
-  col({ id: 'penalty_amount', label: 'Penalty Amount', tone: 'blue', money: 'inr', sumTotal: true, group: 'import' }),
-  col({ id: 'warehouse_charge', label: 'Warehouse Charge', tone: 'blue', money: 'inr', sumTotal: true, group: 'import' }),
-  col({ id: 'bonded_storage', label: 'Bonded Storage', tone: 'blue', money: 'inr', sumTotal: true, group: 'import' }),
-  col({ id: 'clearance_charge', label: 'Clearance Charge', tone: 'blue', money: 'inr', sumTotal: true, group: 'import' }),
-  col({ id: 'disbursement_fee', label: 'Disbursement Fee', tone: 'blue', money: 'inr', sumTotal: true, group: 'import' }),
-  col({ id: 'transportation_dhl', label: 'Transportation - DHL', tone: 'blue', money: 'inr', sumTotal: true, group: 'import' }),
-  col({ id: 'total_import_cost', label: 'Total Import Cost', tone: 'green', isCalculated: true, money: 'inr', sumTotal: true }),
-  col({ id: 'logistic_pct', label: 'LOGISTIC %', tone: 'blue', headerTone: 'green' }),
-  col({ id: 'logistic_amount', label: 'LOGISTIC AMOUNT', tone: 'green', isCalculated: true, money: 'inr', sumTotal: true }),
-  col({ id: 'transit_insurance_pct', label: 'TRANSIT INSURANCE %', tone: 'blue' }),
-  col({ id: 'transit_insurance_amount', label: 'TRANSIT INSURANCE AMOUNT', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true }),
+  // —— IMPORT COST ——
+  col({ id: 'hsn_code', label: 'HSN Code', tone: 'blue', inputType: 'text', band: 'import' }),
+  col({ id: 'qty', label: 'Item Qty', tone: 'blue', sumTotal: true, band: 'import' }),
+  col({ id: 'item_cost_dollar', label: 'Item Cost (DOLLAR)', tone: 'blue', money: 'usd', sumTotal: true, band: 'import' }),
+  col({ id: 'discount_from_vendor', label: 'Discount From Vendor', tone: 'blue', money: 'usd', sumTotal: true, band: 'import' }),
+  col({ id: 'discounted_item_cost', label: 'Discounted Item Cost', tone: 'yellow', isCalculated: true, money: 'usd', sumTotal: true, band: 'import' }),
+  col({ id: 'currency_rate', label: 'Currency Rate (INR)', tone: 'blue', money: 'inr', band: 'import' }),
+  col({ id: 'per_item_cost_inr', label: 'Per Item Cost (INR)', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, band: 'import' }),
+  col({ id: 'total_consignment_cost', label: 'Total Consignment Cost (INR)', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, band: 'import' }),
+  col({ id: 'duty_pct', label: 'Duty %', tone: 'blue', band: 'import' }),
+  col({ id: 'duty_amount', label: 'Duty Amount', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, band: 'import' }),
+  col({ id: 'sws_pct', label: 'SWS %', tone: 'blue', band: 'import' }),
+  col({ id: 'sws_amount', label: 'SWS Amount', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, band: 'import' }),
+  col({ id: 'aidc_pct', label: 'AIDC %', tone: 'blue', band: 'import' }),
+  col({ id: 'aidc_amount', label: 'AIDC Amount', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, band: 'import' }),
+  col({ id: 'igst_pct', label: 'IGST %', tone: 'blue', band: 'import' }),
+  col({ id: 'igst_amount', label: 'IGST Amount', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, band: 'import' }),
+  col({ id: 'penalty_amount', label: 'Penalty Amount', tone: 'blue', money: 'inr', sumTotal: true, band: 'import' }),
+  col({ id: 'warehouse_charge', label: 'Warehouse Charge', tone: 'blue', money: 'inr', sumTotal: true, band: 'import' }),
+  col({ id: 'bonded_storage', label: 'Bonded Storage', tone: 'blue', money: 'inr', sumTotal: true, band: 'import' }),
+  col({ id: 'clearance_charge', label: 'Clearance Charge', tone: 'blue', money: 'inr', sumTotal: true, band: 'import' }),
+  col({ id: 'disbursement_fee', label: 'Disbursement Fee', tone: 'blue', money: 'inr', sumTotal: true, band: 'import' }),
+  col({ id: 'transportation_dhl', label: 'Transportation- DHL', tone: 'blue', money: 'inr', sumTotal: true, band: 'import' }),
+  col({ id: 'total_import_cost', label: 'Total Import Cost', tone: 'green', isCalculated: true, money: 'inr', sumTotal: true, band: 'import' }),
+  // —— SUPPLY COST ——
+  col({ id: 'logistic_pct', label: 'LOGISTIC %', tone: 'blue', band: 'supply' }),
+  col({ id: 'logistic_amount', label: 'LOGISTIC AMOUNT', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, band: 'supply' }),
+  col({ id: 'transit_insurance_pct', label: 'TRANSIST INSURANCE %', tone: 'blue', band: 'supply' }),
+  col({ id: 'transit_insurance_amount', label: 'TRANSIST INSURANCE AMOUNT', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, band: 'supply' }),
+  col({ id: 'packing_forwarding_pct', label: 'PACKING & FORWARDING %', tone: 'blue', band: 'supply' }),
+  col({ id: 'packing_forwarding_amount', label: 'PACKING & FORWARDING AMOUNT', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, band: 'supply' }),
+  col({ id: 'base_price', label: 'BASE PRICE', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, band: 'supply' }),
+  col({ id: 'margin_pct', label: 'MARGIN %', tone: 'blue', band: 'supply' }),
+  col({ id: 'margin_amount', label: 'MARGIN AMOUNT', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, band: 'supply' }),
+  col({ id: 'per_unit_rate', label: 'PER UNIT RATE', tone: 'purple', isCalculated: true, money: 'inr', sumTotal: true, band: 'supply' }),
+  col({ id: 'incentive_pct', label: 'INCENTIVE PERCENTAGE %', tone: 'blue', band: 'supply' }),
+  col({ id: 'incentive_amount', label: 'INCENTIVE AMOUNT', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, band: 'supply' }),
+  col({ id: 'rate_to_quote', label: 'RATE TO BE QUOTED', tone: 'green', isCalculated: true, money: 'inr', sumTotal: true, band: 'supply' }),
+  col({ id: 'total_without_gst', label: 'TOTAL AMOUNT WITHOUT GST', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, band: 'supply' }),
+  col({ id: 'gst_pct', label: 'GST %', tone: 'blue', band: 'supply' }),
+  col({ id: 'gst_amount', label: 'GST AMOUNT', tone: 'yellow', isCalculated: true, money: 'inr', sumTotal: true, band: 'supply' }),
+  col({ id: 'total_with_gst', label: 'TOTAL AMOUNT WITH GST', tone: 'green', isCalculated: true, money: 'inr', sumTotal: true, band: 'supply' }),
 ];
+
+/** Top banner bands for International Procurement (IMPORT COST | SUPPLY COST). */
+export function internationalSheetBands(columns = INTERNATIONAL_COST_COLUMNS) {
+  const importCols = columns.filter((c) => c.band === 'import');
+  const supplyCols = columns.filter((c) => c.band === 'supply');
+  return [
+    { id: 'import', label: 'IMPORT COST', color: '#C00000', columns: importCols },
+    { id: 'supply', label: 'SUPPLY COST', color: '#C00000', columns: supplyCols },
+  ].filter((b) => b.columns.length > 0);
+}
 
 export function getWorkingCostColumns(type) {
   if (type === 'international') return INTERNATIONAL_COST_COLUMNS;
@@ -129,6 +159,9 @@ const money = (value) => {
   if (!Number.isFinite(n)) return '0.00';
   return (Math.round(n * 100) / 100).toFixed(2);
 };
+
+/** Round to paise/cents like Excel displayed cells (avoids 10828.755 × 10 drift). */
+const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
 const pctOf = (base, percent) => (Number(base) || 0) * ((Number(percent) || 0) / 100);
 
@@ -176,34 +209,42 @@ function computeDomestic(getVal) {
 }
 
 /**
- * International:
- * discounted $ = item cost − vendor discount
- * per item INR = discounted $ × currency rate
- * consignment = per item INR × qty
- * duty / SWS / AIDC / IGST amounts are each a percent of consignment cost
- * total import = consignment + those duties + penalty, warehouse, bonded storage,
- * clearance, disbursement, and transportation
- * logistic and transit insurance amounts are a percent of total import cost
+ * International Procurement (Rate Workout PDF):
+ * G = E − F (discounted $)
+ * I = G × H (per item INR)
+ * J = I × D (consignment)
+ * L/N/P/R = J × % (duty / SWS / AIDC / IGST)
+ * Y = J + L + N + P + R + S + T + U + V + W + X
+ * AA/AC/AE = Y × % (logistic / transit insurance / packing & forwarding)
+ * AF = Y + AA + AC + AE (base price)
+ * AH = AF × margin %
+ * AI = (AF + AH) / D (per unit rate)
+ * AK = AI × incentive %
+ * AL = AI + AK (rate to be quoted)
+ * AM = AL × D (total without GST — qty, not clearance charge)
+ * AO = AM × GST %
+ * AP = AM + AO
  */
 function computeInternational(getVal) {
   const qty = Math.max(0, getVal('qty'));
   const itemCost = getVal('item_cost_dollar');
   const discount = getVal('discount_from_vendor');
-  const discounted = Math.max(0, itemCost - discount);
+  const discounted = round2(Math.max(0, itemCost - discount));
   const currencyRate = getVal('currency_rate');
-  const perItemInr = discounted * currencyRate;
-  const consignment = perItemInr * qty;
-  const dutyAmount = pctOf(consignment, getVal('duty_pct'));
-  const swsAmount = pctOf(consignment, getVal('sws_pct'));
-  const aidcAmount = pctOf(consignment, getVal('aidc_pct'));
-  const igstAmount = pctOf(consignment, getVal('igst_pct'));
+  const perItemInr = round2(discounted * currencyRate);
+  const consignment = round2(perItemInr * qty);
+  const dutyAmount = round2(pctOf(consignment, getVal('duty_pct')));
+  const swsAmount = round2(pctOf(consignment, getVal('sws_pct')));
+  const aidcAmount = round2(pctOf(consignment, getVal('aidc_pct')));
+  const igstAmount = round2(pctOf(consignment, getVal('igst_pct')));
   const penalty = getVal('penalty_amount');
   const warehouse = getVal('warehouse_charge');
   const bonded = getVal('bonded_storage');
   const clearance = getVal('clearance_charge');
   const disbursement = getVal('disbursement_fee');
   const transportation = getVal('transportation_dhl');
-  const totalImport = consignment
+  const totalImport = round2(
+    consignment
     + dutyAmount
     + swsAmount
     + aidcAmount
@@ -213,11 +254,20 @@ function computeInternational(getVal) {
     + bonded
     + clearance
     + disbursement
-    + transportation;
-  const logisticAmount = pctOf(totalImport, getVal('logistic_pct'));
-  const transitAmount = pctOf(totalImport, getVal('transit_insurance_pct'));
-  const lineTotal = totalImport + logisticAmount + transitAmount;
-  const beforeIgst = Math.max(0, lineTotal - igstAmount);
+    + transportation
+  );
+  const logisticAmount = round2(pctOf(totalImport, getVal('logistic_pct')));
+  const transitAmount = round2(pctOf(totalImport, getVal('transit_insurance_pct')));
+  const packingAmount = round2(pctOf(totalImport, getVal('packing_forwarding_pct')));
+  const basePrice = round2(totalImport + logisticAmount + transitAmount + packingAmount);
+  const marginAmount = round2(pctOf(basePrice, getVal('margin_pct')));
+  const perUnitRate = qty > 0 ? round2((basePrice + marginAmount) / qty) : 0;
+  const incentiveAmount = round2(pctOf(perUnitRate, getVal('incentive_pct')));
+  const rateToQuote = round2(perUnitRate + incentiveAmount);
+  // AM = AL × Item Qty (PDF note: sheet used Clearance by mistake; quoting uses qty).
+  const totalWithoutGst = round2(rateToQuote * qty);
+  const gstAmount = round2(pctOf(totalWithoutGst, getVal('gst_pct')));
+  const totalWithGst = round2(totalWithoutGst + gstAmount);
 
   return {
     discounted_item_cost: money(discounted),
@@ -230,8 +280,17 @@ function computeInternational(getVal) {
     total_import_cost: money(totalImport),
     logistic_amount: money(logisticAmount),
     transit_insurance_amount: money(transitAmount),
-    grand_total_supply_cost_excl_gst: money(beforeIgst),
-    grand_total_supply_cost_with_gst: money(lineTotal),
+    packing_forwarding_amount: money(packingAmount),
+    base_price: money(basePrice),
+    margin_amount: money(marginAmount),
+    per_unit_rate: money(perUnitRate),
+    incentive_amount: money(incentiveAmount),
+    rate_to_quote: money(rateToQuote),
+    total_without_gst: money(totalWithoutGst),
+    gst_amount: money(gstAmount),
+    total_with_gst: money(totalWithGst),
+    grand_total_supply_cost_excl_gst: money(totalWithoutGst),
+    grand_total_supply_cost_with_gst: money(totalWithGst),
   };
 }
 
