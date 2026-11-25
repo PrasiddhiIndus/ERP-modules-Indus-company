@@ -21,7 +21,7 @@ const empsOf = sid => (S.emps[sid] && S.emps[sid].list) || [];
 /** Same site ids/names as Attendance / Site Master (`sites` table). */
 const attSiteId = row => String(row && row.id != null ? row.id : '');
 /**
- * Process salary top lane: HR-Fire → Fire sites; HR-Site → Safety sites.
+ * Process salary top lane: HR-Fire → Fire sites; HR-Safety → Safety sites.
  * Same `hr_selected_site_type` key as Site Attendance so both stay in sync.
  */
 function attendanceSiteTypeFilter() {
@@ -570,7 +570,7 @@ async function loadSiteAttSummary(siteId) {
   if (attRow && attRow.site_type && attRow.site_type !== laneType) {
     const wrong = {
       ok: false,
-      error: `This site is ${attRow.site_type}. Switch to ${attRow.site_type === 'Safety' ? 'HR-Site' : 'HR-Fire'} to load its attendance.`,
+      error: `This site is ${attRow.site_type}. Switch to ${attRow.site_type === 'Safety' ? 'HR-Safety' : 'HR-Fire'} to load its attendance.`,
     };
     S.proc.attSummaryKey = key;
     S.proc.attSummary = wrong;
@@ -591,7 +591,7 @@ async function loadSiteAttSummary(siteId) {
     if (summary && summary.ok && summary.site && summary.site.site_type && summary.site.site_type !== laneType) {
       const wrong = {
         ok: false,
-        error: `Attendance is for ${summary.site.site_type} sites. Select ${summary.site.site_type === 'Safety' ? 'HR-Site' : 'HR-Fire'} above.`,
+        error: `Attendance is for ${summary.site.site_type} sites. Select ${summary.site.site_type === 'Safety' ? 'HR-Safety' : 'HR-Fire'} above.`,
       };
       S.proc.attSummaryKey = key;
       S.proc.attSummary = wrong;
@@ -953,9 +953,9 @@ function processSiteControls() {
         }).join('')}</div>
       </div>`
     : '';
-  const laneSwitch = `<div class="ps-lane" role="tablist" aria-label="HR Fire or HR Site">
+  const laneSwitch = `<div class="ps-lane" role="tablist" aria-label="HR Fire or HR Safety">
       <button type="button" class="ps-lane-btn ${lane === 'fire' ? 'on' : ''}" data-hr-lane="fire" role="tab" aria-selected="${lane === 'fire' ? 'true' : 'false'}">HR-Fire</button>
-      <button type="button" class="ps-lane-btn ${lane === 'site' ? 'on' : ''}" data-hr-lane="site" role="tab" aria-selected="${lane === 'site' ? 'true' : 'false'}">HR-Site</button>
+      <button type="button" class="ps-lane-btn ${lane === 'site' ? 'on' : ''}" data-hr-lane="site" role="tab" aria-selected="${lane === 'site' ? 'true' : 'false'}">HR-Safety</button>
     </div>`;
   return {
     focus,
@@ -987,7 +987,7 @@ function processSiteControls() {
         </div>
       </div>
       ${chips}
-      <p class="ps-help small muted">Pick HR-Fire or HR-Site first — site list and attendance come from that Site Attendance type only.</p>
+      <p class="ps-help small muted">Pick HR-Fire or HR-Safety first — site list and attendance come from that Site Attendance type only.</p>
     </div>`,
   };
 }
@@ -1003,7 +1003,7 @@ function bindProcessSiteControls(p) {
       render();
       toast(lane === 'fire'
         ? 'HR-Fire — showing Fire sites and attendance'
-        : 'HR-Site — showing Safety sites and attendance');
+        : 'HR-Safety — showing Safety sites and attendance');
     };
   });
   const trigger = $('#ps_trigger');
@@ -1185,7 +1185,7 @@ function vProcess(p) {
   }
   if (!processSiteList().length) {
     const type = attendanceSiteTypeFilter();
-    const laneLabel = type === 'Safety' ? 'HR-Site' : 'HR-Fire';
+    const laneLabel = type === 'Safety' ? 'HR-Safety' : 'HR-Fire';
     p.innerHTML = head + `<div class="card empty"><h2>No ${esc(type)} sites from Attendance</h2><p>Switch lane (${esc(laneLabel)}) or add sites under Site Attendance → Site Master with type <b>${esc(type)}</b>. Attendance for Process salary is loaded only for that type.</p></div>`;
     finishHead();
     return;
