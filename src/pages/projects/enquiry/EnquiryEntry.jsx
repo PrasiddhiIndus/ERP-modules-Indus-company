@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ClipboardList, FileClock, Loader2, RotateCcw, Save, Send, X } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ClipboardList, FileClock, Loader2, RotateCcw, Save, X } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import {
   applyEnquiryDefaults,
@@ -19,14 +19,6 @@ import {
   TARGET_WORKING_DAYS,
   withAutoTargetDate,
 } from './enquiryDeadlines';
-import {
-  DATE_APPROVAL_KEYS,
-  editErrorMessage,
-  hasDateApprovalValues,
-  requestEnquiryEdit,
-  stripDateApprovalKeys,
-} from './enquiryEditApi';
-import { canWriteEnquiryDatesOnCreate } from './enquiryRoles';
 import {
   clearAllDrafts,
   clearLocalDraft,
@@ -51,10 +43,6 @@ function formatDraftTime(iso) {
   return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-function hasDateValue(value) {
-  return Boolean(value != null && String(value).trim());
-}
-
 function Field({ field, children }) {
   return (
     <label className="block">
@@ -67,14 +55,12 @@ function Field({ field, children }) {
       {field.field_key === 'target_date' && (
         <p className="text-[11px] text-slate-400 mt-1">
           Set automatically to {TARGET_WORKING_DAYS} working days (Mon–Sat) after the assigned on date. You can change it.
-          Entering or changing Target Date sends it for L1 approval — it appears in the Enquiry Database only after
-          approval. If L1 rejects, the proposed date is discarded.
+          Later changes from Enquiry Database may need L1 approval.
         </p>
       )}
       {field.field_key === 'completed_on' && (
         <p className="text-[11px] text-slate-400 mt-1">
-          Entering or changing Completed Date sends it for L1 approval — it appears in the Enquiry Database only after
-          approval. If L1 rejects, the proposed date is discarded.
+          Saved with this enquiry. Later changes from Enquiry Database may need L1 approval.
         </p>
       )}
     </label>
@@ -85,10 +71,8 @@ const SECTION_ORDER = ['main', 'contact', 'assignment'];
 const FULL_WIDTH_KEYS = new Set(['scope_of_work']);
 
 export default function EnquiryEntry({ onSaved, onClose }) {
-  const { user, userProfile } = useAuth();
+  const { user } = useAuth();
   const userId = user?.id || null;
-  /** Admin / Super Admin only — Managers and staff send dates for L1 on create. */
-  const canSaveDatesDirect = canWriteEnquiryDatesOnCreate(userProfile);
   const {
     fields,
     entryFields,
@@ -167,17 +151,6 @@ export default function EnquiryEntry({ onSaved, onClose }) {
 
   const hasContent = hasDraftContent(form, baselineRef.current);
   const unsavedToServer = hasContent && formKey(form) !== serverKeyRef.current;
-
-  /**
-   * Reuses request_enquiry_edit for Target Date / Completed Date on Add Enquiry.
-   * Dates stay off the live Enquiry Database row until L1 approves.
-   */
-  const needsDateL1 = useMemo(() => {
-    if (canSaveDatesDirect) return false;
-    if (DATE_APPROVAL_KEYS.some((key) => hasDateValue(form[key]))) return true;
-    if (hasDateValue(form[TARGET_BASIS_KEY])) return true; // submit will auto-fill target_date
-    return false;
-  }, [canSaveDatesDirect, form]);
 
   // Autosave every change to this browser (per user) so refresh / switching modules loses nothing.
   useEffect(() => {
@@ -315,17 +288,11 @@ export default function EnquiryEntry({ onSaved, onClose }) {
 
     setSubmitting(true);
     try {
+      // Create saves straight to Enquiry Database — L1 approval is only for edit / delete later.
       let data = buildEnquiryDataPayload(form, entryFields);
       data = applyEnquiryDefaults(data, fields);
       if (!data.target_date && data[TARGET_BASIS_KEY]) {
         data.target_date = addWorkingDays(data[TARGET_BASIS_KEY]) || null;
-      }
-
-      // Hold Target Date / Completed Date off the live row until L1 (Managers + staff).
-      const proposedData = { ...data };
-      const datesPendingL1 = !canSaveDatesDirect && hasDateApprovalValues(proposedData);
-      if (datesPendingL1) {
-        data = stripDateApprovalKeys(data);
       }
 
       const { data: saved, error } = await projectsTable('enquiries')
@@ -338,36 +305,13 @@ export default function EnquiryEntry({ onSaved, onClose }) {
       await clearAllDrafts(userId);
       resetToBlank();
 
-      if (datesPendingL1 && saved?.id) {
-        try {
-          await requestEnquiryEdit(saved.id, proposedData, null);
-        } catch (reqErr) {
-          setMessage({
-            type: 'error',
-            text: `Enquiry #${saved.serial_number} was saved, but Target Date / Completed Date approval could not be sent: ${editErrorMessage(reqErr, projectsErrorMsg(reqErr, 'Send dates for approval'))}`,
-          });
-          if (onSaved) onSaved(saved);
-          return;
-        }
-      }
-
       if (onSaved) {
-        onSaved(
-          datesPendingL1
-            ? {
-                ...saved,
-                datesPendingL1: true,
-                notice: `Enquiry #${saved.serial_number} saved. Target Date / Completed Date sent for L1 approval and will appear in the Enquiry Database only after approval.`,
-              }
-            : saved
-        );
+        onSaved(saved);
         return;
       }
       setMessage({
         type: 'success',
-        text: datesPendingL1
-          ? `Enquiry #${saved.serial_number} saved. Target Date / Completed Date sent for L1 approval.`
-          : 'Enquiry saved successfully.',
+        text: 'Enquiry saved successfully.',
       });
     } catch (err) {
       setMessage({ type: 'error', text: projectsErrorMsg(err, 'Save enquiry') });
@@ -427,31 +371,10 @@ export default function EnquiryEntry({ onSaved, onClose }) {
             <button
               type="submit"
               disabled={submitting || loading || fieldsLoading}
-              title={
-                needsDateL1
-                  ? 'Target Date / Completed Date will be sent to your L1 manager and will not update the Enquiry Database until approved'
-                  : undefined
-              }
-              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold disabled:opacity-60 shadow-sm ${
-                needsDateL1
-                  ? 'bg-amber-600 hover:bg-amber-700'
-                  : 'bg-blue-600 hover:bg-blue-700'
-              }`}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-60 shadow-sm"
             >
-              {submitting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : needsDateL1 ? (
-                <Send className="h-4 w-4" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
-              {submitting
-                ? needsDateL1
-                  ? 'Sending…'
-                  : 'Saving…'
-                : needsDateL1
-                  ? 'Send for L1 Approval'
-                  : 'Save'}
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {submitting ? 'Saving…' : 'Save'}
             </button>
             <button
               type="button"
