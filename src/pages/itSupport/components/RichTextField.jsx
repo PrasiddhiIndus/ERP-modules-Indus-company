@@ -95,7 +95,31 @@ export default function RichTextField({
           // Keep focus in the editor when clicking text; toolbar uses preventDefault separately.
           e.stopPropagation();
         }}
-        className="px-3 py-2 text-sm text-ink outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-ink-muted empty:before:pointer-events-none prose prose-sm max-w-none min-h-[140px] cursor-text"
+        onPaste={(e) => {
+          // After browser inserts pasted HTML/images, constrain any img tags.
+          requestAnimationFrame(() => {
+            const root = ref.current;
+            if (!root) return;
+            root.querySelectorAll("img").forEach((img) => {
+              img.removeAttribute("width");
+              img.removeAttribute("height");
+              img.style.maxWidth = "100%";
+              img.style.height = "auto";
+              img.style.maxHeight = "240px";
+              img.style.objectFit = "contain";
+            });
+            emit();
+          });
+          // Keep default paste so screenshots still insert; we only normalize size after.
+          void e;
+        }}
+        className={[
+          "px-3 py-2 text-sm text-ink outline-none min-h-[140px] cursor-text overflow-x-auto",
+          "empty:before:content-[attr(data-placeholder)] empty:before:text-ink-muted empty:before:pointer-events-none",
+          "prose prose-sm max-w-none",
+          "[&_img]:max-w-full [&_img]:h-auto [&_img]:max-h-60 [&_img]:object-contain",
+          "[&_img]:rounded-md [&_img]:border [&_img]:border-border [&_img]:my-2",
+        ].join(" ")}
         style={{ minHeight }}
       />
     </div>
