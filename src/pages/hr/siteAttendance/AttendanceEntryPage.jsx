@@ -397,7 +397,10 @@ Change to override.` : undefined}
               </tbody>
             </table>
           </div>
-          <p className="type-meta mt-2">Primary designation rows show an asterisk. OT is the second row per person. NH/PH days are highlighted.</p>
+          <p className="type-meta mt-2">
+            Primary designation rows show an asterisk. OT is the second row per person and is included in Duty total
+            (hours ÷ site duty hours, or 1 per day when Regular OT is on). NH/PH days are highlighted.
+          </p>
         </SectionCard>
       ) : (
         <p className="type-meta">Select a site type, then a site, month, and year, and load the grid.</p>

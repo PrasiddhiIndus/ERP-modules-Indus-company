@@ -17,6 +17,34 @@ export function getDutyContribution(code) {
   return 0;
 }
 
+/** Site duty-day length used when converting OT hours → duty units (8 or 12). */
+export function getSiteDutyHours(site) {
+  return Number(site?.duty_hours) === 12 ? 12 : 8;
+}
+
+/**
+ * Convert OT into duty units for totals.
+ * - regular_ot sites: any OT hours on a day count as 1 duty
+ * - otherwise: hours / site duty_hours (8 or 12)
+ */
+export function getOtDutyContribution(otHours, site) {
+  const hours = Number(otHours) || 0;
+  if (hours <= 0) return 0;
+  if (site?.regular_ot === true) return 1;
+  return hours / getSiteDutyHours(site);
+}
+
+/** Attendance mark duty + OT duty for one record (designation-scoped row). */
+export function getRecordDutyContribution(record, site) {
+  if (!record) return 0;
+  return getDutyContribution(record.att_code) + getOtDutyContribution(record.ot_hours, site);
+}
+
+export function roundDutyTotal(value) {
+  const n = Number(value) || 0;
+  return Math.round(n * 100) / 100;
+}
+
 export function normalizeNhPhDateList(raw) {
   if (!raw || !Array.isArray(raw)) return [];
   const set = new Set();
