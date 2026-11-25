@@ -131,8 +131,7 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
 
       const [records, selfie] = await Promise.all([listAttendance({
         siteId: Number(siteId),
-        month: Number(month),
-        year: Number(year),
+        // Date window only — do not require month/year match (Aug 21–20 overlaps Jul calendar tags).
         from: generated.range.startDateString,
         to: generated.range.endDateString,
       }), listSelfiePresenceForPeople(emps, generated.range.startDateString, generated.range.endDateString)]);
@@ -141,7 +140,15 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
       const nextMap = buildAttendanceDataMap(records, multi);
       attendanceMapRef.current = nextMap;
       setAttendanceMap(nextMap);
-      setLocked(records.some((r) => r.is_locked));
+      // Lock only when this cycle's own tagged rows are locked (not prior calendar-month tags).
+      setLocked(
+        records.some(
+          (r) =>
+            r.is_locked &&
+            Number(r.month) === Number(month) &&
+            Number(r.year) === Number(year)
+        )
+      );
     } catch (err) {
       toast.error(userFriendlyError(err));
     } finally {
