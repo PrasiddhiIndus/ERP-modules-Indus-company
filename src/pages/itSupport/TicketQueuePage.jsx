@@ -31,6 +31,30 @@ import StatusBadge from "./components/StatusBadge";
 import SlaTimer from "./components/SlaTimer";
 import TicketFilters from "./components/TicketFilters";
 
+function raiserFromTicket(ticket) {
+  const id = ticket?.requester_id;
+  if (!id) return null;
+  const label =
+    ticket.requester?.username ||
+    ticket.requester_display_name ||
+    ticket.requester?.email ||
+    id;
+  return {
+    id,
+    label: String(label),
+    employee_code: ticket.requester?.employee_code || ticket.requester_employee_code || "",
+  };
+}
+
+function mergeRaisers(prev, tickets) {
+  const map = new Map((prev || []).map((r) => [r.id, r]));
+  for (const t of tickets || []) {
+    const r = raiserFromTicket(t);
+    if (r) map.set(r.id, r);
+  }
+  return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+}
+
 function ticketMatchesFilters(ticket, filters) {
   if (!ticket) return false;
   if (filters.status && ticket.status !== filters.status) return false;
@@ -45,6 +69,7 @@ function ticketMatchesFilters(ticket, filters) {
   } else if (filters.assigneeId && ticket.assignee_id !== filters.assigneeId) {
     return false;
   }
+  if (filters.requesterId && ticket.requester_id !== filters.requesterId) return false;
   const q = String(filters.search || "").trim().toLowerCase();
   if (q) {
     const hay = [
@@ -71,6 +96,7 @@ export default function TicketQueuePage() {
   const [rows, setRows] = useState([]);
   const [agents, setAgents] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [raisers, setRaisers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -81,6 +107,7 @@ export default function TicketQueuePage() {
     priority: "",
     assigneeId:
       searchParams.get("assignee") === "me" && user?.id ? user.id : searchParams.get("assignee") || "",
+    requesterId: searchParams.get("raisedBy") || "",
     categoryId: "",
     erpModuleKey: "",
     breachedOnly: searchParams.get("breached") === "1",
@@ -98,10 +125,16 @@ export default function TicketQueuePage() {
     let cancelled = false;
     (async () => {
       try {
-        const [agentList, cats] = await Promise.all([listAgents(), listCategories()]);
+        const [agentList, cats, seedTickets] = await Promise.all([
+          listAgents(),
+          listCategories(),
+          // Seed Raised by options from the full live queue (not narrowed by filters).
+          listQueueTickets({}),
+        ]);
         if (cancelled) return;
         setAgents(agentList);
         setCategories((cats.categories || []).filter((c) => c.is_active !== false));
+        setRaisers(mergeRaisers([], seedTickets));
       } catch (err) {
         if (!cancelled) setError(err.message || "Could not load queue filters.");
       }
@@ -122,6 +155,7 @@ export default function TicketQueuePage() {
         const tickets = await listQueueTickets(filters);
         if (reqId !== requestIdRef.current) return;
         setRows(tickets);
+        setRaisers((prev) => mergeRaisers(prev, tickets));
       } catch (err) {
         if (reqId !== requestIdRef.current) return;
         setError(err.message || "Could not load queue.");
@@ -322,6 +356,7 @@ export default function TicketQueuePage() {
       <TicketFilters
         {...filters}
         agents={agents}
+        raisers={raisers}
         categories={categories}
         modules={moduleOptions}
         showAgentFilters

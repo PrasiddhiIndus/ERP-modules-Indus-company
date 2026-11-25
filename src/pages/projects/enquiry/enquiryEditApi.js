@@ -13,6 +13,23 @@ export const DATE_APPROVAL_KEYS = ['target_date', 'completed_on'];
 const POST_SAVE_EDITABLE = new Set(POST_SAVE_EDITABLE_KEYS);
 const DATE_APPROVAL = new Set(DATE_APPROVAL_KEYS);
 
+function hasDateApprovalValue(value) {
+  if (value == null) return false;
+  return String(value).trim() !== '';
+}
+
+/** True when proposed enquiry data includes a Target Date and/or Completed Date. */
+export function hasDateApprovalValues(data = {}) {
+  return DATE_APPROVAL_KEYS.some((key) => hasDateApprovalValue(data?.[key]));
+}
+
+/** Copy of data with Target Date / Completed Date cleared (held pending L1). */
+export function stripDateApprovalKeys(data = {}) {
+  const next = { ...(data || {}) };
+  for (const key of DATE_APPROVAL_KEYS) next[key] = null;
+  return next;
+}
+
 /** Normalize a stored / draft value for change comparison. */
 export function normalizeEnquiryCompareValue(value) {
   if (value == null) return '';

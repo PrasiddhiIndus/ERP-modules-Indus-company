@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   diffEnquiryFields,
   enquiryEditSaveMode,
+  hasDateApprovalValues,
   isDateApprovalChange,
   isPastCompletedDateChange,
   isProgressDirectChange,
   normalizeEnquiryCompareValue,
+  stripDateApprovalKeys,
 } from '../src/pages/projects/enquiry/enquiryEditApi.js';
 
 describe('enquiry edit field diff', () => {
@@ -117,5 +119,28 @@ describe('enquiry edit save mode', () => {
         completed_on: '2026-11-13',
       })
     ).toBe('completed');
+  });
+});
+
+describe('create-time date approval helpers', () => {
+  it('detects Target Date or Completed Date on proposed create payload', () => {
+    expect(hasDateApprovalValues({ client_name: 'A' })).toBe(false);
+    expect(hasDateApprovalValues({ target_date: '2026-11-25' })).toBe(true);
+    expect(hasDateApprovalValues({ completed_on: '2026-11-20' })).toBe(true);
+    expect(hasDateApprovalValues({ target_date: '  ', completed_on: null })).toBe(false);
+  });
+
+  it('strips Target Date and Completed Date while keeping other fields', () => {
+    expect(
+      stripDateApprovalKeys({
+        client_name: 'A',
+        target_date: '2026-11-25',
+        completed_on: '2026-11-20',
+      })
+    ).toEqual({
+      client_name: 'A',
+      target_date: null,
+      completed_on: null,
+    });
   });
 });

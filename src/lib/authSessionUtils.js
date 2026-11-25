@@ -438,6 +438,24 @@ export function readCachedSessionUser() {
   }
 }
 
+/** Unix seconds when the cached access JWT expires, or null if unknown / missing. */
+export function getCachedAccessTokenExpiresAt() {
+  const token = readCachedAccessToken();
+  if (!token) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64.length % 4;
+    if (pad) b64 += '='.repeat(4 - pad);
+    const payload = JSON.parse(atob(b64));
+    const exp = Number(payload?.exp);
+    return Number.isFinite(exp) ? exp : null;
+  } catch {
+    return null;
+  }
+}
+
 /** True when cached access JWT is missing or past expiry (skip network refresh on boot). */
 export function isCachedAccessTokenExpired(skewSeconds = 60) {
   const token = readCachedAccessToken();

@@ -448,6 +448,7 @@ function NextStep({ data, caps, open }) {
           title = `Send offer ${offer.offerNo}`;
           hint = `Valid until ${fmtDate(offer.validUntil)}.`;
           add("offers", "Send offer", () => open("email", { templateKey: "offer_letter", relatedId: offer.id }), Send, true);
+          add("offers", "Edit & regenerate letter", () => open("offer", offer), Pencil);
           if (offer.generatedDoc) {
             add(
               "offers",
@@ -461,6 +462,9 @@ function NextStep({ data, caps, open }) {
           hint = `Valid until ${fmtDate(offer.validUntil)}. The candidate can respond from the secure link.`;
           add("offers", "Record response", () => open("offerResponse", offer), FileSignature, true);
           add("offers", "Resend offer", () => open("email", { templateKey: "offer_letter", relatedId: offer.id }), Send);
+          if (["sent", "viewed"].includes(offer.status)) {
+            add("offers", "Edit & regenerate letter", () => open("offer", offer), Pencil);
+          }
           if (offer.generatedDoc) {
             add(
               "offers",
@@ -475,6 +479,9 @@ function NextStep({ data, caps, open }) {
       case "offer_accepted":
         title = "Issue the appointment letter";
         add("offers", "Generate appointment letter", () => open("appointment"), FileSignature, true);
+        if (offer && ["accepted", "sent", "viewed", "generated"].includes(offer.status)) {
+          add("offers", "Edit & regenerate letter", () => open("offer", offer), Pencil);
+        }
         break;
       case "appointment":
         if (appt && !appt.generatedDoc) {
@@ -822,6 +829,11 @@ function Workspace({ data, onReload }) {
                         <StatusPill meta={offerStatusMeta(o.status)} />
                         <FileButton candidateId={c.id} category="offer" file={o.generatedDoc} label="Letter" />
                         {o.signedDoc ? <FileButton candidateId={c.id} category="offer" file={o.signedDoc} label="Signed copy" /> : null}
+                        {caps.offers && ["generated", "sent", "viewed", "accepted"].includes(o.status) ? (
+                          <button type="button" className={btn.secondary} onClick={() => open("offer", o)}>
+                            <Pencil className="h-3.5 w-3.5" /> Edit & regenerate letter
+                          </button>
+                        ) : null}
                         {caps.offers && o.status === "accepted" && !o.signedDoc ? (
                           <button type="button" className={btn.ghost} onClick={() => open("upload", { kind: "offer_signed", offer: o })}>
                             <Upload className="h-3.5 w-3.5" /> Signed copy
