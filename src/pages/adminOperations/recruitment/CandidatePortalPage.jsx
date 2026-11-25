@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { CheckCircle2, FileText, Upload, XCircle } from "lucide-react";
 import { apiUrl, humanizeApiErrorMessage } from "../../../lib/apiBase";
+import { portalUploadFile } from "../../../lib/portalUpload";
 import { appointmentStatusMeta, documentStatusMeta, offerStatusMeta } from "./recruitmentConfig";
 import { Card, DetailGrid, StatusPill, btn, fmtDate, textareaClass } from "./RecruitmentUi";
 import { EmployeeDocumentPortalView } from "../../admin/employeeMaster/EmployeeDocumentPortalPage";
 import { confirmDialog } from "../../../lib/dialog";
 
 const ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx";
+const PORTAL_API = "/api/recruitment-portal";
 
 /** Prefer apex host — production CORS lists https://indus-erp.in; www POSTs were rejected. */
 function preferApexPortalHost() {
@@ -21,7 +23,7 @@ function preferApexPortalHost() {
 async function portalRequest(token, path = "", options = {}) {
   let res;
   try {
-    res = await fetch(apiUrl(`/api/recruitment-portal/${encodeURIComponent(token)}${path}`), options);
+    res = await fetch(apiUrl(`${PORTAL_API}/${encodeURIComponent(token)}${path}`), options);
   } catch (err) {
     throw new Error(humanizeApiErrorMessage(err, "Could not reach the server. Check your connection and try again."));
   }
@@ -111,7 +113,7 @@ export default function CandidatePortalPage() {
 }
 
 function PortalBody({ token, data, onChange }) {
-  const letterHref = apiUrl(`/api/recruitment-portal/${encodeURIComponent(token)}/letter`);
+  const letterHref = apiUrl(`${PORTAL_API}/${encodeURIComponent(token)}/letter`);
   return (
     <>
       <header className="space-y-1">
@@ -142,15 +144,19 @@ function useUpload(token, onChange) {
       setBusy(documentKey || kind);
       setMessage(null);
       try {
-        const form = new FormData();
-        form.append("kind", kind);
-        if (documentKey) form.append("documentKey", documentKey);
-        form.append("fileName", file.name);
-        form.append("file", file);
-        onChange(await portalRequest(token, "/upload", { method: "POST", body: form }));
+        const fields = { kind };
+        if (documentKey) fields.documentKey = documentKey;
+        onChange(
+          await portalUploadFile({
+            apiBasePath: PORTAL_API,
+            token,
+            fields,
+            file,
+          })
+        );
         setMessage({ tone: "success", text: "Thank you — your file was uploaded." });
       } catch (e) {
-        setMessage({ tone: "error", text: e.message });
+        setMessage({ tone: "error", text: humanizeApiErrorMessage(e, "Upload failed. Please try again.") });
       } finally {
         setBusy("");
       }

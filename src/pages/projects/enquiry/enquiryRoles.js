@@ -2,20 +2,17 @@ import { normalizeAppRole, ROLES } from '../../../config/roles';
 
 const APPROVER_ROLES = new Set([ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUPER_ADMIN_PRO]);
 
-/** Admin / Super Admin only — may write Target/Completed dates on a NEW enquiry without L1. */
-const DATE_CREATE_DIRECT_ROLES = new Set([ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUPER_ADMIN_PRO]);
-
 /** Manager / Admin / Super Admin: delete enquiries directly, decide deletion requests, see every overdue alert. */
 export function isEnquiryApprover(profile) {
   return APPROVER_ROLES.has(normalizeAppRole(profile?.role));
 }
 
 /**
- * Who may put Target Date / Completed Date on the live enquiry at registration time.
- * Managers (and everyone else) must send those dates for L1 approval on create.
+ * @deprecated Create (Add Enquiry) always saves dates directly; L1 is only for edit/delete.
+ * Kept for older callers/tests — always true.
  */
-export function canWriteEnquiryDatesOnCreate(profile) {
-  return DATE_CREATE_DIRECT_ROLES.has(normalizeAppRole(profile?.role));
+export function canWriteEnquiryDatesOnCreate(_profile) {
+  return true;
 }
 
 const nameKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');

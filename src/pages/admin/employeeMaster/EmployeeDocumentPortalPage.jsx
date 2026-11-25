@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Upload } from "lucide-react";
 import { apiUrl, humanizeApiErrorMessage } from "../../../lib/apiBase";
+import { portalUploadFile } from "../../../lib/portalUpload";
 import { employeeDocumentStatusMeta } from "../../../lib/adminEmployeeDocuments";
 import { StatusChip } from "../../../components/erpUi";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 
 const ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx";
+const PORTAL_API = "/api/employee-document-portal";
 
 function preferApexPortalHost() {
   if (typeof window === "undefined") return false;
@@ -19,7 +21,7 @@ function preferApexPortalHost() {
 async function portalRequest(token, path = "", options = {}) {
   let res;
   try {
-    res = await fetch(apiUrl(`/api/employee-document-portal/${encodeURIComponent(token)}${path}`), options);
+    res = await fetch(apiUrl(`${PORTAL_API}/${encodeURIComponent(token)}${path}`), options);
   } catch (err) {
     throw new Error(humanizeApiErrorMessage(err, "Could not reach the server. Check your connection and try again."));
   }
@@ -107,14 +109,17 @@ export function EmployeeDocumentPortalView({ token, initialData = null }) {
       setBusy(documentKey);
       setMessage(null);
       try {
-        const form = new FormData();
-        form.append("documentKey", documentKey);
-        form.append("fileName", file.name);
-        form.append("file", file);
-        setData(await portalRequest(token, "/upload", { method: "POST", body: form }));
+        setData(
+          await portalUploadFile({
+            apiBasePath: PORTAL_API,
+            token,
+            fields: { documentKey },
+            file,
+          })
+        );
         setMessage({ tone: "success", text: "Thank you — your file was uploaded." });
       } catch (e) {
-        setMessage({ tone: "error", text: e.message });
+        setMessage({ tone: "error", text: humanizeApiErrorMessage(e, "Upload failed. Please try again.") });
       } finally {
         setBusy("");
       }

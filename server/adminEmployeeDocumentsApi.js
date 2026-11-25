@@ -150,16 +150,44 @@ export function registerAdminEmployeeDocumentsRoutes(app, deps) {
     const safe = sanitizeFileName(name);
     const objectKey = `${KEY_PREFIX}${employeeMasterId}/document/${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${safe}`;
     const contentType = CONTENT_TYPES[ext] || 'application/octet-stream';
-    await putObject(objectKey, file.buffer, contentType);
+    try {
+      await putObject(objectKey, file.buffer, contentType);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[admin-employee-docs] R2 put failed:', err?.message || err);
+      throw httpError(503, 'Could not store the file. Please try again in a moment.');
+    }
     return { objectKey, fileName: safe, contentType, size: file.size || file.buffer.length };
   };
 
   const withUpload = (req, res, next) => {
+    if (String(req.headers['content-type'] || '').includes('application/json')) return next();
     upload.single('file')(req, res, (err) => {
       if (!err) return next();
       if (err?.code === 'LIMIT_FILE_SIZE') return sendError(res, httpError(400, 'File is too large.'), 'Upload failed.');
       return sendError(res, err, 'Upload failed.');
     });
+  };
+
+  const fileFromPortalBody = (req) => {
+    if (req.file?.buffer) return req.file;
+    const b64 = String(req.body?.contentBase64 || '').trim();
+    if (!b64) return null;
+    let buffer;
+    try {
+      buffer = Buffer.from(b64, 'base64');
+    } catch {
+      throw httpError(400, 'The uploaded file could not be read. Please try again.');
+    }
+    if (!buffer.length) throw httpError(400, 'Choose a file to upload.');
+    if (buffer.length > 25 * 1024 * 1024) throw httpError(400, 'The file is too large (max 25 MB).');
+    const fileName = String(req.body?.fileName || 'upload.bin').trim() || 'upload.bin';
+    return {
+      buffer,
+      originalname: fileName,
+      size: buffer.length,
+      mimetype: String(req.body?.contentType || '').trim() || undefined,
+    };
   };
 
   const assertEmployeeObjectKey = (employeeMasterId, objectKey) => {
@@ -342,12 +370,13 @@ export function registerAdminEmployeeDocumentsRoutes(app, deps) {
       const hash = tokenHashFrom(req);
       const documentKey = String(req.body?.documentKey || '').trim();
       if (!documentKey) throw httpError(400, 'Choose which document you are uploading.');
-      if (!req.file?.buffer) throw httpError(400, 'Choose a file to upload.');
+      const uploaded = fileFromPortalBody(req);
+      if (!uploaded?.buffer) throw httpError(400, 'Choose a file to upload.');
       const svc = serviceClient();
       const info = await rpc(svc, 'admin_employee_document_portal_resolve', { p_token_hash: hash }, 'This link could not be verified for upload.');
       const employeeMasterId = Number(info?.employeeMasterId || info?.employee_master_id);
       if (!Number.isFinite(employeeMasterId)) throw httpError(400, 'This link could not be verified for upload.');
-      const file = await storeUpload(employeeMasterId, req.file, req.body?.fileName || req.file.originalname);
+      const file = await storeUpload(employeeMasterId, uploaded, req.body?.fileName || uploaded.originalname);
       const data = await rpc(
         svc,
         'admin_employee_document_portal_attach',
