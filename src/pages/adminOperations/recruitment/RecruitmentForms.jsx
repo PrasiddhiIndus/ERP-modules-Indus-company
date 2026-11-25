@@ -439,8 +439,19 @@ export function OfferResponseModal({ open, offer, onClose, onRecorded }) {
       submitLabel={response === "accepted" ? "Record acceptance" : "Record decline"}
       canSubmit={note.trim().length > 0}
       onSubmit={async () => {
-        await recordOfferResponse(offer.id, response, note.trim(), response === "accepted" ? joiningDate : null, offer.version);
-        toast.success(response === "accepted" ? "Offer accepted" : "Offer declined");
+        const out = await recordOfferResponse(
+          offer.id,
+          response,
+          note.trim(),
+          response === "accepted" ? joiningDate : null,
+          offer.version
+        );
+        const ctc = out?.ctcAttach;
+        let detail;
+        if (response === "accepted" && ctc?.status === "saved" && ctc.ctcMonthly > 0) {
+          detail = `CTC ₹${Number(ctc.ctcMonthly).toLocaleString("en-IN")} saved on ${ctc.employeeName || "Employee Master"}`;
+        }
+        toast.success(response === "accepted" ? "Offer accepted" : "Offer declined", detail);
         onClose();
         onRecorded?.(response, { joiningDate: response === "accepted" ? joiningDate : null });
       }}
@@ -739,8 +750,18 @@ export function MarkJoinedModal({ open, candidate, onClose }) {
       onSubmit={async () => {
         const out = await markJoined(candidate.id, date, remarks, candidate.version);
         const conv = out?.conversion;
-        if (conv?.status === "converted") toast.success("Joined and employee created", conv.employeeCode ? `Employee code ${conv.employeeCode}` : undefined);
-        else if (conv?.status === "duplicate") toast.success("Marked joined", "A matching employee exists — review it under Employee Conversion.");
+        const ctc = out?.ctcAttach;
+        const ctcHint =
+          ctc?.status === "saved" && ctc.ctcMonthly > 0
+            ? `CTC ₹${Number(ctc.ctcMonthly).toLocaleString("en-IN")} on Employee Master`
+            : "";
+        if (conv?.status === "converted") {
+          toast.success(
+            "Joined and employee created",
+            [conv.employeeCode ? `Employee code ${conv.employeeCode}` : "", ctcHint].filter(Boolean).join(" · ") ||
+              undefined
+          );
+        } else if (conv?.status === "duplicate") toast.success("Marked joined", "A matching employee exists — review it under Employee Conversion.");
         else if (conv?.status === "failed") toast.success("Marked joined", "Employee creation needs attention under Employee Conversion.");
         else toast.success("Marked joined");
         onClose();
@@ -791,7 +812,22 @@ export function ConvertModal({ open, candidate, onClose, onConverted }) {
           setMatches(out.matches || []);
           return;
         }
-        toast.success(out?.linked ? "Linked to existing employee" : "Employee created", out?.employeeCode ? `Employee code ${out.employeeCode}` : undefined);
+        const ctc = out?.ctcAttach;
+        const codeHint = out?.employeeCode ? `Employee code ${out.employeeCode}` : "";
+        let ctcHint = "";
+        if (ctc?.status === "saved" && ctc.ctcMonthly > 0) {
+          ctcHint = `CTC ₹${Number(ctc.ctcMonthly).toLocaleString("en-IN")} saved on ${ctc.employeeName || "Employee Master"}`;
+        } else if (ctc?.status === "skipped") {
+          ctcHint = "Employee already had a CTC profile — recruitment CTC was not overwritten";
+        } else if (ctc?.status === "missing_ctc") {
+          ctcHint = "No recruitment CTC to attach — save CTC on the candidate first";
+        } else if (ctc?.status === "error") {
+          ctcHint = ctc.message || "CTC could not be saved — add it in Salary Admin";
+        }
+        toast.success(
+          out?.linked ? "Linked to existing employee" : "Employee created",
+          [codeHint, ctcHint].filter(Boolean).join(" · ") || undefined
+        );
         onConverted?.(out);
         onClose();
       }}

@@ -915,12 +915,40 @@ export function prepareOfferLetter(offerId) {
   return prepareLetter("offer", offerId);
 }
 
-export function recordOfferResponse(offerId, response, note, joiningDate, version) {
-  return call(
+export async function recordOfferResponse(offerId, response, note, joiningDate, version) {
+  const out = await call(
     "admin_recruitment_offer_record_response",
     { p_offer_id: offerId, p_response: response, p_note: note, p_joining_date: joiningDate || null, p_expected_version: version ?? null },
     "Could not record the response."
   );
+  // If the candidate is already linked to Employee Master, push recruitment CTC now.
+  if (String(response || "").toLowerCase() === "accepted" && offerId) {
+    try {
+      const { data: offerRow } = await supabase
+        .from(T.offers)
+        .select("candidate_id")
+        .eq("id", offerId)
+        .maybeSingle();
+      if (offerRow?.candidate_id) {
+        const { data: cand } = await supabase
+          .from(T.candidates)
+          .select("employee_master_id")
+          .eq("id", offerRow.candidate_id)
+          .maybeSingle();
+        if (cand?.employee_master_id) {
+          const ctc = await attachRecruitmentCtcToEmployeeMaster(
+            offerRow.candidate_id,
+            cand.employee_master_id
+          );
+          return { ...(out && typeof out === "object" ? out : {}), ctcAttach: ctc };
+        }
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[recruitment] Offer-accept CTC attach skipped:", err?.message || err);
+    }
+  }
+  return out;
 }
 
 export function withdrawOffer(offerId, reason, version) {
@@ -975,75 +1003,189 @@ export function updateJoining(candidateId, expectedDate, remarks, version) {
   return call("admin_recruitment_joining_update", { p_candidate_id: candidateId, p_expected_date: expectedDate, p_remarks: remarks || null, p_expected_version: version ?? null }, "Could not update the joining date.");
 }
 
+function usableCtcBreakup(breakup) {
+  return breakup && typeof breakup === "object" && Number(breakup.ctc) > 0;
+}
+
 /**
- * When recruitment creates a new Employee Master row, also store the candidate's
- * saved CTC (expected_ctc) as the initial Admin Salary structure. Does not change
- * linked existing employees, and never fails the conversion if CTC save fails.
+ * Build Admin Salary structure payload from the Candidates-page CTC calculator
+ * (exact expected_ctc_breakup when saved; otherwise recalculate from monthly CTC).
  */
-async function saveConvertedEmployeeCtc(candidateId, conversion) {
-  if (!conversion || conversion.status !== "converted") return;
-  // Linking an existing employee must not overwrite their Admin Salary CTC.
-  if (conversion.linked) return;
-  const employeeMasterId = conversion.employeeMasterId;
-  if (employeeMasterId == null) return;
+function buildRecruitmentCtcPayload(cand, offer) {
+  let monthly = Number(cand?.expected_ctc);
+  if (!Number.isFinite(monthly) || monthly <= 0) {
+    const fromGross = Number(offer?.monthly_gross);
+    const fromAnnual = Number(offer?.annual_ctc);
+    if (Number.isFinite(fromGross) && fromGross > 0) monthly = fromGross;
+    else if (Number.isFinite(fromAnnual) && fromAnnual > 0) monthly = fromAnnual / 12;
+  }
+
+  const wef =
+    String(cand?.actual_joining_date || cand?.expected_joining_date || "").slice(0, 10) ||
+    new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  const employeeMeta = {
+    date_of_birth: cand?.date_of_birth || null,
+    date_of_joining: cand?.actual_joining_date || wef,
+  };
+  const meta = {
+    rules: SEED_RULES_2026_27,
+    wefDate: wef,
+    reason: "Initial CTC from In-house Recruitment",
+    revisionType: "initial",
+    category: CATEGORY_NEW_PROBATION,
+    scheme: SCHEME_NEW,
+    employee: employeeMeta,
+  };
+
+  // Prefer exact calculator snapshot from Candidates (same as offer annexure).
+  if (usableCtcBreakup(cand?.expected_ctc_breakup)) {
+    const payload = resultToStructurePayload(cand.expected_ctc_breakup, meta);
+    if (Number(payload.ctc_monthly) > 0) return payload;
+  }
+
+  if (!Number.isFinite(monthly) || monthly <= 0) return null;
+
+  const skill = cand?.expected_ctc_breakup?.skill || SKILL_SKILLED;
+  const status = cand?.expected_ctc_breakup?.status || STATUS_PROBATION;
+  const result = calculateCtc(SEED_RULES_2026_27, {
+    skill,
+    status,
+    monthlyCtc: monthly,
+  });
+  const payload = resultToStructurePayload(result, meta);
+  return Number(payload.ctc_monthly) > 0 ? payload : null;
+}
+
+/**
+ * Push recruitment CTC onto Employee Master / Admin Salary for the linked employee id.
+ * Uses candidate expected_ctc_breakup when present so Salary Processing matches the letter.
+ * Never overwrites an existing declared CTC (RPC returns skipped). Never fails conversion.
+ *
+ * @returns {Promise<{ status: string, structureId?: string, employeeMasterId?: number, employeeName?: string }|null>}
+ */
+export async function attachRecruitmentCtcToEmployeeMaster(candidateId, employeeMasterIdHint = null) {
+  if (!candidateId) return null;
 
   try {
     const { data: cand, error } = await supabase
       .from(T.candidates)
-      .select("expected_ctc, actual_joining_date, date_of_birth")
+      .select(
+        "id, full_name, expected_ctc, expected_ctc_breakup, actual_joining_date, expected_joining_date, date_of_birth, employee_master_id, employee_code, employee_system_id"
+      )
       .eq("id", candidateId)
       .maybeSingle();
     if (error) throw error;
 
-    let monthly = Number(cand?.expected_ctc);
-    if (!Number.isFinite(monthly) || monthly <= 0) {
-      const { data: offer } = await supabase
-        .from(T.offers)
-        .select("monthly_gross, annual_ctc")
-        .eq("candidate_id", candidateId)
-        .in("status", ["accepted", "sent", "draft"])
-        .order("created_at", { ascending: false })
-        .limit(1)
+    let employeeMasterId = employeeMasterIdHint ?? cand?.employee_master_id;
+    let emp = null;
+
+    if (employeeMasterId != null) {
+      const { data, error: empErr } = await supabase
+        .from("admin_ifsp_employee_master")
+        .select("id, full_name, employee_code, employee_id, date_of_joining, date_of_birth")
+        .eq("id", employeeMasterId)
         .maybeSingle();
-      const fromGross = Number(offer?.monthly_gross);
-      const fromAnnual = Number(offer?.annual_ctc);
-      if (Number.isFinite(fromGross) && fromGross > 0) monthly = fromGross;
-      else if (Number.isFinite(fromAnnual) && fromAnnual > 0) monthly = fromAnnual / 12;
+      if (empErr) throw empErr;
+      emp = data;
     }
-    if (!Number.isFinite(monthly) || monthly <= 0) return;
 
-    const wef =
-      String(cand?.actual_joining_date || "").slice(0, 10) ||
-      new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-    const result = calculateCtc(SEED_RULES_2026_27, {
-      skill: SKILL_SKILLED,
-      status: STATUS_PROBATION,
-      monthlyCtc: monthly,
-    });
-    const payload = resultToStructurePayload(result, {
-      rules: SEED_RULES_2026_27,
-      wefDate: wef,
-      reason: "Initial CTC from In-house Recruitment",
-      revisionType: "initial",
-      category: CATEGORY_NEW_PROBATION,
-      scheme: SCHEME_NEW,
-      employee: {
-        date_of_birth: cand?.date_of_birth || null,
-        date_of_joining: cand?.actual_joining_date || wef,
+    // Fallback: resolve Employee Master by employee code (same person as Convert), then name + code.
+    if (!emp) {
+      const code = String(cand?.employee_code || "").trim();
+      if (code) {
+        const { data: byCode, error: codeErr } = await supabase
+          .from("admin_ifsp_employee_master")
+          .select("id, full_name, employee_code, employee_id, date_of_joining, date_of_birth")
+          .eq("employee_code", code)
+          .limit(1)
+          .maybeSingle();
+        if (codeErr) throw codeErr;
+        emp = byCode;
+      }
+    }
+    if (!emp) {
+      const sysId = String(cand?.employee_system_id || "").trim();
+      if (sysId) {
+        const { data: bySys, error: sysErr } = await supabase
+          .from("admin_ifsp_employee_master")
+          .select("id, full_name, employee_code, employee_id, date_of_joining, date_of_birth")
+          .eq("employee_id", sysId)
+          .limit(1)
+          .maybeSingle();
+        if (sysErr) throw sysErr;
+        emp = bySys;
+      }
+    }
+    if (!emp) {
+      return {
+        status: "no_employee",
+        message: "No Employee Master id on this candidate yet. Create or link the employee first.",
+      };
+    }
+    employeeMasterId = emp.id;
+
+    const { data: offer } = await supabase
+      .from(T.offers)
+      .select("monthly_gross, annual_ctc, status")
+      .eq("candidate_id", candidateId)
+      .in("status", ["accepted", "sent", "generated", "viewed", "draft"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const payload = buildRecruitmentCtcPayload(
+      {
+        ...cand,
+        // Prefer Employee Master DOJ/DOB when already created.
+        actual_joining_date: cand?.actual_joining_date || emp.date_of_joining,
+        date_of_birth: cand?.date_of_birth || emp.date_of_birth,
       },
-    });
-    if (!(Number(payload.ctc_monthly) > 0)) return;
+      offer
+    );
+    if (!payload) {
+      return {
+        status: "missing_ctc",
+        employeeMasterId: emp.id,
+        employeeName: emp.full_name,
+        message: "Save CTC on the candidate first (Candidates → CTC calculator).",
+      };
+    }
 
-    const { error: attachError } = await supabase.rpc("admin_recruitment_attach_employee_ctc", {
-      p_employee_master_id: employeeMasterId,
-      p_payload: payload,
-    });
+    const { data: attachOut, error: attachError } = await supabase.rpc(
+      "admin_recruitment_attach_employee_ctc",
+      {
+        p_employee_master_id: emp.id,
+        p_payload: payload,
+      }
+    );
     if (attachError) throw attachError;
+
+    return {
+      status: attachOut?.status || "saved",
+      structureId: attachOut?.structureId,
+      reason: attachOut?.reason,
+      employeeMasterId: emp.id,
+      employeeCode: emp.employee_code || cand?.employee_code || "",
+      employeeName: emp.full_name || cand?.full_name || "",
+      ctcMonthly: Number(payload.ctc_monthly) || 0,
+      candidateName: cand?.full_name || "",
+    };
   } catch (err) {
-    // Employee is already created — CTC can be entered later in Admin Salary.
     // eslint-disable-next-line no-console
     console.warn("[recruitment] Could not save CTC on Employee Master:", err?.message || err);
+    return { status: "error", message: err?.message || "Could not save CTC on Employee Master." };
   }
+}
+
+/**
+ * After convert / auto-convert on join: attach Candidates CTC to that Employee Master id.
+ * Also runs for linked employees when they have no declared CTC yet (RPC skips if CTC exists).
+ */
+async function saveConvertedEmployeeCtc(candidateId, conversion) {
+  if (!conversion || conversion.status !== "converted") return null;
+  const employeeMasterId = conversion.employeeMasterId;
+  if (employeeMasterId == null) return null;
+  return attachRecruitmentCtcToEmployeeMaster(candidateId, employeeMasterId);
 }
 
 export async function markJoined(candidateId, actualDate, remarks, version) {
@@ -1057,8 +1199,9 @@ export async function markJoined(candidateId, actualDate, remarks, version) {
     },
     "Could not mark the candidate as joined."
   );
-  if (out?.conversion) await saveConvertedEmployeeCtc(candidateId, out.conversion);
-  return out;
+  let ctcAttach = null;
+  if (out?.conversion) ctcAttach = await saveConvertedEmployeeCtc(candidateId, out.conversion);
+  return { ...(out && typeof out === "object" ? out : {}), ctcAttach };
 }
 
 export function markJoiningNoShow(candidateId, reason, version) {
@@ -1077,8 +1220,8 @@ export async function convertToEmployee(candidateId, { employeeCode, linkEmploye
     },
     "Could not create the employee."
   );
-  await saveConvertedEmployeeCtc(candidateId, out);
-  return out;
+  const ctcAttach = await saveConvertedEmployeeCtc(candidateId, out);
+  return { ...(out && typeof out === "object" ? out : {}), ctcAttach };
 }
 
 // ---------------------------------------------------------------------------
