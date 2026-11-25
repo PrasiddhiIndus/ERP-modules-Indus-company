@@ -1,4 +1,4 @@
-import { getDutyContribution } from "./attendanceRules";
+import { getRecordDutyContribution, roundDutyTotal } from "./attendanceRules";
 
 export const CROSS_DESIG_MESSAGE =
   "Entry not permitted since same day entry for two designations not possible.";
@@ -328,7 +328,15 @@ export function getOrderedGridRowsForSite(employees, placements, site, searchQue
   return filterGridRowsBySearch(rows, searchQuery);
 }
 
-export function computeDayDutyTotalForGridRows(dayInfo, gridRows, attendanceData, placements, employees, isInactiveFn) {
+export function computeDayDutyTotalForGridRows(
+  dayInfo,
+  gridRows,
+  attendanceData,
+  placements,
+  employees,
+  isInactiveFn,
+  site = null
+) {
   const dayDate = new Date(dayInfo.date);
   dayDate.setHours(0, 0, 0, 0);
   let dayTotal = 0;
@@ -342,7 +350,7 @@ export function computeDayDutyTotalForGridRows(dayInfo, gridRows, attendanceData
       placements,
       employees
     );
-    if (record && record.att_code) dayTotal += getDutyContribution(record.att_code);
+    dayTotal += getRecordDutyContribution(record, site);
   });
-  return dayTotal;
+  return roundDutyTotal(dayTotal);
 }

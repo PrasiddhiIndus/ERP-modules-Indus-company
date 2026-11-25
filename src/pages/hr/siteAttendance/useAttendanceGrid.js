@@ -8,7 +8,8 @@ import {
   codesForShiftType,
   computeEmployeeTotals,
   getDateVisibility,
-  getDutyContribution,
+  getRecordDutyContribution,
+  roundDutyTotal,
   isInactiveCellClosed,
   isNhPhDay,
   isRowEditingRestricted,
@@ -417,11 +418,12 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
         gridRows.forEach((row) => {
           if (isInactiveCellClosed(row, day.date)) return;
           const rec = getRecord(row.person_id || row.id, day.dateString, row.grid_designation || row.designation);
-          if (rec?.att_code) sum += getDutyContribution(rec.att_code);
+          // Designation-scoped row: attendance mark + OT both count toward Duty total
+          sum += getRecordDutyContribution(rec, site);
         });
-        return sum;
+        return roundDutyTotal(sum);
       }),
-    [visibleDays, gridRows, getRecord, attendanceMap]
+    [visibleDays, gridRows, getRecord, attendanceMap, site]
   );
 
   return {
