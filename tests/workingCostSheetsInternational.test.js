@@ -47,7 +47,7 @@ describe('International Procurement cost sheet (PDF)', () => {
     expect(manual.has('duty_pct')).toBe(true);
   });
 
-  it('matches PDF sample formulas (AM = rate × qty)', () => {
+  it('matches Rate Workout formulas (AL=AI+AK, AM=AL×V, AO=AM×GST%, AP=AM+AO)', () => {
     const out = computeWorkingCostRow('international', (id) => sampleInputs[id] ?? 0);
     expect(out.discounted_item_cost).toBe('95.00');
     expect(out.per_item_cost_inr).toBe('9120.00');
@@ -64,10 +64,21 @@ describe('International Procurement cost sheet (PDF)', () => {
     expect(out.margin_amount).toBe('1061.54');
     expect(out.per_unit_rate).toBe('10721.54');
     expect(out.incentive_amount).toBe('107.22');
-    expect(out.rate_to_quote).toBe('10828.76');
-    expect(out.total_without_gst).toBe('108287.60'); // AL × qty (10), not clearance
-    expect(out.gst_amount).toBe('19491.77');
-    expect(out.total_with_gst).toBe('127779.37');
+    expect(out.rate_to_quote).toBe('10828.76'); // AL = AI + AK
+    expect(out.total_without_gst).toBe('10828.76'); // AM = AL × V (clearance 1)
+    expect(out.gst_amount).toBe('1949.18'); // AO = AM × 18%
+    expect(out.total_with_gst).toBe('12777.94'); // AP = AM + AO (ROUND each step)
+  });
+
+  it('keeps quote/GST chain free of 0.01 display drift', () => {
+    const out = computeWorkingCostRow('international', (id) => sampleInputs[id] ?? 0);
+    const al = Number(out.rate_to_quote);
+    const am = Number(out.total_without_gst);
+    const ao = Number(out.gst_amount);
+    const ap = Number(out.total_with_gst);
+    expect(am).toBeCloseTo(al * sampleInputs.clearance_charge, 2);
+    expect(ao).toBeCloseTo(Math.round(am * (sampleInputs.gst_pct / 100) * 100) / 100, 2);
+    expect(ap).toBeCloseTo(Math.round((am + ao) * 100) / 100, 2);
   });
 
   it('lists every Rate Workout column in sheet order', () => {
