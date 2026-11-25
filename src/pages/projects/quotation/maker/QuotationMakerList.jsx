@@ -93,11 +93,42 @@ function rowFiscalYear(r) {
 const HOLD_STATUS = 'Client Has Hold Enquiry';
 /** Shown once per browser session per day when follow-ups are overdue. */
 const FOLLOWUP_POPUP_KEY = 'projects-quotation-followup-exceeded-shown';
+/** Survives remounts (e.g. auth refresh) so Edit details is not lost mid-typing. */
+const EDIT_DRAFT_KEY = 'projects-quotation-master-edit-draft';
+
+function readEditDraft() {
+  try {
+    const raw = sessionStorage.getItem(EDIT_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.quotationId || !parsed?.form || typeof parsed.form !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeEditDraft(payload) {
+  try {
+    sessionStorage.setItem(EDIT_DRAFT_KEY, JSON.stringify(payload));
+  } catch {
+    /* private mode / quota */
+  }
+}
+
+function clearEditDraft() {
+  try {
+    sessionStorage.removeItem(EDIT_DRAFT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 const EMPTY_FILTERS = {
   search: '',
   bucket: '',
   offerType: '',
+  enquiryFrom: '',
   quarter: '',
   fy: '',
   dateFrom: '',
@@ -163,6 +194,15 @@ export default function QuotationMakerList() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** Re-open Edit details after an unexpected remount (draft kept in sessionStorage). */
+  useEffect(() => {
+    if (loading || editing || !rows.length) return;
+    const draft = readEditDraft();
+    if (!draft?.quotationId) return;
+    const row = rows.find((r) => r.id === draft.quotationId);
+    if (row) setEditing(row);
+  }, [loading, rows, editing]);
 
   /** Deep-link from quotation status notification → open View drawer. */
   useEffect(() => {
@@ -282,7 +322,8 @@ export default function QuotationMakerList() {
   }, [merged, today]);
 
   useEffect(() => {
-    if (loading || !overdueDays.size) return;
+    // Never cover the Edit details window with the overdue follow-up popup.
+    if (loading || editing || !overdueDays.size) return;
     try {
       if (sessionStorage.getItem(FOLLOWUP_POPUP_KEY) === today) return;
       sessionStorage.setItem(FOLLOWUP_POPUP_KEY, today);
@@ -290,19 +331,26 @@ export default function QuotationMakerList() {
       /* storage unavailable — still show once for this mount */
     }
     setFollowupPopup(true);
-  }, [loading, overdueDays.size, today]);
+  }, [loading, editing, overdueDays.size, today]);
 
   const options = useMemo(() => {
     const types = new Set();
     const years = new Set();
+    const enquiryFrom = new Set();
     for (const r of merged) {
       const t = cellValue(r, 'offer_type');
       if (t) types.add(t);
       const y = rowFiscalYear(r);
       if (y) years.add(y);
+      const from = String(r.enquiry_received_from || '').trim();
+      if (from) enquiryFrom.add(from);
     }
     const sorted = (s) => [...s].sort((a, b) => a.localeCompare(b));
-    return { types: sorted(types), years: [...years].sort().reverse() };
+    return {
+      types: sorted(types),
+      years: [...years].sort().reverse(),
+      enquiryFrom: sorted(enquiryFrom),
+    };
   }, [merged]);
 
   const filtered = useMemo(() => {
@@ -311,6 +359,7 @@ export default function QuotationMakerList() {
       if (tab === 'overdue' && !overdueDays.has(r.id)) return false;
       if (filters.bucket && offerBucketOf(r.offer_status) !== filters.bucket) return false;
       if (filters.offerType && cellValue(r, 'offer_type') !== filters.offerType) return false;
+      if (filters.enquiryFrom && String(r.enquiry_received_from || '').trim() !== filters.enquiryFrom) return false;
       if (filters.quarter && !String(cellValue(r, 'quarter')).startsWith(`${filters.quarter} `)) return false;
       if (filters.fy && rowFiscalYear(r) !== filters.fy) return false;
       if (filters.dateFrom || filters.dateTo) {
@@ -409,6 +458,7 @@ export default function QuotationMakerList() {
           { previousStatus, profile: userProfile }
         );
         setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...saved } : r)));
+        clearEditDraft();
         setEditing(null);
         setNotice(
           `Order Lost for ${saved.offer_no || 'the quotation'} sent to your L1 manager for approval. The offer status stays "${
@@ -426,6 +476,7 @@ export default function QuotationMakerList() {
         profile: userProfile,
       });
       setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...saved } : r)));
+      clearEditDraft();
       setEditing(null);
       setNotice(`Saved details for ${saved.offer_no || 'quotation'}.`);
       if (wantsOrderLost) await loadOrderLostRequests();
@@ -583,6 +634,17 @@ export default function QuotationMakerList() {
               {options.types.map((t) => (
                 <option key={t} value={t}>
                   {t}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="w-[calc(50%-5px)] sm:w-[200px]">
+            <span className={lbl}>Enquiry received from</span>
+            <select className={ctl} value={filters.enquiryFrom} onChange={setFilter('enquiryFrom')}>
+              <option value="">All</option>
+              {options.enquiryFrom.map((v) => (
+                <option key={v} value={v}>
+                  {v}
                 </option>
               ))}
             </select>
@@ -980,22 +1042,43 @@ function EditDetailsModal({
   orderLostPending = false,
   orderLostNeedsApproval = true,
 }) {
-  const [form, setForm] = useState(() =>
-    Object.fromEntries(DETAIL_FIELDS.map((f) => [f.key, toInputValue(f, row)]))
+  const baseline = useMemo(
+    () => Object.fromEntries(DETAIL_FIELDS.map((f) => [f.key, toInputValue(f, row)])),
+    [row]
   );
+  const [form, setForm] = useState(() => {
+    const draft = readEditDraft();
+    if (draft?.quotationId === row.id && draft.form) {
+      return { ...baseline, ...draft.form };
+    }
+    return baseline;
+  });
   const [localError, setLocalError] = useState('');
-  const [lostReason, setLostReason] = useState('');
+  const [lostReason, setLostReason] = useState(() => {
+    const draft = readEditDraft();
+    return draft?.quotationId === row.id ? String(draft.lostReason || '') : '';
+  });
   /** True after any remark / status / reason keystroke — opening the modal alone does not set this. */
-  const [hasEdited, setHasEdited] = useState(false);
-  const baselineRemark = String(row.remark ?? '');
-  const baselineStatus = String(row.offer_status ?? '');
+  const [hasEdited, setHasEdited] = useState(() => {
+    const draft = readEditDraft();
+    if (draft?.quotationId !== row.id) return false;
+    if (String(draft.lostReason || '').trim()) return true;
+    if (!draft.form) return false;
+    return EDITABLE_DETAIL_KEYS.some(
+      (k) => String(draft.form[k] ?? '') !== String(baseline[k] ?? '')
+    );
+  });
   const choosingOrderLost = form.offer_status === ORDER_LOST_STATUS && row.offer_status !== ORDER_LOST_STATUS;
   const choosingHold = form.offer_status === HOLD_STATUS && row.offer_status !== HOLD_STATUS;
   const needsReason = choosingOrderLost || choosingHold;
   const editable = new Set(EDITABLE_DETAIL_KEYS);
-  const statusChanged = String(form.offer_status ?? '') !== baselineStatus;
-  const remarkChanged = String(form.remark ?? '') !== baselineRemark;
-  const detailsDirty = hasEdited || remarkChanged || statusChanged || Boolean(lostReason);
+  const statusChanged = String(form.offer_status ?? '') !== String(baseline.offer_status ?? '');
+  /** Unsaved edits (for discard confirm + “Unsaved changes”) and follow-up date stamp. */
+  const dirty =
+    hasEdited ||
+    EDITABLE_DETAIL_KEYS.some((k) => String(form[k] ?? '') !== String(baseline[k] ?? '')) ||
+    Boolean(String(lostReason || '').trim());
+  const detailsDirty = dirty;
   /** Order Status Date / quarter as they will be after saving (date = today on a status change). */
   const previewRow = {
     ...row,
@@ -1004,13 +1087,39 @@ function EditDetailsModal({
   };
   const quarterPreview = orderQuarterLabel(previewRow);
 
+  // Keep a browser draft so a remount (or accidental close) can restore what was typed.
+  useEffect(() => {
+    writeEditDraft({
+      quotationId: row.id,
+      form,
+      lostReason,
+      savedAt: Date.now(),
+    });
+  }, [row.id, form, lostReason]);
+
+  const requestClose = useCallback(async () => {
+    if (saving) return;
+    if (dirty) {
+      const ok = await confirmDialog({
+        title: 'Discard changes?',
+        message: 'You have unsaved offer details. Close without saving?',
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep editing',
+        tone: 'danger',
+      });
+      if (!ok) return;
+    }
+    clearEditDraft();
+    onClose();
+  }, [saving, dirty, onClose]);
+
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'Escape' && !saving) onClose();
+      if (e.key === 'Escape' && !saving) void requestClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, saving]);
+  }, [requestClose, saving]);
 
   const set = (key) => (e) => {
     const next = e.target.value;
@@ -1057,7 +1166,11 @@ function EditDetailsModal({
     'h-9 w-full px-2.5 border border-slate-200 rounded-lg text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-400';
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-3 sm:p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-3 sm:p-4"
+      // Backdrop does not close — keep the form open until Cancel / × / Escape (with confirm if dirty).
+      role="presentation"
+    >
       <form
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
@@ -1066,9 +1179,12 @@ function EditDetailsModal({
         <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-slate-900">Edit details</h3>
-            <p className="text-xs text-slate-500 truncate">{row.offer_no || 'Quotation'}</p>
+            <p className="text-xs text-slate-500 truncate">
+              {row.offer_no || 'Quotation'}
+              {dirty ? <span className="ml-2 text-amber-700">· Unsaved changes</span> : null}
+            </p>
           </div>
-          <button type="button" onClick={onClose} className="p-1.5 rounded-md hover:bg-slate-100" title="Close">
+          <button type="button" onClick={() => void requestClose()} className="p-1.5 rounded-md hover:bg-slate-100" title="Close">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -1194,7 +1310,7 @@ function EditDetailsModal({
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => void requestClose()}
               disabled={saving}
               className="h-9 px-3 rounded-lg border border-slate-200 bg-white text-[13px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >

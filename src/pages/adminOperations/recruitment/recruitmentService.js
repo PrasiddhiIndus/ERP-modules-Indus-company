@@ -894,6 +894,24 @@ export function saveOfferDraft(candidateId, offerId, payload, version) {
   return call("admin_recruitment_offer_save_draft", { p_candidate_id: candidateId, p_offer_id: offerId || null, p_payload: payload, p_expected_version: version ?? null }, "Could not save the offer.");
 }
 
+/** Revise a generated/sent/viewed offer's letter fields, then rebuild the letter document. */
+export async function reviseOfferAndRegenerate(offerId, payload, version) {
+  const offer = await call(
+    "admin_recruitment_offer_revise",
+    { p_offer_id: offerId, p_payload: payload, p_expected_version: version ?? null },
+    "Could not revise the offer."
+  );
+  try {
+    await prepareLetter("offer", offerId);
+  } catch (err) {
+    throw new Error(
+      `Offer details saved, but the letter could not be regenerated: ${err.message} Use "Regenerate letter" to retry.`
+    );
+  }
+  notify();
+  return offer;
+}
+
 async function prepareLetter(kind, id) {
   const out = await api("/api/admin-recruitment/letters/generate", { kind, id }, "Could not prepare the letter document.");
   notify();

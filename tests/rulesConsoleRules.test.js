@@ -131,6 +131,27 @@ describe("resolver honours dates and department overrides", () => {
     expect(registerPresentDaySummaryCreditForCell("WO", hr)).toBe(1); // office paid 3rd-Sat WO unchanged
   });
 
+  it("A-00004 does not get blank 3rd-Saturday present credit; other workers still do", () => {
+    setCachedRuleRows(rows);
+    const thirdSat = { year: 2026, month: 10, day: 17, department: "Apprentice" };
+    expect(isPaidThirdSaturdayWorkingDeptCell("", { ...thirdSat, employeeCode: "A-00004" })).toBe(false);
+    expect(isPaidThirdSaturdayWorkingDeptCell("WO", { ...thirdSat, employeeCode: "A-00004" })).toBe(false);
+    expect(registerPresentDaySummaryCreditForCell("", { ...thirdSat, employeeCode: "A-00004" })).toBe(0);
+    // Punch / tour on that day still count as present.
+    expect(registerPresentDaySummaryCreditForCell("P", { ...thirdSat, employeeCode: "A-00004" })).toBe(1);
+    expect(registerPresentDaySummaryCreditForCell("T", { ...thirdSat, employeeCode: "A-00004" })).toBe(1);
+    // Other people who work 3rd Saturday still get the blank credit (unchanged).
+    expect(
+      isPaidThirdSaturdayWorkingDeptCell("", {
+        year: 2026,
+        month: 10,
+        day: 17,
+        department: "Production",
+        employeeCode: "P-00001",
+      })
+    ).toBe(true);
+  });
+
   it("Production Total present credits WO on any Saturday only", () => {
     setCachedRuleRows(rows);
     // Oct 2026: Sat 3 / 10 / 17 / 24 / 31; Sun 4.

@@ -9,10 +9,12 @@ import { PRIORITIES, STATUSES } from "../itSupportConstants";
  *   status: string,
  *   priority?: string,
  *   assigneeId?: string,
+ *   requesterId?: string,
  *   categoryId?: string,
  *   erpModuleKey?: string,
  *   breachedOnly?: boolean,
- *   agents?: Array<{id:string,username?:string,email?:string}>,
+ *   agents?: Array<{id:string,username?:string,email?:string,employee_code?:string}>,
+ *   raisers?: Array<{id:string,label:string,employee_code?:string}>,
  *   categories?: Array<{id:string,name:string}>,
  *   modules?: Array<{value:string,label:string}>,
  *   onChange: (patch: object) => void,
@@ -24,10 +26,12 @@ export default function TicketFilters({
   status,
   priority = "",
   assigneeId = "",
+  requesterId = "",
   categoryId = "",
   erpModuleKey = "",
   breachedOnly = false,
   agents = [],
+  raisers = [],
   categories = [],
   modules = [],
   onChange,
@@ -89,6 +93,22 @@ export default function TicketFilters({
                 <option key={a.id} value={a.id}>
                   {a.username || a.email || a.id}
                   {a.employee_code ? ` · ${a.employee_code}` : ""}
+                </option>
+              ))}
+            </TinySelect>
+          </div>
+          <div className="w-[170px]">
+            <label className="block text-[10px] font-medium text-ink-muted mb-0.5">Raised by</label>
+            <TinySelect
+              value={requesterId}
+              onChange={(e) => onChange({ requesterId: e.target.value })}
+              className="w-full"
+            >
+              <option value="">Anyone</option>
+              {raisers.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.label}
+                  {r.employee_code ? ` · ${r.employee_code}` : ""}
                 </option>
               ))}
             </TinySelect>

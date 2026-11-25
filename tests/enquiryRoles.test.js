@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { isAssignedToAny, isEnquiryApprover, namesForUser } from '../src/pages/projects/enquiry/enquiryRoles.js';
+import {
+  canWriteEnquiryDatesOnCreate,
+  isAssignedToAny,
+  isEnquiryApprover,
+  namesForUser,
+} from '../src/pages/projects/enquiry/enquiryRoles.js';
 
 describe('Enquiry approver roles', () => {
   it('managers, admins (incl. HOD) and super admins approve; executives do not', () => {
@@ -8,6 +13,15 @@ describe('Enquiry approver roles', () => {
     }
     for (const role of ['executive', '', null, 'unknown']) {
       expect(isEnquiryApprover({ role })).toBe(false);
+    }
+  });
+
+  it('only admin / super admin may write Target/Completed dates on create without L1', () => {
+    for (const role of ['admin', 'hod', 'super_admin', 'super_admin_pro']) {
+      expect(canWriteEnquiryDatesOnCreate({ role })).toBe(true);
+    }
+    for (const role of ['manager', 'Manager', 'executive', '', null]) {
+      expect(canWriteEnquiryDatesOnCreate({ role })).toBe(false);
     }
   });
 });
