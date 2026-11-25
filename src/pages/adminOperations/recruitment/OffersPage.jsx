@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { FileSignature, Send, Upload, UserRound, XCircle } from "lucide-react";
+import { FileSignature, Pencil, Send, Upload, UserRound, XCircle } from "lucide-react";
 import { Drawer } from "../../../components/erpUi";
 import { toast } from "../../../lib/toast";
 import { APPOINTMENT_STATUSES, OFFER_STATUSES, appointmentStatusMeta, offerStatusMeta } from "./recruitmentConfig";
@@ -25,7 +25,7 @@ import {
   useCapabilities,
   useRecruitmentData,
 } from "./RecruitmentUi";
-import { AppointmentModal, OfferResponseModal, SendEmailModal, UploadModal } from "./RecruitmentForms";
+import { AppointmentModal, OfferModal, OfferResponseModal, SendEmailModal, UploadModal } from "./RecruitmentForms";
 
 async function loadLetters() {
   const [offers, appointments] = await Promise.all([listOffers(), listAppointments()]);
@@ -250,6 +250,11 @@ export default function OffersPage() {
                         <FileSignature className="h-3.5 w-3.5" /> Prepare letter
                       </button>
                     ) : null}
+                    {["generated", "sent", "viewed", "accepted"].includes(open.status) ? (
+                      <button type="button" className={btn.secondary} onClick={() => setModal({ name: "revise" })}>
+                        <Pencil className="h-3.5 w-3.5" /> Edit & regenerate letter
+                      </button>
+                    ) : null}
                     {open.generatedDoc && ["generated", "sent", "viewed", "accepted"].includes(open.status) ? (
                       <button
                         type="button"
@@ -385,6 +390,28 @@ export default function OffersPage() {
         }
         onClose={close}
       />
+
+      {open && !open.pendingAppointment && kindKey === "offer" ? (
+        <OfferModal
+          open={modal?.name === "revise"}
+          candidate={{
+            id: open.candidateId,
+            name: open.candidateName,
+            email: open.candidateEmail,
+            designation: open.position,
+            department: open.department,
+            site: open.location,
+            expectedJoining: open.joiningDate,
+            expectedSalary: open.monthlyGross,
+            expectedCtc: open.monthlyGross,
+          }}
+          offer={open}
+          onClose={() => {
+            close();
+            reload();
+          }}
+        />
+      ) : null}
 
       {open ? (
         <>

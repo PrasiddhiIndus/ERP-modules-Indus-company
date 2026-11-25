@@ -528,11 +528,19 @@ function buildOfferAnnexurePlaceholders(offer, candidate, rules = SEED_RULES_202
   }
 }
 
+function offerAdditionalTermsText(offer) {
+  return String(offer?.terms || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim();
+}
+
 function offerPlaceholders(offer, candidate, companyName, { rules } = {}) {
   const company = companyName || 'INDUS FIRE SAFETY PVT LTD';
   const offerDate = todayIsoIst();
   const designation = String(offer?.designation || '').trim() || '—';
   const deptClause = departmentClause(offer?.department);
+  const extraTerms = offerAdditionalTermsText(offer);
   return {
     '{{OFFER_DATE}}': formatLetterDate(offerDate, { shortMonth: true, doubleSpace: true }),
     '{{CANDIDATE_NAME}}': String(candidate?.full_name || 'Candidate').trim(),
@@ -547,8 +555,66 @@ function offerPlaceholders(offer, candidate, companyName, { rules } = {}) {
     }),
     '{{JOINING_DATE_SHORT}}': formatLetterDateAbbrev(offer?.joining_date),
     '{{JOINING_DATE_DDMMYYYY}}': formatLetterDateDdMmYyyy(offer?.joining_date),
+    // Optional token in Word template; also injected as paragraphs when present.
+    '{{ADDITIONAL_TERMS}}': extraTerms,
     ...buildOfferAnnexurePlaceholders(offer, candidate, rules || SEED_RULES_2026_27),
   };
+}
+
+/** Build OOXML paragraphs for free-text additional terms (one paragraph per line). */
+function additionalTermsParagraphsXml(termsText) {
+  const lines = String(termsText || '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return '';
+  const heading =
+    '<w:p><w:pPr><w:spacing w:before="120" w:after="60"/></w:pPr>' +
+    '<w:r><w:rPr><w:b/><w:sz w:val="20"/></w:rPr>' +
+    `<w:t>${escapeXmlText('Additional points')}</w:t></w:r></w:p>`;
+  const body = lines
+    .map((line) => {
+      const bullet = line.startsWith('•') || line.startsWith('-') || line.startsWith('*') ? line : `• ${line}`;
+      return (
+        '<w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr>' +
+        '<w:r><w:rPr><w:sz w:val="20"/></w:rPr>' +
+        `<w:t xml:space="preserve">${escapeXmlText(bullet)}</w:t></w:r></w:p>`
+      );
+    })
+    .join('');
+  return heading + body;
+}
+
+/**
+ * If the template has no {{ADDITIONAL_TERMS}} token, insert terms paragraphs
+ * just before the first Annexure heading so revised points appear on the letter.
+ */
+function injectAdditionalTermsIntoOfferXml(documentXml, termsText) {
+  const xml = String(documentXml || '');
+  const terms = String(termsText || '').trim();
+  if (!terms) return xml;
+  if (xml.includes('{{ADDITIONAL_TERMS}}')) return xml; // filled by placeholder pass
+  const block = additionalTermsParagraphsXml(terms);
+  if (!block) return xml;
+  const annexureRe = /(<w:p\b[^>]*>[\s\S]*?<w:t[^>]*>\s*Annexure(?:\s*A|\s*-\s*I)?\s*<\/w:t>[\s\S]*?<\/w:p>)/i;
+  if (annexureRe.test(xml)) {
+    return xml.replace(annexureRe, `${block}$1`);
+  }
+  // Fallback: before body close
+  if (xml.includes('</w:body>')) {
+    return xml.replace('</w:body>', `${block}</w:body>`);
+  }
+  return xml;
+}
+
+function applyOfferAdditionalTermsToDocx(docxBuffer, termsText) {
+  const terms = String(termsText || '').trim();
+  if (!terms) return Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
+  const zip = new PizZip(docxBuffer);
+  const documentXml = zip.file('word/document.xml')?.asText();
+  if (!documentXml) return Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
+  zip.file('word/document.xml', injectAdditionalTermsIntoOfferXml(documentXml, terms));
+  return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
 function formatDobShort(value) {
@@ -740,8 +806,16 @@ function normalizeOfferLetterDocxLayout(docxBuffer) {
 }
 
 export async function buildOfferLetterDocx(offer, candidate, companyName) {
-  const filled = await fillDocxTemplate(OFFER_TEMPLATE, offerPlaceholders(offer, candidate, companyName));
-  return normalizeOfferLetterDocxLayout(filled);
+  const placeholders = offerPlaceholders(offer, candidate, companyName);
+  const templateHasTermsToken =
+    fs.existsSync(OFFER_TEMPLATE) &&
+    new PizZip(fs.readFileSync(OFFER_TEMPLATE)).file('word/document.xml')?.asText()?.includes('{{ADDITIONAL_TERMS}}');
+  const filled = await fillDocxTemplate(OFFER_TEMPLATE, placeholders);
+  // Only inject paragraphs when the Word template has no {{ADDITIONAL_TERMS}} token.
+  const withTerms = templateHasTermsToken
+    ? filled
+    : applyOfferAdditionalTermsToDocx(filled, offerAdditionalTermsText(offer));
+  return normalizeOfferLetterDocxLayout(withTerms);
 }
 
 const APPOINTMENT_COMPACT_SPACING =

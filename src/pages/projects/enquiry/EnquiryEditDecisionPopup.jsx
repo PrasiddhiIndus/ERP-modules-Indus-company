@@ -83,8 +83,8 @@ export default function EnquiryEditDecisionPopup() {
           <p className="text-sm font-semibold text-amber-950">{headline}</p>
           <p className="text-xs text-amber-900/80">
             {rejectedCount
-              ? 'Rejected changes were discarded; existing dates were kept.'
-              : 'Approved changes are now on the enquiry.'}
+              ? 'Rejected Target Date / Completed Date were not written to the Enquiry Database.'
+              : 'Approved Target Date / Completed Date are now on the Enquiry Database.'}
           </p>
         </div>
         <button
