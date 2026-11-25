@@ -36,6 +36,8 @@ import {
   findSavedMonthLine,
   decorateScopeLine,
   workingDaysMonToSat,
+  calendarDaysInMonth,
+  resolveLineWorkingDays,
   presentDaysExceedWorkingDays,
   getRunSheetNo,
   getMonthHoldIds,
@@ -636,11 +638,11 @@ function EmployeeSalaryDetailPage({
                 type="number"
                 step="0.5"
                 min={0}
-                max={monthDays}
+                max={resolveLineWorkingDays(line, monthDays)}
                 className={`${detailInput} max-w-none`}
                 value={line.present_days ?? ""}
                 placeholder="—"
-                title={`Monday–Saturday present and paid leave, excluding Sundays. Max ${monthDays} for this month.`}
+                title={`Present days. Basis ${resolveLineWorkingDays(line, monthDays)} working days for this employee.`}
                 onChange={(e) => patch({ present_days: e.target.value })}
                 disabled={locked}
                 readOnly={locked}
@@ -657,7 +659,7 @@ function EmployeeSalaryDetailPage({
               />
             </ProfileFact>
             <ProfileFact label="Month days">
-              <span className="tabular-nums">{monthDays}</span>
+              <span className="tabular-nums">{resolveLineWorkingDays(line, monthDays)}</span>
             </ProfileFact>
           </div>
           <p className="text-[11px] text-slate-500 mt-4">
@@ -995,6 +997,7 @@ function ScopeSalarySheetTable({
               const checked = selectedIds.some((id) => String(id) === empKey);
               const rowLocked = lineIsSalaryLocked(line);
               const rowReadOnly = readOnly || rowLocked;
+              const lineWorking = resolveLineWorkingDays(line, workingDays);
               const daysOver = presentDaysExceedWorkingDays(line, workingDays);
               return (
               <tr
@@ -1011,7 +1014,7 @@ function ScopeSalarySheetTable({
                 }}
                 title={
                   daysOver
-                    ? `P.Days (${line.present_days}) exceed working days (${workingDays ?? line.total_days})`
+                    ? `P.Days (${line.present_days}) exceed working days (${lineWorking})`
                     : undefined
                 }
                 className={[
@@ -1102,11 +1105,11 @@ function ScopeSalarySheetTable({
                       type="number"
                       step="0.5"
                       min={0}
-                      max={Number(line.total_days) > 0 ? line.total_days : undefined}
+                      max={lineWorking > 0 ? lineWorking : undefined}
                       className={numIn}
                       value={line.present_days ?? ""}
                       placeholder="—"
-                      title="Monday–Saturday present and paid leave. Sundays excluded; capped at working days."
+                      title={`Present days for salary. Basis ${lineWorking} working days (amount = full × P.Days ÷ ${lineWorking}).`}
                       onChange={(e) => onUpdateLine(line.id, { present_days: e.target.value })}
                     />
                   )}
@@ -1245,7 +1248,7 @@ function ScopeSalarySheetTable({
                           ? prorateVoucherByPresentDays(
                               readVoucherFull(line),
                               line.present_days,
-                              workingDays || line.total_days
+                              lineWorking
                             )
                           : 0
                       }
@@ -1333,7 +1336,7 @@ function VoucherSheetTable({
               const payablePreview = prorateVoucherByPresentDays(
                 fixed,
                 line.present_days,
-                workingDays || line.total_days
+                resolveLineWorkingDays(line, workingDays)
               );
               const processed = Boolean(
                 line.voucher_processed ??
@@ -1462,7 +1465,12 @@ function mergeScopePlaceholders(employeesForSheet, { prev, savedMonthLines, mont
     const sameMonth = Boolean(prevRow && prevRow.pay_month_key === payKey);
     if (sameMonth && hasLoadedPresentDays(prevRow)) {
       return decorateScopeLine(
-        { ...prevRow, total_days: monthDays, pay_month_key: payKey, present_days: prevRow.present_days },
+        {
+          ...prevRow,
+          total_days: resolveLineWorkingDays(prevRow, monthDays),
+          pay_month_key: payKey,
+          present_days: prevRow.present_days,
+        },
         e,
         { pay_month_key: payKey, identityStats }
       );
@@ -2712,13 +2720,14 @@ export default function SalaryProcessing() {
             </thead>
             <tbody>
               {filteredLines.map((line, idx) => {
+                const lineWorking = resolveLineWorkingDays(line, run?.month_days || monthDays);
                 const daysOver = presentDaysExceedWorkingDays(line, run?.month_days || monthDays);
                 return (
                 <tr
                   key={line.id}
                   title={
                     daysOver
-                      ? `P.Days (${line.present_days}) exceed working days (${run?.month_days || monthDays})`
+                      ? `P.Days (${line.present_days}) exceed working days (${lineWorking})`
                       : undefined
                   }
                   className={
@@ -2971,7 +2980,7 @@ export default function SalaryProcessing() {
       <PageTaskHeader
         className="mb-0"
         title="Salary Processing"
-        subtitle="Build monthly salary sheets from Employee Master. P.Days = present and paid leave on working days (Sundays excluded), capped at this month’s working days (26/27, February 24)."
+        subtitle="Build monthly salary sheets from Employee Master. Enter Working days (e.g. 27 or 31) — salary = full × P.Days ÷ Working days. Dahej day-31 staff (8962, FTC-66, V-00002) always use a 31-day basis."
       >
         <button
           type="button"
@@ -3014,9 +3023,10 @@ export default function SalaryProcessing() {
         On Generate Payslip, create payslips for processed staff, filter by department or
         individual, revise amounts (new revision + history), and preview slips.
         Open a row to view the salary form — locked records are view only.
-        P.Days count present and paid leave from Monday to Saturday only. Sundays are not
-        counted. If attendance is higher than the month’s working days (26/27, or 24 in
-        February), P.Days is held at that month’s slab.
+        Working days defaults to Monday–Saturday (26/27; February 24). You can raise it up to
+        calendar days (e.g. 31) so Present ÷ Working days matches the month. Three Dahej
+        staff (8962, FTC-66, V-00002) always calculate on a 31-day basis — if they work 30,
+        pay is 30/31 of monthly CTC. P.Days above that basis block processing until corrected.
       </CollapsibleHelp>
 
       <SectionCard
@@ -3166,15 +3176,16 @@ export default function SalaryProcessing() {
               <input
                 type="number"
                 min={1}
-                max={workingDaysMonToSat(year, month)}
+                max={calendarDaysInMonth(year, month)}
                 className={`${selectIn} w-14`}
                 value={monthDays}
-                title="Monday to Saturday working days in the selected month (Sundays excluded). Typical 26/27; February 24."
+                title="Working days for salary (default Mon–Sat). Enter 27 or 31 — amounts use Present ÷ Working days. Max is calendar days in the month."
                 onChange={(e) => {
-                  const calendar = workingDaysMonToSat(year, month);
+                  const calendar = calendarDaysInMonth(year, month);
+                  const fallback = workingDaysMonToSat(year, month);
                   const n = Number(e.target.value);
                   setMonthDays(
-                    Number.isFinite(n) && n > 0 ? Math.min(n, calendar) : calendar
+                    Number.isFinite(n) && n > 0 ? Math.min(Math.max(1, n), calendar) : fallback
                   );
                 }}
               />
