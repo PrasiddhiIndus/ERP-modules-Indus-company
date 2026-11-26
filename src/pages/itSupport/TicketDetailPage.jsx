@@ -276,12 +276,20 @@ export default function TicketDetailPage() {
           dueAt={ticket.first_response_due_at}
           breached={ticket.first_response_breached}
           paused={Boolean(ticket.sla_paused_at)}
+          startedAt={ticket.created_at}
+          completedAt={
+            ticket.status === "closed"
+              ? ticket.first_responded_at || ticket.closed_at
+              : null
+          }
         />
         <SlaTimer
           label="Resolution"
           dueAt={ticket.resolution_due_at}
           breached={ticket.resolution_breached}
           paused={Boolean(ticket.sla_paused_at)}
+          startedAt={ticket.created_at}
+          completedAt={ticket.status === "closed" ? ticket.closed_at : null}
         />
       </div>
 

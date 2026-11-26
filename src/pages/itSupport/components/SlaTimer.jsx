@@ -20,15 +20,43 @@ function formatRemaining(ms) {
 
 /**
  * Green = > 50% time left, amber = < 50%, red = breached / overdue.
+ * When completedAt is set (closed ticket), shows elapsed start→close time instead of a live countdown.
+ * Clearing completedAt on reopen resumes the normal SLA cycle.
  */
-export default function SlaTimer({ dueAt, breached = false, paused = false, label = "SLA" }) {
+export default function SlaTimer({
+  dueAt,
+  breached = false,
+  paused = false,
+  label = "SLA",
+  startedAt = null,
+  completedAt = null,
+}) {
   const [now, setNow] = useState(Date.now());
+  const completed = parseDue(completedAt);
 
   useEffect(() => {
-    if (paused || breached) return undefined;
+    if (paused || breached || completed) return undefined;
     const id = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(id);
-  }, [paused, breached]);
+  }, [paused, breached, completed]);
+
+  // Closed / completed: freeze at start → close duration (never "Overdue").
+  if (completed) {
+    const start = parseDue(startedAt);
+    const durationMs = start != null ? Math.max(0, completed - start) : null;
+    const tone = breached
+      ? "bg-red-50 text-red-700 border-red-200"
+      : "bg-zinc-100 text-zinc-700 border-zinc-200";
+    const text =
+      durationMs != null ? formatRemaining(durationMs) : "—";
+
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] font-medium ${tone}`}>
+        <span className="opacity-70">{label}</span>
+        <span>{text}</span>
+      </span>
+    );
+  }
 
   const due = parseDue(dueAt);
   if (!due) {

@@ -183,6 +183,21 @@ import {
   ItSupportTicketDetailPage,
   ItSupportMastersPage,
   ItSupportReportsPage,
+  QaLayout,
+  QaDashboardPage,
+  QaRequestsBoardPage,
+  QaRequestDetailPage,
+  QaTestCasesPage,
+  QaTestCaseDetailPage,
+  QaTestCaseFormPage,
+  QaExecutionPage,
+  QaDefectsPage,
+  QaDefectDetailPage,
+  QaTraceabilityPage,
+  QaReleaseGatePage,
+  QaAuditTrailPage,
+  QaStandardsPage,
+  QaManualPage,
   IndusLmsTrainings,
   MarketingDashboard,
   LeadDashboard,
@@ -798,6 +813,25 @@ function App() {
               <Route path="tickets/:id" element={<ItSupportTicketDetailPage />} />
               <Route path="masters" element={<ItSupportMastersPage />} />
               <Route path="reports" element={<ItSupportReportsPage />} />
+            </Route>
+            <Route path="qa" element={<QaLayout />}>
+              <Route index element={<QaDashboardPage />} />
+              <Route path="requests" element={<QaRequestsBoardPage />} />
+              <Route path="requests/:idOrCode" element={<QaRequestDetailPage />} />
+              <Route path="cases" element={<QaTestCasesPage />} />
+              <Route path="cases/new" element={<QaTestCaseFormPage />} />
+              <Route path="cases/:idOrCode/version" element={<QaTestCaseFormPage />} />
+              <Route path="cases/:idOrCode/edit" element={<QaTestCaseFormPage />} />
+              <Route path="cases/:idOrCode" element={<QaTestCaseDetailPage />} />
+              <Route path="execution" element={<QaExecutionPage />} />
+              <Route path="runs/:idOrCode" element={<QaExecutionPage />} />
+              <Route path="defects" element={<QaDefectsPage />} />
+              <Route path="defects/:idOrCode" element={<QaDefectDetailPage />} />
+              <Route path="traceability" element={<QaTraceabilityPage />} />
+              <Route path="release-gate" element={<QaReleaseGatePage />} />
+              <Route path="audit" element={<QaAuditTrailPage />} />
+              <Route path="standards" element={<QaStandardsPage />} />
+              <Route path="manual" element={<QaManualPage />} />
             </Route>
             <Route
               path="activity-history"
