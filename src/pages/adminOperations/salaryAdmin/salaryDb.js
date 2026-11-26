@@ -410,7 +410,7 @@ export async function dbFetchSalaryStructureMap({ withRevisions = false } = {}) 
   for (;;) {
     const { data: chunk, error } = await salaryTable("structures")
       .select("*")
-      .eq("declared", true)
+      .or("declared.eq.true,generate_voucher.eq.true")
       .order("employee_master_id", { ascending: true })
       .range(from, from + pageSize - 1);
     if (error) throw error;

@@ -2314,13 +2314,6 @@ const Layout = () => {
             </NavLink>
             )}
 
-            {userProfile?.role === ROLES.SUPER_ADMIN && (
-            <NavLink to="all-employees" className={topNavClass}>
-              <Users className="w-4 h-4 shrink-0" />
-              <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">All Employees</span>
-            </NavLink>
-            )}
-
             {navHas.itIsHelpdesk && (
             <NavLink to="it-support" className={topNavClass} title="IT Support">
               <Headphones className="w-4 h-4 shrink-0" />
@@ -2335,6 +2328,13 @@ const Layout = () => {
                   </span>
                 ) : null}
               </span>
+            </NavLink>
+            )}
+
+            {userProfile?.role === ROLES.SUPER_ADMIN && (
+            <NavLink to="all-employees" className={topNavClass}>
+              <Users className="w-4 h-4 shrink-0" />
+              <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">All Employees</span>
             </NavLink>
             )}
 

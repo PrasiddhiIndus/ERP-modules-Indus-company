@@ -2472,84 +2472,168 @@ export async function processVoucherForMonth({
 
   const key = monthKey(y, m);
   const days = resolveSalaryMonthWorkingDays(y, m, monthDays);
-  const existing = await getMonthRunByKey(key);
-  if (!existing?.id) {
-    throw new Error("Process salary for these employees first, then Process voucher.");
+  let existing = await getMonthRunByKey(key);
+  if (existing?.id) {
+    assertMonthRunUnlocked(existing);
   }
-  assertMonthRunUnlocked(existing);
+
+  const processAt = new Date().toISOString();
+  const processDay = processAt.slice(0, 10);
+  if (!existing?.id) {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id || null;
+    const { data: created, error: runErr } = await supabase
+      .from(MONTH_RUNS_TABLE)
+      .insert({
+        pay_year: y,
+        pay_month: m,
+        month_key: key,
+        month_days: days,
+        status: "processed",
+        revision_no: 1,
+        include_without_ctc: true,
+        ...sumLines([]),
+        created_by: userId,
+        updated_by: userId,
+        summary_json: {
+          processed_on: processDay,
+          processed_at: processAt,
+          voucher_only_run: true,
+        },
+      })
+      .select("*")
+      .single();
+    if (runErr) throw runErr;
+    existing = created;
+  }
 
   const bundle = await getMonthRunWithLines(existing.id);
   const allLines = bundle.lines || [];
-  const idSet = new Set(ids);
-  const target = allLines.filter((line) => idSet.has(String(line.employee_master_id)));
-  if (!target.length) {
-    throw new Error(
-      "Selected employees are not on this month's salary sheet yet. Process their salary first, then Process voucher."
-    );
-  }
+  const lineByEmpId = new Map(allLines.map((l) => [String(l.employee_master_id), l]));
 
   const salaryMap = await fetchSalaryStructureMapForMonth(y, m);
-  const processAt = new Date().toISOString();
-  const stamped = [];
+  const missingIds = ids.filter((id) => !lineByEmpId.has(id));
+  const [masterMap, presentMap] = missingIds.length
+    ? await Promise.all([
+        fetchMasterPayrollFieldsByIds(missingIds),
+        fetchPresentDaysByEmployeeCode(y, m),
+      ])
+    : [new Map(), {}];
+
+  const stampedUpdates = [];
+  const stampedInserts = [];
   const skippedNoVoucher = [];
 
-  for (const line of target) {
+  for (const empId of ids) {
+    const line = lineByEmpId.get(empId) || null;
     const structure =
-      salaryMap.get(String(line.employee_master_id)) ||
-      salaryMap.get(line.employee_master_id) ||
+      salaryMap.get(String(empId)) ||
+      salaryMap.get(Number(empId)) ||
       null;
     const on =
       hasGenerateVoucher(structure) ||
       hasGenerateVoucher(line) ||
-      hasGenerateVoucher(line.computed_json) ||
-      hasGenerateVoucher(line.source_snapshot_json);
+      hasGenerateVoucher(line?.computed_json) ||
+      hasGenerateVoucher(line?.source_snapshot_json);
     const fromCtc =
       on && Number(structure?.voucher_amount) > 0 ? Number(structure.voucher_amount) : 0;
-    const full = fromCtc || readVoucherFull({ ...line, _structure: structure });
+    const full = fromCtc || (line ? readVoucherFull({ ...line, _structure: structure }) : 0);
     if (!on || !(full > 0)) {
-      skippedNoVoucher.push(line.employee_code || line.employee_name || line.employee_master_id);
+      skippedNoVoucher.push(line?.employee_code || line?.employee_name || empId);
       continue;
     }
-    const present = presentDaysFromRegisterTotal(line.present_days);
-    const working = resolveLineWorkingDays(line, num(line.total_days, days) || days);
-    const earned = prorateVoucherByPresentDays(full, present, working);
-    const voucherSnap = {
-      generate_voucher: true,
-      voucher_full: full,
-      voucher_amount: earned,
-      voucher_processed: true,
-      voucher_processed_at: processAt,
-    };
-    const cj =
-      line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
-    const snap =
-      line.source_snapshot_json && typeof line.source_snapshot_json === "object"
-        ? line.source_snapshot_json
-        : {};
-    // Patch voucher only — leave gross / net / bank / payslip salary figures untouched.
-    const prevSlip = cj.payslip && typeof cj.payslip === "object" ? cj.payslip : null;
-    const nextSlip = prevSlip
-      ? {
-          ...prevSlip,
-          generate_voucher: true,
-          voucher_amount: earned,
-          voucher_full: full,
-          voucher_processed: true,
-        }
-      : null;
-    stamped.push({
-      ...line,
-      ...voucherSnap,
-      computed_json: {
-        ...cj,
+
+    if (line) {
+      const present = presentDaysFromRegisterTotal(line.present_days);
+      const working = resolveLineWorkingDays(line, num(line.total_days, days) || days);
+      const earned = prorateVoucherByPresentDays(full, present, working);
+      const voucherSnap = {
+        generate_voucher: true,
+        voucher_full: full,
+        voucher_amount: earned,
+        voucher_processed: true,
+        voucher_processed_at: processAt,
+      };
+      const cj =
+        line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
+      const snap =
+        line.source_snapshot_json && typeof line.source_snapshot_json === "object"
+          ? line.source_snapshot_json
+          : {};
+      // Patch voucher only — leave gross / net / bank / payslip salary figures untouched.
+      const prevSlip = cj.payslip && typeof cj.payslip === "object" ? cj.payslip : null;
+      const nextSlip = prevSlip
+        ? {
+            ...prevSlip,
+            generate_voucher: true,
+            voucher_amount: earned,
+            voucher_full: full,
+            voucher_processed: true,
+          }
+        : null;
+      stampedUpdates.push({
+        ...line,
         ...voucherSnap,
-        ...(nextSlip ? { payslip: nextSlip } : {}),
-      },
-      source_snapshot_json: { ...snap, ...voucherSnap },
-      updated_at: processAt,
-    });
+        computed_json: {
+          ...cj,
+          ...voucherSnap,
+          ...(nextSlip ? { payslip: nextSlip } : {}),
+        },
+        source_snapshot_json: { ...snap, ...voucherSnap },
+        updated_at: processAt,
+      });
+    } else {
+      // Voucher-only employee (no CTC or salary not processed yet) — create a voucher-only line.
+      const master = masterMap.get(String(empId)) || {};
+      const empObj = {
+        id: Number(empId) || empId,
+        employee_id: master.employee_id || "",
+        employee_code: master.employee_code || master.employee_id || "",
+        full_name: master.full_name || "",
+        designation: master.designation || "",
+        department: master.department || "—",
+        date_of_joining: master.date_of_joining || null,
+        bank_account_no: master.bank_account_no || "",
+        ifsc_code: master.ifsc_code || "",
+        uan_no: master.uan_no || "",
+        esic_no: master.esic_no || "",
+        hasCtc: Boolean(structure?.declared),
+      };
+      const baseLine = emptyPreviewLineFromEmployee(empObj, days);
+      const fromRegister = lookupPresentDays(presentMap, empObj);
+      const present = fromRegister != null ? presentDaysFromRegisterTotal(fromRegister) : 0;
+      const working = resolveLineWorkingDays(baseLine, days);
+      const earned = prorateVoucherByPresentDays(full, present, working);
+      const voucherSnap = {
+        generate_voucher: true,
+        voucher_full: full,
+        voucher_amount: earned,
+        voucher_processed: true,
+        voucher_processed_at: processAt,
+      };
+      stampedInserts.push({
+        ...baseLine,
+        id: undefined,
+        run_id: existing.id,
+        pay_month_key: key,
+        present_days: present,
+        total_days: working,
+        ...voucherSnap,
+        computed_json: {
+          ...voucherSnap,
+          voucher_only: true,
+          processed_on: processDay,
+        },
+        source_snapshot_json: {
+          ...voucherSnap,
+          voucher_only: true,
+        },
+        updated_at: processAt,
+      });
+    }
   }
 
+  const stamped = [...stampedUpdates, ...stampedInserts];
   if (!stamped.length) {
     throw new Error(
       skippedNoVoucher.length
@@ -2558,7 +2642,7 @@ export async function processVoucherForMonth({
     );
   }
 
-  for (const line of stamped) {
+  for (const line of stampedUpdates) {
     if (!line.id) continue;
     const payload = toDbLinePayload(line, { includeRunId: false });
     const { error } = await supabase
@@ -2568,6 +2652,16 @@ export async function processVoucherForMonth({
         updated_at: processAt,
       })
       .eq("id", line.id);
+    if (error) throw error;
+  }
+
+  if (stampedInserts.length) {
+    const insertRows = stampedInserts.map((line) => ({
+      ...toDbLinePayload(line, { includeRunId: true }),
+      run_id: existing.id,
+      updated_at: processAt,
+    }));
+    const { error } = await supabase.from(MONTH_LINES_TABLE).insert(insertRows);
     if (error) throw error;
   }
 
