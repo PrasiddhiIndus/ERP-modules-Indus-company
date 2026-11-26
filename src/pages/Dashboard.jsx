@@ -449,8 +449,8 @@ const Dashboard = () => {
         onOpen={go}
         attendance={attendance}
         onOpenAttendance={
-          allowPath("/app/attendance")
-            ? () => go("/app/attendance")
+          allowPath("/app/hr/site-attendance")
+            ? () => go("/app/hr/site-attendance")
             : allowPath("/app/hr")
               ? () => go("/app/hr")
               : null

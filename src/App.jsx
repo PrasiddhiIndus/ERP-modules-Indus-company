@@ -51,11 +51,8 @@ import {
   CommercialRmManpowerManagement,
   CommercialRmInternalQuotation,
   FireTenderVehicleManagement,
-  Attendance,
   StoreInventory,
-  HR,
   HrDashboard,
-  HrEmployeeMaster,
   HrCallingMaster,
   HrCallingMasterCandidates,
   HrCallingMasterReferral,
@@ -449,12 +446,10 @@ function App() {
               <Route path="dropdown-master" element={<HrCallingMasterDropdowns />} />
               <Route path="database" element={<Navigate to="/app/hr/calling-master" replace />} />
             </Route>
-            <Route path="hr" element={<HR />}>
-              <Route index element={<Navigate to="employee-master" replace />} />
-              <Route path="employee-master" element={<HrEmployeeMaster />} />
-              <Route path="salary-inputs" element={<Navigate to="/app/hr/employee-master" replace />} />
-            </Route>
-            <Route path="attendance" element={<Attendance />} />
+            <Route path="hr" element={<Navigate to="/app/hr/site-attendance" replace />} />
+            <Route path="hr/employee-master" element={<Navigate to="/app/hr/site-attendance" replace />} />
+            <Route path="hr/salary-inputs" element={<Navigate to="/app/hr/site-attendance" replace />} />
+            <Route path="attendance" element={<Navigate to="/app/hr/site-attendance" replace />} />
             <Route path="salary" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
             <Route path="payroll" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
             <Route path="hr/payroll" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />

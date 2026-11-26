@@ -228,8 +228,8 @@ export default function CompanyPulse({
   const hrView = pulse.views.find((view) => view.id === "hr");
   const adminView = pulse.views.find((view) => view.id === "admin");
   const peoplePath = hrView?.canOpen ? hrView.openPath : adminView?.canOpen ? adminView.openPath : "";
-  const attendancePath = allowPath?.("/app/attendance")
-    ? "/app/attendance"
+  const attendancePath = allowPath?.("/app/hr/site-attendance")
+    ? "/app/hr/site-attendance"
     : allowPath?.("/app/hr")
       ? "/app/hr"
       : "";

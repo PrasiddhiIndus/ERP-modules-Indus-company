@@ -65,6 +65,7 @@ function emptyForm() {
     regular_ot: false,
     ot_in_hours: true,
     custom_ot: false,
+    customized_duty_hours: false,
   };
 }
 
@@ -205,6 +206,7 @@ export default function SiteMasterPage() {
       regular_ot: site.regular_ot === true,
       ot_in_hours: site.ot_in_hours !== false && site.regular_ot !== true && site.custom_ot !== true,
       custom_ot: site.custom_ot === true,
+      customized_duty_hours: site.customized_duty_hours === true,
     });
     const [siteDesigs, names, sups, hrs, managers] = await Promise.all([
       listSiteDesignations(site.id),
@@ -355,7 +357,10 @@ export default function SiteMasterPage() {
     {
       key: "shift",
       label: "Shift / duty",
-      render: (row) => `${row.shift_type === "ABCG" ? "ABCG" : "P-days"} · ${row.duty_hours === 12 ? "12" : "8"} h`,
+      render: (row) =>
+        `${row.shift_type === "ABCG" ? "ABCG" : "P-days"} · ${row.duty_hours === 12 ? "12" : "8"} h${
+          row.customized_duty_hours ? " · custom" : ""
+        }`,
     },
     { key: "cycle", label: "Salary cycle", render: (row) => formatCycle(row) },
     { key: "max_workers", label: "Max workers", render: (row) => <span className="tabular-nums">{row.max_workers ?? "—"}</span> },
@@ -607,6 +612,15 @@ export default function SiteMasterPage() {
             <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={form.weekoff_counts_as_present} onChange={(e) => setField("weekoff_counts_as_present", e.target.checked)} /> Week-off counts as present</label>
             <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={form.coff_worked_weekoff_eligible} onChange={(e) => setField("coff_worked_weekoff_eligible", e.target.checked)} /> C-off for worked week-off</label>
             <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={form.one_person_multiple_designations} onChange={(e) => setField("one_person_multiple_designations", e.target.checked)} /> One person, multiple designations</label>
+            <label className="flex items-center gap-2 text-xs col-span-2">
+              <input type="checkbox" checked={form.customized_duty_hours} onChange={(e) => setField("customized_duty_hours", e.target.checked)} />
+              Customized Duty Hours
+            </label>
+            {form.customized_duty_hours ? (
+              <p className="text-[11px] text-ink-muted col-span-2 -mt-1">
+                Attendance cells can use custom duty values (e.g. 0.5, 0.75, 4, 8) in addition to letter marks. Totals and exports use the entered values.
+              </p>
+            ) : null}
           </div>
 
           <div>
