@@ -354,8 +354,8 @@ export const builtInProviders = [
   {
     id: "itIs",
     meta: { short: "IT / IS", revenue: false, order: 90, icon: "itIs" },
-    linkKeys: ["itIs.subscriptions", "itIs.api-health"],
-    note: "Subscriptions and API health open inside IT / IS.",
+    linkKeys: ["itIs.subscriptions", "itIs.api-health", "itIs.helpdesk", "itIs.helpdesk-agent", "itIs.helpdesk-admin"],
+    note: "Subscriptions, API health, and IT Support open inside IT / IS.",
     signals() {
       return { metrics: [], score: null, attention: false };
     },
