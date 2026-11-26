@@ -5,16 +5,19 @@ import {
   applySandwichOnMap,
   buildSiteRosterFromAssignments,
   canMarkAttendance,
-  codesForShiftType,
+  attendanceCodesForSite,
   computeEmployeeTotals,
+  formatCustomDutyValue,
   getDateVisibility,
   getRecordDutyContribution,
+  parseCustomDutyValue,
   roundDutyTotal,
   isInactiveCellClosed,
   isNhPhDay,
   isRowEditingRestricted,
   normalizeNhPhDateList,
   personIsVisibleInAttendanceMonth,
+  siteAllowsCustomizedDutyHours,
 } from "../../../lib/siteAttendance/attendanceRules";
 import {
   CROSS_DESIG_MESSAGE,
@@ -96,6 +99,7 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
         ot_in_hours: !regularOT && !customOT,
         duty_hours: siteRow.duty_hours === 12 ? 12 : 8,
         one_person_multiple_designations: siteRow.one_person_multiple_designations === true,
+        customized_duty_hours: siteRow.customized_duty_hours === true,
       };
       setSite(current);
       const startDay = current.salary_cycle_start_day || 1;
@@ -161,7 +165,8 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
     () => days.filter((d) => getDateVisibility(d.date, Number(year)).visible),
     [days, year]
   );
-  const codes = codesForShiftType(site?.shift_type);
+  const codes = attendanceCodesForSite(site);
+  const customizedDuty = siteAllowsCustomizedDutyHours(site);
   const gridRows = useMemo(
     () => getOrderedGridRowsForSite(employees, placements, site, search),
     [employees, placements, site, search]
@@ -203,13 +208,24 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
         if (!silent) toast.error("Cannot mark attendance: employee not assigned or date outside valid range.");
         return false;
       }
-      if (multi && gridDesignation && attCode != null) {
+      let normalizedCode = attCode != null ? String(attCode) : null;
+      if (normalizedCode != null && siteAllowsCustomizedDutyHours(site)) {
+        const custom = parseCustomDutyValue(normalizedCode);
+        if (custom != null) {
+          normalizedCode = formatCustomDutyValue(custom);
+        } else if (normalizedCode.trim() && /^-?\d/.test(normalizedCode.trim())) {
+          if (!silent) toast.error("Enter a duty value between 0 and 24 (e.g. 0.5, 0.75, 4, 8).");
+          return false;
+        }
+      }
+
+      if (multi && gridDesignation && normalizedCode != null) {
         const check = validateMultiDesignationEntry(
           personId,
           dateString,
           gridDesignation,
           "attendance",
-          attCode,
+          normalizedCode,
           map,
           placements,
           employees
@@ -226,12 +242,16 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
       }
       if (!existing && !multi) existing = map[`${personId}_${dateString}`];
 
+      const codeUpper = String(normalizedCode || "").trim().toUpperCase();
+      const isDutyMark =
+        ["P", "A", "B", "C", "G", "HD"].includes(codeUpper) ||
+        (siteAllowsCustomizedDutyHours(site) && parseCustomDutyValue(normalizedCode) != null);
       if (
         multi &&
         existing &&
         shouldSkipImportOverwrite(existing, gridDesignation, placements, employees) &&
-        attCode &&
-        ["P", "A", "B", "C", "G", "HD"].includes(String(attCode).toUpperCase())
+        normalizedCode &&
+        isDutyMark
       ) {
         if (!silent) toast.error(CROSS_DESIG_MESSAGE);
         return false;
@@ -239,7 +259,7 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
 
       setSavingCell(cellKey);
       try {
-        if (clear || (attCode === "" && !(existing?.ot_hours > 0) && !(otHours > 0))) {
+        if (clear || (normalizedCode === "" && !(existing?.ot_hours > 0) && !(otHours > 0))) {
           if (existing) {
             await deleteAttendance(existing.id);
             const next = { ...map };
@@ -259,7 +279,7 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
           person_id: personId,
           site_id: Number(siteId),
           att_date: dateString,
-          att_code: attCode != null ? attCode : existing?.att_code || "",
+          att_code: normalizedCode != null ? normalizedCode : existing?.att_code || "",
           month: Number(month),
           year: Number(year),
           ot_hours: otHours != null ? otHours : existing?.ot_hours || 0,
@@ -458,6 +478,7 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
     loadGrid,
     multi,
     codes,
+    customizedDuty,
     gridRows,
     getRecord,
     persistCell,

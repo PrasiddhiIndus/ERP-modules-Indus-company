@@ -1,4 +1,4 @@
-import { getRecordDutyContribution, roundDutyTotal } from "./attendanceRules";
+import { getRecordDutyContribution, parseCustomDutyValue, roundDutyTotal } from "./attendanceRules";
 
 export const CROSS_DESIG_MESSAGE =
   "Entry not permitted since same day entry for two designations not possible.";
@@ -17,7 +17,9 @@ export function normalizeGridDesignation(name) {
 }
 
 export function multiDesigHasDutyCode(code) {
-  const c = (code || "").trim().toUpperCase();
+  const raw = String(code || "").trim();
+  if (parseCustomDutyValue(raw) != null) return true;
+  const c = raw.toUpperCase();
   return c === "P" || c === "A" || c === "B" || c === "C" || c === "G" || c === "HD";
 }
 

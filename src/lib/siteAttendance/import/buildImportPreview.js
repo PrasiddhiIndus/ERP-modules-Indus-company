@@ -200,8 +200,10 @@ export function buildImportPreview(extracted, ctx, overrides = {}) {
       const edit = edits[key];
       const messages = [];
       const markMap = edit && edit.code != null
-        ? { kind: edit.code ? "mapped" : "blank", code: String(edit.code).toUpperCase(), raw: src.rawMark }
-        : mapAttendanceMark(src.rawMark, shiftType);
+        ? { kind: edit.code ? "mapped" : "blank", code: String(edit.code), raw: src.rawMark }
+        : mapAttendanceMark(src.rawMark, shiftType, {
+            customizedDutyHours: site?.customized_duty_hours === true,
+          });
       const otMap = edit && edit.ot != null
         ? { kind: Number(edit.ot) > 0 ? "hours" : "blank", hours: Math.max(0, Math.round(Number(edit.ot) || 0)) }
         : mapOtValue(src.rawOt, site?.duty_hours);

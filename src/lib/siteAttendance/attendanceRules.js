@@ -4,17 +4,58 @@ import { assignmentOverlapsRange, getRange, personVisibleInRange } from "./salar
 export const GENERAL_CODES = ["", "P", "HD", "WO", "L", "NH-PH", "CO"];
 export const ABCG_CODES = ["", "A", "B", "C", "G", "HD", "WO", "L", "CO"];
 
+/** Sentinel used in the attendance dropdown for free-form numeric entry (“Custom duty”). */
+export const CUSTOM_DUTY_OPTION = "__custom__";
+
 export function codesForShiftType(shiftType) {
   return shiftType === "ABCG" ? ABCG_CODES : GENERAL_CODES;
 }
 
-export function getDutyContribution(code) {
+export function siteAllowsCustomizedDutyHours(site) {
+  return site?.customized_duty_hours === true;
+}
+
+/**
+ * Parse a free-form duty value from an attendance cell (e.g. "0.5", "0.75", "4", "8").
+ * Letter codes never parse as custom duty.
+ */
+export function parseCustomDutyValue(code) {
+  const raw = String(code ?? "").trim();
+  if (!raw || /[A-Za-z]/.test(raw)) return null;
+  const n = Number(raw.replace(/,/g, ""));
+  if (!Number.isFinite(n) || n < 0 || n > 24) return null;
+  return Math.round(n * 100) / 100;
+}
+
+/** Normalize a custom duty number for storage in att_code. */
+export function formatCustomDutyValue(value) {
+  const n = parseCustomDutyValue(value);
+  if (n == null) return "";
+  if (Number.isInteger(n)) return String(n);
+  return String(n);
+}
+
+export function isCustomDutyCode(code, site) {
+  if (!siteAllowsCustomizedDutyHours(site)) return false;
+  return parseCustomDutyValue(code) != null;
+}
+
+export function getDutyContribution(code, site) {
+  if (siteAllowsCustomizedDutyHours(site)) {
+    const custom = parseCustomDutyValue(code);
+    if (custom != null) return custom;
+  }
   const normalized = (code || "").trim().toUpperCase();
   if (normalized === "P" || normalized === "A" || normalized === "B" || normalized === "C" || normalized === "G") {
     return 1;
   }
   if (normalized === "HD") return 0.5;
   return 0;
+}
+
+/** Dropdown letter codes for a site (custom duty is a separate free-form option in the UI). */
+export function attendanceCodesForSite(site) {
+  return codesForShiftType(site?.shift_type);
 }
 
 /** Site duty-day length used when converting OT hours → duty units (8 or 12). */
@@ -37,7 +78,7 @@ export function getOtDutyContribution(otHours, site) {
 /** Attendance mark duty + OT duty for one record (designation-scoped row). */
 export function getRecordDutyContribution(record, site) {
   if (!record) return 0;
-  return getDutyContribution(record.att_code) + getOtDutyContribution(record.ot_hours, site);
+  return getDutyContribution(record.att_code, site) + getOtDutyContribution(record.ot_hours, site);
 }
 
 export function roundDutyTotal(value) {
@@ -237,12 +278,16 @@ export function computeEmployeeTotals(employee, visibleDays, getRecord, site) {
       return;
     }
 
-    const code = record.att_code.trim().toUpperCase();
+    const rawCode = String(record.att_code || "").trim();
+    const code = rawCode.toUpperCase();
+    const customDuty = siteAllowsCustomizedDutyHours(site) ? parseCustomDutyValue(rawCode) : null;
     const nh = isNhPhDay(site, dayInfo.dateString);
 
-    if (nh && code) {
+    if (nh && (code || customDuty != null)) {
       let weightage = 0;
-      if (code === "P" || code === "A" || code === "B" || code === "C" || code === "G") {
+      if (customDuty != null) {
+        weightage = customDuty * (site.nh_ph_present ?? 1);
+      } else if (code === "P" || code === "A" || code === "B" || code === "C" || code === "G") {
         weightage = site.nh_ph_present ?? 1;
       } else if (code === "HD") {
         weightage = (site.nh_ph_present ?? 1) * 0.5 + (site.nh_ph_leave ?? 1) * 0.5;
@@ -256,7 +301,9 @@ export function computeEmployeeTotals(employee, visibleDays, getRecord, site) {
       totalNH_PH += weightage;
     }
 
-    if (code === "P" || code === "A" || code === "B" || code === "C" || code === "G") {
+    if (customDuty != null) {
+      totalPresent += customDuty;
+    } else if (code === "P" || code === "A" || code === "B" || code === "C" || code === "G") {
       totalPresent++;
     } else if (code === "HD") {
       totalPresent += 0.5;
@@ -295,7 +342,16 @@ export function computeEmployeeTotals(employee, visibleDays, getRecord, site) {
 }
 
 export function categorizeAttendanceRecord(record, siteConfig) {
-  const code = String(record?.att_code || "").trim().toUpperCase();
+  const raw = String(record?.att_code || "").trim();
+  if (siteAllowsCustomizedDutyHours(siteConfig)) {
+    const custom = parseCustomDutyValue(raw);
+    if (custom != null) {
+      if (custom <= 0) return "other";
+      if (custom < 1) return "half";
+      return "present";
+    }
+  }
+  const code = raw.toUpperCase();
   if (["P", "A", "B", "C", "G"].includes(code)) return "present";
   if (code === "HD") return "half";
   if (code === "L") return "leave";

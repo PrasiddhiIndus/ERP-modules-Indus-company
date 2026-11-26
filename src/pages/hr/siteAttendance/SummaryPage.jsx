@@ -118,7 +118,7 @@ export default function SummaryPage() {
               : map[`${employee.id}_${dateStr}`];
             if (!record) continue;
             const code = String(record.att_code || "").trim().toUpperCase();
-            dutyPerf += getDutyContribution(code);
+            dutyPerf += getDutyContribution(record.att_code, site);
             if (code === "WO") woCount++;
             // Same OT→duty conversion as attendance grid Duty total (designation-scoped)
             otDisplay += getOtDutyContribution(record.ot_hours, site);

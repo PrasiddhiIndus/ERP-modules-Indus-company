@@ -46,11 +46,19 @@ export function normalizeMarkToken(raw) {
 /**
  * @returns {{ kind: "blank"|"mapped"|"unknown", code: string, raw: string, note?: string }}
  */
-export function mapAttendanceMark(raw, shiftType) {
+export function mapAttendanceMark(raw, shiftType, { customizedDutyHours = false } = {}) {
   const token = normalizeMarkToken(raw);
   if (BLANK_MARKS.has(token)) return { kind: "blank", code: "", raw: String(raw ?? "") };
   if (LEFT_MARKS.has(token)) {
     return { kind: "blank", code: "", raw: String(raw), left: true, note: `Marked ${String(raw).trim()} — check the leaving date in People Master` };
+  }
+  if (customizedDutyHours) {
+    const numToken = String(raw ?? "").trim().replace(/,/g, "");
+    const n = Number(numToken);
+    if (Number.isFinite(n) && n >= 0 && n <= 24 && !/[A-Za-z]/.test(numToken)) {
+      const code = Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+      return { kind: "mapped", code, raw: String(raw), note: `Custom duty ${code}` };
+    }
   }
   const table = shiftType === "ABCG" ? { ...COMMON_MARKS, ...ABCG_ONLY } : { ...COMMON_MARKS, ...GENERAL_ONLY };
   const code = table[token];
