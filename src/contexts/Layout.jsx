@@ -2321,17 +2321,17 @@ const Layout = () => {
             </NavLink>
             )}
 
-<<<<<<< Updated upstream
-            {userProfile?.role === ROLES.SUPER_ADMIN && (
-            <NavLink to="all-employees" className={topNavClass}>
-              <Users className="w-4 h-4 shrink-0" />
-              <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">All Employees</span>
-=======
             {qaNavVisible && (
             <NavLink to="qa" className={topNavClass} title="QA">
               <ClipboardCheck className="w-4 h-4 shrink-0" />
               <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">QA</span>
->>>>>>> Stashed changes
+            </NavLink>
+            )}
+
+            {userProfile?.role === ROLES.SUPER_ADMIN && (
+            <NavLink to="all-employees" className={topNavClass}>
+              <Users className="w-4 h-4 shrink-0" />
+              <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">All Employees</span>
             </NavLink>
             )}
 
