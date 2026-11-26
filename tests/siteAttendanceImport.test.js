@@ -153,6 +153,11 @@ describe("mark dictionary", () => {
     expect(mapOtValue("20", 8).kind).toBe("unknown");
     expect(mapOtValue("", 8).kind).toBe("blank");
   });
+
+  it("keeps fractional OT hours when Custom OT decimals are allowed", () => {
+    expect(mapOtValue("3.78", 8, { allowDecimalOt: true }).hours).toBe(3.78);
+    expect(mapOtValue("3.78", 8).hours).toBe(4);
+  });
 });
 
 describe("layout parser", () => {

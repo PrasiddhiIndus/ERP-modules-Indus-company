@@ -16,6 +16,7 @@ import {
   getOtDutyContribution,
   personIsVisibleInAttendanceMonth,
   roundDutyTotal,
+  siteAllowsDecimalOt,
 } from "../../../lib/siteAttendance/attendanceRules";
 import {
   ensureGridPlacements,
@@ -44,6 +45,7 @@ export default function SummaryPage() {
   const [rows, setRows] = useState([]);
   const [siteName, setSiteName] = useState("");
   const [daysInMonth, setDaysInMonth] = useState(0);
+  const [customOt, setCustomOt] = useState(false);
   const [loading, setLoading] = useState(false);
   const typedSites = useMemo(() => filterSitesByType(sites, siteType), [sites, siteType]);
 
@@ -100,11 +102,15 @@ export default function SummaryPage() {
       const remarks = await listSummaryRemarks(Number(siteId), Number(month), Number(year));
       const remarksMap = Object.fromEntries(remarks.map((r) => [r.designation, r]));
 
+      const isCustomOt = siteAllowsDecimalOt(site);
+      setCustomOt(isCustomOt);
+
       const summary = Object.keys(byDesig).sort().map((designation) => {
         const emps = byDesig[designation];
         const authDuty = emps.length * dim;
         let dutyPerf = 0;
         let otDisplay = 0;
+        let otHours = 0;
         let woCount = 0;
         emps.forEach((employee) => {
           const joiningDate = parseDateOnlyLocal(employee.joining_date);
@@ -120,12 +126,15 @@ export default function SummaryPage() {
             const code = String(record.att_code || "").trim().toUpperCase();
             dutyPerf += getDutyContribution(record.att_code, site);
             if (code === "WO") woCount++;
-            // Same OT→duty conversion as attendance grid Duty total (designation-scoped)
+            const hours = Number(record.ot_hours) || 0;
+            if (hours > 0) otHours += hours;
+            // Custom OT: Total OT = hours ÷ 8; other modes keep prior OT→duty conversion
             otDisplay += getOtDutyContribution(record.ot_hours, site);
           }
         });
         dutyPerf = roundDutyTotal(dutyPerf);
         otDisplay = roundDutyTotal(otDisplay);
+        otHours = roundDutyTotal(otHours);
         const total = roundDutyTotal(dutyPerf + otDisplay + woCount);
         const saved = remarksMap[designation] || {};
         const customDays = saved.custom_days || null;
@@ -135,6 +144,7 @@ export default function SummaryPage() {
           numEmployees: emps.length,
           authDuty: auth,
           dutyPerf,
+          otHours,
           ot: otDisplay,
           wo: woCount,
           total,
@@ -170,8 +180,14 @@ export default function SummaryPage() {
   };
 
   const exportExcel = () => {
-    const header = ["Designation", "Nos", "Auth duty", "Duty perf", "OT", "W/O", "Total", "Less duties", "Remarks"];
-    const body = rows.map((r) => [r.designation, r.numEmployees, r.authDuty, r.dutyPerf, r.ot, r.wo, r.total, r.lessDuties, r.remarks]);
+    const header = customOt
+      ? ["Designation", "Nos", "Auth duty", "Duty perf", "OT Hours", "Total OT", "W/O", "Total", "Less duties", "Remarks"]
+      : ["Designation", "Nos", "Auth duty", "Duty perf", "OT", "W/O", "Total", "Less duties", "Remarks"];
+    const body = rows.map((r) =>
+      customOt
+        ? [r.designation, r.numEmployees, r.authDuty, r.dutyPerf, r.otHours, r.ot, r.wo, r.total, r.lessDuties, r.remarks]
+        : [r.designation, r.numEmployees, r.authDuty, r.dutyPerf, r.ot, r.wo, r.total, r.lessDuties, r.remarks]
+    );
     const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Summary");
@@ -207,7 +223,10 @@ export default function SummaryPage() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-left text-ink-secondary border-b border-divider">
-                  {["Designation","Nos","Auth duty","Duty perf","OT","W/O","Total","Less","Remarks"].map((h) => <th key={h} className="py-2 pr-3">{h}</th>)}
+                  {(customOt
+                    ? ["Designation","Nos","Auth duty","Duty perf","OT Hours","Total OT","W/O","Total","Less","Remarks"]
+                    : ["Designation","Nos","Auth duty","Duty perf","OT","W/O","Total","Less","Remarks"]
+                  ).map((h) => <th key={h} className="py-2 pr-3">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -223,7 +242,8 @@ export default function SummaryPage() {
                       }} />
                     </td>
                     <td className="py-1.5 pr-3">{row.dutyPerf}</td>
-                    <td className="py-1.5 pr-3">{row.ot}</td>
+                    {customOt ? <td className="py-1.5 pr-3 tabular-nums">{row.otHours}</td> : null}
+                    <td className="py-1.5 pr-3 tabular-nums">{row.ot}</td>
                     <td className="py-1.5 pr-3">{row.wo}</td>
                     <td className="py-1.5 pr-3">{row.total}</td>
                     <td className="py-1.5 pr-3">{row.lessDuties}</td>

@@ -185,19 +185,38 @@ export default function AttendanceEntryPage({ readOnly = false }) {
 
   const exportExcel = () => {
     if (!g.site || !g.days.length) return;
-    const header = ["Code", "Name", "Designation", ...g.days.map((d) => {
+    const dayHeaders = g.days.map((d) => {
       const wd = d.date.toLocaleDateString("en-GB", { weekday: "short" });
       const showMonth = g.range && !isCalendarMonth(g.range.startDay, g.range.endDay);
       return `${d.day}${showMonth ? ` ${d.monthShort}` : ""} (${wd})${g.isNhPh(d.dateString) ? " NH/PH" : ""}`;
-    }), "Present", "Leave", "WO", "Applied WO", "NH/PH", "OT"];
-    const rows = g.gridRows.map((row, idx) => {
+    });
+    const customOt = g.decimalOt;
+    const header = customOt
+      ? ["Code", "Name", "Designation", ...dayHeaders, "Present", "Leave", "WO", "Applied WO", "NH/PH", "OT Hours", "Total OT"]
+      : ["Code", "Name", "Designation", ...dayHeaders, "Present", "Leave", "WO", "Applied WO", "NH/PH", "OT"];
+    const rows = [];
+    g.gridRows.forEach((row, idx) => {
       const tot = g.totals[idx] || {};
       const dayVals = g.days.map((d) => {
         const rec = g.getRecord(row.person_id || row.id, d.dateString, row.grid_designation || row.designation);
         return rec?.att_code || "";
       });
-      return [row.unique_code, row.full_name, row.grid_designation || row.designation, ...dayVals, tot.totalPresent, tot.totalLeave, tot.totalWeekoff, tot.appliedWeekoff, tot.totalNH_PH, tot.totalOT];
+      const base = [row.unique_code, row.full_name, row.grid_designation || row.designation, ...dayVals, tot.totalPresent, tot.totalLeave, tot.totalWeekoff, tot.appliedWeekoff, tot.totalNH_PH];
+      if (customOt) {
+        rows.push([...base, tot.totalOtHours ?? 0, tot.totalOT ?? 0]);
+        const otVals = g.days.map((d) => {
+          const rec = g.getRecord(row.person_id || row.id, d.dateString, row.grid_designation || row.designation);
+          const h = Number(rec?.ot_hours) || 0;
+          return h > 0 ? h : "";
+        });
+        rows.push(["", "OT Hours", row.grid_designation || row.designation, ...otVals, "", "", "", "", "", tot.totalOtHours ?? 0, tot.totalOT ?? 0]);
+      } else {
+        rows.push([...base, tot.totalOT]);
+      }
     });
+    if (customOt && g.dayOt?.length) {
+      rows.push(["", "OT total (hrs÷8)", "", ...g.dayOt, "", "", "", "", "", "", ""]);
+    }
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Attendance");
@@ -391,7 +410,14 @@ export default function AttendanceEntryPage({ readOnly = false }) {
                   <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1.5 py-1.5 text-[11px] font-semibold min-w-[2.25rem]">P</th>
                   <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1.5 py-1.5 text-[11px] font-semibold min-w-[2.25rem]">L</th>
                   <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1.5 py-1.5 text-[11px] font-semibold min-w-[2.25rem]">WO</th>
-                  <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1.5 py-1.5 text-[11px] font-semibold min-w-[2.25rem]">OT</th>
+                  {g.decimalOt ? (
+                    <>
+                      <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1.5 py-1.5 text-[11px] font-semibold min-w-[2.75rem]" title="Sum of daily OT hours">OT Hrs</th>
+                      <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1.5 py-1.5 text-[11px] font-semibold min-w-[2.75rem]" title={`OT Hours ÷ ${g.customOtDayHours || 8}`}>Total OT</th>
+                    </>
+                  ) : (
+                    <th className="att-daily-date-head sticky top-0 border-b border-r border-divider px-1.5 py-1.5 text-[11px] font-semibold min-w-[2.25rem]">OT</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -456,7 +482,14 @@ Change to override.` : undefined}
                         <td className="border-b border-r border-divider px-1.5 text-center tabular-nums text-[12px] font-medium bg-surface">{tot.totalPresent ?? 0}</td>
                         <td className="border-b border-r border-divider px-1.5 text-center tabular-nums text-[12px] font-medium bg-surface">{tot.totalLeave ?? 0}</td>
                         <td className="border-b border-r border-divider px-1.5 text-center tabular-nums text-[12px] font-medium bg-surface">{tot.appliedWeekoff ?? 0}</td>
-                        <td className="border-b border-r border-divider px-1.5 text-center tabular-nums text-[12px] font-medium bg-surface">{tot.totalOT ?? 0}</td>
+                        {g.decimalOt ? (
+                          <>
+                            <td className="border-b border-r border-divider px-1.5 text-center tabular-nums text-[12px] font-medium bg-surface">{tot.totalOtHours ?? 0}</td>
+                            <td className="border-b border-r border-divider px-1.5 text-center tabular-nums text-[12px] font-medium bg-surface">{tot.totalOT ?? 0}</td>
+                          </>
+                        ) : (
+                          <td className="border-b border-r border-divider px-1.5 text-center tabular-nums text-[12px] font-medium bg-surface">{tot.totalOT ?? 0}</td>
+                        )}
                       </tr>
                       <tr>
                         <td className={`${FREEZE_BODY} ${COL_NUM} ${freezeTone}`} />
@@ -475,16 +508,18 @@ Change to override.` : undefined}
                                 type="number"
                                 min="0"
                                 max="16"
+                                step={g.decimalOt ? "0.01" : "1"}
                                 disabled={disabled}
                                 className="w-full h-7 text-center text-[11px] tabular-nums bg-transparent"
                                 key={`${personId}-${d.dateString}-${desig}-${closed ? "closed" : rec?.ot_hours || 0}`}
                                 defaultValue={closed ? "" : rec?.ot_hours || ""}
+                                title={g.decimalOt ? "OT hours (decimals allowed, max 16)" : "OT hours (whole hours, max 16)"}
                                 onBlur={(e) => g.persistOt({ personId, dateString: d.dateString, gridDesignation: desig, otHours: e.target.value })}
                               />
                             </td>
                           );
                         })}
-                        <td colSpan={4} className="border-b border-r border-divider bg-surface" />
+                        <td colSpan={g.decimalOt ? 5 : 4} className="border-b border-r border-divider bg-surface" />
                       </tr>
                     </React.Fragment>
                   );
@@ -496,14 +531,30 @@ Change to override.` : undefined}
                   {g.dayDuty.map((n, i) => (
                     <td key={g.days[i]?.dateString || i} className="border-b border-r border-divider text-center tabular-nums bg-surface-sunken">{n}</td>
                   ))}
-                  <td colSpan={4} className="border-b border-r border-divider bg-surface-sunken" />
+                  <td colSpan={g.decimalOt ? 5 : 4} className="border-b border-r border-divider bg-surface-sunken" />
                 </tr>
+                {g.decimalOt ? (
+                  <tr className="font-semibold">
+                    <td className={`${FREEZE_BODY} att-daily-freeze-body--total ${COL_NUM}`} />
+                    <td className={`${FREEZE_BODY} att-daily-freeze-body--total ${COL_NAME} px-2 text-left`} title={`Sum of OT hours ÷ ${g.customOtDayHours || 8}`}>
+                      OT total
+                    </td>
+                    <td className={`${FREEZE_BODY} att-daily-freeze-body--total ${COL_DESIG}`} />
+                    {(g.dayOt || []).map((n, i) => (
+                      <td key={`ot-day-${g.days[i]?.dateString || i}`} className="border-b border-r border-divider text-center tabular-nums bg-surface-sunken">{n}</td>
+                    ))}
+                    <td colSpan={5} className="border-b border-r border-divider bg-surface-sunken" />
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
           <p className="type-meta mt-2">
-            Primary designation rows show an asterisk. OT is the second row per person and is included in Duty total
-            (hours ÷ site duty hours, or 1 per day when Regular OT is on). NH/PH days are highlighted.
+            Primary designation rows show an asterisk. OT is the second row per person.
+            {g.decimalOt
+              ? ` Custom OT: daily OT keeps exact hours (max 16). OT Hrs = sum of daily hours; Total OT = OT Hrs ÷ ${g.customOtDayHours || 8}; daily OT total uses the same ÷ ${g.customOtDayHours || 8} rule. Duty total is attendance marks only.`
+              : " OT is included in Duty total (hours ÷ site duty hours, or 1 per day when Regular OT is on)."}
+            {" "}NH/PH days are highlighted.
             {g.customizedDuty
               ? " This site allows Customized Duty Hours — choose Custom duty to type a value (e.g. 0.5, 0.75, 4, 8); totals use the entered duty."
               : null}
