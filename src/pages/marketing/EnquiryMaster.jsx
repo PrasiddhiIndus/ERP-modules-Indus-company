@@ -47,6 +47,41 @@ function omitNullOptionalColumns(payload) {
   return next;
 }
 
+/** Enquiry ids that already have a purchase order, directly or through a quotation. */
+async function loadEnquiryIdsWithPurchaseOrder() {
+  const closed = new Set();
+  const { data: contracts, error } = await supabase
+    .from('marketing_contracts')
+    .select('enquiry_id, quotation_id');
+  if (error) {
+    console.error('Error loading purchase orders for enquiry status:', error);
+    return closed;
+  }
+
+  const quotationIds = [];
+  (contracts || []).forEach((row) => {
+    if (row.enquiry_id) closed.add(row.enquiry_id);
+    if (row.quotation_id) quotationIds.push(row.quotation_id);
+  });
+
+  for (let index = 0; index < quotationIds.length; index += 150) {
+    const slice = quotationIds.slice(index, index + 150);
+    const { data: quotations, error: quotationError } = await supabase
+      .from('marketing_quotations')
+      .select('enquiry_id')
+      .in('id', slice);
+    if (quotationError) {
+      console.error('Error matching quotations to enquiries:', quotationError);
+      continue;
+    }
+    (quotations || []).forEach((row) => {
+      if (row.enquiry_id) closed.add(row.enquiry_id);
+    });
+  }
+
+  return closed;
+}
+
 const EnquiryMaster = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -135,7 +170,11 @@ const EnquiryMaster = () => {
       const { data, error } = await query;
 
       if (error) throw error;
-      setEnquiries(data || []);
+      const closedEnquiryIds = await loadEnquiryIdsWithPurchaseOrder();
+      setEnquiries((data || []).map((enquiry) => ({
+        ...enquiry,
+        enquiryPoStatus: closedEnquiryIds.has(enquiry.id) ? 'Closed' : 'Open',
+      })));
       setLoading(false);
     } catch (error) {
       console.error('Error fetching enquiries:', error);
@@ -743,6 +782,7 @@ const EnquiryMaster = () => {
         'Expected Closing Date': enquiry.expected_closing_date || '-',
         'Working Cost Sheet': workingCostSheetLabel(enquiry.cost_sheet_type) || '-',
         'Status': enquiry.status,
+        'Enquiry Status': enquiry.enquiryPoStatus === 'Closed' ? 'Closed' : 'Open',
         'Converted to Quotation': enquiry.is_converted_to_quotation ? 'Yes' : 'No',
         'Created At': formatDateDdMmYyyy(enquiry.created_at),
       };
@@ -911,6 +951,7 @@ const EnquiryMaster = () => {
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Estimated Value</th>
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Working Cost Sheet</th>
                     <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider">Status</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider whitespace-nowrap">Enquiry Status</th>
                     <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
@@ -925,10 +966,12 @@ const EnquiryMaster = () => {
                       const clientName = enquiry.marketing_clients?.client_name?.toLowerCase() || '';
                       const contactPerson = enquiry.contact_person?.toLowerCase() || '';
                       const sheetLabel = workingCostSheetLabel(enquiry.cost_sheet_type).toLowerCase();
+                      const poStatus = (enquiry.enquiryPoStatus || 'Open').toLowerCase();
                       return enquiryNumber.includes(query) || 
                              clientName.includes(query) || 
                              contactPerson.includes(query) ||
-                             sheetLabel.includes(query);
+                             sheetLabel.includes(query) ||
+                             poStatus.includes(query);
                     });
                     
                     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -998,6 +1041,20 @@ const EnquiryMaster = () => {
                             Convert to quotation
                           </button>
                         )}
+                      </td>
+                      <td className="px-3 py-2 text-center whitespace-nowrap">
+                        <span
+                          className={`inline-flex px-2.5 py-1 text-[10px] font-semibold rounded-full border ${
+                            enquiry.enquiryPoStatus === 'Closed'
+                              ? 'bg-gray-200 text-gray-700 border-gray-300'
+                              : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          }`}
+                          title={enquiry.enquiryPoStatus === 'Closed'
+                            ? 'A purchase order has been generated for this enquiry'
+                            : 'No purchase order has been generated for this enquiry'}
+                        >
+                          {enquiry.enquiryPoStatus === 'Closed' ? 'Closed' : 'Open'}
+                        </span>
                       </td>
                       <td className="px-3 py-2 text-center" style={{ position: 'relative', overflow: 'visible' }}>
                         <div className="relative inline-block text-center" style={{ zIndex: menuOpen === enquiry.id ? 1000 : 'auto' }}>

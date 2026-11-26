@@ -100,7 +100,66 @@ function ItemNameMenu({ names }) {
   );
 }
 
-const DropdownMenu = ({ buttonId, quotation, onView, onEdit, onDownloadPDF, onDelete, onRevision, hasRevisions }) => {
+function baseQuotationNumber(quotationNumber) {
+  return String(quotationNumber || '').split('/R')[0];
+}
+
+function indexPurchaseOrders(allQuotations, contracts) {
+  const byId = new Map();
+  (contracts || []).forEach((contract) => {
+    if (contract?.quotation_id && !byId.has(contract.quotation_id)) {
+      byId.set(contract.quotation_id, contract);
+    }
+  });
+  const byBase = new Map();
+  (allQuotations || []).forEach((quotation) => {
+    const contract = byId.get(quotation.id);
+    if (!contract) return;
+    const base = baseQuotationNumber(quotation.quotation_number);
+    if (base && !byBase.has(base)) byBase.set(base, contract);
+  });
+  return { byId, byBase };
+}
+
+function purchaseOrderForQuotation(quotation, index) {
+  if (!quotation || !index) return null;
+  return index.byId.get(quotation.id)
+    || index.byBase.get(baseQuotationNumber(quotation.quotation_number))
+    || null;
+}
+
+function quotationMatchesSearch(quotation, searchQuery) {
+  if (!searchQuery) return true;
+  const query = searchQuery.toLowerCase();
+  const quotationNumber = quotation.quotation_number?.toLowerCase() || '';
+  const clientName = quotation.marketing_clients?.client_name?.toLowerCase() || '';
+  const enquiryNumber = quotation.marketing_enquiries?.enquiry_number?.toLowerCase() || '';
+  const sheetLabel = workingCostSheetLabel(quotation.marketing_enquiries?.cost_sheet_type).toLowerCase();
+  const itemNames = (quotation.itemNames || []).join(' ').toLowerCase();
+  const poRef = `${quotation.purchaseOrder?.po_number || ''} ${quotation.purchaseOrder?.contract_number || ''}`.toLowerCase();
+  return quotationNumber.includes(query)
+    || clientName.includes(query)
+    || enquiryNumber.includes(query)
+    || sheetLabel.includes(query)
+    || itemNames.includes(query)
+    || poRef.includes(query);
+}
+
+function QuotationConvertButton({ converted, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={converted
+        ? 'inline-flex items-center justify-center rounded-md border border-gray-300 bg-gray-200 px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-300'
+        : 'inline-flex items-center justify-center rounded-md bg-purple-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-purple-700'}
+    >
+      {converted ? 'Converted' : 'Convert'}
+    </button>
+  );
+}
+
+const DropdownMenu = ({ buttonId, quotation, onView, onEdit, onDownloadPDF, onDelete, onRevision, onConvertToPo, hasRevisions, convertedToPurchaseOrder }) => {
   const menuRef = useRef(null);
 
   useEffect(() => {
@@ -228,6 +287,16 @@ const DropdownMenu = ({ buttonId, quotation, onView, onEdit, onDownloadPDF, onDe
           <RefreshCw className="w-4 h-4 flex-shrink-0 text-gray-500 group-hover:text-purple-600 transition-colors" />
           <span className="flex-1 font-medium">{hasRevisions ? 'Add Revision' : 'Revision'}</span>
         </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onConvertToPo();
+          }}
+          className="flex items-center space-x-3 w-full px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 text-left transition-all duration-150 whitespace-nowrap group"
+        >
+          <FileText className="w-4 h-4 flex-shrink-0 text-gray-500 group-hover:text-purple-600 transition-colors" />
+          <span className="flex-1 font-medium">{convertedToPurchaseOrder ? 'View Purchase Order' : 'Convert'}</span>
+        </button>
         <div className="border-t border-gray-200 my-1"></div>
         <button
           onClick={(e) => {
@@ -279,6 +348,10 @@ const QuotationTracker = () => {
   const [costingSearchQuery, setCostingSearchQuery] = useState('');
   const [costingSheetFilter, setCostingSheetFilter] = useState('');
   const [internalSearchQuery, setInternalSearchQuery] = useState('');
+  const [followUpSearchQuery, setFollowUpSearchQuery] = useState('');
+  const [followUpSheetFilter, setFollowUpSheetFilter] = useState('');
+  const [followUpList, setFollowUpList] = useState('pending');
+  const [savingFollowUpId, setSavingFollowUpId] = useState('');
   const [showRevisionModal, setShowRevisionModal] = useState(false);
   const [selectedQuotationForRevision, setSelectedQuotationForRevision] = useState(null);
   const [revisionHistory, setRevisionHistory] = useState([]);
@@ -388,7 +461,7 @@ const QuotationTracker = () => {
   const fetchQuotations = async () => {
     try {
       setLoading(true);
-      const quotationSelect = (withSheetType) => `
+      const quotationSelect = (withSheetType, withFollowUp = true) => `
           id,
           quotation_number,
           enquiry_id,
@@ -404,6 +477,7 @@ const QuotationTracker = () => {
           payment_terms,
           terms_and_conditions,
           status,
+          ${withFollowUp ? 'follow_up_date,' : ''}
           assigned_to,
           subject_title,
           subject,
@@ -412,15 +486,26 @@ const QuotationTracker = () => {
           marketing_enquiries:enquiry_id (id, enquiry_number${withSheetType ? ', cost_sheet_type' : ''}),
           marketing_clients:client_id (id, client_name, contact_email)
         `;
+      let withSheetType = true;
+      let withFollowUp = true;
       let { data, error } = await supabase
         .from('marketing_quotations')
-        .select(quotationSelect(true))
+        .select(quotationSelect(withSheetType, withFollowUp))
         .order('created_at', { ascending: false });
 
       if (error && String(error.message || '').includes('cost_sheet_type')) {
+        withSheetType = false;
         ({ data, error } = await supabase
           .from('marketing_quotations')
-          .select(quotationSelect(false))
+          .select(quotationSelect(withSheetType, withFollowUp))
+          .order('created_at', { ascending: false }));
+      }
+
+      if (error && String(error.message || '').includes('follow_up_date')) {
+        withFollowUp = false;
+        ({ data, error } = await supabase
+          .from('marketing_quotations')
+          .select(quotationSelect(withSheetType, withFollowUp))
           .order('created_at', { ascending: false }));
       }
 
@@ -526,16 +611,26 @@ const QuotationTracker = () => {
         };
       });
 
+      let contracts = [];
+      const { data: contractRows, error: contractError } = await supabase
+        .from('marketing_contracts')
+        .select('id, quotation_id, po_number, contract_number, po_date');
+      if (!contractError) contracts = contractRows || [];
+      const purchaseOrderIndex = indexPurchaseOrders(data || [], contracts);
+
       const quotationsWithCounts = quotationsWithSheetAmounts.map((quotation) => {
         const count = revisionCountMap[quotation.id] || 0;
+        const purchaseOrder = purchaseOrderForQuotation(quotation, purchaseOrderIndex);
         return {
           ...quotation,
           revisionCount: count,
           hasRevisions: count > 0,
+          purchaseOrder,
+          convertedToPurchaseOrder: Boolean(purchaseOrder),
         };
       });
       
-      setQuotations(quotationsWithSheetAmounts);
+      setQuotations(quotationsWithCounts);
       setQuotationsWithRevisionCount(quotationsWithCounts);
       setLoading(false);
     } catch (error) {
@@ -1288,7 +1383,16 @@ const QuotationTracker = () => {
       return;
     }
 
-    const exportData = quotations.map(quotation => ({
+    const rows = activeTab === 'followup'
+      ? quotations.filter((quotation) => {
+          const converted = Boolean(quotation.convertedToPurchaseOrder);
+          if (followUpList === 'converted' ? !converted : converted) return false;
+          const sheetType = quotation.marketing_enquiries?.cost_sheet_type || '';
+          if (followUpSheetFilter && sheetType !== followUpSheetFilter) return false;
+          return quotationMatchesSearch(quotation, followUpSearchQuery);
+        })
+      : quotations;
+    const exportData = rows.map(quotation => ({
       'Quotation Number': quotation.quotation_number,
       'Date': quotation.quotation_date,
       'Client': quotation.marketing_clients?.client_name || '-',
@@ -1297,8 +1401,47 @@ const QuotationTracker = () => {
       'GST Amount (₹)': quotation.gst_amount || 0,
       'Final Amount (₹)': quotation.final_amount || 0,
       'Status': quotation.status,
+      'Quotation Converted to Purchase Order': quotation.convertedToPurchaseOrder ? 'Converted' : 'Pending',
+      'Purchase Order': quotation.purchaseOrder?.po_number || quotation.purchaseOrder?.contract_number || '-',
+      'Follow-up Date': quotation.follow_up_date ? formatDateDdMmYyyy(quotation.follow_up_date) : '-',
     }));
-    exportToExcel(exportData, 'Quotations_Export', 'Quotations');
+    exportToExcel(
+      exportData,
+      activeTab === 'followup' ? 'Follow_Up_Plan_Export' : 'Quotations_Export',
+      activeTab === 'followup' ? 'Follow-up Plan' : 'Quotations'
+    );
+  };
+
+  const openPurchaseOrderForQuotation = (quotation) => {
+    if (!quotation?.id) return;
+    if (quotation.convertedToPurchaseOrder && quotation.purchaseOrder?.id) {
+      navigate(`/app/marketing/purchase-orders?contract_id=${quotation.purchaseOrder.id}`);
+      return;
+    }
+    navigate(`/app/marketing/purchase-orders?quotation_id=${quotation.id}`);
+  };
+
+  const saveFollowUpDate = async (quotation, nextDate) => {
+    const value = nextDate || null;
+    const apply = (row) => (row.id === quotation.id ? { ...row, follow_up_date: value } : row);
+    setQuotations((prev) => prev.map(apply));
+    setQuotationsWithRevisionCount((prev) => prev.map(apply));
+    setSavingFollowUpId(quotation.id);
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase
+      .from('marketing_quotations')
+      .update({
+        follow_up_date: value,
+        updated_at: new Date().toISOString(),
+        ...(user?.id ? { updated_by: user.id } : {}),
+      })
+      .eq('id', quotation.id);
+    setSavingFollowUpId('');
+    if (error) {
+      console.error('Error saving follow-up date:', error);
+      toast.warning('Could not save the follow-up date', 'The quotation is still available for follow-up.');
+      fetchQuotations();
+    }
   };
 
   const handleCreateCosting = async (quotationId) => {
@@ -1711,11 +1854,32 @@ Marketing Team`;
     }
   };
 
+  const pendingQuotations = quotations.filter((quotation) => !quotation.convertedToPurchaseOrder);
+  const pendingCount = pendingQuotations.length;
+  const todayIso = new Date().toISOString().split('T')[0];
+  const followUpMatches = (quotation) => {
+    const sheetType = quotation.marketing_enquiries?.cost_sheet_type || '';
+    if (followUpSheetFilter && sheetType !== followUpSheetFilter) return false;
+    return quotationMatchesSearch(quotation, followUpSearchQuery);
+  };
+  const visiblePendingQuotations = pendingQuotations.filter(followUpMatches).slice().sort((a, b) => {
+    const aDate = a.follow_up_date || '9999-12-31';
+    const bDate = b.follow_up_date || '9999-12-31';
+    if (aDate !== bDate) return aDate < bDate ? -1 : 1;
+    return String(b.quotation_date || '').localeCompare(String(a.quotation_date || ''));
+  });
+  const convertedQuotations = quotations.filter((quotation) => quotation.convertedToPurchaseOrder);
+  const visibleConvertedQuotations = convertedQuotations.filter(followUpMatches).slice().sort((a, b) => (
+    String(b.quotation_date || '').localeCompare(String(a.quotation_date || ''))
+  ));
+
   const trackerTitle =
+    activeTab === 'followup' ? 'Follow-up Plan' :
     activeTab === 'list' ? 'Quotation Tracker' :
     activeTab === 'costing' ? 'Costing Sheet' :
     'Internal Quotation';
   const trackerSubtitle =
+    activeTab === 'followup' ? 'Track quotations still waiting for a purchase order, and the ones already converted' :
     activeTab === 'list' ? 'Manage all quotations and costing sheets' :
     activeTab === 'costing' ? 'Create and manage costing sheets for approved quotations' :
     'Create and manage internal quotations from costing sheets';
@@ -1730,6 +1894,7 @@ Marketing Team`;
               <span className="hidden sm:inline">Export Excel</span>
               <span className="sm:hidden">Export</span>
             </SecondaryButton>
+            {activeTab !== 'followup' && (
             <PrimaryButton
               icon={Plus}
               onClick={() => {
@@ -1760,6 +1925,7 @@ Marketing Team`;
                activeTab === 'costing' ? 'New Costing Sheet' :
                'New Internal Quotation'}
             </PrimaryButton>
+            )}
           </div>
         </PageTaskHeader>
 
@@ -1796,10 +1962,202 @@ Marketing Team`;
             >
               Internal Quotation
             </button>
+            <button
+              onClick={() => setActiveTab('followup')}
+              className={`px-4 py-2 font-medium text-sm sm:text-base whitespace-nowrap ${
+                activeTab === 'followup'
+                  ? 'border-b-2 border-amber-600 text-amber-700'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Follow-up Plan
+              <span className={`ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[11px] font-semibold ${
+                activeTab === 'followup' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {pendingCount}
+              </span>
+            </button>
           </div>
         </div>
 
         {/* Content */}
+        {activeTab === 'followup' && (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+              <div className="px-3 pt-3">
+                <WorkingCostSheetFilter
+                  value={followUpSheetFilter}
+                  onChange={setFollowUpSheetFilter}
+                  domesticCount={quotations.filter((quotation) => quotation.marketing_enquiries?.cost_sheet_type === 'domestic').length}
+                  internationalCount={quotations.filter((quotation) => quotation.marketing_enquiries?.cost_sheet_type === 'international').length}
+                />
+              </div>
+              <div className="border-b border-gray-200 p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="relative min-w-0 flex-1">
+                    <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder={followUpList === 'converted'
+                        ? 'Search converted quotations...'
+                        : 'Search pending quotations...'}
+                      value={followUpSearchQuery}
+                      onChange={(e) => setFollowUpSearchQuery(e.target.value)}
+                      className="w-full rounded-md border border-gray-300 py-1.5 pl-10 pr-4 text-sm focus:border-transparent focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setFollowUpList('pending')}
+                      className={`rounded-md px-3 py-1.5 text-sm font-semibold ${
+                        followUpList === 'pending'
+                          ? 'bg-amber-600 text-white shadow-sm'
+                          : 'text-gray-600 hover:bg-white'
+                      }`}
+                    >
+                      Pending
+                      <span className={`ml-1.5 rounded-full px-1.5 text-[11px] ${
+                        followUpList === 'pending' ? 'bg-amber-500 text-white' : 'bg-gray-200 text-gray-700'
+                      }`}>{pendingCount}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFollowUpList('converted')}
+                      className={`rounded-md px-3 py-1.5 text-sm font-semibold ${
+                        followUpList === 'converted'
+                          ? 'bg-gray-700 text-white shadow-sm'
+                          : 'text-gray-600 hover:bg-white'
+                      }`}
+                    >
+                      Converted
+                      <span className={`ml-1.5 rounded-full px-1.5 text-[11px] ${
+                        followUpList === 'converted' ? 'bg-gray-600 text-white' : 'bg-gray-200 text-gray-700'
+                      }`}>{convertedQuotations.length}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+            {loading ? (
+              <div className="p-4 text-center text-gray-500">
+                <div className="inline-block h-6 w-6 animate-spin rounded-full border-b-2 border-amber-600"></div>
+                <p className="mt-2 text-sm">Loading...</p>
+              </div>
+            ) : followUpList === 'pending' ? (
+                  visiblePendingQuotations.length === 0 ? (
+                    <div className="p-6 text-center text-sm text-gray-500">
+                      {pendingQuotations.length === 0
+                        ? 'No quotations are waiting for follow-up.'
+                        : 'No pending quotations match this search.'}
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[1100px] text-xs">
+                        <thead className="border-b border-amber-100 bg-gradient-to-r from-amber-50 to-orange-50">
+                          <tr>
+                            <th className="w-11 px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-gray-700">S.No</th>
+                            <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-700">Quotation ID</th>
+                            <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-700">Client Name</th>
+                            <th className="min-w-[200px] px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-700">Item Name</th>
+                            <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-700">Enquiry ID</th>
+                            <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-700">Total Amount</th>
+                            <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-700">Quotation Date</th>
+                            <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-700">Follow-up Date</th>
+                            <th className="px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-gray-700">Quotation Converted to Purchase Order</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 bg-white">
+                          {visiblePendingQuotations.map((quotation, index) => {
+                            const overdue = quotation.follow_up_date && quotation.follow_up_date < todayIso;
+                            return (
+                              <tr key={quotation.id} className="transition-colors hover:bg-amber-50/40">
+                                <td className="px-3 py-2 text-center tabular-nums text-gray-600">{index + 1}</td>
+                                <td className="px-3 py-2 text-xs font-semibold text-gray-900">{quotation.quotation_number}</td>
+                                <td className="px-3 py-2 text-xs font-medium text-gray-700">{quotation.marketing_clients?.client_name || '-'}</td>
+                                <td className="px-3 py-2 align-top"><ItemNameMenu names={quotation.itemNames || []} /></td>
+                                <td className="px-3 py-2 text-xs text-gray-600">{quotation.marketing_enquiries?.enquiry_number || '-'}</td>
+                                <td className="px-3 py-2 text-xs font-semibold text-gray-900">
+                                  ₹{parseFloat(quotation.final_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                </td>
+                                <td className="px-3 py-2 text-xs text-gray-600">{formatDateDdMmYyyy(quotation.quotation_date)}</td>
+                                <td className="px-3 py-2">
+                                  <FormDateInput
+                                    compact
+                                    aria-label={`Follow-up date for ${quotation.quotation_number}`}
+                                    value={quotation.follow_up_date || ''}
+                                    onChange={(e) => saveFollowUpDate(quotation, e.target.value)}
+                                    disabled={savingFollowUpId === quotation.id}
+                                    className={`w-[9.5rem] text-xs ${overdue ? 'text-red-700' : ''}`}
+                                  />
+                                  {overdue && <p className="mt-1 text-[10px] font-semibold text-red-700">Overdue</p>}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <QuotationConvertButton
+                                    converted={false}
+                                    onClick={() => openPurchaseOrderForQuotation(quotation)}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+            ) : (
+              visibleConvertedQuotations.length === 0 ? (
+                <div className="p-6 text-center text-sm text-gray-500">
+                  {convertedQuotations.length === 0
+                    ? 'No quotation has been converted to a purchase order yet.'
+                    : 'No converted quotations match this search.'}
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[1100px] text-xs">
+                    <thead className="border-b border-gray-200 bg-gray-50">
+                      <tr>
+                        <th className="w-11 px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-gray-700">S.No</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-700">Quotation ID</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-700">Client Name</th>
+                        <th className="min-w-[200px] px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-700">Item Name</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-700">Enquiry ID</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-700">Total Amount</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-700">Purchase Order</th>
+                        <th className="px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-gray-700">Quotation Converted to Purchase Order</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 bg-white">
+                      {visibleConvertedQuotations.map((quotation, index) => (
+                        <tr key={quotation.id} className="transition-colors hover:bg-gray-50">
+                          <td className="px-3 py-2 text-center tabular-nums text-gray-600">{index + 1}</td>
+                          <td className="px-3 py-2 text-xs font-semibold text-gray-900">{quotation.quotation_number}</td>
+                          <td className="px-3 py-2 text-xs font-medium text-gray-700">{quotation.marketing_clients?.client_name || '-'}</td>
+                          <td className="px-3 py-2 align-top"><ItemNameMenu names={quotation.itemNames || []} /></td>
+                          <td className="px-3 py-2 text-xs text-gray-600">{quotation.marketing_enquiries?.enquiry_number || '-'}</td>
+                          <td className="px-3 py-2 text-xs font-semibold text-gray-900">
+                            ₹{parseFloat(quotation.final_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-700">
+                            {quotation.purchaseOrder?.po_number || quotation.purchaseOrder?.contract_number || '-'}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <QuotationConvertButton
+                              converted
+                              onClick={() => openPurchaseOrderForQuotation(quotation)}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'list' && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden" style={{ overflow: 'visible' }}>
             <div className="px-3 pt-3">
@@ -1852,7 +2210,7 @@ Marketing Team`;
                     background: var(--accent-deep);
                   }
                 `}</style>
-                <table className="w-full min-w-[1000px] text-xs">
+                <table className="w-full min-w-[1180px] text-xs">
                   <thead className="bg-gradient-to-r from-red-50 to-amber-50 border-b border-red-100">
                     <tr>
                       <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider w-11">S.No</th>
@@ -1863,6 +2221,7 @@ Marketing Team`;
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Total Amount</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Quotation Date</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Status</th>
+                      <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider min-w-[11rem] whitespace-normal leading-tight">Quotation Converted to Purchase Order</th>
                       <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
@@ -1870,18 +2229,7 @@ Marketing Team`;
                     {quotations.filter(quotation => {
                       const sheetType = quotation.marketing_enquiries?.cost_sheet_type || '';
                       if (quotationSheetFilter && sheetType !== quotationSheetFilter) return false;
-                      if (!searchQuery) return true;
-                      const query = searchQuery.toLowerCase();
-                      const quotationNumber = quotation.quotation_number?.toLowerCase() || '';
-                      const clientName = quotation.marketing_clients?.client_name?.toLowerCase() || '';
-                      const enquiryNumber = quotation.marketing_enquiries?.enquiry_number?.toLowerCase() || '';
-                      const sheetLabel = workingCostSheetLabel(sheetType).toLowerCase();
-                      const itemNames = (quotation.itemNames || []).join(' ').toLowerCase();
-                      return quotationNumber.includes(query) || 
-                             clientName.includes(query) || 
-                             enquiryNumber.includes(query) ||
-                             sheetLabel.includes(query) ||
-                             itemNames.includes(query);
+                      return quotationMatchesSearch(quotation, searchQuery);
                     }).map((quotation, index) => {
                       const isLastRow = index === quotations.length - 1;
                       return (
@@ -1928,6 +2276,19 @@ Marketing Team`;
                               {quotation.status}
                             </span>
                           </td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-col items-start gap-1">
+                              <QuotationConvertButton
+                                converted={quotation.convertedToPurchaseOrder}
+                                onClick={() => openPurchaseOrderForQuotation(quotation)}
+                              />
+                              {quotation.convertedToPurchaseOrder && (
+                                <span className="max-w-[9rem] text-[10px] font-medium leading-tight text-gray-500">
+                                  {quotation.purchaseOrder?.po_number || quotation.purchaseOrder?.contract_number || 'Purchase order'}
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td className="px-3 py-2 text-center" style={{ position: 'relative', overflow: 'visible' }}>
                             <div className="relative inline-block text-center" style={{ zIndex: menuOpen === quotation.id ? 1000 : 'auto' }}>
                               <button
@@ -1971,6 +2332,11 @@ Marketing Team`;
                                       handleRevision(quotation);
                                       setMenuOpen(null);
                                     }}
+                                    onConvertToPo={() => {
+                                      openPurchaseOrderForQuotation(quotation);
+                                      setMenuOpen(null);
+                                    }}
+                                    convertedToPurchaseOrder={quotation.convertedToPurchaseOrder}
                                     hasRevisions={quotationsWithRevisionCount.find(q => q.id === quotation.id)?.hasRevisions || false}
                                   />
                                 </>
