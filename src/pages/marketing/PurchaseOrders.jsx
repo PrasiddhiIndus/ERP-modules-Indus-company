@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { X, Plus, Edit2, Trash2, MoreVertical, Download, FileText, Upload } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
@@ -82,7 +83,188 @@ function isContractNumberConflict(error) {
   return error?.code === '23505' && /contract_number/i.test(text);
 }
 
+function quotationBaseNumber(quotationNumber) {
+  return String(quotationNumber || '').split('/R')[0];
+}
+
+function deliveryAddressFromQuotation(quotation) {
+  const site = String(quotation?.marketing_enquiries?.site_location || '').trim();
+  if (site) return site;
+  const client = quotation?.marketing_clients || {};
+  return [client.street_address, client.city, client.state, client.country].filter(Boolean).join(', ');
+}
+
+function formFromQuotation(quotation) {
+  const amount = parseFloat(quotation?.final_amount || 0);
+  return {
+    ...emptyContractForm(),
+    quotation_id: quotation.id,
+    enquiry_id: quotation.enquiry_id || '',
+    client_id: quotation.client_id || '',
+    po_value: amount > 0 ? String(amount) : '',
+    delivery_address: deliveryAddressFromQuotation(quotation),
+    payment_terms: quotation.payment_terms || '',
+    remarks: quotation.quotation_number ? `Converted from quotation ${quotation.quotation_number}` : '',
+  };
+}
+
+async function loadQuotationForPurchaseOrder(quotationId) {
+  const fullSelect = `
+    id, quotation_number, enquiry_id, client_id, final_amount, payment_terms,
+    marketing_enquiries:enquiry_id (id, site_location),
+    marketing_clients:client_id (id, street_address, city, state, country)
+  `;
+  let { data, error } = await supabase
+    .from('marketing_quotations')
+    .select(fullSelect)
+    .eq('id', quotationId)
+    .maybeSingle();
+
+  if (error) {
+    ({ data, error } = await supabase
+      .from('marketing_quotations')
+      .select('id, quotation_number, enquiry_id, client_id, final_amount')
+      .eq('id', quotationId)
+      .maybeSingle());
+  }
+  if (error) throw error;
+  return data;
+}
+
+async function existingPurchaseOrderForQuotation(quotation) {
+  const ids = new Set([quotation.id]);
+  const base = quotationBaseNumber(quotation.quotation_number);
+  if (base && /^[A-Za-z0-9/_-]+$/.test(base)) {
+    const { data: family, error: familyError } = await supabase
+      .from('marketing_quotations')
+      .select('id, quotation_number')
+      .or(`quotation_number.eq.${base},quotation_number.like.${base}/R%`);
+    if (!familyError) {
+      (family || []).forEach((row) => {
+        if (quotationBaseNumber(row.quotation_number) === base) ids.add(row.id);
+      });
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('marketing_contracts')
+    .select('id, po_number, contract_number')
+    .in('quotation_id', Array.from(ids))
+    .limit(1);
+
+  if (error) throw error;
+  return data?.[0] || null;
+}
+
+function isNotNullColumn(error, column) {
+  const text = `${error?.message || ''} ${error?.details || ''}`;
+  return error?.code === '23502' && text.includes(column);
+}
+
+async function insertMarketingContract(submitData) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user?.id) throw new Error('You need to be signed in to create a purchase order.');
+  const { data: existingNumbers, error: numberError } = await supabase
+    .from('marketing_contracts')
+    .select('contract_number')
+    .like('contract_number', 'CON/%')
+    .order('contract_number', { ascending: false })
+    .limit(100);
+
+  if (numberError) throw numberError;
+
+  let contractNumber = nextContractNumber(
+    (existingNumbers || []).map((row) => row.contract_number)
+  );
+  let created = null;
+  let lastError = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { data, error } = await supabase
+      .from('marketing_contracts')
+      .insert([{
+        ...submitData,
+        contract_number: contractNumber,
+        created_by: user.id,
+        updated_by: user.id,
+      }])
+      .select()
+      .single();
+
+    if (!error) {
+      created = data;
+      break;
+    }
+    lastError = error;
+    if (!isContractNumberConflict(error)) throw error;
+    const match = String(contractNumber).match(CONTRACT_NUMBER_PATTERN);
+    const year = match ? Number(match[1]) : new Date().getFullYear();
+    const sequence = match ? Number(match[2]) + 1 : attempt + 2;
+    contractNumber = formatContractNumber(year, sequence);
+  }
+  if (!created) throw lastError;
+  return created;
+}
+
+async function createPurchaseOrderFromQuotation(quotation) {
+  const filled = formFromQuotation(quotation);
+  const submitData = {
+    ...filled,
+    po_value: filled.po_value ? parseIndianNumber(String(filled.po_value)) : null,
+    quotation_id: filled.quotation_id || null,
+    enquiry_id: filled.enquiry_id || null,
+    client_id: filled.client_id || null,
+    business_category: filled.business_category.trim() || null,
+    po_number: null,
+    expected_delivery_date: filled.expected_delivery_date || null,
+    awarded_date: filled.awarded_date || null,
+  };
+
+  try {
+    return await insertMarketingContract(submitData);
+  } catch (error) {
+    if (!isNotNullColumn(error, 'po_number')) throw error;
+    return insertMarketingContract({
+      ...submitData,
+      po_number: quotation.quotation_number ? `Pending ${quotation.quotation_number}` : 'Pending',
+    });
+  }
+}
+
+async function loadContractById(id) {
+  const { data, error } = await supabase
+    .from('marketing_contracts')
+    .select(`
+      *,
+      marketing_quotations:quotation_id (id, quotation_number),
+      marketing_enquiries:enquiry_id (id, enquiry_number),
+      marketing_clients:client_id (id, client_name)
+    `)
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+function contractToForm(contract) {
+  return {
+    quotation_id: contract.quotation_id || '',
+    enquiry_id: contract.enquiry_id || '',
+    client_id: contract.client_id || '',
+    business_category: contract.business_category || '',
+    po_number: contract.po_number || '',
+    po_date: contract.po_date || new Date().toISOString().split('T')[0],
+    po_value: contract.po_value ?? '',
+    delivery_address: contract.delivery_address || '',
+    expected_delivery_date: contract.expected_delivery_date || '',
+    payment_terms: contract.payment_terms || '',
+    status: contract.status || 'Awarded',
+    awarded_date: contract.awarded_date || new Date().toISOString().split('T')[0],
+    remarks: contract.remarks || '',
+  };
+}
+
 const PurchaseOrders = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [contracts, setContracts] = useState([]);
   const [quotations, setQuotations] = useState([]);
   const [enquiries, setEnquiries] = useState([]);
@@ -95,6 +277,10 @@ const PurchaseOrders = () => {
   const [clientMailFile, setClientMailFile] = useState(null);
   const [poDocumentFile, setPoDocumentFile] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [linkedQuotationNumber, setLinkedQuotationNumber] = useState('');
+  const [formNotice, setFormNotice] = useState('');
+  const conversionOpenKey = useRef('');
+  const contractsRequest = useRef(0);
 
   useEffect(() => {
     fetchContracts();
@@ -103,6 +289,105 @@ const PurchaseOrders = () => {
     fetchClients();
   }, []);
 
+  const openSavedContract = (contract, quotationNumber, notice) => {
+    setEditingContract(contract);
+    setClientMailFile(null);
+    setPoDocumentFile(null);
+    setLinkedQuotationNumber(quotationNumber || contract?.marketing_quotations?.quotation_number || '');
+    setFormNotice(notice || '');
+    setFormData(contractToForm(contract));
+    setShowForm(true);
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingContract(null);
+    setClientMailFile(null);
+    setPoDocumentFile(null);
+    setLinkedQuotationNumber('');
+    setFormNotice('');
+  };
+
+  useEffect(() => {
+    const quotationId = searchParams.get('quotation_id');
+    const contractId = searchParams.get('contract_id');
+    const key = quotationId ? `quotation:${quotationId}` : contractId ? `contract:${contractId}` : '';
+    if (!key) {
+      conversionOpenKey.current = '';
+      return undefined;
+    }
+    if (conversionOpenKey.current === key) return undefined;
+    conversionOpenKey.current = key;
+
+    (async () => {
+      try {
+        if (contractId) {
+          const contract = await loadContractById(contractId);
+          if (!contract) {
+            toast.warning('Purchase order not found', 'It may have been removed. Refresh the quotation tracker and try again.');
+            setSearchParams({}, { replace: true });
+            return;
+          }
+          const quotationNumber = contract.marketing_quotations?.quotation_number || '';
+          openSavedContract(
+            contract,
+            quotationNumber,
+            quotationNumber
+              ? `Opened from quotation ${quotationNumber}. The details already saved from that quotation are filled in.`
+              : 'The saved purchase order details are filled in.'
+          );
+          setSearchParams({}, { replace: true });
+          return;
+        }
+
+        const quotation = await loadQuotationForPurchaseOrder(quotationId);
+        if (!quotation) {
+          toast.warning('Quotation not found', 'Choose another quotation and try again.');
+          setSearchParams({}, { replace: true });
+          return;
+        }
+
+        let existing = await existingPurchaseOrderForQuotation(quotation);
+        let createdNow = false;
+        if (!existing) {
+          existing = await createPurchaseOrderFromQuotation(quotation);
+          createdNow = true;
+        }
+
+        const contract = await loadContractById(existing.id);
+        if (!contract) throw new Error('Purchase order was saved but could not be opened.');
+
+        const quotationLabel = quotation.quotation_number || 'this quotation';
+        openSavedContract(
+          contract,
+          quotation.quotation_number || '',
+          createdNow
+            ? `Filled from quotation ${quotationLabel}. This purchase order is already in the list. Add the purchase order number, or close the form and it will stay saved.`
+            : `Quotation ${quotationLabel} is already converted. The linked purchase order is filled in.`
+        );
+        const listed = await fetchContracts({ silent: true });
+        if (createdNow) {
+          toast.success(
+            'Quotation converted',
+            listed
+              ? 'The purchase order is in the list. Close the form and it stays saved.'
+              : 'The purchase order was saved. Refresh the list if you do not see it yet.'
+          );
+        }
+        setSearchParams({}, { replace: true });
+      } catch (error) {
+        console.error('Error opening purchase order from quotation:', error);
+        toast.warning(
+          'Could not convert this quotation',
+          'The purchase order could not be created from the quotation. Please try again.'
+        );
+        setSearchParams({}, { replace: true });
+      }
+    })();
+
+    return undefined;
+  }, [searchParams, setSearchParams]);
+
   useEffect(() => {
     if (!showForm || formData.quotation_id) return;
     const nextId = bestQuotationId(quotations, formData.enquiry_id, formData.client_id);
@@ -110,9 +395,10 @@ const PurchaseOrders = () => {
     setFormData((prev) => (prev.quotation_id ? prev : { ...prev, quotation_id: nextId }));
   }, [showForm, quotations, formData.enquiry_id, formData.client_id, formData.quotation_id]);
 
-  const fetchContracts = async () => {
+  const fetchContracts = async ({ silent = false } = {}) => {
+    const requestId = ++contractsRequest.current;
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const { data, error } = await supabase
         .from('marketing_contracts')
         .select(`
@@ -124,11 +410,15 @@ const PurchaseOrders = () => {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+      if (requestId !== contractsRequest.current) return true;
       setContracts(data || []);
       setLoading(false);
+      return true;
     } catch (error) {
       console.error('Error fetching contracts:', error);
+      if (requestId !== contractsRequest.current) return false;
       setLoading(false);
+      return false;
     }
   };
 
@@ -202,44 +492,10 @@ const PurchaseOrders = () => {
         if (error) throw error;
         contractId = data.id;
       } else {
-        const { data: existingNumbers, error: numberError } = await supabase
-          .from('marketing_contracts')
-          .select('contract_number')
-          .like('contract_number', 'CON/%')
-          .order('contract_number', { ascending: false })
-          .limit(100);
-
-        if (numberError) throw numberError;
-
-        let contractNumber = nextContractNumber(
-          (existingNumbers || []).map((row) => row.contract_number)
-        );
-        let created = null;
-        let lastError = null;
-        for (let attempt = 0; attempt < 8; attempt += 1) {
-          const { data, error } = await supabase
-            .from('marketing_contracts')
-            .insert([{
-              ...submitData,
-              contract_number: contractNumber,
-              created_by: user.id,
-              updated_by: user.id,
-            }])
-            .select()
-            .single();
-
-          if (!error) {
-            created = data;
-            break;
-          }
-          lastError = error;
-          if (!isContractNumberConflict(error)) throw error;
-          const match = String(contractNumber).match(CONTRACT_NUMBER_PATTERN);
-          const year = match ? Number(match[1]) : new Date().getFullYear();
-          const sequence = match ? Number(match[2]) + 1 : attempt + 2;
-          contractNumber = formatContractNumber(year, sequence);
-        }
-        if (!created) throw lastError;
+        const created = await insertMarketingContract({
+          ...submitData,
+          po_number: submitData.po_number || null,
+        });
         contractId = created.id;
       }
 
@@ -278,12 +534,15 @@ const PurchaseOrders = () => {
         }
       }
 
-      setShowForm(false);
-      setEditingContract(null);
-      setClientMailFile(null);
-      setPoDocumentFile(null);
+      closeForm();
       setFormData(emptyContractForm());
       fetchContracts();
+      if (submitData.quotation_id) {
+        toast.success(
+          editingContract ? 'Purchase order updated' : 'Purchase order created',
+          'The quotation stays marked as converted to a purchase order.'
+        );
+      }
     } catch (error) {
       console.error('Error saving contract:', error);
       toast.warning(
@@ -297,6 +556,7 @@ const PurchaseOrders = () => {
   };
 
   const handleEdit = (contract) => {
+    setLinkedQuotationNumber('');
     setEditingContract(contract);
     setFormData({
       quotation_id: contract.quotation_id || bestQuotationId(quotations, contract.enquiry_id, contract.client_id),
@@ -353,9 +613,16 @@ const PurchaseOrders = () => {
 
   const relevantQuotations = quotationsForContext(quotations, formData.enquiry_id, formData.client_id);
   const savedQuotation = quotations.find((q) => q.id === formData.quotation_id);
-  const quotationOptions = savedQuotation && !relevantQuotations.some((q) => q.id === savedQuotation.id)
-    ? [savedQuotation, ...relevantQuotations]
-    : relevantQuotations;
+  const linkedOption = linkedQuotationNumber && formData.quotation_id
+    ? { id: formData.quotation_id, quotation_number: linkedQuotationNumber }
+    : null;
+  const quotationOptions = [
+    ...(linkedOption ? [linkedOption] : []),
+    ...(savedQuotation && savedQuotation.id !== linkedOption?.id && !relevantQuotations.some((q) => q.id === savedQuotation.id)
+      ? [savedQuotation]
+      : []),
+    ...relevantQuotations.filter((q) => q.id !== linkedOption?.id),
+  ];
 
   return (
     <div className="w-full h-screen overflow-y-auto p-2 sm:p-3 md:p-4 lg:p-6">
@@ -380,6 +647,8 @@ const PurchaseOrders = () => {
                 setFormData(emptyContractForm());
                 setClientMailFile(null);
                 setPoDocumentFile(null);
+                setLinkedQuotationNumber('');
+                setFormNotice('');
                 setShowForm(true);
               }}
               className="flex items-center justify-center space-x-2 px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm sm:text-base"
@@ -489,17 +758,18 @@ const PurchaseOrders = () => {
             <div className="p-4 sm:p-6 border-b border-gray-200 flex justify-between items-center">
               <div>
                 <h2 className="text-lg sm:text-xl font-semibold text-gray-900">
-                  {editingContract ? 'Edit Contract' : 'Create New Purchase Order'}
+                  {editingContract ? 'Purchase Order' : 'Create New Purchase Order'}
                 </h2>
-                <p className="text-xs sm:text-sm text-gray-600 mt-1">Add a new purchase order or contract</p>
+                <p className="text-xs sm:text-sm text-gray-600 mt-1">
+                  {formNotice
+                    || (linkedQuotationNumber
+                      ? `Filled from quotation ${linkedQuotationNumber}.`
+                      : 'Add a new purchase order or contract')}
+                </p>
               </div>
               <button
-                onClick={() => {
-                  setShowForm(false);
-                  setEditingContract(null);
-                  setClientMailFile(null);
-                  setPoDocumentFile(null);
-                }}
+                type="button"
+                onClick={closeForm}
                 className="p-2 hover:bg-gray-100 rounded-lg"
               >
                 <X className="w-5 h-5" />
@@ -543,7 +813,9 @@ const PurchaseOrders = () => {
                         ...formData,
                         enquiry_id: enquiryId,
                         client_id: clientId,
-                        quotation_id: bestQuotationId(quotations, enquiryId, clientId),
+                        quotation_id: linkedQuotationNumber
+                          ? formData.quotation_id
+                          : bestQuotationId(quotations, enquiryId, clientId),
                       });
                     }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
@@ -571,7 +843,9 @@ const PurchaseOrders = () => {
                         ...formData,
                         client_id: clientId,
                         enquiry_id: enquiryId,
-                        quotation_id: bestQuotationId(quotations, enquiryId, clientId),
+                        quotation_id: linkedQuotationNumber
+                          ? formData.quotation_id
+                          : bestQuotationId(quotations, enquiryId, clientId),
                       });
                     }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
@@ -602,7 +876,8 @@ const PurchaseOrders = () => {
                   <select
                     value={formData.quotation_id}
                     onChange={(e) => setFormData({ ...formData, quotation_id: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                    disabled={Boolean(linkedQuotationNumber)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 disabled:bg-gray-50"
                   >
                     <option value="">
                       {relevantQuotations.length
@@ -616,11 +891,13 @@ const PurchaseOrders = () => {
                     ))}
                   </select>
                   <p className="mt-1 text-sm text-gray-500">
-                    {formData.enquiry_id && quotations.some((q) => q.enquiry_id === formData.enquiry_id)
-                      ? 'Filled from the latest quotation for this enquiry.'
-                      : formData.client_id && quotations.some((q) => q.client_id === formData.client_id)
-                        ? 'Filled from the latest quotation for this client.'
-                        : 'Choose an enquiry or client to fill the quotation number.'}
+                    {linkedQuotationNumber
+                      ? `Linked to quotation ${linkedQuotationNumber}. Client, amount, address, and payment terms are filled from that quotation.`
+                      : formData.enquiry_id && quotations.some((q) => q.enquiry_id === formData.enquiry_id)
+                        ? 'Filled from the latest quotation for this enquiry.'
+                        : formData.client_id && quotations.some((q) => q.client_id === formData.client_id)
+                          ? 'Filled from the latest quotation for this client.'
+                          : 'Choose an enquiry or client to fill the quotation number.'}
                   </p>
                 </div>
 
@@ -740,12 +1017,7 @@ const PurchaseOrders = () => {
               <div className="flex justify-end space-x-3 mt-6 pt-6 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowForm(false);
-                    setEditingContract(null);
-                    setClientMailFile(null);
-                    setPoDocumentFile(null);
-                  }}
+                  onClick={closeForm}
                   className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
                 >
                   Cancel
@@ -755,7 +1027,7 @@ const PurchaseOrders = () => {
                   disabled={saving}
                   className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {saving ? 'Saving...' : editingContract ? 'Update Contract' : 'Create Purchase Order'}
+                  {saving ? 'Saving...' : editingContract ? 'Save Purchase Order' : 'Create Purchase Order'}
                 </button>
               </div>
             </form>
