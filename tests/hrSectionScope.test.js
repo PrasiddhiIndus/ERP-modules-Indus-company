@@ -15,9 +15,7 @@ import {
 
 const HR_SECTIONS = [
   'hr.dashboard',
-  'hr.employee-master',
   'hr.calling-master',
-  'hr.attendance',
   'hr.salary-management',
   'hr.people-management',
   'hr.site-attendance',
@@ -60,8 +58,6 @@ describe('HR team: only ticked HR sections', () => {
     const p = recruitmentAndSite;
     expect(opens(p, '/app/hr/site-attendance')).toBe(true);
     expect(opens(p, getRecruitmentLandingPath(p, getAccessibleModules(p)))).toBe(true);
-    expect(opens(p, '/app/hr/employee-master')).toBe(false);
-    expect(opens(p, '/app/attendance')).toBe(false);
     expect(opens(p, '/app/hr/payroll/salary')).toBe(false);
     expect(opens(p, '/app/people-management')).toBe(false);
     expect(opens(p, '/app/hr/dashboard')).toBe(false);
@@ -78,7 +74,7 @@ describe('HR team: only ticked HR sections', () => {
   it('only Recruitment pages ticked → only Recruitment', () => {
     const p = user({ allowed_sub_modules: ['hr.recruitment.candidates'] });
     expect(visibleSections(p)).toEqual(['hr.calling-master']);
-    expect(opens(p, '/app/hr/employee-master')).toBe(false);
+    expect(opens(p, '/app/hr/site-attendance')).toBe(false);
   });
 });
 
@@ -87,7 +83,7 @@ describe('HR team: unchanged cases', () => {
     const p = user();
     expect(hasHrSectionScope(p)).toBe(false);
     expect(visibleSections(p)).toEqual(HR_SECTIONS);
-    expect(opens(p, '/app/hr/employee-master')).toBe(true);
+    expect(opens(p, '/app/hr/site-attendance')).toBe(true);
   });
 
   it('HR ticked as a full module → all of HR even with sections ticked', () => {
@@ -109,9 +105,9 @@ describe('HR team: unchanged cases', () => {
   });
 
   it('other team with HR sections → only those sections (as before)', () => {
-    const p = user({ team: 'Sales', allowed_sub_modules: ['hr.site-attendance', 'hr.attendance'] });
+    const p = user({ team: 'Sales', allowed_sub_modules: ['hr.site-attendance', 'hr.salary-management'] });
     expect(hasHrSectionScope(p)).toBe(false);
-    expect(visibleSections(p)).toEqual(['hr.attendance', 'hr.site-attendance']);
+    expect(visibleSections(p)).toEqual(['hr.salary-management', 'hr.site-attendance']);
     expect(getAccessibleModules(p).has('sales')).toBe(true);
   });
 

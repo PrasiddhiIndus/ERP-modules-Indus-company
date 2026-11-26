@@ -46,7 +46,7 @@ const attendance = {
 
 const paths = {
   people: "/app/hr",
-  attendance: "/app/attendance",
+  attendance: "/app/hr/site-attendance",
   ledger: "/app/accounts-finance/reports/site-ledger",
   receivables: "/app/billing/reports",
 };

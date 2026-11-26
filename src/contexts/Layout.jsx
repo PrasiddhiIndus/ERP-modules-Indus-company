@@ -808,7 +808,7 @@ const Layout = () => {
     ]),
     hr:
       canSeeHrRecruitment ||
-      anySub(["hr.dashboard", "hr.employee-master", "hr.attendance", "hr.salary-management", "hr.site-attendance", "hr.people-management"]),
+      anySub(["hr.dashboard", "hr.salary-management", "hr.site-attendance", "hr.people-management"]),
     operationsManpower: canSub("operations.manpower"),
     operationsFleet: canSub("operations.fleet"),
     projects:
@@ -1427,15 +1427,6 @@ const Layout = () => {
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Dashboard</span>
                   </NavLink>
                   )}
-                  {canSub("hr.employee-master") && (
-                  <NavLink
-                    to="hr/employee-master"
-                    className={() => subNavClass({ isActive: pathname.startsWith("/app/hr/employee-master") })}
-                  >
-                    <Users className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">HR Management</span>
-                  </NavLink>
-                  )}
                   {canSeeHrRecruitment && (
                   <NavLink
                     to={hrRecruitmentLanding}
@@ -1443,15 +1434,6 @@ const Layout = () => {
                   >
                     <UserPlus className="w-4 h-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Recruitment</span>
-                  </NavLink>
-                  )}
-                  {canSub("hr.attendance") && (
-                  <NavLink
-                    to="attendance"
-                    className={() => subNavClass({ isActive: pathname.startsWith("/app/attendance") })}
-                  >
-                    <Clock className="w-4 h-4 shrink-0 text-sidebar-accent" />
-                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Attendance</span>
                   </NavLink>
                   )}
                   {canSub("hr.salary-management") && (

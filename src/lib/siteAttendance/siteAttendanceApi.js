@@ -53,6 +53,7 @@ const SITE_COLUMNS = [
   "regular_ot",
   "ot_in_hours",
   "custom_ot",
+  "customized_duty_hours",
   "site_designations",
   "required_duty_per_day",
 ];

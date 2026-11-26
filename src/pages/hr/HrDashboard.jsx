@@ -2,11 +2,9 @@ import React from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
-  Clock,
   LayoutDashboard,
   UserCheck,
   UserPlus,
-  Users,
   Wallet,
   Building2,
 } from "lucide-react";
@@ -14,20 +12,6 @@ import { PageTaskHeader, SectionCard } from "../../components/erpUi";
 import { useNavAccess } from "../../hooks/useNavAccess";
 
 const HR_MODULES = [
-  {
-    to: "/app/hr/employee-master",
-    label: "HR Management",
-    hint: "Employee master and monthly salary inputs",
-    icon: Users,
-    accent: "text-red-600 bg-red-50",
-  },
-  {
-    to: "/app/attendance",
-    label: "Attendance",
-    hint: "Day-wise register, filters, and attendance dashboard",
-    icon: Clock,
-    accent: "text-amber-700 bg-amber-50",
-  },
   {
     to: "/app/hr/payroll/salary/dashboard",
     label: "Salary Management",
@@ -57,7 +41,7 @@ export default function HrDashboard() {
     <div className="p-4 md:p-6 max-w-[1600px] mx-auto w-full flex flex-col gap-4">
       <PageTaskHeader
         title="HR Dashboard"
-        subtitle="Overview of the HR module — open attendance, people, or salary from here."
+        subtitle="Overview of the HR module — open site attendance, people, or salary from here."
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -98,14 +82,14 @@ export default function HrDashboard() {
               Start of day
             </div>
             <p className="mt-1 text-[11px] text-gray-600">
-              Check the attendance dashboard for today&apos;s present, leave, and week-off totals.
+              Check site attendance for today&apos;s present, leave, and week-off totals.
             </p>
-            {canSeePath("/app/attendance") && (
+            {canSeePath("/app/hr/site-attendance") && (
             <Link
-              to="/app/attendance"
+              to="/app/hr/site-attendance"
               className="mt-2 inline-block text-[11px] font-medium text-accent hover:underline"
             >
-              Go to Attendance →
+              Go to Site Attendance →
             </Link>
             )}
           </div>
@@ -128,18 +112,18 @@ export default function HrDashboard() {
           </div>
           <div className="rounded-lg border border-gray-100 bg-slate-50/80 px-3 py-2.5">
             <div className="flex items-center gap-2 text-xs font-semibold text-gray-900">
-              <Users className="h-4 w-4 text-red-600" />
-              Master data
+              <Building2 className="h-4 w-4 text-indigo-700" />
+              Site roster
             </div>
             <p className="mt-1 text-[11px] text-gray-600">
-              Keep employee master current so attendance and payroll stay aligned.
+              Keep site people and marks current so payroll stays aligned.
             </p>
-            {canSeePath("/app/hr/employee-master") && (
+            {canSeePath("/app/hr/site-attendance") && (
             <Link
-              to="/app/hr/employee-master"
+              to="/app/hr/site-attendance"
               className="mt-2 inline-block text-[11px] font-medium text-accent hover:underline"
             >
-              Go to HR Management →
+              Go to Site Attendance →
             </Link>
             )}
           </div>

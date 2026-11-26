@@ -3,6 +3,11 @@ import { formatPunchTime } from "../../../lib/siteAttendance/selfiePunchesApi";
 import { toast } from "../../../lib/toast";
 import * as XLSX from "xlsx";
 import { FilterBar, KpiTile, Modal, PageTaskHeader, SectionCard, StatusChip, TinyInput, TinySelect } from "../../../components/erpUi";
+import {
+  CUSTOM_DUTY_OPTION,
+  formatCustomDutyValue,
+  parseCustomDutyValue,
+} from "../../../lib/siteAttendance/attendanceRules";
 import { formatSalaryRangeLabel, isCalendarMonth } from "../../../lib/siteAttendance/salaryCycle";
 import { filterSitesByType } from "../../../lib/siteAttendance/siteTypes";
 import { useSiteAttendanceAccess, useSiteAttendanceType } from "./SiteAttendanceLayout";
@@ -24,6 +29,7 @@ const COL_DESIG = "left-[14.25rem] w-32 min-w-[8rem] max-w-[8rem] shadow-[2px_0_
 
 /** Attendance mark cell tones — Present green, Leave/Absent red, Week-off yellow. */
 function codeClass(code) {
+  if (parseCustomDutyValue(code) != null) return "att-mark att-mark-present";
   const c = String(code || "").toUpperCase();
   if (c === "P" || ["A", "B", "C", "G"].includes(c)) return "att-mark att-mark-present";
   if (c === "L") return "att-mark att-mark-absent";
@@ -32,6 +38,99 @@ function codeClass(code) {
   if (c === "NH-PH") return "att-mark att-mark-nh";
   if (c === "CO") return "att-mark att-mark-co";
   return "";
+}
+
+function AttendanceMarkControl({ codes, value, disabled, customizedDuty, onChange }) {
+  const customValue = parseCustomDutyValue(value);
+  const [mode, setMode] = useState(() => (customValue != null ? "custom" : "select"));
+  const [draft, setDraft] = useState(() => (customValue != null ? formatCustomDutyValue(customValue) : ""));
+
+  useEffect(() => {
+    const next = parseCustomDutyValue(value);
+    if (next != null) {
+      setMode("custom");
+      setDraft(formatCustomDutyValue(next));
+    } else {
+      setMode("select");
+      setDraft("");
+    }
+  }, [value]);
+
+  if (!customizedDuty) {
+    return (
+      <select
+        className="att-daily-mark-select w-full h-8 bg-transparent text-[12px] font-semibold text-center"
+        disabled={disabled}
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value, e.target.value === "")}
+      >
+        {codes.map((c) => (
+          <option key={c || "empty"} value={c}>{c || "—"}</option>
+        ))}
+      </select>
+    );
+  }
+
+  if (mode === "custom") {
+    return (
+      <input
+        type="number"
+        min="0"
+        max="24"
+        step="0.25"
+        disabled={disabled}
+        className="att-daily-mark-select w-full h-8 bg-transparent text-[12px] font-semibold text-center tabular-nums"
+        value={draft}
+        placeholder="e.g. 0.75"
+        title="Custom duty — Enter to save, Esc for mark list"
+        autoFocus
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const trimmed = String(draft || "").trim();
+          if (!trimmed) {
+            onChange("", true);
+            setMode("select");
+            return;
+          }
+          const formatted = formatCustomDutyValue(trimmed);
+          if (!formatted) {
+            setDraft(customValue != null ? formatCustomDutyValue(customValue) : "");
+            return;
+          }
+          onChange(formatted, false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            setMode("select");
+            setDraft(customValue != null ? formatCustomDutyValue(customValue) : "");
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <select
+      className="att-daily-mark-select w-full h-8 bg-transparent text-[12px] font-semibold text-center"
+      disabled={disabled}
+      value={value || ""}
+      onChange={(e) => {
+        const next = e.target.value;
+        if (next === CUSTOM_DUTY_OPTION) {
+          setMode("custom");
+          setDraft(customValue != null ? formatCustomDutyValue(customValue) : "");
+          return;
+        }
+        onChange(next, next === "");
+      }}
+    >
+      {codes.map((c) => (
+        <option key={c || "empty"} value={c}>{c || "—"}</option>
+      ))}
+      <option value={CUSTOM_DUTY_OPTION}>Custom duty</option>
+    </select>
+  );
 }
 
 const PICKER_MODES = {
@@ -336,16 +435,21 @@ export default function AttendanceEntryPage({ readOnly = false }) {
 ${rec._selfie.address}` : ""}
 Change to override.` : undefined}
                             >
-                              <select
-                                className="att-daily-mark-select w-full h-8 bg-transparent text-[12px] font-semibold text-center"
-                                disabled={disabled}
+                              <AttendanceMarkControl
+                                codes={g.codes}
                                 value={closed ? "" : rec?.att_code || ""}
-                                onChange={(e) => g.persistCell({ personId, dateString: d.dateString, gridDesignation: desig, attCode: e.target.value, clear: e.target.value === "" })}
-                              >
-                                {g.codes.map((c) => (
-                                  <option key={c || "empty"} value={c}>{c || "—"}</option>
-                                ))}
-                              </select>
+                                disabled={disabled}
+                                customizedDuty={g.customizedDuty}
+                                onChange={(attCode, clear) =>
+                                  g.persistCell({
+                                    personId,
+                                    dateString: d.dateString,
+                                    gridDesignation: desig,
+                                    attCode,
+                                    clear,
+                                  })
+                                }
+                              />
                             </td>
                           );
                         })}
@@ -400,6 +504,9 @@ Change to override.` : undefined}
           <p className="type-meta mt-2">
             Primary designation rows show an asterisk. OT is the second row per person and is included in Duty total
             (hours ÷ site duty hours, or 1 per day when Regular OT is on). NH/PH days are highlighted.
+            {g.customizedDuty
+              ? " This site allows Customized Duty Hours — choose Custom duty to type a value (e.g. 0.5, 0.75, 4, 8); totals use the entered duty."
+              : null}
           </p>
         </SectionCard>
       ) : (

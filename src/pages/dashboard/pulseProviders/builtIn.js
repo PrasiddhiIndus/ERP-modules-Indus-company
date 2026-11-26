@@ -85,7 +85,7 @@ export const builtInProviders = [
   {
     id: "hr",
     meta: { short: "HR", revenue: false, order: 10, icon: "hr" },
-    linkKeys: ["hr.dashboard", "hr.calling-master", "hr.attendance", "hr.salary-management"],
+    linkKeys: ["hr.dashboard", "hr.calling-master", "hr.site-attendance", "hr.salary-management"],
     realtimeTables: [{ schema: "public", table: "admin_ifsp_employee_master" }],
     async load() {
       const [people, leavePending] = await Promise.all([
