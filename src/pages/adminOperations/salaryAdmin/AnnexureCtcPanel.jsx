@@ -766,10 +766,6 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
       toast.error("Not saved", "CTC changes are not saved for this login.");
       return;
     }
-    if (!current) {
-      toast.error("Create CTC first", "Save a CTC revision, then you can set the voucher amount.");
-      return;
-    }
     if (form.generateVoucher) {
       const amt = parseEntered(form.voucherAmount);
       if (!(amt > 0)) {
@@ -779,8 +775,10 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     }
     setSaving(true);
     try {
+      const base = current || structure || {};
       await dbSaveSalaryStructure(employee.id, {
-        ...current,
+        ...base,
+        declared: Boolean(current?.declared),
         ...voucherMeta(),
       });
       toast.success("Voucher saved", "Shown on salary process and payslip. Not added to CTC, gross, or net.");
@@ -842,8 +840,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
 
   // ── Live calculation ────────────────────────────────────────────────────
   const isConfirmationFlow = form.category === CATEGORY_PROBATION_TO_CONFIRMED;
-  const takeHomeCategory = isTakeHomeCategory(form.category);
-  const isTakeHomeMode = takeHomeCategory && form.structureMode === STRUCTURE_MODE_TAKE_HOME;
+  const isTakeHomeMode = form.structureMode === STRUCTURE_MODE_TAKE_HOME;
   const isManual = !isConfirmationFlow && !isTakeHomeMode && form.entryMode === ENTRY_MANUAL;
   const resolved = resolveCategory(form.category, form.scheme, form.schemeAfter);
   const confirmationWef = isConfirmationFlow ? toDay(form.confirmationDate) : "";
@@ -1422,23 +1419,35 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
         </div>
 
         <div className="mt-4 rounded-lg border border-border bg-surface-sunken/40 px-3 py-3">
-          <label className="inline-flex items-center gap-2 text-xs font-medium text-ink cursor-pointer">
-            <input
-              type="checkbox"
-              className="h-4 w-4"
-              checked={Boolean(form.generateVoucher)}
-              disabled={salaryFiguresHidden()}
-              onChange={(e) => {
-                const on = e.target.checked;
-                setForm((f) => ({
-                  ...f,
-                  generateVoucher: on,
-                  voucherAmount: on ? f.voucherAmount : "",
-                }));
-              }}
-            />
-            Generate voucher
-          </label>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="inline-flex items-center gap-2 text-xs font-medium text-ink cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={Boolean(form.generateVoucher)}
+                disabled={salaryFiguresHidden()}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setForm((f) => ({
+                    ...f,
+                    generateVoucher: on,
+                    voucherAmount: on ? f.voucherAmount : "",
+                  }));
+                }}
+              />
+              Generate voucher
+            </label>
+            {!form.generateVoucher && current?.generate_voucher ? (
+              <button
+                type="button"
+                disabled={saving || salaryFiguresHidden()}
+                onClick={saveVoucherOnly}
+                className="h-8 rounded-lg border border-accent bg-accent px-3 text-xs font-semibold text-white hover:bg-accent-deep disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save voucher"}
+              </button>
+            ) : null}
+          </div>
           <p className="type-meta text-ink-muted mt-1.5">
             Saved with CTC for salary process and payslip. Not added to CTC, gross, deductions, net, or bank.
           </p>
@@ -1457,16 +1466,14 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   onChange={(e) => setField("voucherAmount", e.target.value)}
                 />
               </label>
-              {!editing && current ? (
-                <button
-                  type="button"
-                  disabled={saving || salaryFiguresHidden()}
-                  onClick={saveVoucherOnly}
-                  className="h-9 rounded-lg border border-accent bg-accent px-3 text-xs font-semibold text-white hover:bg-accent-deep disabled:opacity-50"
-                >
-                  {saving ? "Saving…" : "Save voucher"}
-                </button>
-              ) : null}
+              <button
+                type="button"
+                disabled={saving || salaryFiguresHidden()}
+                onClick={saveVoucherOnly}
+                className="h-9 rounded-lg border border-accent bg-accent px-3 text-xs font-semibold text-white hover:bg-accent-deep disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save voucher"}
+              </button>
             </div>
           ) : null}
         </div>
@@ -1581,9 +1588,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                     setForm((f) => ({
                       ...f,
                       category,
-                      structureMode: isTakeHomeCategory(category)
-                        ? f.structureMode || STRUCTURE_MODE_CTC
-                        : STRUCTURE_MODE_CTC,
+                      structureMode: f.structureMode || STRUCTURE_MODE_CTC,
                       scheme: category === CATEGORY_NEW_JOINER_NEW_SCHEME ? SCHEME_NEW : f.scheme,
                       revisionType:
                         category === CATEGORY_PROBATION_TO_CONFIRMED && current ? "confirmation" : f.revisionType,
@@ -1599,30 +1604,28 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                 </TinySelect>
               </label>
 
-              {takeHomeCategory ? (
-                <div className="block">
-                  <span className="text-ink-secondary">Salary structure</span>
-                  <div className="mt-1 grid grid-cols-2 gap-1 rounded-lg border border-gray-200 p-0.5">
-                    {[
-                      { id: STRUCTURE_MODE_CTC, label: "CTC" },
-                      { id: STRUCTURE_MODE_TAKE_HOME, label: "Take Home" },
-                    ].map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setField("structureMode", opt.id)}
-                        className={`rounded-md px-2 py-1.5 text-[11px] font-medium ${
-                          form.structureMode === opt.id
-                            ? "bg-accent text-white"
-                            : "text-ink-secondary hover:bg-gray-50"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
+              <div className="block">
+                <span className="text-ink-secondary">Salary structure</span>
+                <div className="mt-1 grid grid-cols-2 gap-1 rounded-lg border border-gray-200 p-0.5">
+                  {[
+                    { id: STRUCTURE_MODE_CTC, label: "CTC" },
+                    { id: STRUCTURE_MODE_TAKE_HOME, label: "Take Home" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setField("structureMode", opt.id)}
+                      className={`rounded-md px-2 py-1.5 text-[11px] font-medium ${
+                        form.structureMode === opt.id
+                          ? "bg-accent text-white"
+                          : "text-ink-secondary hover:bg-gray-50"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
                 </div>
-              ) : null}
+              </div>
 
               {isTakeHomeMode ? (
                 <>

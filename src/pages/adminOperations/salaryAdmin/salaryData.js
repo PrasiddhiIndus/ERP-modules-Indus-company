@@ -475,13 +475,24 @@ export function resolveStructureForPayMonth(structure, year, month) {
   };
 }
 
-/** Declared CTC map resolved to the version that applied in this pay month. */
+/** Declared CTC map resolved to the version that applied in this pay month (plus voucher-only rows). */
 export async function fetchSalaryStructureMapForMonth(year, month) {
   const map = await fetchSalaryStructureMap({ withRevisions: true });
   const resolved = new Map();
   for (const [id, structure] of map.entries()) {
     const asOf = resolveStructureForPayMonth(structure, year, month);
-    if (asOf?.declared) resolved.set(String(id), asOf);
+    if (asOf?.declared) {
+      const hasAsOfVoucher = Boolean(asOf.generate_voucher) && Number(asOf.voucher_amount) > 0;
+      const hasRootVoucher = Boolean(structure?.generate_voucher) && Number(structure?.voucher_amount) > 0;
+      resolved.set(
+        String(id),
+        !hasAsOfVoucher && hasRootVoucher
+          ? { ...asOf, generate_voucher: true, voucher_amount: Number(structure.voucher_amount) }
+          : asOf
+      );
+    } else if (structure?.generate_voucher && Number(structure?.voucher_amount) > 0) {
+      resolved.set(String(id), { ...structure, declared: false });
+    }
   }
   return resolved;
 }
