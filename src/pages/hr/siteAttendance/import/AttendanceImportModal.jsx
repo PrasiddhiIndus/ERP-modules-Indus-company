@@ -401,7 +401,11 @@ export default function AttendanceImportModal({ open, onClose, onSaved, grid }) 
                           <td className={`border border-divider px-1 text-center tabular-nums ${mismatch(ft.weekoff, st.weekoff)}`}>{ft.weekoff ?? "—"}{st.weekoff != null ? ` / ${st.weekoff}` : ""}</td>
                           <td className="border border-divider px-1 text-center tabular-nums">{ft.otDays != null ? `${ft.otDays}d ${ft.otHours}h` : "—"}{st.ot != null ? ` / ${st.ot}` : ""}</td>
                           <td className="border border-divider px-1 text-center tabular-nums whitespace-nowrap">
-                            {row.afterTotals ? `${row.afterTotals.totalPresent} / ${row.afterTotals.totalLeave} / ${row.afterTotals.totalOT}` : "—"}
+                            {row.afterTotals
+                              ? site?.custom_ot
+                                ? `${row.afterTotals.totalPresent} / ${row.afterTotals.totalLeave} / ${row.afterTotals.totalOtHours ?? 0}h / ${row.afterTotals.totalOT}d`
+                                : `${row.afterTotals.totalPresent} / ${row.afterTotals.totalLeave} / ${row.afterTotals.totalOT}`
+                              : "—"}
                           </td>
                         </tr>
                         <tr className={rowTone}>
@@ -416,6 +420,7 @@ export default function AttendanceImportModal({ open, onClose, onSaved, grid }) 
                                     type="number"
                                     min="0"
                                     max="16"
+                                    step={site?.custom_ot ? "0.01" : "1"}
                                     className="w-full h-5 text-center text-[10px] bg-transparent"
                                     value={otValue}
                                     placeholder="OT"

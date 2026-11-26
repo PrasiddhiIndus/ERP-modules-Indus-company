@@ -75,15 +75,20 @@ export function mapAttendanceMark(raw, shiftType, { customizedDutyHours = false 
 /**
  * OT row cell → hours. Numbers are hours; a day mark (OT / P / ✓) means one
  * OT duty and is recorded as the site's duty hours.
+ * Custom OT sites keep fractional hours (2 dp); other sites round to whole hours.
  * @returns {{ kind: "blank"|"hours"|"unknown", hours: number, raw: string, note?: string }}
  */
-export function mapOtValue(raw, dutyHours = 8) {
+export function mapOtValue(raw, dutyHours = 8, { allowDecimalOt = false } = {}) {
   const token = normalizeMarkToken(raw);
   if (BLANK_MARKS.has(token) || token === "0") return { kind: "blank", hours: 0, raw: String(raw ?? "") };
   const num = Number(token.replace(/\s*(H|HR|HRS|HOURS)$/, ""));
   if (Number.isFinite(num) && num > 0) {
     if (num > 16) return { kind: "unknown", hours: 0, raw: String(raw), note: "OT above 16 hours" };
     if (!Number.isInteger(num)) {
+      if (allowDecimalOt) {
+        const hours = Math.round(num * 100) / 100;
+        return { kind: "hours", hours, raw: String(raw) };
+      }
       return { kind: "hours", hours: Math.round(num), raw: String(raw), note: `OT ${num} rounded to ${Math.round(num)} h` };
     }
     return { kind: "hours", hours: num, raw: String(raw) };

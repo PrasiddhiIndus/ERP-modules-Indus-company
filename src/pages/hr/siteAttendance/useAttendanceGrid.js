@@ -7,10 +7,15 @@ import {
   canMarkAttendance,
   attendanceCodesForSite,
   computeEmployeeTotals,
+  CUSTOM_OT_EQUIVALENT_HOURS,
+  customOtHoursToDays,
   formatCustomDutyValue,
   getDateVisibility,
+  getDutyContribution,
   getRecordDutyContribution,
+  MAX_OT_HOURS,
   parseCustomDutyValue,
+  parseOtHours,
   roundDutyTotal,
   isInactiveCellClosed,
   isNhPhDay,
@@ -18,6 +23,7 @@ import {
   normalizeNhPhDateList,
   personIsVisibleInAttendanceMonth,
   siteAllowsCustomizedDutyHours,
+  siteAllowsDecimalOt,
 } from "../../../lib/siteAttendance/attendanceRules";
 import {
   CROSS_DESIG_MESSAGE,
@@ -167,6 +173,7 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
   );
   const codes = attendanceCodesForSite(site);
   const customizedDuty = siteAllowsCustomizedDutyHours(site);
+  const decimalOt = siteAllowsDecimalOt(site);
   const gridRows = useMemo(
     () => getOrderedGridRowsForSite(employees, placements, site, search),
     [employees, placements, site, search]
@@ -311,11 +318,11 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
 
   const persistOt = useCallback(
     async ({ personId, dateString, gridDesignation, otHours }) => {
-      let hours = parseInt(otHours, 10) || 0;
-      if (hours > 16) {
-        toast.error("OT hours cannot exceed 16.");
-        hours = 16;
+      const rawNum = Number(String(otHours ?? "").trim().replace(/,/g, ""));
+      if (Number.isFinite(rawNum) && rawNum > MAX_OT_HOURS) {
+        toast.error(`OT hours cannot exceed ${MAX_OT_HOURS}.`);
       }
+      const hours = parseOtHours(otHours, site);
       const map = attendanceMapRef.current;
       const existing = getRecord(personId, dateString, gridDesignation);
       const code = String(existing?.att_code || "").trim().toUpperCase();
@@ -349,7 +356,7 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
         otHours: hours,
       });
     },
-    [getRecord, multi, placements, employees, persistCell]
+    [getRecord, multi, placements, employees, persistCell, site]
   );
 
   const isCellDisabled = useCallback(
@@ -445,13 +452,32 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
         gridRows.forEach((row) => {
           if (isInactiveCellClosed(row, day.date)) return;
           const rec = getRecord(row.person_id || row.id, day.dateString, row.grid_designation || row.designation);
-          // Designation-scoped row: attendance mark + OT both count toward Duty total
-          sum += getRecordDutyContribution(rec, site);
+          if (decimalOt) {
+            // Custom OT billing: duty total is attendance marks only; OT is a separate daily row.
+            sum += getDutyContribution(rec?.att_code, site);
+          } else {
+            // Designation-scoped row: attendance mark + OT both count toward Duty total
+            sum += getRecordDutyContribution(rec, site);
+          }
         });
         return roundDutyTotal(sum);
       }),
-    [visibleDays, gridRows, getRecord, attendanceMap, site]
+    [visibleDays, gridRows, getRecord, attendanceMap, site, decimalOt]
   );
+
+  /** Custom OT: per-day Total OT = sum of employees' OT hours ÷ 8. */
+  const dayOt = useMemo(() => {
+    if (!decimalOt) return [];
+    return visibleDays.map((day) => {
+      let hours = 0;
+      gridRows.forEach((row) => {
+        if (isInactiveCellClosed(row, day.date)) return;
+        const rec = getRecord(row.person_id || row.id, day.dateString, row.grid_designation || row.designation);
+        hours += Number(rec?.ot_hours) || 0;
+      });
+      return customOtHoursToDays(hours);
+    });
+  }, [visibleDays, gridRows, getRecord, attendanceMap, decimalOt]);
 
   return {
     sites,
@@ -479,6 +505,7 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
     multi,
     codes,
     customizedDuty,
+    decimalOt,
     gridRows,
     getRecord,
     persistCell,
@@ -494,6 +521,8 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
     copyToDesignation,
     totals,
     dayDuty,
+    dayOt,
+    customOtDayHours: CUSTOM_OT_EQUIVALENT_HOURS,
     isNhPh: (date) => isNhPhDay(site, date),
   };
 }
