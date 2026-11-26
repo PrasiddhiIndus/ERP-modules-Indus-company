@@ -86,13 +86,13 @@ import {
   PhoneCall,
   FileSpreadsheet,
   Mail,
+  Headphones,
   SlidersHorizontal,
   Moon,
   Sun,
   PanelLeftClose,
   PanelLeft,
   Search as SearchIcon,
-  Headphones,
   HardHat,
   Hammer,
   FolderKanban,
@@ -344,6 +344,7 @@ function resolveWorkspaceContext(pathname) {
     [/\/app\/marketing/, "Go-to-market", "Marketing"],
     [/\/app\/crm-outreach/, "Internal Utilities", "Mail Outreach"],
     [/\/app\/it-support/, "Internal Utilities", "IT Support"],
+    [/\/app\/qa/, "Internal Utilities", "QA"],
     [/\/app\/activity-history/, "Internal Utilities", "Activity history"],
     [/\/app\/maintenance/, "Service", "Maintenance"],
     [/\/app\/projects-billing/, "Projects", "Billing"],
@@ -879,9 +880,16 @@ const Layout = () => {
     (can("operations") && navHas.operationsFleet) ||
     ((can("commercialRm") || can("sales")) && navHas.commercialRm) ||
     (can("amc") && navHas.amc);
+  const qaNavVisible =
+    can("qa") ||
+    (Array.isArray(userProfile?.allowed_sub_modules)
+      ? userProfile.allowed_sub_modules.some((k) => String(k).startsWith("qa."))
+      : false);
+
   const showUtilitiesGroup =
     can("indusLms") ||
     can("crmOutreach") ||
+    qaNavVisible ||
     can("marketing") ||
     can("userManagement") ||
     can("settings") ||
@@ -2313,10 +2321,17 @@ const Layout = () => {
             </NavLink>
             )}
 
+<<<<<<< Updated upstream
             {userProfile?.role === ROLES.SUPER_ADMIN && (
             <NavLink to="all-employees" className={topNavClass}>
               <Users className="w-4 h-4 shrink-0" />
               <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">All Employees</span>
+=======
+            {qaNavVisible && (
+            <NavLink to="qa" className={topNavClass} title="QA">
+              <ClipboardCheck className="w-4 h-4 shrink-0" />
+              <span className="type-body-medium type-truncate min-w-0 flex-1 text-left">QA</span>
+>>>>>>> Stashed changes
             </NavLink>
             )}
 

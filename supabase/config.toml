@@ -1,6 +1,6 @@
 # Gateway JWT verification can fail for ES256 signing keys; validate inside the function instead.
 [api]
-schemas = ["public", "graphql_public", "billing", "finance", "indus_one", "projects"]
+schemas = ["public", "graphql_public", "billing", "finance", "indus_one", "projects", "qa"]
 
 [functions.login-check]
 verify_jwt = false
@@ -18,4 +18,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.admin-delete-user]
+verify_jwt = false
+
+[functions.it-support-sla-cron]
 verify_jwt = false

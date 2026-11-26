@@ -396,7 +396,6 @@ export const CrmOutreach = lazy(() => import("../pages/crmOutreach/CrmOutreach")
 export const UserManagement = lazy(() => import("../pages/userAccess/UserManagementHub"));
 export const SoftwareSubscriptions = lazy(() => import("../pages/SoftwareSubscriptions"));
 export const ApiHealthDashboard = lazy(() => import("../pages/apiMonitoring/ApiHealthDashboard"));
-
 export const ItSupportLayout = lazy(() => import("../pages/itSupport/ItSupportLayout"));
 export const ItSupportDashboardPage = lazy(() => import("../pages/itSupport/DashboardPage"));
 export const ItSupportRaiseTicketPage = lazy(() => import("../pages/itSupport/RaiseTicketPage"));
@@ -405,6 +404,21 @@ export const ItSupportTicketQueuePage = lazy(() => import("../pages/itSupport/Ti
 export const ItSupportTicketDetailPage = lazy(() => import("../pages/itSupport/TicketDetailPage"));
 export const ItSupportMastersPage = lazy(() => import("../pages/itSupport/MastersPage"));
 export const ItSupportReportsPage = lazy(() => import("../pages/itSupport/ReportsPage"));
+export const QaLayout = lazy(() => import("../pages/qa/QaLayout"));
+export const QaDashboardPage = lazy(() => import("../pages/qa/DashboardPage"));
+export const QaRequestsBoardPage = lazy(() => import("../pages/qa/RequestsBoardPage"));
+export const QaRequestDetailPage = lazy(() => import("../pages/qa/RequestDetailPage"));
+export const QaTestCasesPage = lazy(() => import("../pages/qa/TestCasesPage"));
+export const QaTestCaseDetailPage = lazy(() => import("../pages/qa/TestCaseDetailPage"));
+export const QaTestCaseFormPage = lazy(() => import("../pages/qa/TestCaseFormPage"));
+export const QaExecutionPage = lazy(() => import("../pages/qa/ExecutionPage"));
+export const QaDefectsPage = lazy(() => import("../pages/qa/DefectsPage"));
+export const QaDefectDetailPage = lazy(() => import("../pages/qa/DefectDetailPage"));
+export const QaTraceabilityPage = lazy(() => import("../pages/qa/TraceabilityPage"));
+export const QaReleaseGatePage = lazy(() => import("../pages/qa/ReleaseGatePage"));
+export const QaAuditTrailPage = lazy(() => import("../pages/qa/AuditTrailPage"));
+export const QaStandardsPage = lazy(() => import("../pages/qa/StandardsPage"));
+export const QaManualPage = lazy(() => import("../pages/qa/manual/ManualPage"));
 export const IndusLmsTrainings = lazy(() => import("../pages/IndusLmsTrainings"));
 
 // Marketing

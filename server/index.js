@@ -47,8 +47,8 @@ import {
 } from './crmInHouseMailApi.js';
 import { registerAdminRecruitmentRoutes, startAdminRecruitmentAutomation } from './adminRecruitmentApi.js';
 import { registerAdminEmployeeDocumentsRoutes } from './adminEmployeeDocumentsApi.js';
-import { registerAdminSurveyRoutes } from './adminSurveysApi.js';
 import { registerItSupportNotifyRoutes } from './itSupportNotifyApi.js';
+import { registerAdminSurveyRoutes } from './adminSurveysApi.js';
 import { registerItSupportR2Routes } from './itSupportR2Api.js';
 import { startPayrollMisAlerts } from './payrollMisAlerts.js';
 import { isAllowedCorsOrigin, isLocalDevOrigin } from './corsAllowOrigin.js';
@@ -454,6 +454,8 @@ app.use('/api', apiRateLimit);
 
 /** R2 object keys for software-subscriptions page; presign-get only signs keys under this prefix. */
 const R2_SOFTWARE_SUB_KEY_PREFIX = 'software-subscriptions/';
+const R2_IT_SUPPORT_KEY_PREFIX = 'it-support/';
+const R2_IT_SUPPORT_MAX_BYTES = 10 * 1024 * 1024;
 const R2_HR_CALLING_KEY_PREFIX = 'hr-calling/';
 const R2_ADMIN_POLICIES_KEY_PREFIX = 'admin-policies/';
 const R2_ADMIN_JOINING_KEY_PREFIX = 'admin-joining/';
@@ -551,6 +553,11 @@ const r2FireTenderUpload = multer({
   limits: { fileSize: R2_FIRE_TENDER_MAX_BYTES },
 });
 
+const r2ItSupportUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: R2_IT_SUPPORT_MAX_BYTES },
+});
+
 const adminRecruitment = registerAdminRecruitmentRoutes(app, {
   requireAuth,
   getSupabaseUrl: getSupabaseUrlForServer,
@@ -560,6 +567,8 @@ const adminRecruitment = registerAdminRecruitmentRoutes(app, {
   getR2Bucket: getR2BucketName,
   upload: r2InvoiceUpload,
 });
+
+registerItSupportNotifyRoutes(app, { requireAuth });
 
 registerAdminEmployeeDocumentsRoutes(app, {
   requireAuth,
@@ -571,7 +580,6 @@ registerAdminEmployeeDocumentsRoutes(app, {
   upload: r2InvoiceUpload,
 });
 
-registerItSupportNotifyRoutes(app, { requireAuth });
 registerItSupportR2Routes(app, {
   requireAuth,
   requireItSupportR2,
@@ -665,6 +673,12 @@ function getR2AuthSupabaseClient() {
 }
 
 function normalizeSoftwareSubObjectKey(raw) {
+  return String(raw || '')
+    .trim()
+    .replace(/^\/+/, '');
+}
+
+function normalizeItSupportObjectKey(raw) {
   return String(raw || '')
     .trim()
     .replace(/^\/+/, '');
@@ -2578,6 +2592,110 @@ app.post('/api/software-subscriptions/r2/delete', requireSoftwareSubscriptionsR2
     if (status >= 500) {
       // eslint-disable-next-line no-console
       console.error('[server] software-subscriptions delete failed:', err?.message || err);
+    }
+    res.status(status).json({ message: err?.message || 'Delete failed.' });
+  }
+});
+
+// IT Support ticket attachments (max 10 MB each; keys under it-support/)
+app.post(
+  '/api/it-support/r2/upload',
+  (req, res, next) => {
+    r2ItSupportUpload.single('file')(req, res, (err) => {
+      if (!err) {
+        next();
+        return;
+      }
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        res.status(400).json({ message: `File too large (max ${R2_IT_SUPPORT_MAX_BYTES} bytes).` });
+        return;
+      }
+      res.status(400).json({ message: err.message || 'Upload failed.' });
+    });
+  },
+  requireItSupportR2,
+  async (req, res) => {
+    try {
+      const bucket = getR2BucketName();
+      const ticketId = String(req.body?.ticketId || '').trim();
+      if (!isUuidLike(ticketId)) {
+        return res.status(400).json({ message: 'ticketId must be a UUID.' });
+      }
+
+      const rawName = String(req.body?.fileName || '').trim();
+      if (!rawName) {
+        return res.status(400).json({ message: 'fileName is required.' });
+      }
+      if (!req.file?.buffer) {
+        return res.status(400).json({ message: 'file is required (multipart field name: file).' });
+      }
+
+      const contentTypeHint = String(req.body?.contentType || req.file.mimetype || '').trim();
+      const resolvedType = resolveR2ContentType(rawName, contentTypeHint || null);
+      const safeName = sanitizeR2UploadFileName(rawName);
+      const objectKey = `${R2_IT_SUPPORT_KEY_PREFIX}${ticketId}/${Date.now()}-${safeName}`;
+
+      const client = getR2S3Client();
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: objectKey,
+          Body: req.file.buffer,
+          ContentType: resolvedType,
+        })
+      );
+
+      res.json({
+        objectKey,
+        bucket,
+        contentType: resolvedType,
+        sizeBytes: req.file.buffer.length,
+      });
+    } catch (err) {
+      const status = Number(err?.status) || 500;
+      res.status(status).json({ message: err?.message || 'Upload failed.' });
+    }
+  }
+);
+
+app.post('/api/it-support/r2/presign-get', requireItSupportR2, async (req, res) => {
+  try {
+    const bucket = getR2BucketName();
+    const objectKey = normalizeItSupportObjectKey(req.body?.objectKey);
+    if (!objectKey.startsWith(R2_IT_SUPPORT_KEY_PREFIX) || objectKey.includes('..') || objectKey.includes('//')) {
+      return res.status(400).json({ message: 'Invalid object key.' });
+    }
+
+    const client = getR2S3Client();
+    const getCmd = new GetObjectCommand({ Bucket: bucket, Key: objectKey });
+    const getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
+    res.json({ getUrl });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    if (status >= 500) {
+      // eslint-disable-next-line no-console
+      console.error('[server] it-support presign-get failed:', err?.message || err);
+    }
+    res.status(status).json({ message: err?.message || 'Presign GET failed.' });
+  }
+});
+
+app.post('/api/it-support/r2/delete', requireItSupportR2, async (req, res) => {
+  try {
+    const bucket = getR2BucketName();
+    const objectKey = normalizeItSupportObjectKey(req.body?.objectKey);
+    if (!objectKey.startsWith(R2_IT_SUPPORT_KEY_PREFIX) || objectKey.includes('..') || objectKey.includes('//')) {
+      return res.status(400).json({ message: 'Invalid object key.' });
+    }
+
+    const client = getR2S3Client();
+    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
+    res.json({ ok: true, objectKey });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    if (status >= 500) {
+      // eslint-disable-next-line no-console
+      console.error('[server] it-support delete failed:', err?.message || err);
     }
     res.status(status).json({ message: err?.message || 'Delete failed.' });
   }

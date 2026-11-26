@@ -1247,6 +1247,9 @@ export const NAV_MODULE_TREE = [
       { value: "itIs.helpdesk-admin", label: "IT Support — Admin (masters / reports)", pathPrefix: "/app/it-support" },
       { value: "itIs.subscriptions", label: "Software Subscriptions (View / Update / Delete)",  pathPrefix: "/app/software-subscriptions-reminders" },
       { value: "itIs.api-health",    label: "API Health",              pathPrefix: "/app/api-health" },
+      { value: "itIs.helpdesk", label: "IT Support (Raise / My Tickets)", pathPrefix: "/app/it-support" },
+      { value: "itIs.helpdesk-agent", label: "IT Support (Agent Queue)", pathPrefix: "/app/it-support" },
+      { value: "itIs.helpdesk-admin", label: "IT Support (Admin)", pathPrefix: "/app/it-support" },
     ],
   },
   {
@@ -1266,6 +1269,22 @@ export const NAV_MODULE_TREE = [
     subModules: [
       { value: CRM_OUTREACH_CLIENT_SUBMODULE_KEY, label: "Client Mail Outreach", pathPrefix: "/app/crm-outreach" },
       { value: CRM_OUTREACH_INHOUSE_SUBMODULE_KEY, label: "In-House Mail Outreach", pathPrefix: "/app/crm-outreach" },
+    ],
+  },
+  {
+    value: "qa",
+    label: "QA",
+    subModules: [
+      { value: "qa.dashboard", label: "Dashboard", pathPrefix: "/app/qa" },
+      { value: "qa.requests", label: "Requests", pathPrefix: "/app/qa/requests" },
+      { value: "qa.cases", label: "Test cases", pathPrefix: "/app/qa/cases" },
+      { value: "qa.execution", label: "Execution", pathPrefix: "/app/qa/execution" },
+      { value: "qa.defects", label: "Defects", pathPrefix: "/app/qa/defects" },
+      { value: "qa.traceability", label: "Traceability", pathPrefix: "/app/qa/traceability" },
+      { value: "qa.release-gate", label: "Release gate", pathPrefix: "/app/qa/release-gate" },
+      { value: "qa.audit", label: "Audit trail", pathPrefix: "/app/qa/audit" },
+      { value: "qa.standards", label: "Standards & rules", pathPrefix: "/app/qa/standards" },
+      { value: "qa.manual", label: "User manual", pathPrefix: "/app/qa/manual" },
     ],
   },
 ];
@@ -1309,6 +1328,7 @@ export const MODULE_PATH_PREFIXES = {
   fireTender: ["/app/fire-tender", "/app/fire-tender-manufacturing"],
   indusLms: ["/app/indus-lms-trainings"],
   crmOutreach: ["/app/crm-outreach"],
+  qa: ["/app/qa"],
   settings: ["/app/settings"],
   userManagement: ["/app/user-management", "/app/all-employees"],
   softwareSubscriptions: ["/app/software-subscriptions-reminders"],
@@ -1341,6 +1361,7 @@ export const MODULE_LANDING_PATHS = {
   fireTender: "/app/fire-tender",
   indusLms: "/app/indus-lms-trainings",
   crmOutreach: "/app/crm-outreach",
+  qa: "/app/qa",
   itIs: "/app/software-subscriptions-reminders",
   userManagement: "/app/user-management",
   softwareSubscriptions: "/app/software-subscriptions-reminders",

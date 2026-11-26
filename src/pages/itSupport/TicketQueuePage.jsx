@@ -242,6 +242,8 @@ export default function TicketQueuePage() {
             breached={r.resolution_breached}
             paused={Boolean(r.sla_paused_at)}
             label="Res"
+            startedAt={r.created_at}
+            completedAt={r.status === "closed" ? r.closed_at : null}
           />
         ),
       },
