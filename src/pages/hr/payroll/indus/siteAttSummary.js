@@ -98,8 +98,10 @@ export async function fetchSiteAttendanceSummary({ siteId, month, year }) {
     sumNh += totals.totalNH_PH;
     sumOt += totals.totalOT;
 
-    const otDays = site.regular_ot ? totals.totalOT : 0;
-    const otHours = site.regular_ot ? 0 : totals.totalOT;
+    // Regular OT: totalOT is day count. Custom OT: totalOT = hours÷8, totalOtHours = hours.
+    // OT in hours: totalOT is hours (legacy); no separate day metric.
+    const otDays = site.regular_ot || site.custom_ot ? totals.totalOT : 0;
+    const otHours = site.regular_ot ? 0 : site.custom_ot ? (totals.totalOtHours ?? 0) : totals.totalOT;
 
     return {
       code: String(emp.unique_code || ""),

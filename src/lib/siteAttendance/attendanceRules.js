@@ -63,15 +63,56 @@ export function getSiteDutyHours(site) {
   return Number(site?.duty_hours) === 12 ? 12 : 8;
 }
 
+/** Hard cap for OT hours on any site. */
+export const MAX_OT_HOURS = 16;
+
+/**
+ * Custom OT billing uses a fixed 8-hour equivalent day for Total OT
+ * (OT Hours ÷ 8), independent of the site's duty_hours setting.
+ */
+export const CUSTOM_OT_EQUIVALENT_HOURS = 8;
+
+/** Custom OT sites may store fractional hours (e.g. 3.78); other modes stay whole hours. */
+export function siteAllowsDecimalOt(site) {
+  return site?.custom_ot === true;
+}
+
+/**
+ * Parse OT input for persistence / import.
+ * - Custom OT: keep up to 2 decimal places (e.g. 3.78)
+ * - Regular OT / OT in hours: whole hours only (existing behaviour)
+ * Always clamps to 0…MAX_OT_HOURS.
+ */
+export function parseOtHours(value, site) {
+  const raw = String(value ?? "").trim().replace(/,/g, "");
+  if (!raw) return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  const capped = Math.min(n, MAX_OT_HOURS);
+  if (siteAllowsDecimalOt(site)) {
+    return Math.round(capped * 100) / 100;
+  }
+  return Math.floor(capped) || 0;
+}
+
+/** Convert accumulated OT hours → equivalent OT days for Custom OT (hours ÷ 8). */
+export function customOtHoursToDays(otHours) {
+  const hours = Number(otHours) || 0;
+  if (hours <= 0) return 0;
+  return roundDutyTotal(hours / CUSTOM_OT_EQUIVALENT_HOURS);
+}
+
 /**
  * Convert OT into duty units for totals.
  * - regular_ot sites: any OT hours on a day count as 1 duty
+ * - custom_ot sites: hours / 8 (billing equivalent days)
  * - otherwise: hours / site duty_hours (8 or 12)
  */
 export function getOtDutyContribution(otHours, site) {
   const hours = Number(otHours) || 0;
   if (hours <= 0) return 0;
   if (site?.regular_ot === true) return 1;
+  if (siteAllowsDecimalOt(site)) return hours / CUSTOM_OT_EQUIVALENT_HOURS;
   return hours / getSiteDutyHours(site);
 }
 
@@ -257,9 +298,12 @@ export function computeEmployeeTotals(employee, visibleDays, getRecord, site) {
   let totalWeekoff = 0;
   let appliedWeekoff = 0;
   let totalNH_PH = 0;
-  let totalOT = 0;
+  let totalOtHours = 0;
+  let totalOtDaysRegular = 0;
   let weekoffTowardTotalPresent = 0;
   let totalCO = 0;
+  const regularOt = site?.regular_ot === true;
+  const customOt = siteAllowsDecimalOt(site);
 
   visibleDays.forEach((dayInfo) => {
     const record = getRecord(employee.id, dayInfo.dateString, employee.grid_designation || employee.designation);
@@ -267,14 +311,16 @@ export function computeEmployeeTotals(employee, visibleDays, getRecord, site) {
     dayDate.setHours(0, 0, 0, 0);
     if (isInactiveCellClosed(employee, dayDate)) return;
     if (joiningDate && dayDate < joiningDate) return;
+
+    const addOt = () => {
+      const hours = Number(record?.ot_hours) || 0;
+      if (hours <= 0) return;
+      if (regularOt) totalOtDaysRegular += 1;
+      else totalOtHours += hours;
+    };
+
     if (!record || !record.att_code) {
-      if (record && record.ot_hours) {
-        if (site && site.regular_ot) {
-          if (record.ot_hours > 0) totalOT += 1;
-        } else {
-          totalOT += record.ot_hours || 0;
-        }
-      }
+      if (record && record.ot_hours) addOt();
       return;
     }
 
@@ -321,14 +367,16 @@ export function computeEmployeeTotals(employee, visibleDays, getRecord, site) {
       totalPresent++;
     }
 
-    if (record.ot_hours) {
-      if (site && site.regular_ot) {
-        if (record.ot_hours > 0) totalOT += 1;
-      } else {
-        totalOT += record.ot_hours || 0;
-      }
-    }
+    if (record.ot_hours) addOt();
   });
+
+  const roundedHours = Math.round(totalOtHours * 100) / 100;
+  // Custom OT: Total OT = OT Hours ÷ 8 (equivalent days). Other modes keep prior meaning of totalOT.
+  const totalOT = regularOt
+    ? totalOtDaysRegular
+    : customOt
+      ? customOtHoursToDays(roundedHours)
+      : roundedHours;
 
   return {
     totalPresent: totalPresent + weekoffTowardTotalPresent,
@@ -336,6 +384,7 @@ export function computeEmployeeTotals(employee, visibleDays, getRecord, site) {
     totalWeekoff,
     appliedWeekoff,
     totalNH_PH,
+    totalOtHours: regularOt ? 0 : roundedHours,
     totalOT,
     totalCO,
   };

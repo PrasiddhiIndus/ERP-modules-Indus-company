@@ -11,9 +11,12 @@ import {
   canMarkAttendance,
   codesForShiftType,
   computeEmployeeTotals,
+  customOtHoursToDays,
   getDateVisibility,
   isInactiveCellClosed,
   isRowEditingRestricted,
+  parseOtHours,
+  siteAllowsDecimalOt,
 } from "../attendanceRules";
 import {
   buildAttendanceDataMap,
@@ -57,7 +60,7 @@ function resolveDesignation(row, person, placements, multi) {
 
 /** Totals of the marks as written in the file (before any sandwich conversion). */
 function fileTotalsFor(cells) {
-  const t = { present: 0, leave: 0, weekoff: 0, otDays: 0, otHours: 0 };
+  const t = { present: 0, leave: 0, weekoff: 0, otDays: 0, otHours: 0, otEquivDays: 0 };
   cells.forEach((c) => {
     const code = c.mappedCode ?? c.proposedCode;
     if (DUTY.has(code) || code === "CO") t.present += 1;
@@ -72,6 +75,8 @@ function fileTotalsFor(cells) {
       t.otHours += c.proposedOt;
     }
   });
+  // Custom OT billing Total OT = OT Hours ÷ 8
+  t.otEquivDays = customOtHoursToDays(t.otHours);
   return t;
 }
 
@@ -87,8 +92,15 @@ function reconcileTotals(sheetTotals, fileTotals) {
   if (sheetTotals.weekoff != null && !near(sheetTotals.weekoff, fileTotals.weekoff)) {
     issues.push(`Sheet says week-off ${sheetTotals.weekoff}, marks add up to ${fileTotals.weekoff}`);
   }
-  if (sheetTotals.ot != null && !near(sheetTotals.ot, fileTotals.otDays) && !near(sheetTotals.ot, fileTotals.otHours)) {
-    issues.push(`Sheet says OT ${sheetTotals.ot}, OT row has ${fileTotals.otDays} day(s) / ${fileTotals.otHours} h`);
+  if (
+    sheetTotals.ot != null &&
+    !near(sheetTotals.ot, fileTotals.otDays) &&
+    !near(sheetTotals.ot, fileTotals.otHours) &&
+    !near(sheetTotals.ot, fileTotals.otEquivDays)
+  ) {
+    issues.push(
+      `Sheet says OT ${sheetTotals.ot}, OT row has ${fileTotals.otDays} day(s) / ${fileTotals.otHours} h / ${fileTotals.otEquivDays} equiv. days`
+    );
   }
   return issues;
 }
@@ -199,14 +211,18 @@ export function buildImportPreview(extracted, ctx, overrides = {}) {
       const key = cellEditKey(row.rowKey, src.date);
       const edit = edits[key];
       const messages = [];
+      const allowDecimalOt = siteAllowsDecimalOt(site);
       const markMap = edit && edit.code != null
         ? { kind: edit.code ? "mapped" : "blank", code: String(edit.code), raw: src.rawMark }
         : mapAttendanceMark(src.rawMark, shiftType, {
             customizedDutyHours: site?.customized_duty_hours === true,
           });
       const otMap = edit && edit.ot != null
-        ? { kind: Number(edit.ot) > 0 ? "hours" : "blank", hours: Math.max(0, Math.round(Number(edit.ot) || 0)) }
-        : mapOtValue(src.rawOt, site?.duty_hours);
+        ? (() => {
+            const hours = parseOtHours(edit.ot, site);
+            return { kind: hours > 0 ? "hours" : "blank", hours };
+          })()
+        : mapOtValue(src.rawOt, site?.duty_hours, { allowDecimalOt });
       if (markMap.note) messages.push(markMap.note);
       if (markMap.left && !row.notes.some((n) => n.startsWith("Marked \""))) row.notes.push(`Marked "${src.rawMark}" on ${src.date} — no attendance imported for it; check the leaving date in People Master`);
       if (otMap.note) messages.push(otMap.note);

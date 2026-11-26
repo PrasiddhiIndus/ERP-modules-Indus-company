@@ -630,6 +630,11 @@ export default function SiteMasterPage() {
               <label className="flex items-center gap-1.5"><input type="radio" checked={form.ot_in_hours} onChange={() => setOtMode("hours")} /> OT in hours</label>
               <label className="flex items-center gap-1.5"><input type="radio" checked={form.custom_ot} onChange={() => setOtMode("custom")} /> Custom OT</label>
             </div>
+            {form.custom_ot ? (
+              <p className="text-[11px] text-ink-muted mt-1.5">
+                OT cells accept decimal hours (e.g. 3.78), capped at 16. OT Hours = sum of daily hours; Total OT = OT Hours ÷ 8 (equivalent days). Daily OT totals use the same ÷ 8 rule.
+              </p>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-3 gap-2">

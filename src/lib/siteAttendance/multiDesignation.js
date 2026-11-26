@@ -24,7 +24,7 @@ export function multiDesigHasDutyCode(code) {
 }
 
 export function multiDesigHasOtHours(hours) {
-  return (parseInt(hours, 10) || 0) > 0;
+  return (Number(hours) || 0) > 0;
 }
 
 export function getAttendanceStoreKey(personId, dateString, gridDesignation, multiEnabled) {
