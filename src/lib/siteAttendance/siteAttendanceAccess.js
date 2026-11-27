@@ -3,6 +3,7 @@ import { canonicalDepartmentLabel, departmentMatches } from "../employeeMasterDe
 import { employeeCodeForUserId, normalizeEmployeeCode } from "../employeeCode";
 import { isActiveEmployeeRow } from "../employeeHierarchy";
 import { EMPLOYEE_MASTER_TABLE } from "../userManagementHierarchy";
+import { fetchMySupervisedSiteIds } from "../siteEmployeeLoginsApi";
 
 const HR_TEAM_SELECT =
   "id, employee_code, full_name, department, designation, email_id, status, l1_manager_code, l2_manager_code";
@@ -24,10 +25,23 @@ export async function listHrTeamEmployees() {
 
 /**
  * Site Attendance visibility: anyone with Site Attendance page access sees every site
- * and has full CRUD (incl. HR assignment). Data is narrowed only by the Fire / Safety
+ * and has full CRUD (incl. HR assignment). Data is narrowed by the Fire / Safety
  * scope from User Management (applied by the layout's site-type filter).
+ * Site Supervisors (HR → Site Master → Edit Site) see only their own site; the
+ * database enforces the same scope with RLS.
  */
 export async function resolveSiteAttendanceAccess({ userId, email } = {}) {
+  const supervisedSiteIds = userId ? await fetchMySupervisedSiteIds(supabase) : null;
+  if (supervisedSiteIds) {
+    return {
+      employeeCode: userId ? await employeeCodeForUserId(userId) : null,
+      hrTeam: [],
+      canAssignHr: false,
+      seesAllSites: false,
+      allowedSiteIds: supervisedSiteIds,
+      isSiteSupervisor: true,
+    };
+  }
   const hrTeam = await listHrTeamEmployees().catch(() => []);
   let employeeCode = userId ? await employeeCodeForUserId(userId) : null;
   if (!employeeCode && email) {
@@ -44,6 +58,7 @@ export async function resolveSiteAttendanceAccess({ userId, email } = {}) {
     canAssignHr: true,
     seesAllSites: true,
     allowedSiteIds: null,
+    isSiteSupervisor: false,
   };
 }
 

@@ -76,7 +76,18 @@ describe('access editor keeps the existing toggle rules', () => {
   it('module toggles match the old picker for every module and sample profile', () => {
     for (const form of SAMPLE_FORMS) {
       for (const key of ALL_MODULE_KEYS) {
-        expect(applyModuleToggle(form, key)).toEqual(legacyToggleModule(form, key));
+        const next = applyModuleToggle(form, key);
+        const legacy = legacyToggleModule(form, key);
+        if (key === 'fireTender' && next.allowed_modules.includes('fireTender') && !form.allowed_modules.includes('fireTender')) {
+          // Fresh full IEV grant also defaults Net Total Access on.
+          expect(next.allowed_modules).toEqual(legacy.allowed_modules);
+          expect(next.allowed_sub_modules.filter((k) => k !== 'fireTender.costing.costing-sheet.net-total').sort()).toEqual(
+            [...legacy.allowed_sub_modules].sort()
+          );
+          expect(next.allowed_sub_modules).toContain('fireTender.costing.costing-sheet.net-total');
+        } else {
+          expect(next).toEqual(legacy);
+        }
       }
     }
   });
@@ -86,7 +97,23 @@ describe('access editor keeps the existing toggle rules', () => {
       for (const key of [...ALL_SUB_KEYS, EMPLOYEE_MASTER_SUBMODULE_KEY]) {
         const { added, ...next } = applySubToggle(form, key);
         expect(typeof added).toBe('boolean');
-        expect(next).toEqual(legacyToggleSub(form, key));
+        const legacy = legacyToggleSub(form, key);
+        if (key === 'fireTender.costing' && added) {
+          expect(next.allowed_modules).toEqual(legacy.allowed_modules);
+          expect(next.allowed_sub_modules.filter((k) => k !== 'fireTender.costing.costing-sheet.net-total').sort()).toEqual(
+            [...legacy.allowed_sub_modules].sort()
+          );
+          expect(next.allowed_sub_modules).toContain('fireTender.costing.costing-sheet.net-total');
+        } else if (
+          (key === 'fireTender.costing' || key === 'fireTender.costing.costing-sheet') &&
+          !added &&
+          form.allowed_sub_modules.includes('fireTender.costing.costing-sheet.net-total')
+        ) {
+          // Revoking IEV Costing / Costing Sheet also drops Net Total Access.
+          expect(next.allowed_sub_modules).not.toContain('fireTender.costing.costing-sheet.net-total');
+        } else {
+          expect(next).toEqual(legacy);
+        }
       }
     }
   });

@@ -33,6 +33,7 @@ import {
 import { hrPersonLabel } from "../../../lib/siteAttendance/siteAttendanceAccess";
 import { useSiteAttendanceAccess, useSiteAttendanceType } from "./SiteAttendanceLayout";
 import TablePager from "./TablePager";
+import SiteSupervisorsSection from "./SiteSupervisorsSection";
 import { confirmDialog } from "../../../lib/dialog";
 
 const emptyDesignationRow = (name = "", selected = false) => ({
@@ -662,6 +663,8 @@ export default function SiteMasterPage() {
             ))}
             <button type="button" className="erp-btn-secondary rounded-control px-3 py-1.5 text-xs" onClick={() => setNhPh([...nhPh, { date: "", remarks: "" }])}>Add holiday</button>
           </div>
+
+          {editingId ? <SiteSupervisorsSection siteId={editingId} siteName={form.site_name} /> : null}
 
           {/* Site supervisors and HR executives on this site — hidden for now.
           <div>

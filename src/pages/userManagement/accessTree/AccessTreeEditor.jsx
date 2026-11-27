@@ -10,6 +10,7 @@ import {
   applySubToggle,
   applyEnquiryLevelToggle,
   applyPlainKeyToggle,
+  applyIevCostingNetTotalToggle,
   selectAllPagesInModule,
   clearModule,
   selectAllTabs,
@@ -554,21 +555,57 @@ function PageRow({ mod, page, moduleFull, form, subs, q, isOpen, onToggleExpand,
         <div className="ml-12 border-l border-gray-200 bg-white divide-y divide-gray-50">
           {visibleTabs.map((tab) => {
             const tabIncluded = !tab.optIn && (pageChecked || includedByModule);
+            const tabGranted = tabIncluded || subs.includes(tab.key);
+            const extras = tab.extras || [];
             return (
-              <label
+              <div
                 key={tab.key}
-                className={`flex items-center gap-2 px-3 py-1 select-none ${tabIncluded ? "text-gray-400" : "cursor-pointer hover:bg-slate-50 text-gray-700"}`}
-                title={tabIncluded ? `Included with ${page.label}. Untick ${page.label} to choose tabs one by one.` : undefined}
+                className={`flex flex-wrap items-center gap-2 px-3 py-1 ${tabIncluded ? "text-gray-400" : "text-gray-700"}`}
               >
-                {tabIncluded ? (
-                  <TriCheckbox checked disabled />
-                ) : (
-                  <TriCheckbox checked={subs.includes(tab.key)} onChange={() => emit(applySubToggle(form, tab.key))} />
-                )}
-                <span className="text-xs">{tab.label}</span>
-                {tab.optIn ? <Badge tone="violet">{tab.badge || "opt-in"}</Badge> : null}
-                {tabIncluded ? <span className="text-[10px]">included</span> : null}
-              </label>
+                <label
+                  className={`inline-flex items-center gap-2 select-none ${tabIncluded ? "" : "cursor-pointer hover:bg-slate-50 rounded"}`}
+                  title={tabIncluded ? `Included with ${page.label}. Untick ${page.label} to choose tabs one by one.` : undefined}
+                >
+                  {tabIncluded ? (
+                    <TriCheckbox checked disabled />
+                  ) : (
+                    <TriCheckbox checked={subs.includes(tab.key)} onChange={() => emit(applySubToggle(form, tab.key))} />
+                  )}
+                  <span className="text-xs">{tab.label}</span>
+                  {tab.optIn ? <Badge tone="violet">{tab.badge || "opt-in"}</Badge> : null}
+                  {tabIncluded ? <span className="text-[10px]">included</span> : null}
+                </label>
+                {extras.map((extra) => {
+                  // Net Total Access is always an explicit tick (never "included"), so revoke works
+                  // even when Costing Sheet / full IEV is granted.
+                  const extraStored = subs.includes(extra.key);
+                  const canToggle = tabGranted || extraStored || includedByModule || pageChecked;
+                  return (
+                    <label
+                      key={extra.key}
+                      title={extra.hint || extra.label}
+                      className={`ml-1 inline-flex items-center gap-1.5 rounded border px-1.5 py-0.5 text-[11px] select-none ${
+                        canToggle
+                          ? "border-gray-200 bg-white text-gray-700 cursor-pointer"
+                          : "border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed"
+                      }`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-3 w-3 rounded border-gray-300 text-sky-600"
+                        checked={extraStored}
+                        disabled={!canToggle}
+                        onChange={() => {
+                          if (!canToggle) return;
+                          emit(applyIevCostingNetTotalToggle(form));
+                        }}
+                      />
+                      {extra.label}
+                    </label>
+                  );
+                })}
+              </div>
             );
           })}
         </div>

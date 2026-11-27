@@ -3,6 +3,8 @@ import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import {
   FIRE_TENDER_APPROVER_MODULE_KEYS,
+  canViewIevCostingNetTotal,
+  getAccessibleModules,
   userCanApproveInModules,
   userCanEditInModules,
 } from "../../config/roles";
@@ -400,8 +402,9 @@ const CostingSummary = ({
   onExportExcel,
 }) => {
   const showGemPortalRows = isGemPortalSource(tenderSource);
-  console.log("CostingSummary component loaded with new checklist items");
-  const { userProfile, accessibleModules } = useAuth();
+  const { userProfile, accessibleModules: authModules } = useAuth();
+  const accessibleModules = authModules || getAccessibleModules(userProfile);
+  const canViewNetTotal = canViewIevCostingNetTotal(userProfile, accessibleModules);
   const canApproveQuotation = userCanApproveInModules(
     userProfile,
     accessibleModules,
@@ -449,11 +452,13 @@ const CostingSummary = ({
 
   // Load existing data when tenderId changes
   useEffect(() => {
-    if (!tenderId) return;
+    if (!tenderId || !canViewNetTotal) return;
     loadSummaryData();
-  }, [tenderId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenderId, canViewNetTotal]);
 
   const loadSummaryData = async () => {
+    if (!canViewNetTotal) return;
     setLoading(true);
     try {
       const supportsRemark = await costingSummarySupportsRemarkColumn(supabase);
@@ -524,6 +529,7 @@ const CostingSummary = ({
   };
 
   const persistSummaryData = async ({ silent = false } = {}) => {
+    if (!canViewNetTotal) return false;
     if (!tenderId) {
       if (!silent) toast.warning("No tender selected. Please open a tender before saving.");
       return;
@@ -881,6 +887,8 @@ const CostingSummary = ({
 
   const gstAmount = (subtotal * 18) / 100; // Fixed 18% GST
   const finalTotal = subtotal + gstAmount;
+
+  if (!canViewNetTotal) return null;
 
   return (
     <div className="p-6">

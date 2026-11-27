@@ -47,7 +47,6 @@ import {
   listPeopleByIds,
   lockAttendanceMonth,
   updateAttendance,
-  updateSite,
   userFriendlyError,
 } from "../../../lib/siteAttendance/siteAttendanceApi";
 import { parseDateOnlyLocal } from "../../../lib/siteAttendance/dateFormat";
@@ -413,19 +412,6 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
     }
   }, [siteId, month, year, loadGrid]);
 
-  const persistCoff = useCallback(
-    async (checked) => {
-      if (!site) return;
-      try {
-        await updateSite(site.id, { coff_worked_weekoff_eligible: checked });
-        setSite((s) => ({ ...s, coff_worked_weekoff_eligible: checked }));
-      } catch (err) {
-        toast.error(userFriendlyError(err));
-      }
-    },
-    [site]
-  );
-
   const copyToDesignation = useCallback(
     async (personId, targetDesignation) => {
       const added = await addGridPlacement(Number(siteId), personId, targetDesignation, Number(month), Number(year));
@@ -517,7 +503,6 @@ export function useAttendanceGrid({ readOnly = false, siteIds } = {}) {
       return isInactiveCellClosed(row, dayDate);
     },
     lockMonth,
-    persistCoff,
     copyToDesignation,
     totals,
     dayDuty,

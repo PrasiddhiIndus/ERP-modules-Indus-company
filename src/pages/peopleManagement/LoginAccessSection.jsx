@@ -11,6 +11,7 @@ import {
   isGrantableSiteScreen,
   setSiteEmployeeLoginAccess,
 } from "../../lib/siteEmployeeLoginsApi";
+import SupervisorAccessCard from "./SupervisorAccessCard";
 import CreateSiteLoginModal from "./CreateSiteLoginModal";
 import { useAuth } from "../../contexts/AuthContext";
 import { canSeeSubModule } from "../../config/roles";
@@ -205,6 +206,15 @@ export default function LoginAccessSection({ person }) {
           <p className="text-[11px] text-gray-500">L1 / L2 are changed in the HR leads section.</p>
         </div>
       </SectionCard>
+
+      <SupervisorAccessCard
+        login={login}
+        canManage={canManage}
+        onChanged={() => {
+          setLogin(undefined);
+          load();
+        }}
+      />
 
       <SectionCard title="Change history">
         {historyItems(history).length ? (
