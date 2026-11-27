@@ -23,10 +23,28 @@ export function orderAssignmentFields(list) {
   return [...rest.slice(0, firstIdx), ...group, ...rest.slice(firstIdx)];
 }
 
+/** Target Date that would be auto-filled from Assigned On (ISO or ''). */
+export function calculatedTargetDate(assignedOn) {
+  return addWorkingDays(assignedOn) || '';
+}
+
+/**
+ * True when Assigned On is set and Target Date differs from the auto-calculated value.
+ * Changing that calculated date requires L1 approval (Add + Edit).
+ */
+export function isManualTargetDateOverride(formOrData = {}) {
+  const assigned = String(formOrData?.[TARGET_BASIS_KEY] ?? '').trim();
+  const target = String(formOrData?.target_date ?? '').trim();
+  if (!assigned || !target) return false;
+  const auto = calculatedTargetDate(assigned);
+  if (!auto) return false;
+  return target !== auto;
+}
+
 /** Returns the form with target_date recalculated from the assigned-on date (if both exist). */
 export function withAutoTargetDate(form) {
   if (!form || !('target_date' in form) || !form[TARGET_BASIS_KEY]) return form;
-  const target = addWorkingDays(form[TARGET_BASIS_KEY]);
+  const target = calculatedTargetDate(form[TARGET_BASIS_KEY]);
   return target ? { ...form, target_date: target } : form;
 }
 

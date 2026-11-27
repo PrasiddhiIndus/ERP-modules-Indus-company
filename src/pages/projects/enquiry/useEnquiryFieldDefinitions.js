@@ -32,8 +32,12 @@ export function useEnquiryFieldDefinitions() {
     fetchFields();
   }, [fetchFields]);
 
+  // Completed Date is Edit-only — never show it on Add Enquiry.
   const entryFields = useMemo(
-    () => fields.filter((f) => f.show_in_entry && f.field_key !== 'serial_number'),
+    () =>
+      fields.filter(
+        (f) => f.show_in_entry && f.field_key !== 'serial_number' && f.field_key !== 'completed_on'
+      ),
     [fields]
   );
 
