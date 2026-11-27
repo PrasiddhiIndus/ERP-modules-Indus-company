@@ -7,9 +7,28 @@ import { isSupabaseEnvConfigured } from "../../../lib/supabaseConfig";
 import { financeErrorMsg, invalidateFinanceCache, isFinanceSchemaError } from "../../../services/financeApi";
 import { diffSiteSetup, stableStringify } from "./siteSetupDiff";
 import { TOKENS } from "../../../theme/tokens";
+import { isAtomicConcurrencyEnabled } from "../site-ledger/featureFlags.js";
+import {
+  FINANCE_ERROR_CODES,
+  newFinanceRequestId,
+  parseFinanceSaveResult,
+} from "../site-ledger/persistence/financeConcurrency.js";
 
 const SCHEMA = "finance";
 export const SITE_META_PREFIX = "@@siteMeta::";
+
+/** Thrown when server OCC rejects a stale period/setup write. Working copy must be kept. */
+export class FinanceConflictError extends Error {
+  constructor(parsed) {
+    super(parsed?.message || "Revision conflict");
+    this.name = "FinanceConflictError";
+    this.code = parsed?.code || FINANCE_ERROR_CODES.REVISION_CONFLICT;
+    this.expectedRevision = parsed?.expectedRevision ?? null;
+    this.currentRevision = parsed?.currentRevision ?? null;
+    this.server = parsed?.server || null;
+    this.financeResult = parsed?.raw || parsed || null;
+  }
+}
 
 export function parseSiteMeta(remarks) {
   if (!remarks || typeof remarks !== "string") return {};
@@ -676,6 +695,7 @@ function buildSites(raw, parentById, childById) {
       structure,
       spreads: spreadsBySite[s.id] || [],
       estimates: budgetsBySite[s.id] || [],
+      setupRevision: s.setup_revision != null ? Number(s.setup_revision) || 1 : 1,
     };
   });
 }
@@ -711,6 +731,10 @@ function buildRecords(raw, childById, revById) {
     }
     if (meta.creditNoteRemark) {
       records[key].creditNoteRemark = String(meta.creditNoteRemark);
+    }
+    // Phase 3 OCC — additive; older DBs without the column yield undefined → treat as 0/1 on save.
+    if (pe.revision != null) {
+      records[key]._revision = Number(pe.revision) || 1;
     }
   });
   return records;
@@ -1168,6 +1192,8 @@ const PERIOD_META_KEYS = new Set([
   "reimbursementOtherLabel",
   "creditNoteRemark",
   "_audit",
+  "_revision",
+  "_requestId",
 ]);
 
 /** Coerce entered amounts (number or numeric string) without wiping valid values to 0. */
@@ -1232,6 +1258,14 @@ export function mergePeriodEntry(base, patch, expenseHeadKeys = null) {
       if (v && typeof v === "object" && v.updatedAt) merged._audit = v;
       continue;
     }
+    if (k === "_revision") {
+      if (v != null && v !== "") merged._revision = Number(v) || 0;
+      continue;
+    }
+    if (k === "_requestId") {
+      if (v) merged._requestId = String(v);
+      continue;
+    }
 
     const asNumber = typeof v === "number" || typeof v === "string" ? coercePeriodAmount(v) : null;
     if (asNumber != null) {
@@ -1260,11 +1294,24 @@ export function formatPeriodFigureSaveError(error, context = "Figure save") {
     return raw;
   }
 
+  if (error instanceof FinanceConflictError || code === FINANCE_ERROR_CODES.REVISION_CONFLICT) {
+    return `${context} failed: this period was updated elsewhere (revision conflict). Your draft is kept — review and save again.`;
+  }
+  if (code === FINANCE_ERROR_CODES.PERMISSION_DENIED) {
+    return `${context} failed: you do not have permission to edit this site's figures. Ask a Finance admin to grant access.`;
+  }
+  if (code === FINANCE_ERROR_CODES.DEPENDENCY_VIOLATION) {
+    return `${context} failed: ${raw || "a dependency check blocked this change."}`;
+  }
+
   if (isFinanceSchemaError(error) || isFinanceSchemaError({ message: raw })) {
     return financeErrorMsg(error || { message: raw }, context);
   }
   if (/row-level security|RLS|policy|42501|permission denied/i.test(raw)) {
     return `${context} failed: you do not have permission to edit this site's figures. Ask a Finance admin to grant access.`;
+  }
+  if (/save_period_entry_atomic|apply_site_structure_diff|PGRST202/i.test(raw)) {
+    return `${context} failed: concurrency RPC is missing. Apply migration 20261127140000_finance_period_concurrency_atomic.sql (or disable atomic concurrency flag).`;
   }
   if (/Expense cost lines not (in database|saved)/i.test(raw) || /sync Site Setup first/i.test(raw)) {
     return `${context} failed: expense cost lines are missing in the database. Open Site Setup, save the structure, then retry.`;
@@ -1307,6 +1354,7 @@ async function syncOnePeriodRecord(
   childIdByCode,
   revIdByCode,
   assignedExpenseKeys = [],
+  syncOpts = {},
 ) {
   const notes = periodEntryNotesFromRecord(rec);
   const revRows = [];
@@ -1318,7 +1366,9 @@ async function syncOnePeriodRecord(
       code === "reimbursements" ||
       code === "reimbursementOtherLabel" ||
       code === "creditNoteRemark" ||
-      code === "_audit"
+      code === "_audit" ||
+      code === "_revision" ||
+      code === "_requestId"
     ) {
       continue;
     }
@@ -1373,7 +1423,9 @@ async function syncOnePeriodRecord(
       code === "reimbursements" ||
       code === "reimbursementOtherLabel" ||
       code === "creditNoteRemark" ||
-      code === "_audit"
+      code === "_audit" ||
+      code === "_revision" ||
+      code === "_requestId"
     ) {
       continue;
     }
@@ -1400,9 +1452,60 @@ async function syncOnePeriodRecord(
   const linesFp = periodLinesOnlyFingerprint(revRows, expRows);
   const prevSync = lastSyncedPeriodFingerprint.get(fpKey);
   if (prevSync && prevSync.fullFp === fullFp && prevSync.peId) {
-    return prevSync.peId;
+    return {
+      peId: prevSync.peId,
+      revision: prevSync.revision != null ? Number(prevSync.revision) : (rec?._revision != null ? Number(rec._revision) : null),
+      skippedIdentical: true,
+    };
   }
 
+  const useAtomic = syncOpts.useAtomic != null
+    ? !!syncOpts.useAtomic
+    : isAtomicConcurrencyEnabled();
+
+  if (useAtomic) {
+    const expectedRevision = syncOpts.expectedRevision != null
+      ? Number(syncOpts.expectedRevision)
+      : (rec?._revision != null ? Number(rec._revision) : 0);
+    const requestId = syncOpts.requestId || newFinanceRequestId();
+    const { data, error } = await financeRpc("save_period_entry_atomic", {
+      p_site_id: siteUuid,
+      p_period_key: periodKey,
+      p_notes: notes,
+      p_status: "submitted",
+      p_expected_revision: Number.isFinite(expectedRevision) ? expectedRevision : 0,
+      p_request_id: requestId,
+      p_revenue_rows: revRows,
+      p_expense_rows: expRows,
+    });
+    if (error) {
+      throw Object.assign(new Error(formatPeriodFigureSaveError(error, "Figure save")), {
+        code: error.code,
+        cause: error,
+      });
+    }
+    const parsed = parseFinanceSaveResult(data);
+    if (!parsed.ok) {
+      if (parsed.code === FINANCE_ERROR_CODES.REVISION_CONFLICT) {
+        throw new FinanceConflictError(parsed);
+      }
+      throw Object.assign(new Error(formatPeriodFigureSaveError({
+        message: parsed.message,
+        code: parsed.code,
+      }, "Figure save")), {
+        code: parsed.code,
+        financeResult: parsed.raw,
+      });
+    }
+    const peId = parsed.raw?.period_entry_id;
+    const revision = parsed.currentRevision != null
+      ? Number(parsed.currentRevision)
+      : null;
+    lastSyncedPeriodFingerprint.set(fpKey, { peId, fullFp, linesFp, revision });
+    return { peId, revision, idempotentReplay: !!parsed.raw?.idempotent_replay };
+  }
+
+  // Legacy path (feature flag OFF): upsert then replace_period_entry_lines (two round-trips).
   const { data: pe, error } = await t("period_entries")
     .upsert(
       {
@@ -1425,7 +1528,10 @@ async function syncOnePeriodRecord(
   // Notes-only change: period_entries upsert already applied; skip identical line replace.
   if (prevSync && prevSync.linesFp === linesFp && prevSync.peId === pe.id) {
     lastSyncedPeriodFingerprint.set(fpKey, { peId: pe.id, fullFp, linesFp });
-    return pe.id;
+    return {
+      peId: pe.id,
+      revision: rec?._revision != null ? Number(rec._revision) : null,
+    };
   }
 
   const expectedLines = revRows.length + expRows.length;
@@ -1447,7 +1553,10 @@ async function syncOnePeriodRecord(
   }
 
   lastSyncedPeriodFingerprint.set(fpKey, { peId: pe.id, fullFp, linesFp });
-  return pe.id;
+  return {
+    peId: pe.id,
+    revision: rec?._revision != null ? Number(rec._revision) : null,
+  };
 }
 
 /** Latest pending payload per site/month — coalesces rapid autosaves into one DB write. */
@@ -1536,16 +1645,23 @@ async function executePeriodFlush(compoundKey) {
     const assignedExpenseKeys = ctxSite ? assignedExpenseHeadKeys(ctxSite) : [];
     const prepared = preparePeriodRecordForSave(latest, assignedExpenseKeys);
     const { childIdByCode, revIdByCode } = await ensureHeadMapsForPeriodSave(siteCode, prepared, ctx);
-    await syncOnePeriodRecord(
+    const syncResult = await syncOnePeriodRecord(
       siteUuid,
       periodKey,
       prepared,
       childIdByCode,
       revIdByCode,
       assignedExpenseKeys,
+      {
+        expectedRevision: prepared._revision ?? ctx.expectedRevision ?? 0,
+        requestId: prepared._requestId || ctx.requestId || null,
+        useAtomic: ctx.useAtomic,
+      },
     );
     invalidateFinanceCache({ notify: false });
-    return true;
+    return syncResult && typeof syncResult === "object"
+      ? syncResult
+      : { peId: syncResult || null, revision: null };
   } catch (err) {
     // Re-queue so retry / Save figures can flush again. Prefer any newer pending patch.
     const keys = assignedExpenseKeysFromContext(ctx, siteCode);
@@ -1558,9 +1674,11 @@ async function executePeriodFlush(compoundKey) {
       && (ctx.sites?.length || ctx.library?.length || ctx.parents?.length)) {
       pendingPeriodContexts.set(compoundKey, ctx);
     }
+    if (err instanceof FinanceConflictError) throw err;
     throw Object.assign(new Error(formatPeriodFigureSaveError(err, "Figure save")), {
       code: err?.code,
       cause: err,
+      financeResult: err?.financeResult,
     });
   }
 }
@@ -1661,8 +1779,14 @@ export async function savePeriodRecord(siteCode, periodKey, rec, context = {}, o
     compoundKey,
     mergePeriodEntry(prev || {}, rec, expenseHeadKeys.length ? expenseHeadKeys : null),
   );
-  if (context.sites?.length || context.library?.length || context.parents?.length) {
-    pendingPeriodContexts.set(compoundKey, context);
+  if (context.sites?.length || context.library?.length || context.parents?.length
+      || opts.expectedRevision != null || opts.requestId || opts.useAtomic != null) {
+    pendingPeriodContexts.set(compoundKey, {
+      ...context,
+      expectedRevision: opts.expectedRevision,
+      requestId: opts.requestId,
+      useAtomic: opts.useAtomic,
+    });
   }
   const audit = opts.audit || {
     trigger: "user",
@@ -1931,35 +2055,71 @@ async function saveSiteSetupChangesInner({ baseline, sites, library, parents }) 
     }
 
     const removeIds = d.structure.removed.map((k) => childIdByCode[k]).filter(Boolean);
-    if (removeIds.length) {
-      const { error } = await t("site_expense_structure").delete().eq("site_id", siteUuid).in("child_head_id", removeIds);
-      if (error) throw error;
-    }
-    if (structRows.length) {
-      const toRow = (row) => ({
-        site_id: siteUuid,
-        parent_head_id: resolveParentId(row.parent, parentIdByCode),
-        child_head_id: childIdByCode[row.child],
-        sort_order: row.sort,
+    const toStructRow = (row) => ({
+      site_id: siteUuid,
+      parent_head_id: resolveParentId(row.parent, parentIdByCode),
+      child_head_id: childIdByCode[row.child],
+      sort_order: row.sort,
+    });
+    const hasStructureMutation = removeIds.length > 0 || structRows.length > 0;
+
+    if (hasStructureMutation && isAtomicConcurrencyEnabled()) {
+      const expectedSetupRevision = Number(
+        site.setupRevision ?? baseline?.sites?.find((s) => s.id === site.id)?.setupRevision ?? 1,
+      );
+      const upsertPayload = structRows.map((row) => {
+        const r = toStructRow(row);
+        return {
+          parent_head_id: r.parent_head_id,
+          child_head_id: r.child_head_id,
+          sort_order: r.sort_order,
+        };
       });
-      const rows = structRows.map(toRow);
-      if (rows.some((r) => !r.parent_head_id || !r.child_head_id)) {
+      if (upsertPayload.some((r) => !r.parent_head_id || !r.child_head_id)) {
         throw new Error("Structure save failed: some cost lines could not be matched in the database.");
       }
-      // New components: insert (or adopt the row if someone added the same line meanwhile).
-      const addedRows = d.structure.added.map(toRow);
-      if (addedRows.length) {
-        const { error } = await t("site_expense_structure").upsert(addedRows, { onConflict: "site_id,child_head_id" });
+      const { data: structResult, error: structErr } = await financeRpc("apply_site_structure_diff", {
+        p_site_id: siteUuid,
+        p_expected_setup_revision: Number.isFinite(expectedSetupRevision) ? expectedSetupRevision : 1,
+        p_remove_child_ids: removeIds,
+        p_upsert_rows: upsertPayload,
+        p_block_remove_with_history: true,
+      });
+      if (structErr) throw structErr;
+      const parsed = parseFinanceSaveResult(structResult);
+      if (!parsed.ok) {
+        if (parsed.code === FINANCE_ERROR_CODES.REVISION_CONFLICT
+            || parsed.code === FINANCE_ERROR_CODES.DEPENDENCY_VIOLATION) {
+          throw new FinanceConflictError(parsed);
+        }
+        throw new Error(parsed.message || "Structure save failed");
+      }
+      site.setupRevision = parsed.raw?.setup_revision ?? (expectedSetupRevision + 1);
+    } else {
+      if (removeIds.length) {
+        const { error } = await t("site_expense_structure").delete().eq("site_id", siteUuid).in("child_head_id", removeIds);
         if (error) throw error;
       }
-      // Moved / reordered components: UPDATE only — a row another user removed meanwhile
-      // stays removed instead of being re-created from this tab's copy.
-      for (const row of [...d.structure.moved, ...d.structure.reordered].map(toRow)) {
-        const { error } = await t("site_expense_structure")
-          .update({ parent_head_id: row.parent_head_id, sort_order: row.sort_order })
-          .eq("site_id", siteUuid)
-          .eq("child_head_id", row.child_head_id);
-        if (error) throw error;
+      if (structRows.length) {
+        const rows = structRows.map(toStructRow);
+        if (rows.some((r) => !r.parent_head_id || !r.child_head_id)) {
+          throw new Error("Structure save failed: some cost lines could not be matched in the database.");
+        }
+        // New components: insert (or adopt the row if someone added the same line meanwhile).
+        const addedRows = d.structure.added.map(toStructRow);
+        if (addedRows.length) {
+          const { error } = await t("site_expense_structure").upsert(addedRows, { onConflict: "site_id,child_head_id" });
+          if (error) throw error;
+        }
+        // Moved / reordered components: UPDATE only — a row another user removed meanwhile
+        // stays removed instead of being re-created from this tab's copy.
+        for (const row of [...d.structure.moved, ...d.structure.reordered].map(toStructRow)) {
+          const { error } = await t("site_expense_structure")
+            .update({ parent_head_id: row.parent_head_id, sort_order: row.sort_order })
+            .eq("site_id", siteUuid)
+            .eq("child_head_id", row.child_head_id);
+          if (error) throw error;
+        }
       }
     }
 

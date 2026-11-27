@@ -197,3 +197,55 @@ export function describeRemovals(diff, { siteName = (c) => c, headLabel = (k) =>
   }
   return lines;
 }
+
+/**
+ * Full Site Setup change summary (adds, moves, reorders, meta, budgets, spreads, removals).
+ * Used for save confirmation — does not change financial meaning.
+ */
+export function describeSetupChanges(diff, {
+  siteName = (c) => c,
+  headLabel = (k) => k,
+  parentLabel = (k) => k,
+} = {}) {
+  const lines = [];
+
+  for (const p of diff?.parents?.upserts || []) {
+    lines.push(`Parent head: update ${parentLabel(p.key)}`);
+  }
+  for (const key of diff?.parents?.removed || []) {
+    lines.push(`Parent head: remove ${parentLabel(key)}`);
+  }
+  for (const h of diff?.heads?.upserts || []) {
+    lines.push(`Cost line: update ${headLabel(h.key)}`);
+  }
+  for (const key of diff?.heads?.removed || []) {
+    lines.push(`Cost line: remove ${headLabel(key)}`);
+  }
+
+  for (const s of diff?.sites || []) {
+    const name = siteName(s.siteCode);
+    if (s.isNew) {
+      lines.push(`${name}: new site`);
+      continue;
+    }
+    if (s.metaChanged) lines.push(`${name}: site details changed`);
+    if (s.structure?.added?.length) {
+      lines.push(`${name}: add ${s.structure.added.length} component(s) — ${s.structure.added.map((r) => headLabel(r.child)).join(", ")}`);
+    }
+    if (s.structure?.moved?.length) {
+      lines.push(`${name}: move ${s.structure.moved.length} component(s) — ${s.structure.moved.map((r) => headLabel(r.child)).join(", ")}`);
+    }
+    if (s.structure?.reordered?.length) {
+      lines.push(`${name}: reorder ${s.structure.reordered.length} component(s)`);
+    }
+    if (s.structure?.removed?.length) {
+      lines.push(`${name}: remove ${s.structure.removed.length} component(s) — ${s.structure.removed.map(headLabel).join(", ")}`);
+    }
+    if (s.spreads?.upserts?.length) lines.push(`${name}: update ${s.spreads.upserts.length} cost spread(s)`);
+    if (s.spreads?.removed?.length) lines.push(`${name}: delete ${s.spreads.removed.length} cost spread(s)`);
+    if (s.budgets?.upserts?.length) lines.push(`${name}: update ${s.budgets.upserts.length} budget version(s)`);
+    if (s.budgets?.removed?.length) lines.push(`${name}: delete ${s.budgets.removed.length} budget version(s)`);
+  }
+
+  return lines;
+}
