@@ -16,9 +16,12 @@ describe('Enquiry approver roles', () => {
     }
   });
 
-  it('Add Enquiry saves dates for every role; L1 is only used on edit/delete', () => {
-    for (const role of ['admin', 'hod', 'super_admin', 'super_admin_pro', 'manager', 'executive', '', null]) {
+  it('only managers/admins may write any Target Date on create without L1', () => {
+    for (const role of ['admin', 'hod', 'super_admin', 'super_admin_pro', 'manager']) {
       expect(canWriteEnquiryDatesOnCreate({ role })).toBe(true);
+    }
+    for (const role of ['executive', '', null, 'unknown']) {
+      expect(canWriteEnquiryDatesOnCreate({ role })).toBe(false);
     }
   });
 });

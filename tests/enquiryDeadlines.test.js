@@ -5,11 +5,13 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: () => { throw new Error(
 
 const {
   addWorkingDays,
+  calculatedTargetDate,
   daysLeftBadge,
   dashboardBucket,
   getDaysLeft,
   isCompletedAfterTarget,
   isDueSoon,
+  isManualTargetDateOverride,
   isOverdueOpen,
   orderAssignmentFields,
   withAutoTargetDate,
@@ -31,7 +33,19 @@ describe('assignment fields', () => {
   it('target date is 7 working days after the assigned on date', () => {
     const form = { enquiry_receipt_date: '2026-10-01', assigned_on_date: '2026-10-12', target_date: '' };
     expect(withAutoTargetDate(form).target_date).toBe('2026-10-20');
+    expect(calculatedTargetDate('2026-10-12')).toBe('2026-10-20');
     expect(withAutoTargetDate({ assigned_on_date: '', target_date: '2026-11-01' }).target_date).toBe('2026-11-01');
+  });
+
+  it('detects when Target Date was changed from the calculated value', () => {
+    expect(
+      isManualTargetDateOverride({ assigned_on_date: '2026-10-12', target_date: '2026-10-20' })
+    ).toBe(false);
+    expect(
+      isManualTargetDateOverride({ assigned_on_date: '2026-10-12', target_date: '2026-10-25' })
+    ).toBe(true);
+    expect(isManualTargetDateOverride({ assigned_on_date: '2026-10-12', target_date: '' })).toBe(false);
+    expect(isManualTargetDateOverride({ assigned_on_date: '', target_date: '2026-10-25' })).toBe(false);
   });
 });
 
