@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveAuthUser } from './adminProfileApi.js';
 
-const API_VERSION = 'server-site-login-1';
+const API_VERSION = 'server-site-login-2';
 
 function fail(status, message) {
   const err = new Error(message);
@@ -22,6 +22,17 @@ function rpcStatus(error) {
 function isDuplicateAuthError(error) {
   const msg = String(error?.message || '').toLowerCase();
   return msg.includes('already') || msg.includes('registered') || msg.includes('exists');
+}
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+/** Site Supervisor passwords: 8–72 characters with a letter and a number. */
+export function supervisorPasswordProblem(password) {
+  const p = String(password || '');
+  if (p.length < 8) return 'Password must be at least 8 characters.';
+  if (p.length > 72) return 'Password must be at most 72 characters.';
+  if (!/[A-Za-z]/.test(p) || !/[0-9]/.test(p)) return 'Password must contain at least one letter and one number.';
+  return null;
 }
 
 async function findAuthUserByEmail(serviceDb, email) {
@@ -51,10 +62,60 @@ async function findResumableOrphan(serviceDb, email, employeeCode) {
 }
 
 /**
- * HR People Management: create an ERP login for a site employee (public.people).
+ * Change the sign-in email of a site employee: Supabase Auth first, then
+ * profiles.email and the employee's email together (rolled back on failure).
+ * With no login yet, only the employee's email is saved.
+ */
+async function updateSiteLoginEmail({ personId, email }, userDb, serviceDb) {
+  const pre = await userDb.rpc('site_login_email_precheck', { p_person_id: personId, p_email: email });
+  if (pre.error) throw fail(rpcStatus(pre.error), pre.error.message);
+  const profileId = pre.data?.profile_id || null;
+
+  if (!profileId) {
+    const { error } = await serviceDb.rpc('site_login_apply_email', {
+      p_person_id: personId,
+      p_profile_id: null,
+      p_email: email,
+    });
+    if (error) throw fail(500, `Could not save the email: ${error.message}`);
+    return { ok: true, person_id: personId, email, login_updated: false, version: API_VERSION };
+  }
+
+  const { data: current, error: getErr } = await serviceDb.auth.admin.getUserById(profileId);
+  if (getErr || !current?.user) throw fail(404, 'The login for this employee was not found.');
+  const oldEmail = String(current.user.email || '').toLowerCase();
+
+  if (oldEmail !== email) {
+    const { error: updErr } = await serviceDb.auth.admin.updateUserById(profileId, { email, email_confirm: true });
+    if (updErr) {
+      if (isDuplicateAuthError(updErr)) throw fail(409, 'This email already has a login. Use a different email.');
+      throw fail(400, updErr.message || 'Could not change the sign-in email.');
+    }
+  }
+
+  const { error: applyErr } = await serviceDb.rpc('site_login_apply_email', {
+    p_person_id: personId,
+    p_profile_id: profileId,
+    p_email: email,
+  });
+  if (applyErr) {
+    if (oldEmail && oldEmail !== email) {
+      await serviceDb.auth.admin.updateUserById(profileId, { email: oldEmail, email_confirm: true }).catch(() => {});
+    }
+    throw fail(500, `Could not save the email: ${applyErr.message}`);
+  }
+  return { ok: true, person_id: personId, email, login_updated: true, version: API_VERSION };
+}
+
+/**
+ * HR: create an ERP / Indus One login for a site employee (public.people), or change
+ * the sign-in email of an existing one (action: 'update_email').
  * Authorization and linking rules live in the database (site_login_create_precheck,
- * set_site_employee_login_access), called with the caller's own token.
- * Unlike admin create-user, an email that is already registered is never taken over.
+ * site_login_email_precheck, site_supervisor_precheck, set_site_employee_login_access,
+ * assign_site_supervisor), called with the caller's own token.
+ * With supervisor_site_id the new login becomes the Site Supervisor of that site
+ * (HR -> Site Attendance -> Attendance only, that site only).
+ * An email that is already registered is never taken over.
  */
 export async function hrCreateSiteLogin(body, jwt, supabaseUrl, serviceRoleKey, anonKey) {
   const caller = await resolveAuthUser(jwt, supabaseUrl, serviceRoleKey, anonKey);
@@ -64,14 +125,7 @@ export async function hrCreateSiteLogin(body, jwt, supabaseUrl, serviceRoleKey, 
   if (!Number.isFinite(personId) || personId <= 0) throw fail(400, 'Site employee is required.');
 
   const email = String(body?.email ?? '').trim().toLowerCase();
-  if (!email || !email.includes('@')) throw fail(400, 'A valid email is required.');
-
-  const password = String(body?.password ?? '').trim();
-  if (password.length < 6) throw fail(400, 'Temporary password must be at least 6 characters.');
-
-  const subModules = Array.isArray(body?.allowed_sub_modules)
-    ? body.allowed_sub_modules.map((s) => String(s).trim()).filter(Boolean)
-    : [];
+  if (!email || !EMAIL_RE.test(email)) throw fail(400, 'A valid email is required.');
 
   const userDb = createClient(supabaseUrl, anonKey || serviceRoleKey, {
     global: { headers: { Authorization: `Bearer ${jwt}` } },
@@ -81,8 +135,39 @@ export async function hrCreateSiteLogin(body, jwt, supabaseUrl, serviceRoleKey, 
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  if (String(body?.action || '') === 'update_email') {
+    return updateSiteLoginEmail({ personId, email }, userDb, serviceDb);
+  }
+
+  const supervisorSiteId = body?.supervisor_site_id == null || body.supervisor_site_id === ''
+    ? null
+    : Number(body.supervisor_site_id);
+  if (supervisorSiteId != null && (!Number.isFinite(supervisorSiteId) || supervisorSiteId <= 0)) {
+    throw fail(400, 'Site is required.');
+  }
+
+  let password = String(body?.password ?? '');
+  if (supervisorSiteId != null) {
+    // Chosen by HR: used exactly as typed.
+    const problem = supervisorPasswordProblem(password);
+    if (problem) throw fail(400, problem);
+  } else {
+    password = password.trim();
+    if (password.length < 6) throw fail(400, 'Temporary password must be at least 6 characters.');
+  }
+
+  const subModules = Array.isArray(body?.allowed_sub_modules)
+    ? body.allowed_sub_modules.map((s) => String(s).trim()).filter(Boolean)
+    : [];
+
   const pre = await userDb.rpc('site_login_create_precheck', { p_person_id: personId });
   if (pre.error) throw fail(rpcStatus(pre.error), pre.error.message);
+  const emailPre = await userDb.rpc('site_login_email_precheck', { p_person_id: personId, p_email: email });
+  if (emailPre.error) throw fail(rpcStatus(emailPre.error), emailPre.error.message);
+  if (supervisorSiteId != null) {
+    const supPre = await userDb.rpc('site_supervisor_precheck', { p_person_id: personId, p_site_id: supervisorSiteId });
+    if (supPre.error) throw fail(rpcStatus(supPre.error), supPre.error.message);
+  }
   const employeeCode = String(pre.data?.employee_code || '').trim();
   const username = String(pre.data?.full_name || '').trim() || email.split('@')[0];
 
@@ -121,11 +206,28 @@ export async function hrCreateSiteLogin(body, jwt, supabaseUrl, serviceRoleKey, 
     throw fail(500, `Could not save the login profile: ${prof.error.message}`);
   }
 
-  const access = await userDb.rpc('set_site_employee_login_access', {
+  const warnings = [];
+  const emailSync = await serviceDb.rpc('site_login_apply_email', {
     p_person_id: personId,
-    p_is_active: true,
-    p_sub_modules: subModules,
+    p_profile_id: userId,
+    p_email: email,
   });
+  if (emailSync.error) warnings.push(`the employee email was not saved (${emailSync.error.message})`);
+
+  const access = supervisorSiteId != null
+    ? await userDb.rpc('assign_site_supervisor', { p_person_id: personId, p_site_id: supervisorSiteId })
+    : await userDb.rpc('set_site_employee_login_access', {
+      p_person_id: personId,
+      p_is_active: true,
+      p_sub_modules: subModules,
+    });
+  if (access.error) {
+    warnings.push(
+      supervisorSiteId != null
+        ? `supervisor access was not given (${access.error.message}). Use Add Site Supervisor again for this employee.`
+        : `screens were not saved (${access.error.message})`
+    );
+  }
 
   return {
     ok: true,
@@ -133,7 +235,8 @@ export async function hrCreateSiteLogin(body, jwt, supabaseUrl, serviceRoleKey, 
     email,
     employee_code: employeeCode,
     access_saved: !access.error,
-    ...(access.error ? { warning: `Login created, but screens were not saved: ${access.error.message}` } : {}),
+    supervisor_site_id: supervisorSiteId,
+    ...(warnings.length ? { warning: `Login created, but ${warnings.join('; ')}` } : {}),
     version: API_VERSION,
   };
 }

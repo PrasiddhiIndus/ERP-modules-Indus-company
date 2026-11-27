@@ -806,13 +806,24 @@ export function hasAnyRecruitmentTabAccess(profile, accessibleModules, userMetad
  * IEV Costing pages (User Management level 3 under "IEV Costing").
  * `paths` are the routes each page needs, including its detail pages.
  */
+/** Opt-in beside Costing Sheet: view NET TOTAL section and its values. */
+export const IEV_COSTING_NET_TOTAL_KEY = "fireTender.costing.costing-sheet.net-total";
+export const IEV_COSTING_SHEET_KEY = "fireTender.costing.costing-sheet";
+
 export const IEV_COSTING_PAGES = [
   { value: "fireTender.costing.tender", tab: "tender", label: "New Tender", paths: ["/app/fire-tender/costing-hub/tender"] },
   {
-    value: "fireTender.costing.costing-sheet",
+    value: IEV_COSTING_SHEET_KEY,
     tab: "costing",
     label: "Costing Sheet",
     paths: ["/app/fire-tender/costing-hub/costing", "/app/fire-tender/costing"],
+    extras: [
+      {
+        value: IEV_COSTING_NET_TOTAL_KEY,
+        label: "Net Total Access",
+        hint: "View the NET TOTAL section and its values on the Costing Sheet.",
+      },
+    ],
   },
   {
     value: "fireTender.costing.quotation",
@@ -822,6 +833,20 @@ export const IEV_COSTING_PAGES = [
   },
   { value: "fireTender.costing.po-at-glance", tab: "oc", label: "PO At Glance", paths: ["/app/fire-tender/costing-hub/oc"] },
 ];
+
+/**
+ * Whether the user may see the Costing Sheet NET TOTAL section.
+ * Super Admin / Super Admin Pro → always (unchanged).
+ * Everyone else → only when User Management has Net Total Access ticked
+ * (`fireTender.costing.costing-sheet.net-total`). Full IEV / team / Costing Sheet
+ * alone must not keep Net Total visible after that tick is revoked.
+ */
+export function canViewIevCostingNetTotal(profile, _accessibleModules) {
+  const role = normalizeAppRole(profile?.role);
+  if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) return true;
+  const subs = parseAllowedSubModules(profile?.allowed_sub_modules);
+  return subs.includes(IEV_COSTING_NET_TOTAL_KEY);
+}
 
 /**
  * IEV Costing tab ids ("tender" | "costing" | "quotation" | "oc") the user may open.
@@ -1233,7 +1258,7 @@ export const NAV_MODULE_TREE = [
         label: "IEV Costing",
         pathPrefix: "/app/fire-tender/costing-hub",
         // Page-wise access: ticking IEV Costing grants every page; otherwise only the ticked pages.
-        tabModules: IEV_COSTING_PAGES.map(({ value, label }) => ({ value, label })),
+        tabModules: IEV_COSTING_PAGES.map(({ value, label, extras }) => ({ value, label, extras })),
       },
       { value: "fireTender.manufacturing",   label: "IEV Manufacturing",        pathPrefix: "/app/fire-tender-manufacturing" },
     ],

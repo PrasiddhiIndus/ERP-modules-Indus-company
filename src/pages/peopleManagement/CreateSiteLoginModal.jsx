@@ -5,6 +5,7 @@ import { supabase } from "../../lib/supabase";
 import { toast } from "../../lib/toast";
 import {
   createSiteEmployeeLogin,
+  fetchSitePeopleEmails,
   formatSiteLoginError,
   searchSitePeopleForLogin,
 } from "../../lib/siteEmployeeLoginsApi";
@@ -108,7 +109,7 @@ function PersonPicker({ linkedPersonIds, value, onChange }) {
                       <span className="font-mono font-medium">{p.unique_code || "—"}</span> · {p.full_name}
                     </p>
                     <p className="text-[11px] text-gray-500">
-                      {[p.designation, p.current_site_name, reason].filter(Boolean).join(" · ") || "\u00a0"}
+                      {[p.designation, p.current_site_name, p.email, reason].filter(Boolean).join(" · ") || "\u00a0"}
                     </p>
                   </button>
                 </li>
@@ -141,7 +142,14 @@ export default function CreateSiteLoginModal({ open, person = null, linkedPerson
   useEffect(() => {
     if (open) {
       setSelected(person);
-      setEmail("");
+      setEmail(person?.email || "");
+      if (person?.id && !person.email) {
+        fetchSitePeopleEmails(supabase, [person.id])
+          .then((map) => {
+            if (map[person.id]) setEmail((cur) => cur || map[person.id]);
+          })
+          .catch(() => {});
+      }
       setPassword(generatePassword());
       setError("");
     }
@@ -206,12 +214,24 @@ export default function CreateSiteLoginModal({ open, person = null, linkedPerson
                 {person.full_name} <span className="font-mono text-gray-500">· {person.unique_code}</span>
               </p>
             ) : (
-              <PersonPicker linkedPersonIds={linkedPersonIds} value={selected} onChange={setSelected} />
+              <PersonPicker
+                linkedPersonIds={linkedPersonIds}
+                value={selected}
+                onChange={(p) => {
+                  setSelected(p);
+                  if (p?.email) setEmail(p.email);
+                }}
+              />
             )}
           </div>
 
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-gray-700">Email (used to sign in)</span>
+            {selected?.email ? (
+              <span className="text-[11px] text-gray-500">
+                Prefilled from the employee record. The employee record is updated to the email you use here.
+              </span>
+            ) : null}
             <input
               type="email"
               value={email}

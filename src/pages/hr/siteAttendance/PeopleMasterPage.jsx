@@ -37,6 +37,13 @@ import {
 } from "../../../lib/siteAttendance/siteAttendanceApi";
 import { useSiteAttendanceAccess, useSiteAttendanceType } from "./SiteAttendanceLayout";
 import { siteIdsForQuery } from "../../../lib/siteAttendance/siteAttendanceAccess";
+import { supabase } from "../../../lib/supabase";
+import {
+  fetchSitePeopleEmails,
+  isValidEmployeeEmail,
+  normalizeEmployeeEmail,
+  saveSitePersonEmail,
+} from "../../../lib/siteEmployeeLoginsApi";
 
 const PAGE_SIZES = [25, 50, 100];
 
@@ -49,6 +56,7 @@ function emptyPerson() {
     designation: "",
     father_name: "",
     phone_no: "",
+    email: "",
     leaving_date: "",
     is_active: true,
     site_id: "",
@@ -154,6 +162,8 @@ export default function PeopleMasterPage() {
   const [editingId, setEditingId] = useState(null);
   const [editingAssignmentId, setEditingAssignmentId] = useState(null);
   const [form, setForm] = useState(emptyPerson);
+  const [originalEmail, setOriginalEmail] = useState("");
+  const [emailsByPerson, setEmailsByPerson] = useState({});
   const [siteDesignations, setSiteDesignations] = useState([]);
   const [history, setHistory] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -228,6 +238,9 @@ export default function PeopleMasterPage() {
         map[p.id] = { all: assigns, current: pickCurrentAssignment(assigns) };
       }
       setAssignmentsByPerson(map);
+      fetchSitePeopleEmails(supabase, rows.map((p) => p.id)).then((emails) => {
+        if (requestId === requestRef.current) setEmailsByPerson(emails);
+      });
     } catch (err) {
       if (requestId === requestRef.current) toast.error(userFriendlyError(err));
     } finally {
@@ -283,6 +296,7 @@ export default function PeopleMasterPage() {
     setEditingId(null);
     setEditingAssignmentId(null);
     setForm(emptyPerson());
+    setOriginalEmail("");
     setSiteDesignations([]);
     setHistory([]);
     setDrawerOpen(true);
@@ -291,6 +305,9 @@ export default function PeopleMasterPage() {
   const openEdit = async (person) => {
     const assigns = assignmentsByPerson[person.id]?.all || (await listAssignments({ personId: person.id }));
     const current = pickCurrentAssignment(assigns) || assigns[assigns.length - 1];
+    const emailMap = await fetchSitePeopleEmails(supabase, [person.id]);
+    const email = emailMap[person.id] || "";
+    setOriginalEmail(email);
     setEditingId(person.id);
     setEditingAssignmentId(current?.id || null);
     setForm({
@@ -301,6 +318,7 @@ export default function PeopleMasterPage() {
       designation: person.designation || "",
       father_name: person.father_name || "",
       phone_no: person.phone_no || "",
+      email,
       leaving_date: person.leaving_date || "",
       is_active: person.is_active !== false,
       site_id: current?.site_id ? String(current.site_id) : "",
@@ -333,6 +351,13 @@ export default function PeopleMasterPage() {
       toast.error("Leaving date must be after joining date.");
       return;
     }
+    if (!isValidEmployeeEmail(form.email)) {
+      toast.error("Enter a valid email address, or leave it empty.");
+      return;
+    }
+    const nextEmail = normalizeEmployeeEmail(form.email);
+    const emailChanged = nextEmail !== normalizeEmployeeEmail(originalEmail);
+    let savedPersonId = editingId;
     const personPayload = {
       unique_code: form.unique_code.trim(),
       full_name: form.full_name.trim(),
@@ -423,6 +448,7 @@ export default function PeopleMasterPage() {
           const created = await createPerson(personPayload);
           if (!created?.id) throw new Error("Unable to create person.");
           personId = created.id;
+          savedPersonId = created.id;
           createdNow = true;
         }
         try {
@@ -445,6 +471,14 @@ export default function PeopleMasterPage() {
           throw assignErr;
         }
         toast.success(editingId ? "Person updated." : "Person created.");
+      }
+      if (emailChanged && savedPersonId) {
+        const emailResult = await saveSitePersonEmail(supabase, savedPersonId, nextEmail);
+        if (!emailResult.ok) {
+          toast.warning("Email not saved", emailResult.message);
+        } else if (emailResult.loginUpdated) {
+          toast.success("Sign-in email updated", "The employee now signs in to the ERP and Indus One with the new email.");
+        }
       }
       setDrawerOpen(false);
       refresh();
@@ -537,6 +571,7 @@ export default function PeopleMasterPage() {
         <div className="min-w-[10rem]">
           <p className="text-ink font-medium">{row.full_name}</p>
           {row.phone_no ? <p className="text-[11px] text-ink-muted">{row.phone_no}</p> : null}
+          {emailsByPerson[row.id] ? <p className="text-[11px] text-ink-muted break-all">{emailsByPerson[row.id]}</p> : null}
         </div>
       ),
     },
@@ -714,6 +749,18 @@ export default function PeopleMasterPage() {
               </Field>
               <Field label="Phone">
                 <TinyInput value={form.phone_no} onChange={(e) => setField("phone_no", e.target.value)} />
+              </Field>
+              <Field label="Email (optional)" className="col-span-2">
+                <TinyInput
+                  type="email"
+                  autoComplete="off"
+                  placeholder="name@example.com"
+                  value={form.email}
+                  onChange={(e) => setField("email", e.target.value)}
+                />
+                <span className="text-[10px] text-ink-muted">
+                  Linked to employee code {form.unique_code.trim() || "—"}. Used to sign in to the ERP and Indus One once a login is created.
+                </span>
               </Field>
               <Field label="Date of birth">
                 <FormDateInput value={form.date_of_birth} compact onChange={(e) => setField("date_of_birth", e.target.value)} />

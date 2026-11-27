@@ -66,8 +66,9 @@ export default function SiteEmployeeLoginsPanel() {
       if (status === "enabled" && r.is_active === false) return false;
       if (status === "disabled" && r.is_active !== false) return false;
       if (status === "no-l1" && r.l1_employee_code) return false;
+      if (status === "supervisors" && !r.supervisor_site_id) return false;
       if (!q) return true;
-      return [r.full_name, r.employee_code, r.email, r.username, r.current_site_name]
+      return [r.full_name, r.employee_code, r.email, r.username, r.current_site_name, r.supervisor_site_name]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q));
     });
@@ -85,6 +86,7 @@ export default function SiteEmployeeLoginsPanel() {
       total: all.length,
       enabled: all.filter((r) => r.is_active !== false).length,
       noL1: all.filter((r) => !r.l1_employee_code).length,
+      supervisors: all.filter((r) => r.supervisor_site_id).length,
     }),
     [all]
   );
@@ -103,6 +105,22 @@ export default function SiteEmployeeLoginsPanel() {
       },
       { key: "email", label: "Login", render: (r) => <span className="break-all">{r.email || r.username || "—"}</span> },
       { key: "site", label: "Site", render: (r) => r.current_site_name || "—" },
+      {
+        key: "role",
+        label: "Role",
+        render: (r) =>
+          r.supervisor_site_id ? (
+            <div className="min-w-0">
+              <StatusChip label="Site Supervisor" severity="info" />
+              <p className="text-[11px] text-gray-500 mt-0.5">{r.supervisor_site_name || `Site #${r.supervisor_site_id}`}</p>
+              {r.current_site_id != null && String(r.current_site_id) !== String(r.supervisor_site_id) ? (
+                <p className="text-[11px] text-amber-700">Site changed — review access</p>
+              ) : null}
+            </div>
+          ) : (
+            <span className="text-gray-500">Employee</span>
+          ),
+      },
       { key: "l1", label: "L1 lead", render: (r) => leadLabel(r.l1_employee_code, r.l1_employee_name) },
       { key: "l2", label: "L2 lead", render: (r) => leadLabel(r.l2_employee_code, r.l2_employee_name) },
       {
@@ -145,7 +163,7 @@ export default function SiteEmployeeLoginsPanel() {
         </button>
       </PageTaskHeader>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <KpiTile label="Site logins" value={stats.total.toLocaleString()} onClick={() => setStatus("all")} />
         <KpiTile label="Login enabled" value={stats.enabled.toLocaleString()} onClick={() => setStatus("enabled")} />
         <KpiTile
@@ -153,6 +171,11 @@ export default function SiteEmployeeLoginsPanel() {
           value={stats.noL1.toLocaleString()}
           onClick={() => setStatus("no-l1")}
           tone={stats.noL1 ? "border-amber-300" : "border-border"}
+        />
+        <KpiTile
+          label="Site supervisors"
+          value={stats.supervisors.toLocaleString()}
+          onClick={() => setStatus("supervisors")}
         />
       </div>
 
@@ -172,6 +195,7 @@ export default function SiteEmployeeLoginsPanel() {
           <option value="enabled">Login enabled</option>
           <option value="disabled">Login disabled</option>
           <option value="no-l1">Without L1 lead</option>
+          <option value="supervisors">Site supervisors</option>
         </TinySelect>
       </FilterBar>
 
