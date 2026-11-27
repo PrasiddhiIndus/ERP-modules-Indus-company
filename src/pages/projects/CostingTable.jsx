@@ -1104,9 +1104,9 @@ const CostingTable = ({
             <col style={{ width: "11%" }} />
             <col style={{ width: "7%" }} />
             <col style={{ width: "7%" }} />
-            <col style={{ width: "9%" }} />
-            <col style={{ width: "6%" }} />
-            <col style={{ width: "9%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "3.5%" }} />
+            <col style={{ width: "10.5%" }} />
             <col style={{ width: "11.5%" }} />
             <col style={{ width: "6%" }} />
           </colgroup>
@@ -1119,9 +1119,9 @@ const CostingTable = ({
               <th className={th}>Weight (KG)</th>
               <th className={th}>Labour Cost</th>
               <th className={th}>Unit Cost / Price of Metal</th>
-              <th className={th}>Qty</th>
-              <th className={th}>Total Price</th>
-              <th className={`${th} w-[12rem] min-w-[10rem] max-w-[14rem]`}>Remark</th>
+              <th className={`${th} px-0.5 text-center`}>Qty</th>
+              <th className={`${th} text-right`}>Total Price</th>
+              <th className={th}>Remark</th>
               <th className={`${th} text-center`}>Action</th>
             </tr>
           </thead>
@@ -1263,14 +1263,19 @@ const CostingTable = ({
                   </td>
 
                   {["weight", "labour", "unitCost", "qty"].map((field) => {
+                    const isQty = field === "qty";
+                    const qtyCell = `${td} ${fillHighlightClass} px-0.5 text-center overflow-hidden`;
+                    // Override shell .erp-numeric-input min-width (5.5rem) so Qty stays narrow.
+                    const qtyInput = `${inputCompact} !min-w-0 max-w-full px-0.5 text-center tabular-nums`;
+
                     // If Metacone row and this is quantity field — show computed read-only qty
-                    if (field === "qty" && metaconeQty !== null) {
+                    if (isQty && metaconeQty !== null) {
                       return (
-                        <td key={field} className={`${td} ${fillHighlightClass}`}>
+                        <td key={field} className={qtyCell}>
                           <NumericInput
                             value={isMetaconeMounting(row.component) ? computeMetaconeQty(allRows) : row.qty}
                             readOnly={isMetaconeMounting(row.component)}
-                            className={`${inputCompact} bg-gray-100`}
+                            className={`${qtyInput} bg-gray-100`}
                           />
                         </td>
                       );
@@ -1312,9 +1317,13 @@ const CostingTable = ({
                     return (
                         <td
                           key={field}
-                          className={`${td} relative ${fillHighlightClass}`}
+                          className={
+                            isQty
+                              ? qtyCell
+                              : `${td} relative ${fillHighlightClass}`
+                          }
                         >
-                        <div className="relative">
+                        <div className="relative min-w-0">
                           <NumericInput
                             value={row[field]}
                             readOnly={!fieldEditable}
@@ -1323,7 +1332,9 @@ const CostingTable = ({
                                 ? getWeightColumnLabel(row.component)
                                 : field === "labour"
                                   ? "Labour cost"
-                                  : field
+                                  : isQty
+                                    ? "Quantity"
+                                    : field
                             }
                             onChange={(val) => {
                               if (!fieldEditable) return;
@@ -1339,7 +1350,7 @@ const CostingTable = ({
                                 setExtraRows(updated);
                               }
                             }}
-                            className={`${inputCompact} ${
+                            className={`${isQty ? qtyInput : inputCompact} ${
                               !fieldEditable
                                 ? "bg-gray-100 text-gray-500"
                                 : hasPriceDrift
@@ -1372,16 +1383,18 @@ const CostingTable = ({
                     );
                   })}
 
-                  {/* Total */}
-                  <td className={`${td} relative text-right font-semibold tabular-nums ${fillHighlightClass}`}>
-                    <span className="whitespace-nowrap">₹ {formatCurrency(calculateTotal(row))}</span>
+                  {/* Total — keep separate from narrow Qty column */}
+                  <td className={`${td} relative overflow-hidden px-1 text-right font-semibold tabular-nums ${fillHighlightClass}`}>
+                    <span className="block truncate whitespace-nowrap" title={`₹ ${formatCurrency(calculateTotal(row))}`}>
+                      ₹ {formatCurrency(calculateTotal(row))}
+                    </span>
                     {checkTotalDrift(row) && (
                       <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" title="Total needs recalculation due to price/weight changes in Price Master"></div>
                     )}
                   </td>
 
                   {/* Remark */}
-                  <td className={`${td} ${fillHighlightClass} w-[12rem] min-w-[10rem] max-w-[14rem] overflow-hidden align-top`}>
+                  <td className={`${td} ${fillHighlightClass} min-w-0 overflow-hidden align-top`}>
                     <AutoGrowRemark
                       value={row.remark || ""}
                       onChange={(e) => {
