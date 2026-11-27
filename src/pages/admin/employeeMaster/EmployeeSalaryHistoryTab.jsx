@@ -207,18 +207,31 @@ export default function EmployeeSalaryHistoryTab({ employee }) {
                   className="text-[11px] font-semibold text-indigo-700 hover:underline disabled:opacity-40"
                   disabled={!r.payslip_id && !(r.line && r.run)}
                   onClick={() => {
+                    const ifsc = employee?.ifsc_code || "";
+                    const stamp = (slip) =>
+                      slip
+                        ? {
+                            ...slip,
+                            ifsc: slip.ifsc || ifsc,
+                            ifsc_code: slip.ifsc_code || ifsc,
+                          }
+                        : slip;
                     if (r.payslip_id) {
                       const slip = getPayslipById(r.payslip_id);
                       setPreview(
-                        slip && r.month_remarks && !slip.month_remarks
-                          ? { ...slip, month_remarks: r.month_remarks }
-                          : slip
+                        stamp(
+                          slip && r.month_remarks && !slip.month_remarks
+                            ? { ...slip, month_remarks: r.month_remarks }
+                            : slip
+                        )
                       );
                     } else if (r.line && r.run) {
                       setPreview(
-                        buildPayslipFromLine(r.run, r.line, {
-                          monthRemarks: r.month_remarks || r.line?.computed_json?.month_remarks || "",
-                        })
+                        stamp(
+                          buildPayslipFromLine(r.run, r.line, {
+                            monthRemarks: r.month_remarks || r.line?.computed_json?.month_remarks || "",
+                          })
+                        )
                       );
                     }
                   }}

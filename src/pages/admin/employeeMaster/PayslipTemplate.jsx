@@ -88,14 +88,25 @@ export default function PayslipTemplate({
   const hidePay = salaryFiguresHidden();
   const uan = hidePay
     ? MASKED_SECRET
-    : displayOrFallback(payslip.uan_number || payslip.uan, "Not linked");
+    : displayOrFallback(
+        firstFilled(payslip.uan_number, payslip.uan_no, payslip.uan),
+        "Not linked"
+      );
   const esicNo = hidePay
     ? MASKED_SECRET
     : displayOrFallback(
-        payslip.esic_number,
+        firstFilled(payslip.esic_number, payslip.esic_no, payslip.esic),
         Number(payslip.emp_esic) > 0 ? "Not linked" : "Not applicable"
       );
-  const pan = displayOrFallback(payslip.pan_card || payslip.pan, "Not linked");
+  const pan = hidePay
+    ? MASKED_SECRET
+    : displayOrFallback(
+        firstFilled(payslip.pan_card, payslip.pan_card_no, payslip.pan_no, payslip.pan),
+        "Not linked"
+      );
+  const ifsc = hidePay
+    ? MASKED_SECRET
+    : displayOrFallback(firstFilled(payslip.ifsc, payslip.ifsc_code), "Not linked");
   const bankAc = hidePay ? MASKED_SECRET : displayOrFallback(payslip.account_no, "Not linked");
 
   const net = Number(payslip.net_salary) || 0;
@@ -253,6 +264,7 @@ export default function PayslipTemplate({
             <MetaRow label="ESIC number" value={esicNo} mutedFallback />
             <MetaRow label="Bank account" value={bankAc} mutedFallback />
             <MetaRow label="PAN" value={pan} mutedFallback />
+            <MetaRow label="IFSC number" value={ifsc} mutedFallback />
           </MetaPanel>
           <MetaPanel title="Days summary">
             <MetaRow label="Working days" value={monthDays || "—"} />
@@ -677,6 +689,14 @@ function money2(v) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function firstFilled(...values) {
+  for (const value of values) {
+    const text = value == null ? "" : String(value).trim();
+    if (text && text !== "—" && text !== "Not linked" && text !== "Not applicable") return text;
+  }
+  return "";
 }
 
 function displayOrFallback(value, fallback) {

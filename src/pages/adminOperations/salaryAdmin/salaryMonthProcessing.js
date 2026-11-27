@@ -103,6 +103,15 @@ function str(v) {
   return v == null ? "" : String(v).trim();
 }
 
+/** First non-empty identity value. Skips placeholders the slip uses when a number is missing. */
+function firstId(...values) {
+  for (const value of values) {
+    const text = str(value);
+    if (text && text !== "—" && text !== "Not linked" && text !== "Not applicable") return text;
+  }
+  return "";
+}
+
 /** YYYY-MM from a date-like value (joining / W.E.F.). */
 export function yearMonthFromDate(value) {
   if (value == null || value === "") return null;
@@ -471,6 +480,7 @@ function toDbLinePayload(line, { includeRunId = false } = {}) {
     employee_id: line.employee_id || prevCj.employee_id || prevSnap.employee_id || "",
     uan_no: line.uan_no || prevCj.uan_no || prevSnap.uan_no || "",
     esic_no: line.esic_no || prevCj.esic_no || prevSnap.esic_no || "",
+    pan_card_no: line.pan_card_no || prevCj.pan_card_no || prevSnap.pan_card_no || "",
     ctc_monthly: line.ctc_monthly ?? prevCj.ctc_monthly ?? prevSnap.ctc_monthly ?? null,
     pay_month_key: line.pay_month_key || prevCj.pay_month_key || "",
     ...voucherFields,
@@ -481,6 +491,7 @@ function toDbLinePayload(line, { includeRunId = false } = {}) {
     employee_id: cj.employee_id,
     uan_no: cj.uan_no,
     esic_no: cj.esic_no,
+    pan_card_no: cj.pan_card_no,
     ctc_monthly: cj.ctc_monthly,
     ...voucherFields,
   };
@@ -539,6 +550,7 @@ function hydrateMonthLine(line) {
     employee_id: line.employee_id || cj.employee_id || snap.employee_id || "",
     uan_no: line.uan_no || cj.uan_no || snap.uan_no || "",
     esic_no: line.esic_no || cj.esic_no || snap.esic_no || "",
+    pan_card_no: line.pan_card_no || cj.pan_card_no || snap.pan_card_no || "",
     ctc_monthly: line.ctc_monthly ?? cj.ctc_monthly ?? snap.ctc_monthly ?? null,
     pay_month_key: line.pay_month_key || cj.pay_month_key || "",
     salaryLocked,
@@ -637,6 +649,7 @@ export function buildSheetLineFromSources({
     ifsc: employee.ifsc_code || "",
     uan_no: employee.uan_no || "",
     esic_no: employee.esic_no || "",
+    pan_card_no: employee.pan_card_no || employee.pan_no || "",
     employee_id: employee.employee_id || "",
     confirmation_date: employee.confirmation_date || null,
     salary_rate: computed.salary_rate,
@@ -673,6 +686,7 @@ export function buildSheetLineFromSources({
     ifsc: snapshot.ifsc,
     uan_no: snapshot.uan_no || "",
     esic_no: snapshot.esic_no || "",
+    pan_card_no: snapshot.pan_card_no || "",
     confirmation_date: snapshot.confirmation_date,
     employee_id: employee.employee_id || "",
     department: snapshot.department || "",
@@ -753,6 +767,7 @@ function employeeFromPayrollLine(line, emp) {
     ifsc_code: emp?.ifsc_code ?? line?.ifsc ?? "",
     uan_no: emp?.uan_no ?? line?.uan_no ?? "",
     esic_no: emp?.esic_no ?? line?.esic_no ?? "",
+    pan_card_no: emp?.pan_card_no ?? emp?.pan_no ?? line?.pan_card_no ?? "",
   };
 }
 
@@ -1408,6 +1423,7 @@ export function overlayMasterBankOnLine(line, employee) {
     ifsc: str(employee.ifsc_code),
     uan_no: str(employee.uan_no),
     esic_no: str(employee.esic_no),
+    pan_card_no: str(employee.pan_card_no || employee.pan_no),
   };
 }
 
@@ -1420,7 +1436,7 @@ async function fetchMasterPayrollFieldsByIds(ids = []) {
     const chunk = unique.slice(i, i + 200);
     const { data, error } = await supabase
       .from(EMPLOYEE_MASTER_TABLE)
-      .select("id, employee_id, employee_code, full_name, date_of_joining, bank_account_no, ifsc_code, uan_no, esic_no")
+      .select("id, employee_id, employee_code, full_name, date_of_joining, bank_account_no, ifsc_code, uan_no, esic_no, pan_card_no")
       .in("id", chunk);
     if (error) throw error;
     for (const row of data || []) {
@@ -1443,7 +1459,7 @@ async function fetchAllActiveEmployeesForSalary() {
     const { data, error } = await supabase
       .from(EMPLOYEE_MASTER_TABLE)
       .select(
-        "id, employee_id, employee_code, full_name, designation, department, location, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, status"
+        "id, employee_id, employee_code, full_name, designation, department, location, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, pan_card_no, status"
       )
       .eq("status", "Active")
       .order("employee_code", { ascending: true })
@@ -1916,6 +1932,7 @@ export async function buildSalaryScopePreviewLines({
         ifsc_code: fresh.ifsc_code ?? emp.ifsc_code,
         uan_no: fresh.uan_no ?? emp.uan_no,
         esic_no: fresh.esic_no ?? emp.esic_no,
+        pan_card_no: fresh.pan_card_no ?? emp.pan_card_no,
       };
       const fromRegister = lookupPresentDays(presentMap, bankEmp);
       const present =
@@ -1946,6 +1963,7 @@ export async function buildSalaryScopePreviewLines({
             ifsc_code: bankEmp.ifsc_code,
             uan_no: bankEmp.uan_no,
             esic_no: bankEmp.esic_no,
+            pan_card_no: bankEmp.pan_card_no,
           },
           structure,
           presentDays: present,
@@ -2230,6 +2248,7 @@ export async function processSalaryMonth({
       ifsc_code: fresh.ifsc_code ?? emp?.ifsc_code,
       uan_no: fresh.uan_no ?? emp?.uan_no,
       esic_no: fresh.esic_no ?? emp?.esic_no,
+      pan_card_no: fresh.pan_card_no ?? emp?.pan_card_no,
     });
   }).map((line) => ({
     ...line,
@@ -2629,6 +2648,7 @@ export async function processVoucherForMonth({
         ifsc_code: master.ifsc_code || "",
         uan_no: master.uan_no || "",
         esic_no: master.esic_no || "",
+        pan_card_no: master.pan_card_no || "",
         hasCtc: Boolean(structure?.declared),
       };
       const baseLine = emptyPreviewLineFromEmployee(empObj, days);
@@ -3410,6 +3430,13 @@ export async function buildSalaryProcessReport({ year, month } = {}) {
     }
   }
 
+  let masterById = new Map();
+  try {
+    masterById = await fetchMasterPayrollFieldsByIds(lines.map((l) => l.employee_master_id));
+  } catch (err) {
+    console.warn("Salary report: employee identity load skipped", err);
+  }
+
   const byDay = new Map();
   let totalGross = 0;
   let totalDed = 0;
@@ -3441,6 +3468,26 @@ export async function buildSalaryProcessReport({ year, month } = {}) {
     totalDed += ded;
     totalNet += net;
 
+    const master = masterById.get(String(empId)) || {};
+    const uanNo = firstId(master.uan_no, line.uan_no, cj.uan_no, snap.uan_no, slip?.uan_no, slip?.uan_number);
+    const esicNo = firstId(
+      master.esic_no,
+      line.esic_no,
+      cj.esic_no,
+      snap.esic_no,
+      slip?.esic_no,
+      slip?.esic_number
+    );
+    const panNo = firstId(
+      master.pan_card_no,
+      line.pan_card_no,
+      cj.pan_card_no,
+      snap.pan_card_no,
+      slip?.pan_card,
+      slip?.pan_card_no
+    );
+    const ifscNo = firstId(master.ifsc_code, line.ifsc, cj.ifsc, snap.ifsc, slip?.ifsc, slip?.ifsc_code);
+
     if (!byDay.has(processDay)) byDay.set(processDay, []);
     byDay.get(processDay).push({
       employee_master_id: empId,
@@ -3448,6 +3495,10 @@ export async function buildSalaryProcessReport({ year, month } = {}) {
       employee_name: line.employee_name || "",
       designation: line.designation || "",
       department: line.department || "",
+      uan_no: uanNo,
+      esic_no: esicNo,
+      pan_card_no: panNo,
+      ifsc: ifscNo,
       present_days: line.present_days,
       gross_wages: line.gross_wages,
       total_ded: line.total_ded,

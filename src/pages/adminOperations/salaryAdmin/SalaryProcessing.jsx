@@ -624,6 +624,11 @@ function EmployeeSalaryDetailPage({
             <ProfileFact label="ESIC number">
               <span className="text-[12px]">{salaryFiguresHidden() ? (line.esic_no ? "XXXXX" : "—") : line.esic_no || "—"}</span>
             </ProfileFact>
+            <ProfileFact label="PAN">
+              <span className="font-mono text-[12px]">
+                {salaryFiguresHidden() ? (line.pan_card_no ? "XXXXX" : "—") : line.pan_card_no || "—"}
+              </span>
+            </ProfileFact>
           </div>
         </section>
 

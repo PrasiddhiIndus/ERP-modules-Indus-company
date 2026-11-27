@@ -6,8 +6,8 @@ import {
 
 const blankTree = {};
 
-describe('getCostingRowFillStatus', () => {
-  it('marks newly added blank lines incomplete (red)', () => {
+describe('getCostingRowFillStatus — newly added (extra) rows', () => {
+  it('is red by default until Qty, Unit Cost, and Main Component are filled', () => {
     expect(
       getCostingRowFillStatus(
         { component: '', unitCost: 0, qty: 1, weight: 0, labour: 0 },
@@ -17,13 +17,21 @@ describe('getCostingRowFillStatus', () => {
       )
     ).toBe('incomplete');
     expect(getCostingRowFillHighlightClass('incomplete')).toBe('bg-red-100');
-  });
 
-  it('marks default lines complete (green) when unit cost and qty are > 0', () => {
-    // Extra lines require Manual Sub when the catalog has no subcategory path.
     expect(
       getCostingRowFillStatus(
-        { component: 'Pump', unitCost: 100, qty: 2, weight: 0, labour: 0, manualSub: 'Brand X' },
+        { component: 'Pump', unitCost: 0, qty: 2, weight: 0, labour: 0 },
+        [],
+        blankTree,
+        false
+      )
+    ).toBe('incomplete');
+  });
+
+  it('turns green when Main Component, Unit Cost, and Qty are all filled', () => {
+    expect(
+      getCostingRowFillStatus(
+        { component: 'Pump', unitCost: 100, qty: 2, weight: 0, labour: 0 },
         [],
         blankTree,
         false
@@ -32,15 +40,40 @@ describe('getCostingRowFillStatus', () => {
     expect(getCostingRowFillHighlightClass('complete')).toBe('bg-green-100');
   });
 
-  it('stays incomplete when unit cost is cleared', () => {
+  it('does not require Manual Sub for newly added row green highlight', () => {
+    expect(
+      getCostingRowFillStatus(
+        { component: 'Custom Part', unitCost: 50, qty: 1, weight: 0, labour: 0, manualSub: '' },
+        [],
+        blankTree,
+        false
+      )
+    ).toBe('complete');
+  });
+});
+
+describe('getCostingRowFillStatus — catalog / fixed rows', () => {
+  it('marks incomplete catalog lines red until required fields are filled', () => {
     expect(
       getCostingRowFillStatus(
         { component: 'Pump', unitCost: 0, qty: 2, weight: 0, labour: 0, manualSub: 'Brand X' },
         [],
         blankTree,
-        false
+        true
       )
     ).toBe('incomplete');
+    expect(getCostingRowFillHighlightClass('incomplete')).toBe('bg-red-100');
+  });
+
+  it('marks catalog lines green when unit cost and qty are > 0', () => {
+    expect(
+      getCostingRowFillStatus(
+        { component: 'Pump', unitCost: 100, qty: 2, weight: 0, labour: 0, manualSub: 'Brand X' },
+        [],
+        blankTree,
+        true
+      )
+    ).toBe('complete');
   });
 
   it('keeps tank completion rules (needs weight + unit cost + qty)', () => {
