@@ -8,11 +8,11 @@ export function isEnquiryApprover(profile) {
 }
 
 /**
- * @deprecated Create (Add Enquiry) always saves dates directly; L1 is only for edit/delete.
- * Kept for older callers/tests — always true.
+ * Managers / Admins may write any Target Date on create without L1.
+ * Non-managers may only write the auto-calculated Target Date; overrides need L1.
  */
-export function canWriteEnquiryDatesOnCreate(_profile) {
-  return true;
+export function canWriteEnquiryDatesOnCreate(profile) {
+  return isEnquiryApprover(profile);
 }
 
 const nameKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');

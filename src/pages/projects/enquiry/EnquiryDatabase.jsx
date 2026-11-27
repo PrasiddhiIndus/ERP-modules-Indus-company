@@ -689,7 +689,7 @@ export default function EnquiryDatabase() {
                       ? 'Marking Completed without changing dates applies immediately and notifies the Projects module.'
                       : draftSaveMode === 'regret'
                         ? 'Regret is sent to your L1 manager for approval before it applies.'
-                        : 'Target Date and Completed Date changes are sent to your L1 manager for approval before they apply'}
+                        : 'Changing the calculated Target Date or Completed Date is sent to your L1 manager for approval before it applies'}
                   {draftSaveMode !== 'progress' &&
                   draftSaveMode !== 'completed' &&
                   pendingEditByEnquiryId.has(editingId)
@@ -741,6 +741,16 @@ export default function EnquiryDatabase() {
                   {locked && (
                     <p className="mt-0.5 text-[10px] text-gray-500">
                       {postSaveEditable.has(field.field_key) ? 'Locked after it was saved' : 'View only'}
+                    </p>
+                  )}
+                  {!locked && field.field_key === 'target_date' && !canApproveEdits && (
+                    <p className="mt-0.5 text-[10px] text-amber-800">
+                      Changing the calculated Target Date needs L1 approval before it updates the Enquiry Database.
+                    </p>
+                  )}
+                  {!locked && field.field_key === 'completed_on' && !canApproveEdits && (
+                    <p className="mt-0.5 text-[10px] text-amber-800">
+                      Completed Date changes need L1 approval before they update the Enquiry Database.
                     </p>
                   )}
                 </label>
