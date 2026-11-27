@@ -314,6 +314,9 @@ const REPORT_HEADERS = [
   "Sr. No.",
   "Emp. Code",
   "Name",
+  "UAN number",
+  "ESIC number",
+  "PAN",
   "Designation",
   "Department",
   "P. Days",
@@ -354,11 +357,11 @@ export async function exportSalaryReportWorkbook(report, opts = {}) {
     views: [{ state: "frozen", ySplit: 4, xSplit: 3 }],
   });
 
-  ws.mergeCells("A1", "M1");
+  ws.mergeCells("A1", "P1");
   ws.getCell("A1").value = companyTitle;
   ws.getCell("A1").font = { bold: true, size: 14 };
 
-  ws.mergeCells("A2", "M2");
+  ws.mergeCells("A2", "P2");
   ws.getCell("A2").value = `Salary process report — ${label}`;
   ws.getCell("A2").font = { bold: true, size: 12 };
 
@@ -374,11 +377,17 @@ export async function exportSalaryReportWorkbook(report, opts = {}) {
   rows.forEach((emp, idx) => {
     const r = 5 + idx;
     const line = emp.line || emp;
+    const uan = String(emp.uan_no || line.uan_no || line.computed_json?.uan_no || "");
+    const esic = String(emp.esic_no || line.esic_no || line.computed_json?.esic_no || "");
+    const pan = String(emp.pan_card_no || line.pan_card_no || line.computed_json?.pan_card_no || "");
     const values = [
       emp.process_day_label || fmtDay(emp.process_day),
       emp.sr || idx + 1,
       emp.employee_code || line.employee_code || "",
       emp.employee_name || line.employee_name || "",
+      uan,
+      esic,
+      pan,
       emp.designation || line.designation || "",
       emp.department || line.department || "",
       num(emp.present_days ?? line.present_days),
@@ -390,21 +399,23 @@ export async function exportSalaryReportWorkbook(report, opts = {}) {
       line.ifsc || "",
     ];
     values.forEach((v, i) => {
-      ws.getCell(r, i + 1).value = v;
+      const cell = ws.getCell(r, i + 1);
+      cell.value = v;
+      if (i === 4 || i === 5 || i === 6 || i === 14) cell.numFmt = "@";
     });
-    moneyCols(ws, r, [8, 9, 10, 11]);
+    moneyCols(ws, r, [11, 12, 13, 14]);
   });
 
   const t = 5 + rows.length;
   ws.getCell(t, 4).value = "Total";
   ws.getCell(t, 4).font = { bold: true };
-  for (const col of [8, 9, 10, 11]) {
+  for (const col of [11, 12, 13, 14]) {
     ws.getCell(t, col).value = { formula: `SUM(${ws.getCell(5, col).address}:${ws.getCell(t - 1, col).address})` };
     ws.getCell(t, col).font = { bold: true };
     ws.getCell(t, col).numFmt = "#,##0";
   }
 
-  [14, 8, 12, 24, 16, 16, 8, 12, 12, 12, 12, 16, 12].forEach((w, i) => {
+  [14, 8, 12, 24, 16, 18, 14, 16, 16, 8, 12, 12, 12, 12, 16, 12].forEach((w, i) => {
     ws.getColumn(i + 1).width = w;
   });
 

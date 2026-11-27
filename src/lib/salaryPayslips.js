@@ -126,9 +126,34 @@ export function buildPayslipFromLine(run, line, opts = {}) {
     revision_no: num(run.revision_no) || 1,
     run_id: run.id,
     account_no: line.account_no || "",
-    ifsc: line.ifsc || "",
-    uan_no: line.uan_no || "",
-    esic_no: line.esic_no || "",
+    ifsc:
+      line.ifsc ||
+      line.ifsc_code ||
+      line.computed_json?.ifsc ||
+      line.source_snapshot_json?.ifsc ||
+      "",
+    uan_no:
+      line.uan_no || line.computed_json?.uan_no || line.source_snapshot_json?.uan_no || "",
+    esic_no:
+      line.esic_no || line.computed_json?.esic_no || line.source_snapshot_json?.esic_no || "",
+    pan_card:
+      line.pan_card_no ||
+      line.pan_card ||
+      line.computed_json?.pan_card_no ||
+      line.source_snapshot_json?.pan_card_no ||
+      "",
+    uan_number:
+      line.uan_number ||
+      line.uan_no ||
+      line.computed_json?.uan_no ||
+      line.source_snapshot_json?.uan_no ||
+      "",
+    esic_number:
+      line.esic_number ||
+      line.esic_no ||
+      line.computed_json?.esic_no ||
+      line.source_snapshot_json?.esic_no ||
+      "",
     date_of_joining: line.date_of_joining || null,
     confirmation_date: line.confirmation_date || null,
     present_days: num(line.present_days),

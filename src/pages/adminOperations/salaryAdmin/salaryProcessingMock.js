@@ -407,7 +407,7 @@ export async function mockFetchSalaryProcessCandidates({
       supabase
         .from(EMPLOYEE_MASTER_TABLE)
         .select(
-          "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, status"
+          "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, pan_card_no, status"
         )
         .eq("status", "Active")
         .order("employee_code", { ascending: true }),
@@ -441,6 +441,7 @@ export async function mockFetchSalaryProcessCandidates({
         ifsc_code: emp.ifsc_code || "",
         uan_no: emp.uan_no || "",
         esic_no: emp.esic_no || "",
+        pan_card_no: emp.pan_card_no || "",
         employee_id: emp.employee_id || "",
         hasCtc,
         eligible,
@@ -568,7 +569,7 @@ export async function mockProcessSalaryMonth({
       supabase
         .from(EMPLOYEE_MASTER_TABLE)
         .select(
-          "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, status"
+          "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, pan_card_no, status"
         )
         .eq("status", "Active")
         .order("employee_code", { ascending: true }),
@@ -644,6 +645,7 @@ export async function mockProcessSalaryMonth({
         ifsc: emp.ifsc_code || line.ifsc || "",
         uan_no: emp.uan_no || line.uan_no || "",
         esic_no: emp.esic_no || line.esic_no || "",
+        pan_card_no: emp.pan_card_no || line.pan_card_no || "",
       };
       lines.push({
         ...line,
