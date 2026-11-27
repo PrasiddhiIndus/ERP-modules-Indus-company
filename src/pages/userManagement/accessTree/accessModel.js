@@ -24,6 +24,9 @@ import {
   ADMIN_RECRUITMENT_FAMILY,
   ALL_RECRUITMENT_TAB_KEYS,
   ALL_ADMIN_RECRUITMENT_TAB_KEYS,
+  IEV_COSTING_NET_TOTAL_KEY,
+  IEV_COSTING_SHEET_KEY,
+  IEV_COSTING_PAGES,
 } from "../../../config/roles";
 import { EMPLOYEE_MASTER_SUBMODULE_KEY } from "../../adminOperations/salaryAdmin/salaryAccess";
 import { CALLING_SITE_TYPE_KEYS } from "../../hr/callingMaster/callingSiteTypeAccess";
@@ -50,6 +53,9 @@ export const OPT_IN_SUB_MODULE_KEYS = new Set([
   ...NAV_MODULE_TREE.flatMap((m) => (m.subModules || []).filter((s) => s.optIn).map((s) => s.value)),
   // Enquiry Master access level (View / Edit) is not a page; keep it when Projects is ticked.
   ...ENQUIRY_LEVEL_KEYS,
+  // Net Total Access is independent of full IEV — keep when full IEV is (re)ticked so a prior
+  // revoke is not wiped unless we explicitly default it back on for a fresh IEV grant.
+  IEV_COSTING_NET_TOTAL_KEY,
 ]);
 
 /** Keys outside the "<module>." family that still belong to a module in the editor. */
@@ -93,6 +99,9 @@ export function buildAccessTree(team) {
           label: t.label,
           optIn: Boolean(t.optIn),
           badge: t.badge || null,
+          extras: Array.isArray(t.extras)
+            ? t.extras.map((e) => ({ key: e.value || e.key, label: e.label, hint: e.hint || "" }))
+            : [],
         })),
         recruitment: Boolean(RECRUITMENT_FAMILIES[sub.value]),
       };
@@ -233,16 +242,22 @@ export function applyModuleToggle(form, moduleKey) {
   const mods = list(form?.allowed_modules);
   const subs = list(form?.allowed_sub_modules);
   const willAdd = !mods.includes(moduleKey);
+  let nextSubs = willAdd
+    ? subs.filter(
+        (s) =>
+          OPT_IN_SUB_MODULE_KEYS.has(s) ||
+          ALL_ADMIN_RECRUITMENT_TAB_KEYS.includes(s) ||
+          (!s.startsWith(`${moduleKey}.`) && !ALL_RECRUITMENT_TAB_KEYS.includes(s))
+      )
+    : subs;
+  // Fresh full IEV grant defaults Net Total Access on (matches previous "included" behaviour).
+  // Existing revoke (key absent while IEV stays granted) is preserved via OPT_IN keep above.
+  if (willAdd && moduleKey === "fireTender" && !nextSubs.includes(IEV_COSTING_NET_TOTAL_KEY)) {
+    nextSubs = [...nextSubs, IEV_COSTING_NET_TOTAL_KEY];
+  }
   return {
     allowed_modules: willAdd ? [...mods, moduleKey] : mods.filter((m) => m !== moduleKey),
-    allowed_sub_modules: willAdd
-      ? subs.filter(
-          (s) =>
-            OPT_IN_SUB_MODULE_KEYS.has(s) ||
-            ALL_ADMIN_RECRUITMENT_TAB_KEYS.includes(s) ||
-            (!s.startsWith(`${moduleKey}.`) && !ALL_RECRUITMENT_TAB_KEYS.includes(s))
-        )
-      : subs,
+    allowed_sub_modules: nextSubs,
   };
 }
 
@@ -257,17 +272,45 @@ export function applySubToggle(form, subValue) {
   const willAdd = switchingToEmployeeMasterOnly || !subs.includes(subValue);
 
   const recruitmentNext = toggleRecruitmentAccessKey(subs, subValue);
-  const nextSubs = recruitmentNext
+  let nextSubs = recruitmentNext
     ? recruitmentNext
     : willAdd
       ? [...subs.filter((s) => s !== subValue), subValue]
-      : subs.filter((s) => s !== subValue);
+      : subs.filter((s) => {
+          if (s === subValue) return false;
+          // Drop Net Total Access when Costing Sheet itself is revoked.
+          if (subValue === IEV_COSTING_SHEET_KEY && s === IEV_COSTING_NET_TOTAL_KEY) return false;
+          // Drop Net Total when the whole IEV Costing section is revoked.
+          if (subValue === "fireTender.costing" && s === IEV_COSTING_NET_TOTAL_KEY) return false;
+          return true;
+        });
+
+  // Ticking IEV Costing (all pages) defaults Net Total Access on.
+  if (willAdd && subValue === "fireTender.costing" && !nextSubs.includes(IEV_COSTING_NET_TOTAL_KEY)) {
+    nextSubs = [...nextSubs, IEV_COSTING_NET_TOTAL_KEY];
+  }
 
   return {
     allowed_modules: switchingToEmployeeMasterOnly ? mods.filter((m) => m !== "admin") : mods,
     allowed_sub_modules: nextSubs,
     added: willAdd,
   };
+}
+
+/** Toggle Costing Sheet → Net Total Access; granting it also grants Costing Sheet. */
+export function applyIevCostingNetTotalToggle(form) {
+  const mods = list(form?.allowed_modules);
+  const subs = list(form?.allowed_sub_modules);
+  if (subs.includes(IEV_COSTING_NET_TOTAL_KEY)) {
+    return {
+      allowed_modules: mods,
+      allowed_sub_modules: subs.filter((s) => s !== IEV_COSTING_NET_TOTAL_KEY),
+    };
+  }
+  const next = new Set(subs);
+  next.add(IEV_COSTING_SHEET_KEY);
+  next.add(IEV_COSTING_NET_TOTAL_KEY);
+  return { allowed_modules: mods, allowed_sub_modules: [...next] };
 }
 
 export function applyEnquiryLevelToggle(form, key) {
@@ -327,6 +370,9 @@ export function selectAllTabs(form, page) {
 export function clearTabs(form, page) {
   const subs = list(form?.allowed_sub_modules);
   const drop = new Set([page.key, ...(page.tabs || []).map((t) => t.key)]);
+  for (const tab of page.tabs || []) {
+    for (const extra of tab.extras || []) drop.add(extra.key);
+  }
   if (page.recruitment) RECRUITMENT_FAMILIES[page.key].allTabKeys.forEach((k) => drop.add(k));
   return withSubs(form, subs.filter((k) => !drop.has(k)));
 }
@@ -366,6 +412,11 @@ const LABELS = (() => {
   CALLING_SITE_TYPE_KEYS.forEach((k) => map.set(k.value, `HR Site → Scope → ${k.label}`));
   map.set(IEV_CONFIG_SELECTED_KEY, "IEV → Configuration → Selected items only");
   IEV_CONFIG_PAGES.forEach((p) => map.set(p.value, `IEV → Configuration → ${p.label}`));
+  IEV_COSTING_PAGES.forEach((p) => {
+    for (const extra of p.extras || []) {
+      map.set(extra.value, `IEV → IEV Costing → ${p.label} → ${extra.label}`);
+    }
+  });
   map.set(EMPLOYEE_MASTER_SUBMODULE_KEY, "IN-House HR/Admin → Employee Master");
   return map;
 })();

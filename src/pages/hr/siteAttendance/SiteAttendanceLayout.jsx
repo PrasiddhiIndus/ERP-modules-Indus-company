@@ -47,6 +47,7 @@ const SiteAttendanceAccessContext = createContext({
   canAssignHr: false,
   seesAllSites: true,
   allowedSiteIds: null,
+  isSiteSupervisor: false,
   hrTeam: [],
   employeeCode: null,
 });
@@ -85,6 +86,7 @@ export default function SiteAttendanceLayout() {
     canAssignHr: false,
     seesAllSites: true,
     allowedSiteIds: null,
+    isSiteSupervisor: false,
     hrTeam: [],
     employeeCode: null,
   });
@@ -97,7 +99,7 @@ export default function SiteAttendanceLayout() {
           userId: user?.id,
           email: user?.email,
         });
-        if (!cancelled) setAccess({ loading: false, ...next });
+        if (!cancelled) setAccess({ loading: false, isSiteSupervisor: false, ...next });
       } catch {
         if (!cancelled) {
           setAccess({
@@ -105,6 +107,7 @@ export default function SiteAttendanceLayout() {
             canAssignHr: true,
             seesAllSites: true,
             allowedSiteIds: null,
+            isSiteSupervisor: false,
             hrTeam: [],
             employeeCode: null,
           });
@@ -116,55 +119,64 @@ export default function SiteAttendanceLayout() {
     };
   }, [user?.id, user?.email]);
 
+  const isSiteSupervisor = Boolean(access.isSiteSupervisor) || (!access.seesAllSites && Array.isArray(access.allowedSiteIds));
+
   return (
     <SiteTypeContext.Provider value={typeValue}>
       <SiteAttendanceAccessContext.Provider value={access}>
-        <div className="mx-auto flex w-full min-h-0 max-w-[1600px] flex-col gap-4 p-4 md:p-6">
+        <div className="att-site-layout mx-auto flex w-full min-h-0 max-w-[1600px] flex-col gap-3 p-3 sm:gap-4 sm:p-4 md:p-6">
           <div className="flex flex-wrap items-start justify-between gap-3 shrink-0">
-            <div>
+            <div className="min-w-0 flex-1">
               <h1 className="type-page-title text-ink">Site attendance</h1>
               <p className="type-meta mt-1.5 max-w-3xl text-ink-secondary">
-                Contract-site roster, daily marks, and monthly summaries.
+                {isSiteSupervisor
+                  ? "Mark daily attendance for your assigned site."
+                  : "Contract-site roster, daily marks, and monthly summaries."}
               </p>
             </div>
-            <label className="flex flex-col gap-1 min-w-[160px]">
-              <span className="text-[11px] font-medium text-ink-secondary">Site type</span>
-              <TinySelect
-                value={siteType}
-                onChange={(e) => setSiteType(e.target.value)}
-                disabled={Boolean(lockedSiteType)}
-                title={lockedSiteType ? `Your access is limited to ${lockedSiteType} sites` : undefined}
-              >
-                {!lockedSiteType ? <option value="">All</option> : null}
-                {["Fire", "Safety"].filter((type) => SITE_TYPES.includes(type) && allowedSiteTypes.includes(type)).map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </TinySelect>
-            </label>
+            {!isSiteSupervisor ? (
+              <label className="flex flex-col gap-1 min-w-[140px] w-full sm:w-auto sm:min-w-[160px]">
+                <span className="text-[11px] font-medium text-ink-secondary">Site type</span>
+                <TinySelect
+                  value={siteType}
+                  onChange={(e) => setSiteType(e.target.value)}
+                  disabled={Boolean(lockedSiteType)}
+                  className="w-full"
+                  title={lockedSiteType ? `Your access is limited to ${lockedSiteType} sites` : undefined}
+                >
+                  {!lockedSiteType ? <option value="">All</option> : null}
+                  {["Fire", "Safety"].filter((type) => SITE_TYPES.includes(type) && allowedSiteTypes.includes(type)).map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </TinySelect>
+              </label>
+            ) : null}
           </div>
 
-          <div className="shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <nav className="flex flex-wrap gap-2 px-3 py-3 sm:px-4" aria-label="Site attendance">
-              {visibleTabs.map((tab) => {
-                const Icon = tab.icon;
-                return (
-                  <NavLink key={tab.to} to={tab.to} end={tab.end} className={tabClass}>
-                    <Icon className="h-4 w-4 shrink-0" />
-                    <span className="whitespace-nowrap">{tab.label}</span>
-                  </NavLink>
-                );
-              })}
-            </nav>
-          </div>
+          {visibleTabs.length > 1 ? (
+            <div className="shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+              <nav className="flex flex-nowrap gap-2 overflow-x-auto overscroll-x-contain px-3 py-3 sm:flex-wrap sm:px-4" aria-label="Site attendance">
+                {visibleTabs.map((tab) => {
+                  const Icon = tab.icon;
+                  return (
+                    <NavLink key={tab.to} to={tab.to} end={tab.end} className={tabClass}>
+                      <Icon className="h-4 w-4 shrink-0" />
+                      <span className="whitespace-nowrap">{tab.label}</span>
+                    </NavLink>
+                  );
+                })}
+              </nav>
+            </div>
+          ) : null}
 
-          {!siteType ? (
+          {!isSiteSupervisor && !siteType ? (
             <p className="type-meta rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-800">
               Showing all site types. Choose Safety or Fire to filter (most live sites are Fire).
             </p>
           ) : null}
-          {!access.loading && !access.seesAllSites ? (
+          {!access.loading && isSiteSupervisor ? (
             <p className="type-meta rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-800">
               Showing sites assigned to you.
             </p>

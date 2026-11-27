@@ -1,5 +1,5 @@
 // src/pages/CostingTable.jsx
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import CostingSummary from "./CostingSummary";
 import { FaBars, FaChevronDown, FaChevronUp, FaTrash } from "react-icons/fa";
@@ -7,6 +7,8 @@ import { supabase } from "../../lib/supabase";
 import auditLogger from "../../lib/auditLogger";
 import { isRetiredFireTenderMainComponentLabel } from "../../lib/retiredFireTenderMainComponents";
 import { NumericInput, parseNumericInput } from "../../components/NumericInput";
+import { useAuth } from "../../contexts/AuthContext";
+import { canViewIevCostingNetTotal, getAccessibleModules } from "../../config/roles";
 import {
   calculateCostingRowTotal,
   computeMetaconeQty,
@@ -171,6 +173,9 @@ const CostingTable = ({
   template,
   accessoriesTotal: accessoriesTotalProp,
 }) => {
+  const { userProfile } = useAuth();
+  const accessibleModules = useMemo(() => getAccessibleModules(userProfile), [userProfile]);
+  const canViewNetTotal = canViewIevCostingNetTotal(userProfile, accessibleModules);
   const [componentTree, setComponentTree] = useState({});
   const [displayAliases, setDisplayAliases] = useState({});
   const [globalOmittedComponents, setGlobalOmittedComponents] = useState(() => new Set());
@@ -1491,14 +1496,16 @@ const CostingTable = ({
         Total Fabrication Cost Without Margin (excluding chassis): ₹ {formatCurrency(grandTotal)}
       </div>
 
-      <CostingSummary
-        grandTotal={grandTotal}
-        chassisTotal={chassisTotal}
-        accessoriesTotal={accessoriesTotal}
-        tenderId={tenderId}
-        tenderSource={tenderSource}
-        onExportExcel={handleExportExcel}
-      />
+      {canViewNetTotal ? (
+        <CostingSummary
+          grandTotal={grandTotal}
+          chassisTotal={chassisTotal}
+          accessoriesTotal={accessoriesTotal}
+          tenderId={tenderId}
+          tenderSource={tenderSource}
+          onExportExcel={handleExportExcel}
+        />
+      ) : null}
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <span className="order-first w-full text-xs font-medium text-emerald-700 sm:order-none sm:w-auto">

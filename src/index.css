@@ -892,6 +892,258 @@ main.erp-app-shell header.sticky {
   cursor: default;
   opacity: 0.85;
 }
+
+/* Desktop: employee code under name is reserved for mobile hierarchy */
+.att-emp-code {
+  display: none;
+}
+.att-grid-search-mobile {
+  display: none;
+}
+
+/* Site Attendance entry — mobile portrait + landscape (desktop layout unchanged) */
+@media (max-width: 768px) {
+  .att-site-layout {
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+    gap: 0.75rem;
+  }
+  .att-site-layout > div:first-child h1 {
+    font-size: 1.25rem;
+    line-height: 1.3;
+  }
+  .att-site-layout > div:first-child .type-meta {
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+
+  .att-entry-page {
+    gap: 0.875rem;
+  }
+  .att-entry-page .type-page-title,
+  .att-entry-page h1 {
+    font-size: 1.125rem !important;
+    line-height: 1.35 !important;
+  }
+  .att-entry-page .erp-card-header h3,
+  .att-entry-page .type-card-title {
+    font-size: 0.9375rem !important;
+  }
+  .att-entry-page .erp-filter-bar {
+    align-items: stretch;
+    gap: 0.75rem;
+    padding: 0.875rem !important;
+  }
+  .att-entry-page .att-filter-field {
+    flex: 1 1 calc(50% - 0.5rem);
+    min-width: min(100%, 8.5rem);
+  }
+  .att-entry-page .att-filter-field > span,
+  .att-entry-page .att-mobile-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--ink-secondary, #475569);
+  }
+  .att-entry-page .att-filter-field select,
+  .att-entry-page .att-filter-field input,
+  .att-entry-page .att-mobile-search-input {
+    min-height: 2.75rem;
+    font-size: 0.9375rem !important;
+  }
+  .att-entry-page .att-filter-actions {
+    flex: 1 1 100%;
+    gap: 0.5rem;
+  }
+  .att-entry-page .att-filter-actions > button {
+    flex: 1 1 auto;
+    min-height: 2.75rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .att-entry-page .att-bulk-controls {
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+  .att-entry-page .att-bulk-controls > label {
+    font-size: 0.8125rem;
+    min-height: 2.5rem;
+  }
+  .att-entry-page .att-bulk-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    width: 100%;
+  }
+  .att-entry-page .att-bulk-actions > button {
+    width: 100%;
+    min-height: 2.75rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .att-entry-page .att-bulk-search-desktop,
+  .att-entry-page .att-locked-search-desktop {
+    display: none !important;
+  }
+
+  /* Sticky find-employee bar above the grid */
+  .att-grid-search-mobile {
+    display: block;
+    position: sticky;
+    top: 0;
+    z-index: 45;
+    margin: 0 0 0.75rem;
+    padding: 0.75rem 0.875rem;
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 0.625rem;
+    background: color-mix(in srgb, var(--surface, #fff) 92%, var(--surface-sunken, #f8fafc));
+    box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+  }
+  .att-mobile-search-hint {
+    font-size: 0.75rem;
+    line-height: 1.35;
+    color: var(--ink-muted, #64748b);
+  }
+  .att-mobile-clear-search {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--accent, #2563eb);
+    text-decoration: underline;
+  }
+
+  .att-daily-card .erp-card-body {
+    padding-top: 0.75rem;
+  }
+  .att-daily-grid-scroll {
+    max-height: min(58vh, calc(100dvh - 16rem));
+    overscroll-behavior: contain;
+    border-radius: 0.625rem;
+    -webkit-overflow-scrolling: touch;
+  }
+  .att-daily-grid {
+    font-size: 0.8125rem;
+  }
+  .att-daily-grid .att-col-num {
+    left: 0 !important;
+    width: 2rem !important;
+    min-width: 2rem !important;
+    max-width: 2rem !important;
+    padding-left: 0.2rem !important;
+    padding-right: 0.2rem !important;
+    font-size: 0.75rem !important;
+  }
+  .att-daily-grid .att-col-name {
+    left: 2rem !important;
+    width: 8.25rem !important;
+    min-width: 8.25rem !important;
+    max-width: 8.25rem !important;
+    padding: 0.45rem 0.5rem !important;
+    white-space: normal !important;
+    vertical-align: middle;
+  }
+  .att-daily-grid .att-emp-name {
+    display: block;
+    font-size: 0.875rem !important;
+    font-weight: 650 !important;
+    line-height: 1.25 !important;
+    white-space: normal;
+    word-break: break-word;
+  }
+  .att-daily-grid .att-emp-code {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.6875rem !important;
+  }
+  .att-daily-grid .att-copy-desig {
+    display: block;
+    margin: 0.35rem 0 0 !important;
+    max-width: 100% !important;
+    min-height: 1.75rem;
+  }
+  .att-daily-grid .att-col-desig {
+    left: 10.25rem !important;
+    width: 4.5rem !important;
+    min-width: 4.5rem !important;
+    max-width: 4.5rem !important;
+    padding: 0.35rem 0.3rem !important;
+    font-size: 0.6875rem !important;
+    white-space: normal !important;
+    word-break: break-word;
+  }
+  .att-daily-date-head {
+    min-width: 3rem !important;
+    padding: 0.4rem 0.25rem !important;
+  }
+  .att-daily-date-head > div:first-child {
+    font-size: 0.8125rem !important;
+  }
+  .att-daily-date-head > div:last-child {
+    font-size: 0.6875rem !important;
+  }
+  .att-daily-mark-select,
+  .att-daily-mark-cell input[type="number"] {
+    min-height: 2.75rem;
+    font-size: 0.875rem !important;
+    font-weight: 650 !important;
+  }
+  .att-daily-mark-cell input[type="number"] {
+    min-height: 2.5rem;
+  }
+  .att-entry-page .type-meta {
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+}
+
+@media (max-width: 768px) and (orientation: landscape) {
+  .att-site-layout {
+    gap: 0.5rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+  .att-entry-page {
+    gap: 0.5rem;
+  }
+  .att-grid-search-mobile {
+    margin-bottom: 0.5rem;
+    padding: 0.5rem 0.75rem;
+  }
+  .att-daily-grid-scroll {
+    max-height: min(72vh, calc(100dvh - 9rem));
+  }
+  .att-daily-grid .att-col-name {
+    width: 7.5rem !important;
+    min-width: 7.5rem !important;
+    max-width: 7.5rem !important;
+  }
+  .att-daily-grid .att-col-desig {
+    left: 9.5rem !important;
+    width: 4rem !important;
+    min-width: 4rem !important;
+    max-width: 4rem !important;
+  }
+  .att-daily-mark-select {
+    min-height: 2.35rem;
+  }
+  .att-entry-page .att-bulk-actions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 420px) {
+  .att-entry-page .att-filter-field {
+    flex: 1 1 100%;
+  }
+  .att-daily-grid .att-col-desig {
+    display: none;
+  }
+  .att-daily-grid .att-col-name {
+    box-shadow: 2px 0 4px -2px rgba(0, 0, 0, 0.18);
+  }
+  .att-daily-grid .att-emp-name {
+    font-size: 0.8125rem !important;
+  }
+}
 .att-daily-mark-cell--closed .att-daily-mark-select:disabled,
 .att-daily-mark-cell--closed input:disabled {
   opacity: 1;
