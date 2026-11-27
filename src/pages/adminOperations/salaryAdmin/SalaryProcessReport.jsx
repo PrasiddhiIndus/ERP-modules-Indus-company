@@ -15,6 +15,7 @@ import {
 import { exportSalaryReportWorkbook } from "../../../lib/salaryProcessingExcel";
 import PayslipPreviewModal from "../../admin/employeeMaster/PayslipPreviewModal";
 import { toast } from "../../../lib/toast";
+import { maskAccountText } from "./salaryPrivacy";
 
 const selectIn =
   "h-7 px-1.5 text-[11px] border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent";
@@ -59,6 +60,12 @@ function Money({ value, strong = false }) {
 function rupees(value) {
   if (value == null || value === "") return "—";
   return `₹${formatINRPlain(value)}`;
+}
+
+function IdNo({ value }) {
+  const masked = maskAccountText(value, "—");
+  const shown = masked != null ? masked : value || "—";
+  return <span className="font-mono whitespace-nowrap">{shown}</span>;
 }
 
 /**
@@ -114,7 +121,15 @@ export default function SalaryProcessReport() {
     for (const g of groups) {
       const employees = (g.employees || []).filter((e) => {
         if (!needle) return true;
-        const hay = [e.employee_code, e.employee_name, e.designation, e.department]
+        const hay = [
+          e.employee_code,
+          e.employee_name,
+          e.designation,
+          e.department,
+          e.uan_no,
+          e.esic_no,
+          e.pan_card_no,
+        ]
           .filter(Boolean)
           .join(" ")
           .toLowerCase();
@@ -147,7 +162,21 @@ export default function SalaryProcessReport() {
         toast.warning("Salary slip is not ready for this employee yet.");
         return;
       }
-      setPreview(slip);
+      const uan = emp.uan_no || slip.uan_no || slip.uan_number || "";
+      const esic = emp.esic_no || slip.esic_no || slip.esic_number || "";
+      const pan = emp.pan_card_no || slip.pan_card_no || slip.pan_card || "";
+      const ifsc = emp.ifsc || slip.ifsc || slip.ifsc_code || emp.line?.ifsc || "";
+      setPreview({
+        ...slip,
+        uan_no: uan,
+        uan_number: uan,
+        esic_no: esic,
+        esic_number: esic,
+        pan_card_no: pan,
+        pan_card: pan,
+        ifsc,
+        ifsc_code: ifsc,
+      });
     },
     [report]
   );
@@ -361,6 +390,9 @@ export default function SalaryProcessReport() {
                         <th className="px-2 py-1.5 text-left font-semibold">Sr</th>
                         <th className="px-2 py-1.5 text-left font-semibold">Code</th>
                         <th className="px-2 py-1.5 text-left font-semibold">Name</th>
+                        <th className="px-2 py-1.5 text-left font-semibold">UAN number</th>
+                        <th className="px-2 py-1.5 text-left font-semibold">ESIC number</th>
+                        <th className="px-2 py-1.5 text-left font-semibold">PAN</th>
                         <th className="px-2 py-1.5 text-left font-semibold">Designation</th>
                         <th className="px-2 py-1.5 text-right font-semibold">P.Days</th>
                         <th className="px-2 py-1.5 text-right font-semibold">Gross</th>
@@ -380,6 +412,15 @@ export default function SalaryProcessReport() {
                             {emp.employee_code || "—"}
                           </td>
                           <td className="px-2 py-1.5 text-slate-800">{emp.employee_name || "—"}</td>
+                          <td className="px-2 py-1.5 text-slate-800">
+                            <IdNo value={emp.uan_no} />
+                          </td>
+                          <td className="px-2 py-1.5 text-slate-800">
+                            <IdNo value={emp.esic_no} />
+                          </td>
+                          <td className="px-2 py-1.5 text-slate-800">
+                            <IdNo value={emp.pan_card_no} />
+                          </td>
                           <td
                             className="px-2 py-1.5 text-slate-600 truncate max-w-[10rem]"
                             title={emp.designation || ""}
