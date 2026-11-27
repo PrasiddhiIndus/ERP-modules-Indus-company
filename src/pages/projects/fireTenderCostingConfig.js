@@ -255,20 +255,29 @@ export function calculateCostingRowTotal(row, allRows) {
 
 /**
  * Data-entry fill status for a costing line (UI + Excel).
- * - "complete" → green: required fields filled (component-specific rules)
- * - "incomplete" → red: required fields blank/missing (includes newly added blank lines)
- * - "neutral" → unused for sheet lines (kept for callers that still check it)
+ * - "complete" → green: required fields filled
+ * - "incomplete" → red: missing required fields
+ * - "neutral" → normal appearance (no tint)
  *
- * Default complete rule: Unit Cost/Metal Price > 0 and Qty > 0.
- * Tank / structure / DCP / metacone keep their own weight/qty rules.
+ * Newly added (extra) lines: red by default; green when Main Cost Component,
+ * Unit Cost / Price of Metal, and Qty are all filled (updates live on edit).
+ * Catalog / fixed lines keep component-specific weight/qty rules.
  */
 export function getCostingRowFillStatus(row, allRows, componentTree, isFixedRow) {
-  // New / blank lines: highlight red until the user fills required values.
-  if (!row?.component?.trim()) return "incomplete";
+  const unitCost = parseCostingNumber(row?.unitCost);
+  const qty = parseCostingNumber(row?.qty);
+  const component = String(row?.component || "").trim();
 
-  const unitCost = parseCostingNumber(row.unitCost);
+  // Extra / newly added lines — red until the three fields are filled, then green.
+  if (!isFixedRow) {
+    if (component && unitCost > 0 && qty > 0) return "complete";
+    return "incomplete";
+  }
+
+  // Catalog / fixed lines: highlight red until required values are filled.
+  if (!component) return "incomplete";
+
   const weight = parseCostingNumber(row.weight);
-  const qty = parseCostingNumber(row.qty);
   const manual = String(row.manualSub || "").trim();
   const rule = getComponentFieldRule(row.component);
 
