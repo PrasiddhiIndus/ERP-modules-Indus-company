@@ -6,7 +6,7 @@ import { MASKED_SECRET, salaryFiguresHidden } from "../../adminOperations/salary
 const COMPANY_NAME = "Indus Fire Safety Pvt Ltd";
 const COMPANY_ADDRESS =
   "Block No 501, Indus House, Opposite GSFC Main Gate, Dashrath, Vadodara, Gujarat. Pin 391740.";
-const HR_EMAIL = "hr@indusfiresafety.com";
+const HR_EMAIL = "shilpa@indusfire.com";
 
 /** Same palette as tax invoice / billing receipts */
 const BLUE = "#1a3a6c";
