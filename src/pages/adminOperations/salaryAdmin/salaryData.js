@@ -35,7 +35,11 @@ import {
   dbSaveSalaryStructure,
 } from "./salaryDb";
 import { isPeopleSalaryKey } from "./salarySubject";
-import { ANNEXURE_STRUCTURE_VERSION } from "./annexureCtcRecord";
+import {
+  ANNEXURE_STRUCTURE_VERSION,
+  consultantEarnedAmount,
+  consultantPayableDays,
+} from "./annexureCtcRecord";
 import { maskAmountText } from "./salaryPrivacy";
 
 /** @deprecated Legacy browser key — kept only for one-time migration into admin_salary. */
@@ -401,6 +405,7 @@ const ANNEXURE_ONLY_COLUMNS = [
   "medical_allowance_monthly",
   "ex_gratia_monthly",
   "pf_wage_monthly",
+  "consultant_p_days",
 ];
 
 function baseForRevision(structure, rev) {
@@ -442,6 +447,7 @@ export function resolveStructureForPayMonth(structure, year, month) {
         structure_version: rev.structure_version ?? null,
         declared: rev.declared !== false,
         employee_master_id: structure.employee_master_id,
+        consultant_p_days: rev.consultant_p_days ?? null,
       },
     });
   }
@@ -1109,6 +1115,13 @@ function sheetProrate(amount, presentDays, totalDays = DEFAULT_MONTH_DAYS) {
   return round0((base * k) / td);
 }
 
+/** Working-day proration, or the consultant P. Days rule when that threshold is set. */
+function earnMonth(amount, presentDays, totalDays, structure) {
+  const pDays = consultantPayableDays(structure);
+  if (pDays > 0) return round0(consultantEarnedAmount(amount, presentDays, pDays) ?? 0);
+  return sheetProrate(amount, presentDays, totalDays);
+}
+
 /** Professional tax on Gross W: ₹200 when Gross W ≥ ₹12,000, else ₹0. */
 export function defaultPtForGross(grossWages) {
   return Number(grossWages) >= PT_GROSS_MIN ? PT_AMOUNT : 0;
@@ -1144,7 +1157,7 @@ export function computeProcessingRow({
     const net = round0(structure.take_home_monthly ?? structure.gross_monthly ?? structure.ctc_monthly ?? 0);
     const K = Number(presentDays);
     const TotalDays = Number(totalDays) || DEFAULT_MONTH_DAYS;
-    const earned = sheetProrate(net, Number.isFinite(K) ? K : 0, TotalDays);
+    const earned = earnMonth(net, Number.isFinite(K) ? K : 0, TotalDays, structure);
     return {
       declared: true,
       take_home_only: true,
@@ -1224,10 +1237,10 @@ export function computeProcessingRow({
       ? round0(pfBasicOverride)
       : Math.min(basicN, PF_WAGE_CAP);
 
-  const pfEarnedM = sheetProrate(pfBasicL, K, TotalDays);
-  const basicEarnedO = sheetProrate(basicN, K, TotalDays);
-  const hraP = sheetProrate(hraStored, K, TotalDays);
-  const specialQ = sheetProrate(specialStored, K, TotalDays);
+  const pfEarnedM = earnMonth(pfBasicL, K, TotalDays, structure);
+  const basicEarnedO = earnMonth(basicN, K, TotalDays, structure);
+  const hraP = earnMonth(hraStored, K, TotalDays, structure);
+  const specialQ = earnMonth(specialStored, K, TotalDays, structure);
   const grossWagesR = basicEarnedO + hraP + specialQ;
   const empPfS = round0((pfEarnedM * 12) / 100);
 
@@ -1251,7 +1264,7 @@ export function computeProcessingRow({
   // Auto: already based on prorated Basic. Custom: prorate the saved monthly amount.
   const empEsicT =
     empEsicMode === MODE_CUSTOM
-      ? sheetProrate(esic.emp_esic_monthly, K, TotalDays)
+      ? earnMonth(esic.emp_esic_monthly, K, TotalDays, structure)
       : esic.emp_esic_monthly;
 
   const ptU =

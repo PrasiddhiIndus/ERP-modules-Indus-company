@@ -31,6 +31,9 @@ import {
   readVoucherFull,
   hasGenerateVoucher,
   prorateVoucherByPresentDays,
+  consultantEarnedAmount,
+  consultantPayableDays,
+  consultantPayableDaysFromSources,
 } from "./annexureCtcRecord";
 import {
   appendProcessBatch,
@@ -610,6 +613,7 @@ export function buildSheetLineFromSources({
     ctc_monthly: structure?.ctc_monthly,
   };
 
+  const consultantDays = consultantPayableDays(structure);
   const takeHomeOnly = Boolean(computed.take_home_only) || isTakeHomeStructure(structure);
   const personComps = takeHomeOnly
     ? { custom_earn_full: 0, custom_ded_full: 0, custom_employer_full: 0, items: [] }
@@ -653,6 +657,9 @@ export function buildSheetLineFromSources({
     custom_components: personComps.items,
     ...(takeHomeOnly ? { take_home_only: true } : {}),
     ...(annexure ? { annexure } : {}),
+    ...(consultantDays > 0
+      ? { employee_category: structure?.employee_category, consultant_p_days: consultantDays }
+      : {}),
     ...voucherSnap,
   };
 
@@ -705,6 +712,9 @@ export function buildSheetLineFromSources({
       custom_components: personComps.items,
       ...(takeHomeOnly ? { take_home_only: true } : {}),
       ...(annexure ? { annexure } : {}),
+      ...(consultantDays > 0
+        ? { employee_category: structure?.employee_category, consultant_p_days: consultantDays }
+        : {}),
       ...voucherSnap,
     },
     line_revision_no: 1,
@@ -818,12 +828,18 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
         ? line.salary_rate
         : cj.salary_rate ?? snap.salary_rate ?? 0
     );
+    const pDays = consultantPayableDaysFromSources(line, cj, snap);
     const earned =
-      presentUnknown || K <= 0 || td <= 0 || monthlyNet === 0
+      presentUnknown || K <= 0 || monthlyNet === 0
         ? 0
-        : Math.abs(K - td) < 1e-6
-          ? monthlyNet
-          : round0((monthlyNet / td) * K);
+        : pDays > 0
+          ? round0(consultantEarnedAmount(monthlyNet, K, pDays) ?? 0)
+          : td <= 0
+            ? 0
+            : Math.abs(K - td) < 1e-6
+              ? monthlyNet
+              : round0((monthlyNet / td) * K);
+    const consultantSnap = pDays > 0 ? { employee_category: "consultant", consultant_p_days: pDays } : {};
     const voucherSnap = resolveVoucherSnapOnRecompute(line, cj, snap, K, td);
     return {
       ...line,
@@ -854,9 +870,11 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
       net_salary: earned,
       bank_amount: earned,
       take_home_only: true,
+      ...consultantSnap,
       ...voucherSnap,
       computed_json: {
         ...cj,
+        ...consultantSnap,
         take_home_only: true,
         salary_rate: monthlyNet,
         gross_wages: earned,
@@ -873,7 +891,13 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
         custom_components: [],
         ...voucherSnap,
       },
-      source_snapshot_json: { ...snap, take_home_only: true, salary_rate: monthlyNet, ...voucherSnap },
+      source_snapshot_json: {
+        ...snap,
+        ...consultantSnap,
+        take_home_only: true,
+        salary_rate: monthlyNet,
+        ...voucherSnap,
+      },
     };
   }
   const pfBasic = num(line.pf_basic);
@@ -886,8 +910,14 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
   const customDedFull = num(
     line.custom_ded_full != null ? line.custom_ded_full : cj.custom_ded_full ?? snap.custom_ded_full
   );
+  const pDays = consultantPayableDaysFromSources(line, cj, snap);
+  const consultantSnap = pDays > 0 ? { employee_category: "consultant", consultant_p_days: pDays } : {};
   const prorate = (full) => {
     const base = num(full);
+    if (pDays > 0) {
+      if (K <= 0 || base === 0) return 0;
+      return round0(consultantEarnedAmount(base, K, pDays) ?? 0);
+    }
     if (K <= 0 || td <= 0 || base === 0) return 0;
     if (Math.abs(K - td) < 1e-6) return round0(base);
     return round0((base / td) * K);
@@ -1034,9 +1064,11 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
     total_ded: totalDed,
     net_salary: net,
     bank_amount: bank,
+    ...consultantSnap,
     ...voucherSnap,
     computed_json: {
       ...cj,
+      ...consultantSnap,
       custom_earn_full: customEarnFull,
       custom_ded_full: customDedFull,
       custom_earn: customEarn,
@@ -1054,7 +1086,7 @@ export function recomputeLineFromEdits(lineIn, monthDays, opts) {
         : {}),
       ...voucherSnap,
     },
-    source_snapshot_json: { ...snap, ...voucherSnap },
+    source_snapshot_json: { ...snap, ...consultantSnap, ...voucherSnap },
   };
 }
 
