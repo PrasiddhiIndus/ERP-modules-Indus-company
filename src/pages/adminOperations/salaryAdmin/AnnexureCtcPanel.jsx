@@ -15,6 +15,7 @@ import {
   TinySelect,
 } from "../../../components/erpUi";
 import {
+  CATEGORY_CONSULTANT,
   CATEGORY_EXISTING_CONFIRMED,
   CATEGORY_NEW_JOINER_NEW_SCHEME,
   CATEGORY_NEW_PROBATION,
@@ -208,7 +209,14 @@ function emptyForm(employee) {
     extras: [],
     generateVoucher: false,
     voucherAmount: "",
+    pDays: "",
   };
+}
+
+function storedConsultantPDays(record) {
+  if (record?.employee_category !== CATEGORY_CONSULTANT) return "";
+  const n = Number(record.consultant_p_days);
+  return Number.isFinite(n) && n > 0 ? String(n) : "";
 }
 
 let extraSeq = 0;
@@ -283,6 +291,7 @@ function formFromRecord(record, employee) {
       wef: todayIso(),
       category: record.employee_category || base.category,
       structureMode: STRUCTURE_MODE_TAKE_HOME,
+      pDays: storedConsultantPDays(record),
       netSalary: record.take_home_monthly != null ? String(roundRupee(record.take_home_monthly)) : "",
       revisionType: "increment",
       ...voucherFields,
@@ -313,6 +322,7 @@ function formFromRecord(record, employee) {
     extras,
     skill: record.skill_category || SKILL_SKILLED,
     category,
+    pDays: storedConsultantPDays(record),
     structureMode: STRUCTURE_MODE_CTC,
     scheme: record.salary_scheme || SCHEME_OLD,
     ctc: byCtc ? String(roundRupee(record.ctc_monthly - extraA - extraB)) : "",
@@ -983,6 +993,13 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
     }
     const wef = toDay(form.wef);
     if (!wef) return toast.error("W.E.F. required", "Pick the Effective From date.");
+    const consultantPDays = form.category === CATEGORY_CONSULTANT ? parseEntered(form.pDays) : null;
+    if (form.category === CATEGORY_CONSULTANT && !(consultantPDays > 0 && consultantPDays <= 31)) {
+      return toast.error(
+        "P. Days required",
+        "Enter P. Days from 1 to 31. Salary stays full when paid days reach this number. Paid days below it are cut."
+      );
+    }
 
     if (isTakeHomeMode) {
       const net = parseEntered(form.netSalary);
@@ -1014,6 +1031,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
           employee,
           generateVoucher: form.generateVoucher,
           voucherAmount: parseEntered(form.voucherAmount),
+          consultantPDays,
         });
         if (current) await dbReviseSalaryStructure(employee.id, payload, { wef_date: wef, reason: payload.revision_reason });
         else await dbSaveSalaryStructure(employee.id, payload);
@@ -1161,6 +1179,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
             reason,
             employee,
             ...voucherOpts,
+            consultantPDays,
           }),
           wef
         );
@@ -1512,6 +1531,9 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   <Fact label="Employee Name">{employee.full_name || "—"}</Fact>
                   <Fact label="Designation">{employee.designation || "—"}</Fact>
                   <Fact label="Net Salary / month">₹{money(current.take_home_monthly)}</Fact>
+                  {storedConsultantPDays(current) ? (
+                    <Fact label="P. Days">{storedConsultantPDays(current)}</Fact>
+                  ) : null}
                   {readVoucherAmount(current) > 0 ? (
                     <Fact label="Voucher amount">₹{money(readVoucherAmount(current))}</Fact>
                   ) : null}
@@ -1523,6 +1545,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   W.E.F. {fmtDate(current.wef_date)}
                   {wefEditButton} · {skillLabel(current.skill_category)}
                   {current.revision_reason ? ` · ${current.revision_reason}` : ""}
+                  {storedConsultantPDays(current) ? ` · P. Days ${storedConsultantPDays(current)}` : ""}
                 </p>
                 <AnnexureTable
                   groups={[{ title: "Current", values: recordToComponents(current) }]}
@@ -1588,6 +1611,7 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                     setForm((f) => ({
                       ...f,
                       category,
+                      pDays: category === CATEGORY_CONSULTANT ? f.pDays : "",
                       structureMode: f.structureMode || STRUCTURE_MODE_CTC,
                       scheme: category === CATEGORY_NEW_JOINER_NEW_SCHEME ? SCHEME_NEW : f.scheme,
                       revisionType:
@@ -1603,6 +1627,34 @@ export default function AnnexureCtcPanel({ employee, onEmployeeUpdated }) {
                   ))}
                 </TinySelect>
               </label>
+
+              {form.category === CATEGORY_CONSULTANT ? (
+                <label className="block">
+                  <span className="text-ink-secondary">P. Days</span>
+                  <TinyInput
+                    type="number"
+                    min="1"
+                    max="31"
+                    step="any"
+                    className="mt-1 w-full"
+                    value={form.pDays}
+                    placeholder="e.g. 13"
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === "") {
+                        setField("pDays", "");
+                        return;
+                      }
+                      const n = Number(raw);
+                      if (!Number.isFinite(n) || n < 0) return;
+                      setField("pDays", n > 31 ? "31" : raw);
+                    }}
+                  />
+                  <span className="mt-1 block text-[11px] text-ink-muted">
+                    Enter 1 to 31. Salary stays full when paid days are this number or more. If paid days are less, the amount is cut as full amount × paid days ÷ P. Days.
+                  </span>
+                </label>
+              ) : null}
 
               <div className="block">
                 <span className="text-ink-secondary">Salary structure</span>

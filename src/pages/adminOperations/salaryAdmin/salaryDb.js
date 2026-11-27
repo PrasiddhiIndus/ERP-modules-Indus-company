@@ -56,6 +56,7 @@ const ANNEXURE_STRUCTURE_COLUMNS = [
   "perf_incentive_enabled",
   "perf_incentive_monthly",
   "extra_components_json",
+  "consultant_p_days",
 ];
 
 const omittedStructureColumns = new Set();
@@ -334,6 +335,9 @@ function annexureColumns(payload) {
     perf_incentive_enabled: Boolean(payload.perf_incentive_enabled),
     perf_incentive_monthly: payload.perf_incentive_enabled ? numOrNull(payload.perf_incentive_monthly) ?? 0 : 0,
     extra_components_json: Array.isArray(payload.extra_components_json) ? payload.extra_components_json : [],
+    ...(payload.employee_category === "consultant" && numOrNull(payload.consultant_p_days) > 0
+      ? { consultant_p_days: numOrNull(payload.consultant_p_days) }
+      : {}),
   };
 }
 

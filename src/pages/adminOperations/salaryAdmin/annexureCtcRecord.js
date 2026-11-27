@@ -55,6 +55,53 @@ export function isTakeHomeCategory(category) {
   return TAKE_HOME_CATEGORIES.includes(category);
 }
 
+/** Consultant P. Days cannot be entered above a calendar month. */
+export const MAX_CONSULTANT_P_DAYS = 31;
+
+/**
+ * Consultant P. Days stored on the CTC. 0 when the rule does not apply.
+ * Values above 31 are not a valid entry.
+ */
+export function consultantPayableDays(row) {
+  if (!row || row.employee_category !== CATEGORY_CONSULTANT) return 0;
+  const n = Number(row.consultant_p_days);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** First consultant P. Days found on the line, its computed copy, or its CTC snapshot. */
+export function consultantPayableDaysFromSources(...sources) {
+  const category = sources.map((s) => s?.employee_category).find((v) => v != null && v !== "");
+  if (category !== CATEGORY_CONSULTANT) return 0;
+  for (const source of sources) {
+    const n = Number(source?.consultant_p_days);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+}
+
+/**
+ * Earned amount before money rounding.
+ * Null when P. Days is not set.
+ * Full amount when paid days are at least P. Days; otherwise full × paid ÷ P. Days.
+ */
+export function consultantEarnedAmount(fullAmount, presentDays, pDays) {
+  const p = Number(pDays);
+  if (!Number.isFinite(p) || p <= 0) return null;
+  const full = Number(fullAmount);
+  if (!Number.isFinite(full) || full === 0) return 0;
+  const k = Number(presentDays);
+  if (!Number.isFinite(k) || k <= 0) return 0;
+  if (k + 1e-9 >= p) return full;
+  return (full / p) * k;
+}
+
+function consultantPDaysPayload(category, raw) {
+  if (category !== CATEGORY_CONSULTANT) return {};
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0 || n > MAX_CONSULTANT_P_DAYS) return {};
+  return { consultant_p_days: n };
+}
+
 export function isTakeHomeStructure(row) {
   if (!row) return false;
   return (
@@ -166,6 +213,7 @@ export function takeHomeToStructurePayload(netSalary, meta = {}) {
     system_values_json: {},
     date_of_birth: meta.employee?.date_of_birth || null,
     date_of_joining: meta.employee?.date_of_joining || null,
+    ...consultantPDaysPayload(category, meta.consultantPDays),
     ...voucherPayloadFromMeta(meta),
   };
 }
@@ -394,6 +442,7 @@ export function resultToStructurePayload(result, meta) {
     system_values_json: result.is_custom ? roundMap(result.system_values) : {},
     date_of_birth: meta.employee?.date_of_birth || null,
     date_of_joining: meta.employee?.date_of_joining || null,
+    ...consultantPDaysPayload(meta.category, meta.consultantPDays),
     ...voucherPayloadFromMeta(meta),
   };
 }

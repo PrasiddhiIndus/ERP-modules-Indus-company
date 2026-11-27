@@ -998,6 +998,11 @@ function ScopeSalarySheetTable({
               const rowLocked = lineIsSalaryLocked(line);
               const rowReadOnly = readOnly || rowLocked;
               const lineWorking = resolveLineWorkingDays(line, workingDays);
+              const consultantDays = Number(
+                line.consultant_p_days ??
+                  line.computed_json?.consultant_p_days ??
+                  line.source_snapshot_json?.consultant_p_days
+              );
               const daysOver = presentDaysExceedWorkingDays(line, workingDays);
               return (
               <tr
@@ -1109,7 +1114,11 @@ function ScopeSalarySheetTable({
                       className={numIn}
                       value={line.present_days ?? ""}
                       placeholder="—"
-                      title={`Present days for salary. Basis ${lineWorking} working days (amount = full × P.Days ÷ ${lineWorking}).`}
+                      title={
+                        consultantDays > 0
+                          ? `Paid days. Full monthly amount when paid days are ${consultantDays} or more. Below that, amount = full × paid days ÷ ${consultantDays}.`
+                          : `Present days for salary. Basis ${lineWorking} working days (amount = full × P.Days ÷ ${lineWorking}).`
+                      }
                       onChange={(e) => onUpdateLine(line.id, { present_days: e.target.value })}
                     />
                   )}
