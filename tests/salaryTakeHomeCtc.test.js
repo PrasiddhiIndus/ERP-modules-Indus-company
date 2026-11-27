@@ -98,4 +98,66 @@ describe("Take Home Create CTC categories", () => {
     expect(line.total_ded).toBe(0);
     expect(line.pt_amount).toBe(0);
   });
+
+  it("pays a consultant in full when paid days reach P. Days, and cuts only below it", () => {
+    const structure = takeHomeToStructurePayload(26000, {
+      category: CATEGORY_CONSULTANT,
+      consultantPDays: 13,
+      wefDate: "2026-11-01",
+    });
+    expect(structure.consultant_p_days).toBe(13);
+
+    const below = computeProcessingRow({ structure, presentDays: 10, totalDays: 26 });
+    expect(below.net_salary).toBe(20000);
+    expect(below.gross_wages).toBe(20000);
+
+    const exact = computeProcessingRow({ structure, presentDays: 13, totalDays: 26 });
+    expect(exact.net_salary).toBe(26000);
+
+    const above = computeProcessingRow({ structure, presentDays: 22, totalDays: 26 });
+    expect(above.net_salary).toBe(26000);
+
+    const edited = recomputeLineFromEdits(
+      {
+        salary_rate: 26000,
+        present_days: 10,
+        take_home_only: true,
+        employee_category: CATEGORY_CONSULTANT,
+        consultant_p_days: 13,
+        computed_json: { take_home_only: true, employee_category: CATEGORY_CONSULTANT, consultant_p_days: 13 },
+        source_snapshot_json: { take_home_only: true, employee_category: CATEGORY_CONSULTANT, consultant_p_days: 13 },
+      },
+      26
+    );
+    expect(edited.net_salary).toBe(20000);
+    expect(edited.bank_amount).toBe(20000);
+  });
+
+  it("does not store consultant P. Days above 31", () => {
+    const structure = takeHomeToStructurePayload(40000, {
+      category: CATEGORY_CONSULTANT,
+      consultantPDays: 40,
+      wefDate: "2026-11-01",
+    });
+    expect(structure.consultant_p_days).toBeUndefined();
+    const capped = takeHomeToStructurePayload(31000, {
+      category: CATEGORY_CONSULTANT,
+      consultantPDays: 31,
+      wefDate: "2026-11-01",
+    });
+    expect(capped.consultant_p_days).toBe(31);
+    const full = computeProcessingRow({ structure: capped, presentDays: 31, totalDays: 26 });
+    expect(full.net_salary).toBe(31000);
+  });
+
+  it("does not apply consultant P. Days to voucher employees", () => {
+    const structure = takeHomeToStructurePayload(20000, {
+      category: CATEGORY_VOUCHER_EMPLOYEE,
+      consultantPDays: 13,
+      wefDate: "2026-11-01",
+    });
+    expect(structure.consultant_p_days).toBeUndefined();
+    const row = computeProcessingRow({ structure, presentDays: 13, totalDays: 26 });
+    expect(row.net_salary).toBe(10000);
+  });
 });
