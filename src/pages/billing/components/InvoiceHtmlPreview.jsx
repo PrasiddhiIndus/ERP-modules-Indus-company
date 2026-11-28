@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { isQrImageDataUrl, signedQrToImageDataUrl } from '../../../../shared/eInvoiceQr.mjs';
+import { fetchEinvoiceQrImage } from '../../../services/eInvoiceApi';
 import {
   SELLER as PDF_SELLER,
   BANK,
@@ -25,6 +27,40 @@ import {
 import { invoicePincodeDisplayLine, resolveInvoicePartyPincodes } from '../../../utils/poPincodeFields';
 import { resolveBillToStateDisplay } from '../../../utils/gstStatePin';
 import { INDUS_LOGO_SRC } from '../../../constants/branding.js';
+
+function EinvoiceQrImage({ value, irn }) {
+  const [src, setSrc] = useState(() => (isQrImageDataUrl(value) ? value : ''));
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (value && isQrImageDataUrl(value)) {
+        if (!cancelled) setSrc(value);
+        return;
+      }
+      if (value) {
+        const fromStored = await signedQrToImageDataUrl(value);
+        if (cancelled) return;
+        if (fromStored) {
+          setSrc(fromStored);
+          return;
+        }
+      }
+      if (!irn) {
+        if (!cancelled) setSrc('');
+        return;
+      }
+      const fetched = await fetchEinvoiceQrImage(irn);
+      if (!cancelled) setSrc(fetched || '');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [value, irn]);
+
+  if (!src) return <span className="text-[7px] text-gray-500">QR</span>;
+  return <img src={src} alt="E-invoice QR code" className="h-full w-full object-contain" />;
+}
 
 const PDF_RS = 'Rs.';
 const COMPANY_DISPLAY_NAME = 'INDUS FIRE SAFETY PRIVATE LIMITED';
@@ -272,13 +308,9 @@ export default function InvoiceHtmlPreview({
               </p>
             </div>
             {showEinvBlock ? (
-              <div className="h-16 w-16 shrink-0">
-                <div className="h-full w-full border border-[#bbb] bg-white grid place-items-center">
-                  {qrData ? (
-                    <img src={qrData} alt="QR Code" className="h-full w-full object-contain" />
-                  ) : (
-                    <span className="text-[7px] text-gray-500">QR</span>
-                  )}
+              <div className="h-24 w-24 shrink-0">
+                <div className="h-full w-full border border-[#bbb] bg-white grid place-items-center overflow-hidden">
+                  <EinvoiceQrImage value={qrData} irn={irn} />
                 </div>
               </div>
             ) : null}

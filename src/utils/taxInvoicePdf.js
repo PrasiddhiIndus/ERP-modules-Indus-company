@@ -3,6 +3,8 @@
  * item table, tax summary, bank details, terms, footer). Uses data from Create Invoice / Manage Invoices.
  */
 import jsPDF from 'jspdf';
+import { isQrImageDataUrl, signedQrToImageDataUrl } from '../../shared/eInvoiceQr.mjs';
+import { fetchEinvoiceQrImage } from '../services/eInvoiceApi';
 import { autoTable } from 'jspdf-autotable';
 import {
   roundInvoiceAmount,
@@ -385,6 +387,41 @@ function docTitleForKind(kind) {
  *   render the e-invoice IRN / Ack No / Ack Date + QR block at the top (for Generated E-Invoice).
  *   Normal downloads (Manage Invoices) should omit this so layout stays clean.
  */
+async function withEinvoiceQrImage(inv) {
+  if (!inv) return inv;
+  const raw = inv.e_invoice_signed_qr || inv.eInvoiceSignedQr;
+  if (raw) {
+    const image = isQrImageDataUrl(String(raw)) ? String(raw) : await signedQrToImageDataUrl(String(raw));
+    if (image && isQrImageDataUrl(image)) {
+      return { ...inv, e_invoice_signed_qr: image, eInvoiceSignedQr: image };
+    }
+  }
+  const irn = inv.e_invoice_irn || inv.eInvoiceIrn;
+  if (!irn || String(irn).toUpperCase().startsWith('MOCK-IRN-')) return inv;
+  const fetched = await fetchEinvoiceQrImage(irn);
+  if (!fetched) return inv;
+  return { ...inv, e_invoice_signed_qr: fetched, eInvoiceSignedQr: fetched };
+}
+
+function drawEinvoiceQr(doc, dataUrl, x, y, w, h) {
+  const raw = String(dataUrl || '').trim();
+  if (!isQrImageDataUrl(raw)) return false;
+  const match = raw.match(/^data:image\/(png|jpe?g);base64,([\s\S]+)$/i);
+  const format = match && /jpe?g/i.test(match[1]) ? 'JPEG' : 'PNG';
+  const payload = match ? match[2].replace(/\s+/g, '') : '';
+  try {
+    doc.addImage(raw, format, x, y, w, h);
+    return true;
+  } catch (err) {
+    if (!payload) {
+      console.warn('e-invoice PDF QR draw failed', err?.message || err);
+      return false;
+    }
+    doc.addImage(payload, format, x, y, w, h);
+    return true;
+  }
+}
+
 function buildTaxInvoiceDoc(inv, options = {}) {
   if (!inv) return;
   const viewInv = enrichInvoiceWithPo(inv, options.po);
@@ -469,8 +506,8 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   const HEADER_MARK_MM = 25;
   const markTopY = headerTopY + 0.8;
   const logoBox = { x: MARGIN, y: markTopY, w: HEADER_MARK_MM, h: HEADER_MARK_MM };
-  const qrBoxW = HEADER_MARK_MM;
-  const qrBoxH = HEADER_MARK_MM;
+  const qrBoxW = isEInvoicePdf ? 32 : HEADER_MARK_MM;
+  const qrBoxH = isEInvoicePdf ? 32 : HEADER_MARK_MM;
   const qrBoxX = pageW - MARGIN - qrBoxW;
   const qrBoxY = markTopY;
   const companyTextX = logoBox.x + logoBox.w + 3;
@@ -539,20 +576,22 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   const gstLineBlockBottom = gstLineY + sellerIdLines.length * LH(FONT.small);
 
   if (isEInvoicePdf) {
+    doc.setFillColor(255, 255, 255);
     doc.setDrawColor(150, 150, 150);
-    doc.rect(qrBoxX, qrBoxY, qrBoxW, qrBoxH, 'S');
+    doc.rect(qrBoxX, qrBoxY, qrBoxW, qrBoxH, 'FD');
     doc.setFontSize(6);
     doc.setTextColor(90, 90, 90);
     doc.text('E-INVOICE', qrBoxX + qrBoxW / 2, qrBoxY - 0.6, { align: 'center' });
-    if (typeof qrData === 'string' && qrData.length > 0 && (qrData.startsWith('data:image/') || qrData.startsWith('data:application/'))) {
+    let qrDrawn = false;
+    if (typeof qrData === 'string' && qrData.startsWith('data:image/')) {
       try {
-        const type = qrData.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
-        doc.addImage(qrData, type, qrBoxX + 0.8, qrBoxY + 0.8, qrBoxW - 1.6, qrBoxH - 1.6);
-      } catch {
-        doc.setFontSize(6);
-        doc.text('QR Code', qrBoxX + qrBoxW / 2, qrBoxY + qrBoxH / 2 + 1, { align: 'center' });
+        qrDrawn = drawEinvoiceQr(doc, qrData, qrBoxX + 0.6, qrBoxY + 0.6, qrBoxW - 1.2, qrBoxH - 1.2);
+      } catch (err) {
+        console.warn('e-invoice PDF QR draw failed', err?.message || err);
+        qrDrawn = false;
       }
-    } else {
+    }
+    if (!qrDrawn) {
       doc.setFontSize(6);
       doc.text('QR Code', qrBoxX + qrBoxW / 2, qrBoxY + qrBoxH / 2 + 1, { align: 'center' });
     }
@@ -1295,7 +1334,7 @@ export async function downloadCreditDebitNotePdf(note, parentInvoice, options = 
   const snap = note.invoiceSnapshot || note.invoice_snapshot;
   if (snap && typeof snap === 'object') {
     const logoDataUrl = await fetchCompanyLogoDataUrlForPdf();
-    const inv = {
+    const inv = await withEinvoiceQrImage({
       ...snap,
       digitalSignatureDataUrl:
         snap.digitalSignatureDataUrl ||
@@ -1303,7 +1342,7 @@ export async function downloadCreditDebitNotePdf(note, parentInvoice, options = 
         options.digitalSignatureDataUrl ||
         parentInvoice?.digitalSignatureDataUrl ||
         parentInvoice?.digital_signature_data_url,
-    };
+    });
     const built = buildTaxInvoiceDoc(inv, { ...options, logoDataUrl });
     if (built?.doc) {
       const num = inv.taxInvoiceNumber || inv.bill_number || note.noteTaxInvoiceNumber || note.id;
@@ -1358,7 +1397,8 @@ export async function downloadCreditDebitNotePdf(note, parentInvoice, options = 
 
 export async function getTaxInvoicePdfBlobUrl(inv, options = {}) {
   const logoDataUrl = await fetchCompanyLogoDataUrlForPdf();
-  const built = buildTaxInvoiceDoc(inv, { ...options, logoDataUrl });
+  const ready = await withEinvoiceQrImage(inv);
+  const built = buildTaxInvoiceDoc(ready, { ...options, logoDataUrl });
   if (!built?.doc) return null;
   const blob = built.doc.output('blob');
   return URL.createObjectURL(blob);
@@ -1366,14 +1406,16 @@ export async function getTaxInvoicePdfBlobUrl(inv, options = {}) {
 
 export async function getTaxInvoicePdfBytes(inv, options = {}) {
   const logoDataUrl = await fetchCompanyLogoDataUrlForPdf();
-  const built = buildTaxInvoiceDoc(inv, { ...options, logoDataUrl });
+  const ready = await withEinvoiceQrImage(inv);
+  const built = buildTaxInvoiceDoc(ready, { ...options, logoDataUrl });
   if (!built?.doc) return null;
   return built.doc.output('arraybuffer');
 }
 
 export async function downloadTaxInvoicePdf(inv, options = {}) {
   const logoDataUrl = await fetchCompanyLogoDataUrlForPdf();
-  const built = buildTaxInvoiceDoc(inv, { ...options, logoDataUrl });
+  const ready = await withEinvoiceQrImage(inv);
+  const built = buildTaxInvoiceDoc(ready, { ...options, logoDataUrl });
   if (!built?.doc) return;
   built.doc.save(built.fileName);
 }
