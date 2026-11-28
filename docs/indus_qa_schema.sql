@@ -443,7 +443,8 @@ create trigger trg_defect_created after insert on qa.defects
 -- =====================================================================
 
 -- Latest result per case per release (latest attempt across all runs of the release).
-create or replace view qa.v_latest_results as
+create or replace view qa.v_latest_results
+with (security_invoker = true) as
 select distinct on (r.release_id, e.case_id)
        r.release_id, e.case_id, e.case_version, e.result, e.run_id, e.attempt, e.executed_by, e.executed_at
   from qa.executions e
@@ -451,7 +452,8 @@ select distinct on (r.release_id, e.case_id)
  order by r.release_id, e.case_id, e.executed_at desc;
 
 -- Required coverage per request: one row per required level/type.
-create or replace view qa.v_coverage as
+create or replace view qa.v_coverage
+with (security_invoker = true) as
 with req as (
   select q.id as request_id, q.code, q.release_id, q.unit_evidence_url, rl.requirement
     from qa.requests q
@@ -483,7 +485,8 @@ select req.request_id, req.code, req.release_id, req.requirement,
   from req;
 
 -- Release gate: one row per exit criterion with actual value and verdict.
-create or replace view qa.v_release_gate as
+create or replace view qa.v_release_gate
+with (security_invoker = true) as
 with planned as (
   select distinct r.release_id, rc.case_id
     from qa.run_cases rc join qa.test_runs r on r.id = rc.run_id
