@@ -67,13 +67,18 @@ describe("salary working-day slab", () => {
     expect(salaryPresentDaysFromDayMarks(withLeave, 2026, 2)).toBe(24);
   });
 
-  it("counts 3rd-Saturday WO/blank as paid for office and working departments", () => {
+  it("counts 3rd-Saturday WO as paid only when that day is a week off", () => {
     // Sep 2026: Sundays 6/13/20/27, 3rd Saturday 19.
     const sep = {};
     for (let d = 1; d <= 30; d += 1) sep[d] = [6, 13, 19, 20, 27].includes(d) ? "WO" : "P";
+    // HR: 3rd Saturday is WO → paid credit (26). Working depts: worked day → WO does not credit (25).
     expect(salaryPresentDaysFromDayMarks(sep, 2026, 9, "HR")).toBe(26);
-    expect(salaryPresentDaysFromDayMarks(sep, 2026, 9, "Production")).toBe(26);
-    expect(salaryPresentDaysFromDayMarks(sep, 2026, 9, "Maintenance-FTC")).toBe(26);
+    expect(salaryPresentDaysFromDayMarks(sep, 2026, 9, "Production")).toBe(25);
+    expect(salaryPresentDaysFromDayMarks(sep, 2026, 9, "Maintenance-FTC")).toBe(25);
+    // Working dept marked Present on 3rd Saturday still gets the day.
+    const sepPresent = { ...sep, 19: "P" };
+    expect(salaryPresentDaysFromDayMarks(sepPresent, 2026, 9, "Production")).toBe(26);
+    expect(salaryPresentDaysFromDayMarks(sepPresent, 2026, 9, "Maintenance-FTC")).toBe(26);
   });
 });
 
@@ -197,7 +202,7 @@ describe("salary processing P Tax on Gross W", () => {
 });
 
 describe("register Total present", () => {
-  it("adds paid 3rd-Saturday credit for office WO and working-dept blank", () => {
+  it("credits paid 3rd-Saturday WO for office; worked-dept blank needs Present", () => {
     const emps = [
       { empCode: "1001", employeeName: "A", department: "HR" },
       { empCode: "1002", employeeName: "B", department: "R&M" },
@@ -207,7 +212,15 @@ describe("register Total present", () => {
     expect(hr.dayMarks[19]).toBe("WO");
     expect(hr.summary.totalPresent).toBe(1);
     expect(rm.dayMarks[19]).toBe("");
-    expect(rm.summary.totalPresent).toBe(1);
+    expect(rm.summary.totalPresent).toBe(0);
+
+    const [rmPresent] = attachRegisterRowSummaries(
+      [{ ...rm, dayMarks: { ...rm.dayMarks, 19: "P" } }],
+      {},
+      daysInMonth,
+      { year: 2026, month: 9 }
+    );
+    expect(rmPresent.summary.totalPresent).toBe(1);
   });
 });
 
