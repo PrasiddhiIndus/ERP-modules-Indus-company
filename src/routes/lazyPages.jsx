@@ -343,6 +343,18 @@ export const SalaryProcessReportPage = lazy(
 export const PayrollMisRoutePage = lazy(
   () => import("../pages/adminOperations/salaryAdmin/mis/PayrollMisRoute.jsx")
 );
+export const PettyCashLayoutPage = lazy(
+  () => import("../pages/adminOperations/pettyCash/PettyCashLayout.jsx")
+);
+export const PettyCashDashboardPage = lazy(
+  () => import("../pages/adminOperations/pettyCash/PettyCashDashboardPage.jsx")
+);
+export const OverheadExpenseMasterPage = lazy(
+  () => import("../pages/adminOperations/pettyCash/OverheadExpenseMasterPage.jsx")
+);
+export const DailyExpenseEntryPage = lazy(
+  () => import("../pages/adminOperations/pettyCash/DailyExpenseEntryPage.jsx")
+);
 export const ProbationReviewsPage = lazy(
   () => import("../pages/adminOperations/probationReviews/ProbationReviewsPage.jsx")
 );
@@ -397,6 +409,7 @@ export const UserManagement = lazy(() => import("../pages/userAccess/UserManagem
 export const SoftwareSubscriptions = lazy(() => import("../pages/SoftwareSubscriptions"));
 export const ApiHealthDashboard = lazy(() => import("../pages/apiMonitoring/ApiHealthDashboard"));
 export const ItSupportLayout = lazy(() => import("../pages/itSupport/ItSupportLayout"));
+export const ItSupportSupportTypeRoute = lazy(() => import("../pages/itSupport/SupportTypeRoute"));
 export const ItSupportDashboardPage = lazy(() => import("../pages/itSupport/DashboardPage"));
 export const ItSupportRaiseTicketPage = lazy(() => import("../pages/itSupport/RaiseTicketPage"));
 export const ItSupportMyTicketsPage = lazy(() => import("../pages/itSupport/MyTicketsPage"));

@@ -28,6 +28,11 @@ import {
   isCompliancePath,
   resolveComplianceSectionKey,
 } from '../pages/compliance/payroll/complianceAccess';
+import {
+  HARDWARE_ACCESS_KEYS,
+  HARDWARE_SUPPORT_PAGES,
+  HARDWARE_SUPPORT_PARENT_KEY,
+} from '../pages/itSupport/itSupportConstants';
 
 export const ROLES = {
   EXECUTIVE: "executive",
@@ -107,6 +112,7 @@ export function getAccessibleSubModulePaths(profile, userMetadata = null) {
   if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) {
     paths.add(PROJECTS_ENQUIRY_KPI_PATH);
     paths.add(FINANCE_MASTER_PO_AT_GLANCE_PATH);
+    paths.add(PETTY_CASH_APP_PATH);
     for (const tabKey of ADMIN_RECRUITMENT_WORKFLOW_KEYS) {
       const tabPath = ADMIN_RECRUITMENT_TAB_PATHS[tabKey];
       if (tabPath) paths.add(tabPath);
@@ -148,6 +154,7 @@ function collectSubModulePaths(profile, userMetadata = null) {
     keysToExpand = keysToExpand.filter((s) => {
       const key = String(s);
       if (!key.startsWith("admin.")) return true;
+      if (isPettyCashKey(key)) return true; // explicit-only, never implied by full Admin
       return key === ADMIN_RECRUITMENT_SUBMODULE_KEY || key.startsWith(`${ADMIN_RECRUITMENT_SUBMODULE_KEY}.`);
     });
   }
@@ -170,6 +177,12 @@ function collectSubModulePaths(profile, userMetadata = null) {
     if (parts.length === 3 && parts[0] === "projects" && parts[1] === "po") {
       const page = PROJECTS_CONTRACT_PAGES.find((p) => p.value === subKey);
       page?.paths.forEach((p) => paths.add(p));
+      continue;
+    }
+
+    // Petty Cash is explicit-only — expand every admin.petty-cash[.*] grant, even with full Admin.
+    if (isPettyCashKey(subKey)) {
+      paths.add(PETTY_CASH_APP_PATH);
       continue;
     }
 
@@ -236,6 +249,54 @@ function collectSubModulePaths(profile, userMetadata = null) {
     if (parts.length === 3 && parts[0] === "fireTender" && parts[1] === "costing") {
       const page = IEV_COSTING_PAGES.find((p) => p.value === subKey);
       page?.paths.forEach((p) => paths.add(p));
+      continue;
+    }
+
+    // Software Support helpdesk keys → software + shared IT Support routes
+    if (
+      subKey === "itIs.helpdesk"
+      || subKey === "itIs.helpdesk-agent"
+      || subKey === "itIs.helpdesk-admin"
+    ) {
+      paths.add("/app/it-support");
+      paths.add("/app/it-support/software");
+      paths.add("/app/it-support/software/raise");
+      paths.add("/app/it-support/my");
+      paths.add("/app/it-support/tickets");
+      if (subKey === "itIs.helpdesk-agent" || subKey === "itIs.helpdesk-admin") {
+        paths.add("/app/it-support/software/queue");
+      }
+      if (subKey === "itIs.helpdesk-admin") {
+        paths.add("/app/it-support/masters");
+        paths.add("/app/it-support/reports");
+      }
+      continue;
+    }
+
+    // Hardware Support parent → all hardware pages
+    if (subKey === HARDWARE_SUPPORT_PARENT_KEY) {
+      HARDWARE_SUPPORT_PAGES.forEach((page) => page.paths.forEach((p) => paths.add(p)));
+      paths.add("/app/it-support");
+      paths.add("/app/it-support/hardware");
+      paths.add("/app/it-support/my");
+      continue;
+    }
+
+    // Hardware Support page keys (itIs.hardware-support.<page>)
+    if (
+      parts.length === 3
+      && parts[0] === "itIs"
+      && parts[1] === "hardware-support"
+    ) {
+      const page = HARDWARE_SUPPORT_PAGES.find((p) => p.value === subKey);
+      page?.paths.forEach((p) => paths.add(p));
+      paths.add("/app/it-support");
+      if (
+        subKey === HARDWARE_ACCESS_KEYS.raise
+        || subKey === HARDWARE_ACCESS_KEYS.tickets
+      ) {
+        paths.add("/app/it-support/my");
+      }
       continue;
     }
 
@@ -325,6 +386,8 @@ export function canSeeSubModule(profile, accessibleModules, subModuleKey, userMe
   if (
     subModuleKey !== RULES_CONSOLE_SUBMODULE_KEY
     && subModuleKey !== FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY
+    && subModuleKey !== PETTY_CASH_SUBMODULE_KEY
+    && !String(subModuleKey || "").startsWith(`${PETTY_CASH_SUBMODULE_KEY}.`)
     && subModuleKey !== ADMIN_RECRUITMENT_SUBMODULE_KEY
     && !String(subModuleKey || "").startsWith(`${ADMIN_RECRUITMENT_SUBMODULE_KEY}.`)
     && hasFullModuleAccess(accessibleModules, moduleKey)
@@ -381,6 +444,17 @@ export const RULES_CONSOLE_SUBMODULE_KEY = "admin.rules-console";
 
 /** Admin In-house Recruitment: opt-in only — a full Admin module does not imply it. */
 export const ADMIN_RECRUITMENT_SUBMODULE_KEY = "admin.recruitment";
+/** Admin → Petty Cash (Dashboard, Overhead & Expense Master, Daily Expense Entry). Explicit-only grant. */
+export const PETTY_CASH_SUBMODULE_KEY = "admin.petty-cash";
+/** Opt-in: add / edit / delete overhead categories (implies Petty Cash). */
+export const PETTY_CASH_MANAGE_MASTERS_KEY = "admin.petty-cash.manage-masters";
+export const PETTY_CASH_APP_PATH = "/app/admin/petty-cash";
+
+/** admin.petty-cash or any admin.petty-cash.* permission key. */
+export function isPettyCashKey(key) {
+  const k = String(key || "");
+  return k === PETTY_CASH_SUBMODULE_KEY || k.startsWith(`${PETTY_CASH_SUBMODULE_KEY}.`);
+}
 
 /** Finance → Master PO At Glance: opt-in page (Super Admins always; otherwise User Management tick only). */
 export const FINANCE_MASTER_PO_AT_GLANCE_SUBMODULE_KEY = "finance.po-at-glance";
@@ -1072,6 +1146,16 @@ export const NAV_MODULE_TREE = [
       { value: "admin.employee",         label: "Employee Administration",     pathPrefix: "/app/admin/employee" },
       { value: "admin.salary-admin",     label: "Salary Admin",               pathPrefix: "/app/admin/salary-admin" },
       { value: RULES_CONSOLE_SUBMODULE_KEY, label: "Rules Console",          pathPrefix: "/app/admin/rules-console", optIn: true },
+      {
+        value: PETTY_CASH_SUBMODULE_KEY,
+        label: "Petty Cash",
+        pathPrefix: PETTY_CASH_APP_PATH,
+        // Explicit-only: never implied by the Admin module or any role; tick it in User Management.
+        optIn: true,
+        tabModules: [
+          { value: PETTY_CASH_MANAGE_MASTERS_KEY, label: "Manage Overhead & Expense Masters", optIn: true },
+        ],
+      },
       { value: "admin.store",            label: "Store & Issue Control",       pathPrefix: "/app/admin/store" },
       { value: "admin.gate",             label: "Gate Pass & Movement",        pathPrefix: "/app/admin/gate" },
       { value: "admin.misc",             label: "Miscellaneous Admin",         pathPrefix: "/app/admin/misc" },
@@ -1267,14 +1351,30 @@ export const NAV_MODULE_TREE = [
     value: "itIs",
     label: "IT/IS",
     subModules: [
-      { value: "itIs.helpdesk", label: "IT Support — Raise tickets", pathPrefix: "/app/it-support" },
-      { value: "itIs.helpdesk-agent", label: "IT Support — Agent (queue)", pathPrefix: "/app/it-support" },
-      { value: "itIs.helpdesk-admin", label: "IT Support — Admin (masters / reports)", pathPrefix: "/app/it-support" },
-      { value: "itIs.subscriptions", label: "Software Subscriptions (View / Update / Delete)",  pathPrefix: "/app/software-subscriptions-reminders" },
-      { value: "itIs.api-health",    label: "API Health",              pathPrefix: "/app/api-health" },
-      { value: "itIs.helpdesk", label: "IT Support (Raise / My Tickets)", pathPrefix: "/app/it-support" },
-      { value: "itIs.helpdesk-agent", label: "IT Support (Agent Queue)", pathPrefix: "/app/it-support" },
-      { value: "itIs.helpdesk-admin", label: "IT Support (Admin)", pathPrefix: "/app/it-support" },
+      {
+        value: "itIs.helpdesk",
+        label: "Software Support — Raise / My Tickets",
+        pathPrefix: "/app/it-support/software",
+      },
+      {
+        value: "itIs.helpdesk-agent",
+        label: "Software Support — Agent (Dashboard / Queue)",
+        pathPrefix: "/app/it-support/software",
+      },
+      {
+        value: "itIs.helpdesk-admin",
+        label: "Software Support — Admin (Masters / Reports)",
+        pathPrefix: "/app/it-support/software",
+      },
+      {
+        value: HARDWARE_SUPPORT_PARENT_KEY,
+        label: "Hardware Support",
+        pathPrefix: "/app/it-support/hardware",
+        // Page-wise access: ticking Hardware Support grants every page; otherwise only the ticked pages.
+        tabModules: HARDWARE_SUPPORT_PAGES.map(({ value, label }) => ({ value, label })),
+      },
+      { value: "itIs.subscriptions", label: "Software Subscriptions (View / Update / Delete)", pathPrefix: "/app/software-subscriptions-reminders" },
+      { value: "itIs.api-health", label: "API Health", pathPrefix: "/app/api-health" },
     ],
   },
   {
@@ -1864,6 +1964,15 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
   // ProbationReviewsGuard and the indus_one probation RPCs decide access; this opens no other Admin path.
   if (isProbationReviewsAppPath(pathname)) return true;
 
+  // Hard gate: Petty Cash is explicit-only — Super Admins (added to subModulePaths), or users granted
+  // admin.petty-cash[.*] in User Management. The Admin module / Admin role alone never opens it.
+  {
+    const normalized = normalizeAppPath(pathname);
+    if (normalized === PETTY_CASH_APP_PATH || normalized.startsWith(`${PETTY_CASH_APP_PATH}/`)) {
+      return Boolean(subModulePaths?.has?.(PETTY_CASH_APP_PATH));
+    }
+  }
+
   // Hard gate: Compliance (Payroll, IFSPL, General) — allowlisted emails, or the section granted in User Management
   if (isCompliancePath(pathname)) {
     return canOpenCompliancePath(accessIdentity, accessIdentity, pathname);
@@ -1886,8 +1995,20 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
   if (accessibleModules.has("overview") && pathname === "/app/dashboard") return true;
   if (accessibleModules.has("settings") && pathname.startsWith("/app/settings")) return true;
 
-  // IT Support raise/my: every active user (inactive profiles get an empty module set).
-  if (accessibleModules.size > 0 && pathname.startsWith("/app/it-support")) return true;
+  // IT Support hard gate: Super Admin / full itIs, or an explicit IT Support sub-path grant.
+  // No open access for every active user.
+  if (pathname.startsWith("/app/it-support")) {
+    const normalizedIt = normalizeAppPath(pathname);
+    if (accessibleModules.has("itIs")) return true;
+    if (subModulePaths?.size) {
+      for (const p of subModulePaths) {
+        const prefix = normalizeAppPath(p);
+        if (!prefix || !prefix.startsWith("/app/it-support")) continue;
+        if (normalizedIt === prefix || normalizedIt.startsWith(`${prefix}/`)) return true;
+      }
+    }
+    return false;
+  }
 
   const normalizedPath = normalizeAppPath(pathname);
 

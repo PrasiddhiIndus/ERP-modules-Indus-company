@@ -15,14 +15,15 @@ import {
 import { useAuth } from "../../contexts/AuthContext";
 import { useProbationReviewsAccess } from "../adminOperations/probationReviews/probationAccess";
 import { toast } from "../../lib/toast";
-import { canRaise } from "./itSupportAccess";
-import { IMPACT_OPTIONS } from "./itSupportConstants";
+import { resolveSupportTypeAccess } from "./itSupportAccess";
+import { IMPACT_OPTIONS, IT_SUPPORT_BASE } from "./itSupportConstants";
 import { createTicket, IT_SUPPORT_MAX_FILE_BYTES, listCategories } from "./itSupportApi";
 import {
   findModuleOption,
   findSubmoduleOption,
   getItSupportModuleOptionsForUser,
 } from "./itSupportModuleOptions";
+import { useSupportType } from "./SupportTypeContext";
 import CcEmployeePicker from "./components/CcEmployeePicker";
 import RichTextField from "./components/RichTextField";
 import TicketFileList from "./components/TicketFileList";
@@ -33,6 +34,9 @@ const fieldClass = "w-full";
 
 export default function RaiseTicketPage() {
   const { user, userProfile, accessibleModules, subModulePaths } = useAuth();
+  const { supportType, supportTypeLabel } = useSupportType();
+  const isHardware = supportType === "hardware";
+  const typeAccess = resolveSupportTypeAccess(userProfile, supportType);
   const { canAccess: canSeeProbationReviews } = useProbationReviewsAccess();
   const assignmentKey = useMemo(
     () =>
@@ -85,9 +89,14 @@ export default function RaiseTicketPage() {
 
   useEffect(() => {
     let cancelled = false;
+    setCategoryId("");
+    setCreated(null);
     (async () => {
       try {
-        const { categories: cats } = await listCategories({ forRaise: true });
+        const { categories: cats } = await listCategories({
+          forRaise: true,
+          supportType,
+        });
         if (!cancelled) {
           setCategories((cats || []).filter((c) => c.is_active !== false));
         }
@@ -98,7 +107,7 @@ export default function RaiseTicketPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [supportType]);
 
   useEffect(() => {
     if (erpModuleKey && !moduleOptions.some((m) => m.value === erpModuleKey)) {
@@ -133,11 +142,15 @@ export default function RaiseTicketPage() {
     setError("");
   };
 
-  if (!canRaise(userProfile)) {
+  if (!typeAccess.canRaise) {
     return (
       <EmptyState
         title="No access"
-        message="You do not have permission to raise IT support tickets."
+        message={
+          isHardware
+            ? "You do not have permission to raise Hardware Support tickets."
+            : "You do not have permission to raise Software Support tickets."
+        }
       />
     );
   }
@@ -158,11 +171,11 @@ export default function RaiseTicketPage() {
               : ""}
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-2">
-            <Link to={`/app/it-support/tickets/${created.id}`}>
+            <Link to={`${IT_SUPPORT_BASE}/tickets/${created.id}`}>
               <PrimaryButton>View ticket</PrimaryButton>
             </Link>
             <SecondaryButton onClick={resetForm}>Raise another</SecondaryButton>
-            <Link to="/app/it-support/my">
+            <Link to={`${IT_SUPPORT_BASE}/my`}>
               <SecondaryButton>My tickets</SecondaryButton>
             </Link>
           </div>
@@ -182,20 +195,26 @@ export default function RaiseTicketPage() {
       setError("Please describe the issue.");
       return;
     }
-    if (!erpModuleKey) {
-      setError("Please choose which module the issue is in.");
-      return;
-    }
-    if (submoduleRequired && !erpSubmoduleKey) {
-      setError("Please choose the sub-module where the issue happened.");
-      return;
+    if (!isHardware) {
+      if (!erpModuleKey) {
+        setError("Please choose which module the issue is in.");
+        return;
+      }
+      if (submoduleRequired && !erpSubmoduleKey) {
+        setError("Please choose the sub-module where the issue happened.");
+        return;
+      }
     }
     if (!categoryId) {
       setError("Please choose an issue type.");
       return;
     }
-    const modOpt = findModuleOption(erpModuleKey, moduleOptions);
-    const subOpt = findSubmoduleOption(erpModuleKey, erpSubmoduleKey, moduleOptions);
+    const modOpt = isHardware
+      ? { label: "Hardware" }
+      : findModuleOption(erpModuleKey, moduleOptions);
+    const subOpt = isHardware
+      ? null
+      : findSubmoduleOption(erpModuleKey, erpSubmoduleKey, moduleOptions);
     setSubmitting(true);
     try {
       const ticket = await createTicket({
@@ -204,10 +223,11 @@ export default function RaiseTicketPage() {
         categoryId,
         subcategoryId: null,
         impact,
-        erpModuleKey,
-        erpModuleLabel: modOpt?.label || erpModuleKey,
-        erpSubmoduleKey: erpSubmoduleKey || null,
-        erpSubmoduleLabel: subOpt?.label || null,
+        supportType,
+        erpModuleKey: isHardware ? "hardware" : erpModuleKey,
+        erpModuleLabel: isHardware ? "Hardware" : modOpt?.label || erpModuleKey,
+        erpSubmoduleKey: isHardware ? null : erpSubmoduleKey || null,
+        erpSubmoduleLabel: isHardware ? null : subOpt?.label || null,
         ccUserIds: ccPeople.map((p) => p.profileId),
         requesterId: user?.id,
         requesterEmployeeCode: userProfile?.employee_code || null,
@@ -234,8 +254,12 @@ export default function RaiseTicketPage() {
     <div className="w-full min-w-0">
       <PageTaskHeader
         className="mb-3"
-        title="Raise a ticket"
-        subtitle="Describe the issue, choose where it happens, and submit to IT Support."
+        title={`Raise a ${isHardware ? "hardware" : "software"} ticket`}
+        subtitle={
+          isHardware
+            ? "Laptops, desktops, printers, networking, peripherals and repairs."
+            : "ERP, Indus One, application bugs, login issues, data errors and related software requests."
+        }
       />
       {error ? (
         <div className="mb-3">
@@ -275,57 +299,65 @@ export default function RaiseTicketPage() {
               </FormField>
             </div>
 
-            <div className="lg:col-span-6 min-w-0">
-              <FormField label="Module" required>
-                <TinySelect
-                  value={erpModuleKey}
-                  onChange={(e) => {
-                    setErpModuleKey(e.target.value);
-                    setErpSubmoduleKey("");
-                  }}
-                  className={fieldClass}
-                >
-                  <option value="">Select…</option>
-                  {moduleOptions.map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                    </option>
-                  ))}
-                </TinySelect>
-              </FormField>
-            </div>
-            <div className="lg:col-span-6 min-w-0">
-              <FormField
-                label="Sub Module"
-                required={submoduleRequired}
-                hint={
-                  !erpModuleKey
-                    ? "Select a module first."
-                    : submoduleRequired
-                      ? "Same labels as the sidebar."
-                      : "Not needed for this module."
-                }
-              >
-                <TinySelect
-                  value={erpSubmoduleKey}
-                  onChange={(e) => setErpSubmoduleKey(e.target.value)}
-                  className={fieldClass}
-                  disabled={!erpModuleKey || !submoduleRequired}
-                >
-                  <option value="">
-                    {!erpModuleKey ? "Select a module first…" : submoduleRequired ? "Select…" : "—"}
-                  </option>
-                  {erpSubOptions.map((s) => (
-                    <option key={s.value} value={s.value}>
-                      {s.label}
-                    </option>
-                  ))}
-                </TinySelect>
-              </FormField>
-            </div>
+            {!isHardware ? (
+              <>
+                <div className="lg:col-span-6 min-w-0">
+                  <FormField label="Module" required>
+                    <TinySelect
+                      value={erpModuleKey}
+                      onChange={(e) => {
+                        setErpModuleKey(e.target.value);
+                        setErpSubmoduleKey("");
+                      }}
+                      className={fieldClass}
+                    >
+                      <option value="">Select…</option>
+                      {moduleOptions.map((m) => (
+                        <option key={m.value} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </TinySelect>
+                  </FormField>
+                </div>
+                <div className="lg:col-span-6 min-w-0">
+                  <FormField
+                    label="Sub Module"
+                    required={submoduleRequired}
+                    hint={
+                      !erpModuleKey
+                        ? "Select a module first."
+                        : submoduleRequired
+                          ? "Same labels as the sidebar."
+                          : "Not needed for this module."
+                    }
+                  >
+                    <TinySelect
+                      value={erpSubmoduleKey}
+                      onChange={(e) => setErpSubmoduleKey(e.target.value)}
+                      className={fieldClass}
+                      disabled={!erpModuleKey || !submoduleRequired}
+                    >
+                      <option value="">
+                        {!erpModuleKey ? "Select a module first…" : submoduleRequired ? "Select…" : "—"}
+                      </option>
+                      {erpSubOptions.map((s) => (
+                        <option key={s.value} value={s.value}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </TinySelect>
+                  </FormField>
+                </div>
+              </>
+            ) : null}
 
             <div className="lg:col-span-6 min-w-0">
-              <FormField label="Issue type" required>
+              <FormField
+                label="Issue type"
+                required
+                hint={`${supportTypeLabel} categories only.`}
+              >
                 <TinySelect
                   value={categoryId}
                   onChange={(e) => setCategoryId(e.target.value)}

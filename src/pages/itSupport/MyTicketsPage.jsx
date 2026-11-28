@@ -10,7 +10,7 @@ import {
   SectionCard,
 } from "../../components/erpUi";
 import { useAuth } from "../../contexts/AuthContext";
-import { canRaise } from "./itSupportAccess";
+import { resolveItSupportAccess } from "./itSupportAccess";
 import {
   createItSupportRefreshScheduler,
   listMyTickets,
@@ -19,12 +19,13 @@ import {
 import StatusBadge from "./components/StatusBadge";
 import PriorityBadge from "./components/PriorityBadge";
 import TicketFilters from "./components/TicketFilters";
-import { impactLabel } from "./itSupportConstants";
+import { impactLabel, supportTypeLabel } from "./itSupportConstants";
 import { formatErpModulePath } from "./itSupportModuleOptions";
 
 export default function MyTicketsPage() {
   const { user, userProfile } = useAuth();
   const navigate = useNavigate();
+  const access = resolveItSupportAccess(userProfile);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -74,7 +75,7 @@ export default function MyTicketsPage() {
     };
   }, [user?.id, load]);
 
-  if (!canRaise(userProfile)) {
+  if (!(access.software.canMyTickets || access.hardware.canMyTickets)) {
     return <EmptyState title="No access" message="You cannot view IT support tickets." />;
   }
 
@@ -97,16 +98,40 @@ export default function MyTicketsPage() {
         ),
     },
     {
+      key: "support_type",
+      label: "Type",
+      render: (r) => (
+        <span
+          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+            r.support_type === "hardware"
+              ? "border-amber-200 bg-amber-50 text-amber-900"
+              : "border-indigo-200 bg-indigo-50 text-indigo-900"
+          }`}
+        >
+          {r.support_type === "hardware" ? "Hardware" : "Software"}
+        </span>
+      ),
+    },
+    {
       key: "title",
       label: "Title",
       render: (r) => <span className="max-w-[220px] truncate block">{r.title}</span>,
     },
     {
       key: "erp_module",
-      label: "Module",
+      label: "Area",
       render: (r) => (
-        <span className="max-w-[180px] truncate block" title={formatErpModulePath(r)}>
-          {formatErpModulePath(r)}
+        <span
+          className="max-w-[180px] truncate block"
+          title={
+            r.support_type === "hardware"
+              ? r.category?.name || supportTypeLabel(r.support_type)
+              : formatErpModulePath(r)
+          }
+        >
+          {r.support_type === "hardware"
+            ? r.category?.name || "Hardware"
+            : formatErpModulePath(r)}
         </span>
       ),
     },
@@ -137,7 +162,7 @@ export default function MyTicketsPage() {
     <>
       <PageTaskHeader
         title="My tickets"
-        subtitle="Requests you raised, plus tickets where you were kept on CC — with live status."
+        subtitle="All software and hardware tickets you raised or were kept on CC — with live status."
       />
       <TicketFilters
         search={filters.search}

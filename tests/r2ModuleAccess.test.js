@@ -3,6 +3,7 @@ import {
   hasSoftwareSubscriptionsR2Access,
   hasFleetR2Access,
   hasHrCallingR2Access,
+  hasPettyCashR2Access,
 } from '../server/authMiddleware.js';
 
 function ctx(profile) {
@@ -106,5 +107,30 @@ describe('R2 module gates — login is not permission', () => {
     expect(hasSoftwareSubscriptionsR2Access(ctx(superAdmin))).toBe(true);
     expect(hasHrCallingR2Access(ctx(superAdmin))).toBe(true);
     expect(hasFleetR2Access(ctx(superAdmin))).toBe(true);
+  });
+
+  it('Petty Cash R2 is explicit-only (not full Admin module)', () => {
+    expect(hasPettyCashR2Access(ctx(superAdmin))).toBe(true);
+    expect(
+      hasPettyCashR2Access(
+        ctx({
+          role: 'executive',
+          team: null,
+          allowed_modules: [],
+          allowed_sub_modules: ['admin.petty-cash'],
+        })
+      )
+    ).toBe(true);
+    expect(
+      hasPettyCashR2Access(
+        ctx({
+          role: 'executive',
+          team: 'admin',
+          allowed_modules: ['admin'],
+          allowed_sub_modules: [],
+        })
+      )
+    ).toBe(false);
+    expect(hasPettyCashR2Access(ctx(billingOnly))).toBe(false);
   });
 });
