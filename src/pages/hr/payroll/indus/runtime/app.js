@@ -11,6 +11,26 @@ function gid(id) { const r = payrollRoot(); if (!r) return null; return r.queryS
 function setDb(cls, text) { const el = gid('dbstate'); if (!el) return; el.className = 'dbs ' + cls; el.innerHTML = '<i></i>' + text; }
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const inr = (x, d = 0) => (x == null || isNaN(x)) ? '' : (+x).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
+const RUPEE_ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+const RUPEE_TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+function rupeesInWords(amount) {
+  const two = n => n < 20 ? RUPEE_ONES[n] : (n % 10 ? `${RUPEE_TENS[Math.floor(n / 10)]} ${RUPEE_ONES[n % 10]}` : RUPEE_TENS[Math.floor(n / 10)]);
+  const n = Math.round(Number(amount));
+  if (!Number.isFinite(n) || n < 0) return '';
+  if (n === 0) return 'Rupees Zero Only';
+  const parts = [];
+  const crore = Math.floor(n / 10000000);
+  const lakh = Math.floor((n % 10000000) / 100000);
+  const thousand = Math.floor((n % 100000) / 1000);
+  const hundred = Math.floor((n % 1000) / 100);
+  const rest = n % 100;
+  if (crore) parts.push(`${two(crore)} Crore`);
+  if (lakh) parts.push(`${two(lakh)} Lakh`);
+  if (thousand) parts.push(`${two(thousand)} Thousand`);
+  if (hundred) parts.push(`${RUPEE_ONES[hundred]} Hundred`);
+  if (rest) parts.push(two(rest));
+  return `Rupees ${parts.join(' ')} Only`;
+}
 const num = x => { const v = parseFloat(String(x ?? '').replace(/,/g, '')); return isNaN(v) ? 0 : v; };
 const ym = () => S.month.split('-').map(Number);
 const monthName = (m = S.month) => { const [y, mm] = m.split('-').map(Number); return new Date(y, mm - 1, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' }); };
@@ -1611,6 +1631,7 @@ function payslips(list) {
       ${Array.from({ length: Math.max(E_.length, D_.length) }, (_, i) => `<tr><td>${E_[i] ? esc(E_[i].label) : ''}</td><td class="n">${E_[i] ? inr(x.r.lines[E_[i].code] || 0) : ''}</td><td>${D_[i] ? esc(D_[i].label) : ''}</td><td class="n">${D_[i] ? inr(x.r.lines[D_[i].code] || 0) : ''}</td></tr>`).join('')}
       <tr><th>Gross</th><th class="n">${inr(x.r.GROSS)}</th><th>Total deductions</th><th class="n">${inr(x.r.DED)}</th></tr>
       <tr><th colspan="3">Net payable</th><th class="n">₹${inr(x.r.NET)}</th></tr></table>
+      <p>Amount payable (in words): <b>${esc(rupeesInWords(x.r.NET))}</b></p>
       ${x.r.heldFull ? `<p><b>Salary held — ${esc(x.r.heldFull.reason)}.</b> Statutory deductions made; ₹${inr(x.r.heldFull.amount + x.r.heldFull.payoutTotal)} will be released on return to duty.</p>` : ''}
       ${Object.keys(x.r.groups).length ? `<p>Paid separately: ${Object.entries(x.r.groups).map(([g, v]) => `${esc(g)} ₹${inr(v)}`).join(' · ')}</p>` : ''}
       <div class="f"><span>Employee's signature / thumb impression</span><span>For Indus Fire Safety Pvt Ltd (Contractor)</span></div></div>`;
