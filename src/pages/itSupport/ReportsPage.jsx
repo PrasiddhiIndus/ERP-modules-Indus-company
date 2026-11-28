@@ -23,9 +23,10 @@ import {
   TinyInput,
 } from "../../components/erpUi";
 import { useAuth } from "../../contexts/AuthContext";
-import { canAdmin } from "./itSupportAccess";
+import { resolveSupportTypeAccess } from "./itSupportAccess";
 import { reportAggregates } from "./itSupportApi";
 import { statusLabel } from "./itSupportConstants";
+import { useSupportType } from "./SupportTypeContext";
 
 const PIE_COLORS = ["#7c3aed", "#0284c7", "#d97706", "#dc2626", "#059669", "#64748b", "#e11d48"];
 
@@ -77,6 +78,8 @@ function downloadCsv(filename, text) {
 
 export default function ReportsPage() {
   const { userProfile } = useAuth();
+  const { supportType, supportTypeLabel } = useSupportType();
+  const typeAccess = resolveSupportTypeAccess(userProfile, supportType);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [data, setData] = useState(null);
@@ -84,12 +87,17 @@ export default function ReportsPage() {
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
+    if (!typeAccess.canReports) return;
     setLoading(true);
     setError("");
     try {
       const fromIso = fromDate ? new Date(`${fromDate}T00:00:00`).toISOString() : undefined;
       const toIso = toDate ? new Date(`${toDate}T23:59:59`).toISOString() : undefined;
-      const agg = await reportAggregates({ fromDate: fromIso, toDate: toIso });
+      const agg = await reportAggregates({
+        fromDate: fromIso,
+        toDate: toIso,
+        supportType,
+      });
       setData({
         ...agg,
         byStatus: (agg.byStatus || []).map((d) => ({ ...d, name: statusLabel(d.name) })),
@@ -99,21 +107,21 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, supportType, typeAccess.canReports]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  if (!canAdmin(userProfile)) {
+  if (!typeAccess.canReports) {
     return <EmptyState title="No access" message="Reports are available to IT Support admins only." />;
   }
 
   return (
     <>
       <PageTaskHeader
-        title="Reports"
-        subtitle="Volume, priority mix, and SLA breaches for the selected period."
+        title={`${supportTypeLabel} reports`}
+        subtitle="Volume, priority mix, and SLA breaches for the selected period and support type."
       >
         <SecondaryButton onClick={() => window.print()}>Print / PDF</SecondaryButton>
         <PrimaryButton

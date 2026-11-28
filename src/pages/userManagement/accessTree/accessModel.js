@@ -110,6 +110,11 @@ export function buildAccessTree(team) {
         page.label = "Software Subscriptions";
         page.fixedLevels = ["View", "Update", "Delete"];
       }
+      if (sub.value === "itIs.hardware-support") {
+        page.label = "Hardware Support";
+        page.infoNote =
+          "Tick Hardware Support for all pages, or choose individual pages (Raise, Dashboard, Queue, Ticket Details, Masters, Reports). Independent of Software Support.";
+      }
       if (sub.value === "hr.salary-management") {
         page.label = "Payroll";
         page.infoTabs = SALARY_SUB_NAV.map((n) => n.label);

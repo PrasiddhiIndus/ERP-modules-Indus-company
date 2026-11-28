@@ -12,6 +12,8 @@ import { canAccessRulesConsole } from "../pages/adminOperations/rulesConsole/rul
 import { syncSalaryFiguresHidden } from "../pages/adminOperations/salaryAdmin/salaryPrivacy";
 import { fetchMyMisAccess } from "../pages/adminOperations/salaryAdmin/mis/misDb";
 import { useProbationReviewsAccess } from "../pages/adminOperations/probationReviews/probationAccess";
+import { canViewPettyCash } from "../pages/adminOperations/pettyCash/pettyCashPermissions";
+import { resolveItSupportAccess } from "../pages/itSupport/itSupportAccess";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import { resolveModule } from "../lib/activityDescriptors";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
@@ -858,7 +860,7 @@ const Layout = () => {
     itIsSubscriptions: isSuperAdminTier || (can("itIs") && canSub("itIs.subscriptions")),
     itIsApiHealth: isSuperAdminTier || (can("itIs") && canSub("itIs.api-health")),
     // Raise/my tickets: every active signed-in user (agent/admin still grant-gated inside the page).
-    itIsHelpdesk: Boolean(userProfile) && userProfile.is_active !== false,
+    itIsHelpdesk: resolveItSupportAccess(userProfile).hasAny,
   };
   const ievVisible =
     can("fireTender") && (canOpenPath("/app/fire-tender") || ievCostingTabs.length > 0 || canOpenPath("/app/fire-tender-manufacturing"));
@@ -1180,6 +1182,19 @@ const Layout = () => {
                   <NavLink to="admin/rules-console" className={subNavClass}>
                     <SlidersHorizontal className="h-4 w-4 shrink-0 text-sidebar-accent" />
                     <span className="type-meta type-truncate min-w-0 flex-1 text-left">Rules Console</span>
+                  </NavLink>
+                  )}
+
+                  {canViewPettyCash(userProfile, accessibleModules, { ...(user?.user_metadata || {}), email: userProfile?.email || user?.email }) && (
+                  <NavLink to="admin/petty-cash/dashboard" className={() =>
+                      `${subLinkBase} ${
+                        pathname.startsWith("/app/admin/petty-cash")
+                          ? activeClass
+                          : "border-l-transparent text-sidebar-strong"
+                      }`
+                    }>
+                    <PiggyBank className="h-4 w-4 shrink-0 text-sidebar-accent" />
+                    <span className="type-meta type-truncate min-w-0 flex-1 text-left">Petty Cash</span>
                   </NavLink>
                   )}
 

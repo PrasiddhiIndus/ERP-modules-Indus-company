@@ -2,6 +2,39 @@
 
 export const IT_SUPPORT_BASE = "/app/it-support";
 
+/** Primary module split — same ticket engine, separate queues. */
+export const SUPPORT_TYPES = [
+  {
+    value: "software",
+    label: "Software Support",
+    short: "Software",
+    hint: "ERP, Indus One, apps, login, data errors",
+  },
+  {
+    value: "hardware",
+    label: "Hardware Support",
+    short: "Hardware",
+    hint: "Laptops, printers, networking, peripherals, repairs",
+  },
+];
+
+export const SUPPORT_TYPE_MAP = Object.fromEntries(SUPPORT_TYPES.map((t) => [t.value, t]));
+
+export function normalizeSupportType(value) {
+  return value === "hardware" ? "hardware" : "software";
+}
+
+export function supportTypeLabel(value) {
+  return SUPPORT_TYPE_MAP[normalizeSupportType(value)]?.label || "Software Support";
+}
+
+/** Build a path under /app/it-support/software|hardware[/suffix]. */
+export function supportTypePath(type, suffix = "") {
+  const base = `${IT_SUPPORT_BASE}/${normalizeSupportType(type)}`;
+  const clean = String(suffix || "").replace(/^\/+/, "");
+  return clean ? `${base}/${clean}` : base;
+}
+
 export const IMPACT_OPTIONS = [
   { value: "only_me", label: "Only me" },
   { value: "my_team", label: "My team" },
@@ -44,11 +77,59 @@ export const KANBAN_STATUSES = ["new", "open", "in_progress", "on_hold", "resolv
 
 export const QUEUE_STATUSES = STATUSES.map((s) => s.value);
 
+/** Software Support — existing User Management keys (unchanged). */
 export const ACCESS_KEYS = {
   raise: "itIs.helpdesk",
   agent: "itIs.helpdesk-agent",
   admin: "itIs.helpdesk-admin",
 };
+
+/** Hardware Support — parent + page keys (User Management under IT/IS). */
+export const HARDWARE_SUPPORT_PARENT_KEY = "itIs.hardware-support";
+
+export const HARDWARE_ACCESS_KEYS = {
+  parent: HARDWARE_SUPPORT_PARENT_KEY,
+  raise: "itIs.hardware-support.raise",
+  dashboard: "itIs.hardware-support.dashboard",
+  queue: "itIs.hardware-support.queue",
+  tickets: "itIs.hardware-support.tickets",
+  masters: "itIs.hardware-support.masters",
+  reports: "itIs.hardware-support.reports",
+};
+
+/** Page grants shown under Hardware Support in User Management. */
+export const HARDWARE_SUPPORT_PAGES = [
+  {
+    value: HARDWARE_ACCESS_KEYS.raise,
+    label: "Raise Ticket",
+    paths: [`${IT_SUPPORT_BASE}/hardware/raise`],
+  },
+  {
+    value: HARDWARE_ACCESS_KEYS.dashboard,
+    label: "Dashboard",
+    paths: [`${IT_SUPPORT_BASE}/hardware`],
+  },
+  {
+    value: HARDWARE_ACCESS_KEYS.queue,
+    label: "Queue",
+    paths: [`${IT_SUPPORT_BASE}/hardware/queue`],
+  },
+  {
+    value: HARDWARE_ACCESS_KEYS.tickets,
+    label: "Ticket Details",
+    paths: [`${IT_SUPPORT_BASE}/tickets`],
+  },
+  {
+    value: HARDWARE_ACCESS_KEYS.masters,
+    label: "Masters",
+    paths: [`${IT_SUPPORT_BASE}/masters`],
+  },
+  {
+    value: HARDWARE_ACCESS_KEYS.reports,
+    label: "Reports",
+    paths: [`${IT_SUPPORT_BASE}/reports`],
+  },
+];
 
 export function statusLabel(value) {
   return STATUS_MAP[value]?.label || value || "—";

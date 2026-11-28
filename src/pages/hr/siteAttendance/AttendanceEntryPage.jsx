@@ -138,7 +138,11 @@ const PICKER_MODES = {
   WO: { title: "Bulk week-off", hint: "Move people to Selected, then submit. Marks week-off on the chosen date(s)." },
 };
 
-export default function AttendanceEntryPage({ readOnly = false }) {
+export default function AttendanceEntryPage({
+  readOnly = false,
+  pageTitle = null,
+  pageSubtitle = null,
+}) {
   const { siteType } = useSiteAttendanceType();
   const access = useSiteAttendanceAccess();
   const isSiteSupervisor =
@@ -156,6 +160,15 @@ export default function AttendanceEntryPage({ readOnly = false }) {
   const [smartImportOpen, setSmartImportOpen] = useState(false);
   const { userProfile } = useAuth();
   const canSmartImport = !readOnly && canUseSiteAttendanceImport(userProfile);
+  const headerTitle =
+    pageTitle || (readOnly ? "Admin attendance view" : "Attendance entry");
+  const headerSubtitle =
+    pageSubtitle ||
+    (readOnly
+      ? "Full-cycle grid, read only."
+      : isSiteSupervisor
+        ? "Mark daily attendance for your site. Changes save as you go."
+        : "Mark daily attendance. Changes save as you go.");
   const sitesForDropdown = useMemo(() => {
     const scoped = scopeSites(g.sites, access);
     // Supervisors only ever see assigned sites — ignore the global site-type filter.
@@ -306,16 +319,7 @@ export default function AttendanceEntryPage({ readOnly = false }) {
 
   return (
     <div className="att-entry-page flex flex-col gap-3 sm:gap-4">
-      <PageTaskHeader
-        title={readOnly ? "Admin attendance view" : "Attendance entry"}
-        subtitle={
-          readOnly
-            ? "Full-cycle grid, read only."
-            : isSiteSupervisor
-              ? "Mark daily attendance for your site. Changes save as you go."
-              : "Mark daily attendance. Changes save as you go."
-        }
-      >
+      <PageTaskHeader title={headerTitle} subtitle={headerSubtitle}>
         {g.locked ? <StatusChip label="Locked" severity="warning" /> : null}
       </PageTaskHeader>
 

@@ -15,8 +15,9 @@ import {
 } from "../../components/erpUi";
 import { useAuth } from "../../contexts/AuthContext";
 import { toast } from "../../lib/toast";
-import { canAdmin } from "./itSupportAccess";
-import { IMPACT_OPTIONS, PRIORITIES } from "./itSupportConstants";
+import { resolveItSupportAccess, resolveSupportTypeAccess } from "./itSupportAccess";
+import { IMPACT_OPTIONS, PRIORITIES, SUPPORT_TYPES } from "./itSupportConstants";
+import { useSupportType } from "./SupportTypeContext";
 import {
   listAssigneeMaster,
   listCategories,
@@ -31,6 +32,10 @@ import CcEmployeePicker from "./components/CcEmployeePicker";
 
 export default function MastersPage() {
   const { userProfile } = useAuth();
+  const { supportType } = useSupportType();
+  const moduleAccess = resolveItSupportAccess(userProfile);
+  const typeAccess = resolveSupportTypeAccess(userProfile, supportType);
+  const allowed = typeAccess.canMasters || moduleAccess.software.canMasters || moduleAccess.hardware.canMasters;
   const [tab, setTab] = useState("categories");
   const [categories, setCategories] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
@@ -67,12 +72,17 @@ export default function MastersPage() {
     load();
   }, [load]);
 
-  if (!canAdmin(userProfile)) {
+  if (!allowed) {
     return <EmptyState title="No access" message="Masters are available to IT Support admins only." />;
   }
 
   const catColumns = [
     { key: "name", label: "Name" },
+    {
+      key: "support_type",
+      label: "Support",
+      render: (r) => (r.support_type === "hardware" ? "Hardware" : "Software"),
+    },
     { key: "description", label: "Description", render: (r) => r.description || "—" },
     {
       key: "is_active",
@@ -210,7 +220,10 @@ export default function MastersPage() {
             right={
               <PrimaryButton
                 onClick={() =>
-                  setCatModal({ open: true, row: { name: "", description: "", is_active: true, sort_order: 0 } })
+                  setCatModal({
+                    open: true,
+                    row: { name: "", description: "", is_active: true, sort_order: 0, support_type: "software" },
+                  })
                 }
               >
                 Add category
@@ -330,6 +343,21 @@ export default function MastersPage() {
                 value={catModal.row.name || ""}
                 onChange={(e) => setCatModal((m) => ({ ...m, row: { ...m.row, name: e.target.value } }))}
               />
+            </FormField>
+            <FormField label="Support type" required>
+              <TinySelect
+                className="w-full"
+                value={catModal.row.support_type === "hardware" ? "hardware" : "software"}
+                onChange={(e) =>
+                  setCatModal((m) => ({ ...m, row: { ...m.row, support_type: e.target.value } }))
+                }
+              >
+                {SUPPORT_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </TinySelect>
             </FormField>
             <FormField label="Description">
               <TinyInput
