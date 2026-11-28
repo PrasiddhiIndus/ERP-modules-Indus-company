@@ -1,4 +1,4 @@
-import QRCode from 'qrcode';
+import { findSignedQrCode, isQrImageDataUrl, signedQrToImageDataUrl } from '../../shared/eInvoiceQr.mjs';
 import { apiUrl } from '../lib/apiBase';
 import { supabase } from '../lib/supabase';
 import { getAdminApiAccessToken } from '../lib/userManagementAuthToken';
@@ -389,7 +389,7 @@ export async function generateEInvoice(bill, wopo = null) {
       },
     });
     if (res.ok) {
-      const mapped = mapBackendResponse(data);
+      const mapped = await mapBackendResponse(data);
       if (!mapped?.irn || String(mapped.irn).startsWith('MOCK-IRN-')) {
         const detail = extractEInvoiceFailureDetail(data);
         const fromProvider =
@@ -458,25 +458,6 @@ function assertWhitebooksEnv() {
   const missing = required.filter((k) => !import.meta.env?.[k] || String(import.meta.env?.[k]).trim() === '');
   if (missing.length) {
     throw new Error(`Missing Whitebooks env vars: ${missing.join(', ')}`);
-  }
-}
-
-function normalizeQrData(value) {
-  if (!value || typeof value !== 'string') return null;
-  if (value.startsWith('data:')) return value;
-  if (/^[A-Za-z0-9+/=]+$/.test(value)) return `data:image/png;base64,${value}`;
-  return value;
-}
-
-async function buildQrImageDataUrl(value) {
-  if (!value || typeof value !== 'string') return null;
-  if (value.startsWith('data:image/')) return value;
-  if (value.startsWith('data:')) return null;
-  if (/^[A-Za-z0-9+/=]+$/.test(value)) return `data:image/png;base64,${value}`;
-  try {
-    return await QRCode.toDataURL(value, { margin: 1, width: 240 });
-  } catch {
-    return null;
   }
 }
 
@@ -609,23 +590,11 @@ function mapWhitebooksResponse(data) {
   const irn = normalizeNicIrn(rawIrn);
   const ackNo = pickAckNoFromWhitebooks(data);
   const ackDt = pickAckDtFromWhitebooks(data);
-  const rawQr =
-    deepFindValueByKeys(data, [
-      'SignedQRCode',
-      'SignedQrCode',
-      'SignedQR',
-      'signedQR',
-      'QrCode',
-      'QRCode',
-      'qr',
-      'QR',
-    ]) || data?.signedQR;
-
   return {
     irn: irn || null,
     ackNo: ackNo || null,
     ackDt: ackDt || null,
-    signedQR: normalizeQrData(rawQr),
+    signedQR: findSignedQrCode(data),
     raw: data,
   };
 }
@@ -675,19 +644,14 @@ async function generateViaWhitebooks(payload) {
   }
 
   const mapped = mapWhitebooksResponse(generateData);
-  if (!mapped.signedQR) {
-    const rawSignedQr =
-      deepFindValueByKeys(generateData, ['SignedQRCode', 'SignedQR', 'signedQR', 'QRCode', 'qr']) ||
-      null;
-    mapped.signedQR = await buildQrImageDataUrl(rawSignedQr);
-  }
+  mapped.signedQR = await signedQrToImageDataUrl(mapped.signedQR);
   if (!mapped.irn) {
     throw new Error(generateData?.status_desc || 'Whitebooks response did not return IRN.');
   }
   return mapped;
 }
 
-function mapBackendResponse(data) {
+async function mapBackendResponse(data) {
   if (!data || typeof data !== 'object') {
     return { irn: null, ackNo: null, ackDt: null, signedQR: null };
   }
@@ -712,24 +676,33 @@ function mapBackendResponse(data) {
     (pr && pickAckDtFromWhitebooks(pr)) ||
     nested?.AckDt ||
     nested?.ackDt;
-  let signedQR =
-    data?.signedQR ??
-    data?.SignedQR ??
-    data?.qr ??
-    data?.QR ??
-    deepFindValueByKeys(data, [
-      'SignedQRCode',
-      'SignedQR',
-      'signedQR',
-      'QRCode',
-      'qr',
-    ]) ??
-    (pr &&
-      deepFindValueByKeys(pr, ['SignedQRCode', 'SignedQR', 'signedQR', 'QRCode', 'qr']));
-  if (typeof signedQR === 'string' && signedQR.length > 0 && !signedQR.startsWith('data:')) {
-    if (/^[A-Za-z0-9+/=]+$/.test(signedQR)) signedQR = `data:image/png;base64,${signedQR}`;
-  }
+  const rawSignedQr = isQrImageDataUrl(data?.signedQR)
+    ? data.signedQR
+    : findSignedQrCode(data) || data?.signedQrPayload || data?.signedQR;
+  const signedQR = (await signedQrToImageDataUrl(rawSignedQr)) || (isSignedQrPayload(rawSignedQr) ? String(rawSignedQr).trim() : null);
   return { irn: irn || null, ackNo: ackNo || null, ackDt: ackDt || null, signedQR: signedQR || null };
+}
+
+function isSignedQrPayload(value) {
+  const text = String(value || '').trim();
+  if (!text || isQrImageDataUrl(text)) return false;
+  const parts = text.split('.');
+  return text.startsWith('eyJ') && parts.length >= 3;
+}
+
+/** Load the signed QR image for an IRN already issued (used when the invoice stored the IRN without the image). */
+export async function fetchEinvoiceQrImage(irn) {
+  const id = String(irn || '').trim();
+  if (!id || id.toUpperCase().startsWith('MOCK-IRN-')) return null;
+  try {
+    const { res, data } = await postBackendEInvoice('/qr', { irn: id });
+    if (!res.ok) return null;
+    const raw = isQrImageDataUrl(data?.signedQR) ? data.signedQR : data?.signedQrPayload || data?.signedQR;
+    return (await signedQrToImageDataUrl(raw)) || (isQrImageDataUrl(data?.signedQR) ? data.signedQR : null);
+  } catch (err) {
+    console.warn('e-invoice QR fetch failed', err?.message || err);
+    return null;
+  }
 }
 
 function mockResponse(bill) {

@@ -25,6 +25,7 @@ import {
   applyPoEntryFieldAclToDbPayload,
   stripPoEntryFieldAclMeta,
 } from '../utils/poEntryFieldPermissions';
+import { newUuid } from '../utils/newUuid';
 
 const BILLING_SCHEMA = 'billing';
 const MODULE_CONTEXT = {
@@ -1010,7 +1011,31 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
 function isMissingPoWoColumnError(err) {
   const msg = supabaseErrBlob(err);
   if (!msg) return false;
-  return /column|schema cache|PGRST204|could not find/i.test(msg);
+  // Only a real missing-column response. A bare "column" match also hits
+  // not-null errors and was causing the save to insert the PO again.
+  return /PGRST204|schema cache|could not find the ['"].+['"] column|column ['"].+['"] of .+ does not exist|column .+ does not exist/i.test(msg);
+}
+
+/** Same PO number + OC already stored: update that row instead of inserting another. */
+async function findExistingPoWoId(po) {
+  const num = String(po?.poWoNumber || po?.po_wo_number || '').trim();
+  const oc = String(po?.ocNumber || po?.oc_number || '').trim();
+  if (!num || !oc) return null;
+  const { data, error } = await table('po_wo')
+    .select('id, oc_number, site_id, created_at')
+    .eq('po_wo_number', num)
+    .limit(30);
+  if (error || !data?.length) return null;
+  const ocKey = oc.toLowerCase();
+  const siteKey = String(po?.siteId || po?.site_id || '').trim().toLowerCase();
+  let matches = data.filter((row) => String(row.oc_number || '').trim().toLowerCase() === ocKey);
+  if (siteKey) {
+    const onSite = matches.filter((row) => String(row.site_id || '').trim().toLowerCase() === siteKey);
+    if (onSite.length) matches = onSite;
+  }
+  if (!matches.length) return null;
+  matches.sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+  return matches[0].id || null;
 }
 
 function columnNameFromPoWoError(err) {
@@ -1101,19 +1126,22 @@ async function persistPoWoDocumentColumns(poId, docs) {
   }
 }
 
-/** Insert/upsert billing.po_wo with iterative stripping of columns absent in older DBs. */
+/** Upsert one billing.po_wo row. Retries never insert a second id. */
 async function persistPoWoRow(payload, poIdInput) {
-  const persist = (p) =>
-    poIdInput
-      ? table('po_wo').upsert(p, { onConflict: 'id' }).select('id').single()
-      : table('po_wo').insert(p).select('id').single();
-
-  let current = { ...payload };
+  const id = isUuidString(poIdInput)
+    ? String(poIdInput).trim()
+    : isUuidString(payload?.id)
+      ? String(payload.id).trim()
+      : newUuid();
+  let current = { ...payload, id };
   const strippedPoTypeBundle = new Set();
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    let { data: saved, error: poError } = await persist(current);
-    if (!poError) return { data: saved, error: null };
+    const { data: saved, error: poError } = await table('po_wo')
+      .upsert(current, { onConflict: 'id' })
+      .select('id')
+      .maybeSingle();
+    if (!poError) return { data: saved || { id }, error: null };
 
     const msg = String(poError?.message || '');
     if (
@@ -1153,7 +1181,8 @@ async function persistPoWoRow(payload, poIdInput) {
     }
 
     const col = columnNameFromPoWoError(poError);
-    if (!col || !(col in current)) {
+    // Never drop the primary key. A retry without id inserts another PO row.
+    if (!col || col === 'id' || !(col in current)) {
       return { data: null, error: poError };
     }
     const next = { ...current };
@@ -1164,12 +1193,21 @@ async function persistPoWoRow(payload, poIdInput) {
   return { data: null, error: new Error('PO/WO save failed after column compatibility retries') };
 }
 
-/** Save full list of POs (upsert), rate categories and contact log. */
+/** Save full list of POs (upsert), rate categories and contact log. Returns id remaps. */
 export async function saveCommercialPOs(list, options = {}) {
-  if (!Array.isArray(list) || list.length === 0) return;
+  if (!Array.isArray(list) || list.length === 0) return [];
   const forcedModuleContext = options?.moduleContext;
+  const idRemap = [];
+  const seenIds = new Set();
+  const uniqueList = [];
+  for (const row of list) {
+    const id = row?.id == null ? '' : String(row.id);
+    if (id && seenIds.has(id)) continue;
+    if (id) seenIds.add(id);
+    uniqueList.push(row);
+  }
 
-  for (const rawPo of list) {
+  for (const rawPo of uniqueList) {
     const fieldAcl = rawPo?.[PO_ENTRY_FIELD_ACL_META] || null;
     const po = stripPoEntryFieldAclMeta(rawPo);
     const moduleType = getCommercialPoModuleType(po);
@@ -1179,8 +1217,11 @@ export async function saveCommercialPOs(list, options = {}) {
         ? forcedModuleContext
         : poModuleContext;
     const updateHistoryStamped = withCommercialModuleMarker(po.updateHistory, moduleType);
-    const poIdInput = isUuidString(po.id) ? String(po.id).trim() : undefined;
-    let payload = buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped);
+    const requestedId = isUuidString(po.id) ? String(po.id).trim() : newUuid();
+    const matchedId = await findExistingPoWoId(po);
+    const poIdInput = matchedId || requestedId;
+    idRemap.push({ from: String(po.id || requestedId), to: String(poIdInput) });
+    let payload = buildPoWoSavePayload({ ...po, id: poIdInput }, poIdInput, moduleContext, updateHistoryStamped);
     let existingRow = null;
     if (poIdInput) {
       existingRow = await loadExistingPoWoRow(poIdInput);
@@ -1363,6 +1404,7 @@ export async function saveCommercialPOs(list, options = {}) {
       }
     }
   }
+  return idRemap;
 }
 
 /**

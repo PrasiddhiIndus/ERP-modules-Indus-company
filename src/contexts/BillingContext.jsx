@@ -142,6 +142,42 @@ function labelVertical(key) {
     .replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
+function poBusinessDedupeKey(po) {
+  if (po?.isSupplementary || po?.is_supplementary) return '';
+  const num = String(po?.poWoNumber || po?.po_wo_number || '').trim().toLowerCase();
+  const oc = String(po?.ocNumber || po?.oc_number || '').trim().toLowerCase();
+  const site = String(po?.siteId || po?.site_id || '').trim().toLowerCase();
+  if (!num || !oc) return '';
+  return `${site}||${oc}||${num}`;
+}
+
+function poRowTime(po) {
+  const updated = new Date(po?.updated_at || po?.updatedAt || 0).getTime();
+  const created = new Date(po?.created_at || po?.createdAt || 0).getTime();
+  return Math.max(Number.isFinite(updated) ? updated : 0, Number.isFinite(created) ? created : 0);
+}
+
+function dedupeCommercialPoRows(rows) {
+  const byId = new Map();
+  for (const row of rows || []) {
+    const id = row?.id == null ? '' : String(row.id);
+    if (!id) continue;
+    byId.set(id, row);
+  }
+  const byBusiness = new Map();
+  const kept = [];
+  for (const row of byId.values()) {
+    const key = poBusinessDedupeKey(row);
+    if (!key) {
+      kept.push(row);
+      continue;
+    }
+    const prev = byBusiness.get(key);
+    if (!prev || poRowTime(row) >= poRowTime(prev)) byBusiness.set(key, row);
+  }
+  return [...kept, ...byBusiness.values()];
+}
+
 export const BillingProvider = ({ children, commercialModuleScope = null, enableVerticalFilter = false }) => {
   const { userProfile } = useAuth();
   /** Full PO list from DB/localStorage (all modules). */
@@ -368,9 +404,9 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
         fetchPaymentAdvice(),
       ]);
       setCommercialPOsFull((prevAll) => {
-        if (!commercialModuleScope) return pos;
+        if (!commercialModuleScope) return dedupeCommercialPoRows(pos);
         const others = prevAll.filter((p) => getCommercialPoModuleType(p) !== commercialModuleScope);
-        return [...others, ...pos];
+        return dedupeCommercialPoRows([...others, ...pos]);
       });
       setInvoicesState(invs);
       setCreditDebitNotesState(notes);
@@ -432,9 +468,9 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
           fetchPaymentAdvice(),
         ]);
         setCommercialPOsFull((prevAll) => {
-          if (!commercialModuleScope) return pos;
+          if (!commercialModuleScope) return dedupeCommercialPoRows(pos);
           const others = prevAll.filter((p) => getCommercialPoModuleType(p) !== commercialModuleScope);
-          return [...others, ...pos];
+          return dedupeCommercialPoRows([...others, ...pos]);
         });
         setInvoicesState(invs);
         setCreditDebitNotesState(notes);
@@ -515,6 +551,7 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
         resolvePersist = resolve;
         rejectPersist = reject;
       });
+      let persistScheduled = false;
       setCommercialPOsFull((prevAll) => {
         const scoped = commercialModuleScope;
         const sliceForUpdater = scoped
@@ -572,32 +609,45 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
           };
         };
         const toPersistWithFiles = (toPersist || []).map(stripAcl);
-        next = (next || []).map(stripAcl).map(stripFileBlobs);
+        next = dedupeCommercialPoRows((next || []).map(stripAcl).map(stripFileBlobs));
+        if (!persistScheduled) {
+          persistScheduled = true;
         Promise.resolve()
           .then(async () => {
             // Persist deletes first so removed rows don't reappear after realtime refresh.
             if (removedIds.length) await deleteCommercialPOsDb(removedIds);
             // Only upsert POs that changed in the active commercial scope.
+            let persistedRows = toPersistWithFiles;
             if (toPersistWithFiles.length) {
-              await saveCommercialPOsDb(
+              const idRemap = await saveCommercialPOsDb(
                 toPersistWithFiles,
                 scoped ? { moduleContext: toModuleContext(scoped) } : {}
               );
+              const remapByFrom = new Map(
+                (Array.isArray(idRemap) ? idRemap : [])
+                  .filter((row) => row?.from && row?.to)
+                  .map((row) => [String(row.from), String(row.to)])
+              );
+              persistedRows = toPersistWithFiles.map((po) => {
+                const to = remapByFrom.get(String(po.id));
+                if (!to || to === String(po.id)) return po;
+                return { ...stripFileBlobs(po), id: to };
+              });
             }
             const reloadOk = await loadFromDb();
             // If fetch/filter lagged, keep freshly saved rows visible in the scoped module.
-            if (reloadOk && scoped && toPersistWithFiles.length) {
+            if (reloadOk && scoped && persistedRows.length) {
               setCommercialPOsFull((prevAllInner) => {
                 const scopedRows = prevAllInner.filter(
                   (p) => getCommercialPoModuleType(p) === scoped
                 );
                 const scopedIds = new Set(scopedRows.map((p) => String(p.id)));
-                const missing = toPersistWithFiles
+                const missing = persistedRows
                   .filter((p) => !scopedIds.has(String(p.id)))
                   .map(stripFileBlobs);
-                if (!missing.length) return prevAllInner;
+                if (!missing.length) return dedupeCommercialPoRows(prevAllInner);
                 const others = prevAllInner.filter((p) => getCommercialPoModuleType(p) !== scoped);
-                return [...others, ...scopedRows, ...missing];
+                return dedupeCommercialPoRows([...others, ...scopedRows, ...missing]);
               });
             }
             return { ok: true, persisted: toPersistWithFiles.length };
@@ -616,6 +666,7 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
               e instanceof Error ? e : new Error(e?.message || 'Could not save PO to database.')
             );
           });
+        }
         setContactHistoryState((byPo) => {
           const nextByPo = {};
           (next || []).forEach((po) => {
@@ -653,7 +704,15 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
             String(old.taxInvoiceNumber || old.tax_invoice_number || '') !== String(inv.taxInvoiceNumber || inv.tax_invoice_number || '') ||
             Number(old.totalAmount || 0) !== Number(inv.totalAmount || 0) ||
             String(old.digitalSignatureDataUrl || old.digital_signature_data_url || '') !==
-              String(inv.digitalSignatureDataUrl || inv.digital_signature_data_url || '')
+              String(inv.digitalSignatureDataUrl || inv.digital_signature_data_url || '') ||
+            String(old.e_invoice_irn || old.eInvoiceIrn || '') !==
+              String(inv.e_invoice_irn || inv.eInvoiceIrn || '') ||
+            String(old.e_invoice_ack_no || old.eInvoiceAckNo || '') !==
+              String(inv.e_invoice_ack_no || inv.eInvoiceAckNo || '') ||
+            String(old.e_invoice_ack_dt || old.eInvoiceAckDt || '') !==
+              String(inv.e_invoice_ack_dt || inv.eInvoiceAckDt || '') ||
+            String(old.e_invoice_signed_qr || old.eInvoiceSignedQr || '') !==
+              String(inv.e_invoice_signed_qr || inv.eInvoiceSignedQr || '')
           );
         });
         const persist = changed.length

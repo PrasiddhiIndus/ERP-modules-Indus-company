@@ -8,7 +8,7 @@ import crypto from 'crypto';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import QRCode from 'qrcode';
+import { findSignedQrCode, signedQrToImageDataUrl } from '../shared/eInvoiceQr.mjs';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createClient } from '@supabase/supabase-js';
@@ -930,20 +930,13 @@ function pickAckDtFromWhitebooks(data) {
   return deepFind(data, ['AckDt', 'ackDt', 'ack_dt']) || null;
 }
 
-async function asQrDataUrl(value) {
-  if (!value || typeof value !== 'string') return null;
-  if (value.startsWith('data:image/')) return value;
-  if (/^[A-Za-z0-9+/=]+$/.test(value)) return `data:image/png;base64,${value}`;
-  return QRCode.toDataURL(value, { margin: 1, width: 240 });
-}
-
 function mapGenerateResponse(data) {
   const rawIrn = pickRawIrnFromWhitebooks(data);
   const irn = normalizeNicIrn(rawIrn);
   const ackNo = pickAckNoFromWhitebooks(data);
   const ackDt = pickAckDtFromWhitebooks(data);
   const signedInvoice = deepFind(data, ['SignedInvoice', 'signedInvoice']) || null;
-  const rawSignedQr = deepFind(data, ['SignedQRCode', 'SignedQR', 'signedQR', 'QRCode', 'qr']) || null;
+  const rawSignedQr = findSignedQrCode(data);
   return { irn, ackNo, ackDt, signedInvoice, rawSignedQr };
 }
 
@@ -2422,13 +2415,27 @@ app.post('/api/billing/e-invoice/generate', einvoiceRateLimit, requireBillingAcc
         providerResponse: wbData,
       });
     }
-    const signedQR = await asQrDataUrl(mapped.rawSignedQr);
+    let rawSignedQr = mapped.rawSignedQr;
+    if (!rawSignedQr) {
+      rawSignedQr = await fetchSignedQrPayload(token, mapped.irn);
+    }
+    const signedQR = (await signedQrToImageDataUrl(rawSignedQr)) || rawSignedQr || null;
+    if (!signedQR) {
+      console.warn(
+        '[e-invoice] IRN returned without a signed QR.',
+        'response keys:',
+        Object.keys(wbData || {}).join(','),
+        'data keys:',
+        wbData?.data && typeof wbData.data === 'object' ? Object.keys(wbData.data).join(',') : typeof wbData?.data
+      );
+    }
     res.json({
       billId: billId ?? null,
       irn: mapped.irn,
       ackNo: mapped.ackNo,
       ackDt: mapped.ackDt,
       signedQR,
+      signedQrPayload: rawSignedQr || null,
       signedInvoice: mapped.signedInvoice,
       providerResponse: wbData,
     });
@@ -2442,6 +2449,45 @@ app.post('/api/billing/e-invoice/generate', einvoiceRateLimit, requireBillingAcc
       ...(errors ? { errors } : {}),
       ...(providerResponse ? { providerResponse } : {}),
     });
+  }
+});
+
+async function fetchSignedQrPayload(token, irn) {
+  const id = String(irn || '').trim();
+  if (!id) return null;
+  const c = cfg();
+  const url = `${c.baseUrl}/einvoice/type/GETIRN/version/V1_03?param1=${encodeURIComponent(id)}&email=${encodeURIComponent(c.email)}`;
+  const wbRes = await fetch(url, {
+    method: 'GET',
+    headers: {
+      ...authHeaders(token),
+      accept: '*/*',
+    },
+  });
+  const wbData = await wbRes.json().catch(() => ({}));
+  if (!wbRes.ok) {
+    console.warn('[e-invoice] GETIRN failed', wbRes.status, wbData?.status_desc || wbData?.message || '');
+    return null;
+  }
+  return findSignedQrCode(wbData);
+}
+
+app.post('/api/billing/e-invoice/qr', einvoiceRateLimit, requireBillingAccess, async (req, res) => {
+  try {
+    const irn = String(req.body?.irn || '').trim();
+    if (!irn) return res.status(400).json({ message: 'irn is required.' });
+    const token = await authenticate();
+    const rawSignedQr = await fetchSignedQrPayload(token, irn);
+    const signedQR = (await signedQrToImageDataUrl(rawSignedQr)) || rawSignedQr || null;
+    if (!signedQR) {
+      return res.status(404).json({
+        message: 'No signed QR was returned for this IRN. NIC only keeps it for a short time after generation.',
+      });
+    }
+    res.json({ irn, signedQR, signedQrPayload: rawSignedQr || null });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ message: err?.message || 'Failed to load the e-invoice QR.' });
   }
 });
 
