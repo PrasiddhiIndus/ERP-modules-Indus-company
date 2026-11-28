@@ -641,34 +641,13 @@ export function isPaidThirdSaturdayWeekoffCell(mark, { year, month, day, departm
 }
 
 /**
- * Employees who work the 3rd Saturday (Employee Master "3rd Saturday off" unticked) and must
- * NOT get Total-present credit for a blank/WO cell that day — no punch = 0 present.
- * Everyone else keeps the Mon–Sat salary-slab blank credit.
- * Emp codes match Daily Register / Employee Master (e.g. A-00004).
+ * Formerly credited blank/WO on a worked 3rd Saturday as present.
+ * That free credit is removed: when 3rd Saturday is not a weekly off for the employee,
+ * Total present only counts an actual Present mark (P / P(OD) / tour / etc.).
+ * Kept as an exported stub so older call sites keep a stable false result.
  */
-const NO_BLANK_THIRD_SAT_PRESENT_CREDIT_EMP_CODES = new Set(["A-00004"]);
-
-function skipsBlankThirdSaturdayPresentCredit(employeeCode) {
-  const code = normalizeAttendanceEmpCode(employeeCode);
-  return Boolean(code && NO_BLANK_THIRD_SAT_PRESENT_CREDIT_EMP_CODES.has(code));
-}
-
-/**
- * Total present only: blank/WO on a 3rd Saturday that is not a weekly off for this employee
- * (works that day, e.g. Production sun_only) still credits 1 — salary slab counts Mon–Sat.
- * Uses employee+department weekly-off resolution only (no department-only gate).
- * Present marks (P, etc.) are unchanged (they already credit via normal present credit).
- * Exception: NO_BLANK_THIRD_SAT_PRESENT_CREDIT_EMP_CODES (e.g. A-00004) → false.
- */
-export function isPaidThirdSaturdayWorkingDeptCell(mark, { year, month, day, department, employeeCode = null } = {}) {
-  const m = String(mark ?? "").trim();
-  if (m && m !== "WO") return false;
-  if (!year || !month || !day) return false;
-  if (!isThirdSaturdayOfMonth(year, month, day)) return false;
-  if (skipsBlankThirdSaturdayPresentCredit(employeeCode)) return false;
-  const iso = registerDateFromDay(monthKeyFromParts(year, month), day);
-  if (!iso) return false;
-  return !isWeeklyOffDate(iso, department, employeeCode);
+export function isPaidThirdSaturdayWorkingDeptCell() {
+  return false;
 }
 
 /** Production (and Production-* variants) for Total present Saturday WO credit only. */
@@ -678,14 +657,19 @@ function isProductionDepartmentForPresentCredit(department) {
 }
 
 /**
- * Total present only: Production department WO on any Saturday of the month credits 1.
+ * Total present only: Production department WO on a Saturday credits 1, except the
+ * 3rd Saturday when that day is not a weekly off (worked day — only Present counts).
+ * Paid 3rd-Saturday weekoff WO is handled by isPaidThirdSaturdayWeekoffCell instead.
  * Does not change Sunday WO, other departments, marks, or C/O / auto-WO logic.
  */
 export function isProductionSaturdayWeekoffPresentCredit(mark, { year, month, day, department } = {}) {
   if (String(mark ?? "").trim() !== "WO") return false;
   if (!year || !month || !day) return false;
   if (!isProductionDepartmentForPresentCredit(department)) return false;
-  return new Date(year, month - 1, day).getDay() === 6;
+  if (new Date(year, month - 1, day).getDay() !== 6) return false;
+  // Worked 3rd Saturday: no present credit from a WO/blank cell — Present mark required.
+  if (isThirdSaturdayOfMonth(year, month, day)) return false;
+  return true;
 }
 
 /**
@@ -709,10 +693,11 @@ function isCoOnWoNhPhDate(mark, ctx = {}) {
 
 /**
  * Present credit for register summary Total present column only.
- * P/PL, P/CL, P/SL count as 1 (display); 3rd-Saturday WO counts as 1 (see above).
+ * P/PL, P/CL, P/SL count as 1 (display); 3rd-Saturday WO counts as 1 only when that day
+ * is a weekly off for the employee. Worked 3rd Saturday credits only actual Present marks.
  * PL/CL/SL on that paid 3rd-Saturday weekoff also counts as 1 (Total present only).
  * CO / P/CO / CO/P on a weekly off or NH/PH date count as 0; on any other date they count as 1.
- * Days strictly before DOJ never credit (WO / NH·PH / blank 3rd-Saturday paid cells included).
+ * Days strictly before DOJ never credit.
  * Does not change day-level present/absent logic or compensatory-off balance deduction.
  */
 export function registerPresentDaySummaryCreditForCell(mark, ctx = {}) {

@@ -116,53 +116,37 @@ describe("resolver honours dates and department overrides", () => {
     expect(isPaidThirdSaturdayWeekoffCell("WO", { year: 2026, month: 11, day: 21, department: "HR" })).toBe(false);
   });
 
-  it("Production Total present credits blank/WO on worked 3rd Saturday", () => {
+  it("worked 3rd Saturday does not credit Total present unless marked Present", () => {
     setCachedRuleRows(rows);
     const prod = { year: 2026, month: 10, day: 17, department: "Production" };
     const hr = { year: 2026, month: 10, day: 17, department: "HR" };
-    expect(isPaidThirdSaturdayWorkingDeptCell("", prod)).toBe(true);
-    expect(isPaidThirdSaturdayWorkingDeptCell("WO", prod)).toBe(true);
+    // Free blank/WO credit for worked 3rd Saturday is removed.
+    expect(isPaidThirdSaturdayWorkingDeptCell("", prod)).toBe(false);
+    expect(isPaidThirdSaturdayWorkingDeptCell("WO", prod)).toBe(false);
     expect(isPaidThirdSaturdayWorkingDeptCell("P", prod)).toBe(false);
     expect(isPaidThirdSaturdayWorkingDeptCell("", hr)).toBe(false);
-    expect(registerPresentDaySummaryCreditForCell("", prod)).toBe(1);
-    expect(registerPresentDaySummaryCreditForCell("WO", prod)).toBe(1);
+    expect(registerPresentDaySummaryCreditForCell("", prod)).toBe(0);
+    expect(registerPresentDaySummaryCreditForCell("WO", prod)).toBe(0);
+    expect(registerPresentDaySummaryCreditForCell("P", prod)).toBe(1);
+    expect(registerPresentDaySummaryCreditForCell("T", prod)).toBe(1);
     expect(registerPresentDaySummaryCreditForCell("WO", { ...prod, day: 4 })).toBe(0); // Sunday WO
     expect(registerPresentDaySummaryCreditForCell("NH/PH", prod)).toBe(1); // NH/PH credit unchanged
     expect(registerPresentDaySummaryCreditForCell("WO", hr)).toBe(1); // office paid 3rd-Sat WO unchanged
   });
 
-  it("A-00004 does not get blank 3rd-Saturday present credit; other workers still do", () => {
+  it("Production Total present credits WO on non-3rd Saturdays only", () => {
     setCachedRuleRows(rows);
-    const thirdSat = { year: 2026, month: 10, day: 17, department: "Apprentice" };
-    expect(isPaidThirdSaturdayWorkingDeptCell("", { ...thirdSat, employeeCode: "A-00004" })).toBe(false);
-    expect(isPaidThirdSaturdayWorkingDeptCell("WO", { ...thirdSat, employeeCode: "A-00004" })).toBe(false);
-    expect(registerPresentDaySummaryCreditForCell("", { ...thirdSat, employeeCode: "A-00004" })).toBe(0);
-    // Punch / tour on that day still count as present.
-    expect(registerPresentDaySummaryCreditForCell("P", { ...thirdSat, employeeCode: "A-00004" })).toBe(1);
-    expect(registerPresentDaySummaryCreditForCell("T", { ...thirdSat, employeeCode: "A-00004" })).toBe(1);
-    // Other people who work 3rd Saturday still get the blank credit (unchanged).
-    expect(
-      isPaidThirdSaturdayWorkingDeptCell("", {
-        year: 2026,
-        month: 10,
-        day: 17,
-        department: "Production",
-        employeeCode: "P-00001",
-      })
-    ).toBe(true);
-  });
-
-  it("Production Total present credits WO on any Saturday only", () => {
-    setCachedRuleRows(rows);
-    // Oct 2026: Sat 3 / 10 / 17 / 24 / 31; Sun 4.
+    // Oct 2026: Sat 3 / 10 / 17 / 24 / 31; Sun 4; 17 = 3rd Saturday.
     const prodSat = { year: 2026, month: 10, day: 3, department: "Production" };
     expect(isProductionSaturdayWeekoffPresentCredit("WO", prodSat)).toBe(true);
     expect(isProductionSaturdayWeekoffPresentCredit("WO", { ...prodSat, day: 24 })).toBe(true);
+    expect(isProductionSaturdayWeekoffPresentCredit("WO", { ...prodSat, day: 17 })).toBe(false); // worked 3rd Sat
     expect(isProductionSaturdayWeekoffPresentCredit("WO", { ...prodSat, day: 4 })).toBe(false); // Sunday
     expect(isProductionSaturdayWeekoffPresentCredit("P", prodSat)).toBe(false);
     expect(isProductionSaturdayWeekoffPresentCredit("WO", { ...prodSat, department: "HR" })).toBe(false);
     expect(registerPresentDaySummaryCreditForCell("WO", prodSat)).toBe(1);
     expect(registerPresentDaySummaryCreditForCell("WO", { ...prodSat, day: 24 })).toBe(1);
+    expect(registerPresentDaySummaryCreditForCell("WO", { ...prodSat, day: 17 })).toBe(0);
     expect(registerPresentDaySummaryCreditForCell("WO", { ...prodSat, day: 4 })).toBe(0);
     expect(registerPresentDaySummaryCreditForCell("WO", { ...prodSat, department: "HR" })).toBe(0);
   });
