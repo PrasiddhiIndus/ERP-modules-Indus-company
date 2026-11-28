@@ -17,8 +17,20 @@ import { useAuth } from "../../contexts/AuthContext";
 import { confirmDialog } from "../../lib/dialog";
 import { toast } from "../../lib/toast";
 import { presignItSupportR2Get } from "../../lib/itSupportR2";
-import { canAgent, canRaise } from "./itSupportAccess";
-import { PRIORITIES, STATUSES, impactLabel } from "./itSupportConstants";
+import {
+  canHardwareAgent,
+  canOpenTicketDetail,
+  resolveSupportTypeAccess,
+} from "./itSupportAccess";
+import {
+  IT_SUPPORT_BASE,
+  PRIORITIES,
+  STATUSES,
+  impactLabel,
+  normalizeSupportType,
+  supportTypeLabel,
+  supportTypePath,
+} from "./itSupportConstants";
 import {
   addComment,
   assignTicket,
@@ -53,7 +65,6 @@ function displayPerson(p) {
 export default function TicketDetailPage() {
   const { id } = useParams();
   const { user, userProfile } = useAuth();
-  const agent = canAgent(userProfile);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [ticket, setTicket] = useState(null);
@@ -73,6 +84,13 @@ export default function TicketDetailPage() {
   const isOnCc = Boolean(
     user?.id && (ccList || []).some((c) => c.user_id === user.id)
   );
+  const ticketType = normalizeSupportType(ticket?.support_type);
+  const typeAccess = resolveSupportTypeAccess(userProfile, ticketType);
+  const agent = Boolean(typeAccess.canAgent || typeAccess.canAdmin);
+  const maybeAgent =
+    resolveSupportTypeAccess(userProfile, "software").canAgent
+    || resolveSupportTypeAccess(userProfile, "software").canAdmin
+    || canHardwareAgent(userProfile);
 
   const applyDetail = useCallback((detail) => {
     if (!detail) return;
@@ -89,9 +107,20 @@ export default function TicketDetailPage() {
       if (!silent) setLoading(true);
       setError("");
       try {
-        const detail = await getTicketDetail({ ticketId: id, includeInternal: agent });
+        const detail = await getTicketDetail({
+          ticketId: id,
+          includeInternal: maybeAgent,
+        });
         applyDetail(detail);
-        if (agent && !agentsLoadedRef.current) {
+        const detailAgent = resolveSupportTypeAccess(
+          userProfile,
+          normalizeSupportType(detail?.ticket?.support_type)
+        ).canAgent
+          || resolveSupportTypeAccess(
+            userProfile,
+            normalizeSupportType(detail?.ticket?.support_type)
+          ).canAdmin;
+        if (detailAgent && !agentsLoadedRef.current) {
           const a = await listAgents();
           setAgents(a);
           agentsLoadedRef.current = true;
@@ -103,7 +132,7 @@ export default function TicketDetailPage() {
         if (!silent) setLoading(false);
       }
     },
-    [id, agent, applyDetail]
+    [id, maybeAgent, applyDetail, userProfile]
   );
 
   useEffect(() => {
@@ -217,10 +246,6 @@ export default function TicketDetailPage() {
     }
   };
 
-  if (!canRaise(userProfile) && !agent) {
-    return <EmptyState title="No access" message="You cannot view this ticket." />;
-  }
-
   if (loading) return <LoadingBlock label="Loading ticket…" />;
   if (!ticket) {
     return (
@@ -228,12 +253,18 @@ export default function TicketDetailPage() {
         title="Ticket not found"
         message={error || "This ticket may have been removed."}
         action={
-          <Link to="/app/it-support/my">
+          <Link to={`${IT_SUPPORT_BASE}/my`}>
             <SecondaryButton>Back to my tickets</SecondaryButton>
           </Link>
         }
       />
     );
+  }
+
+  if (
+    !canOpenTicketDetail(userProfile, ticket, { isOwner, isOnCc })
+  ) {
+    return <EmptyState title="No access" message="You cannot view this ticket." />;
   }
 
   const canConfirm =
@@ -249,7 +280,13 @@ export default function TicketDetailPage() {
         title={ticket.ticket_no || "Ticket"}
         subtitle={ticket.title}
       >
-        <Link to={agent ? "/app/it-support/queue" : "/app/it-support/my"}>
+        <Link
+          to={
+            agent
+              ? supportTypePath(ticket.support_type || "software", "queue")
+              : `${IT_SUPPORT_BASE}/my`
+          }
+        >
           <SecondaryButton>
             <ArrowLeft className="w-3.5 h-3.5 inline mr-1" />
             Back
@@ -264,6 +301,15 @@ export default function TicketDetailPage() {
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2 mb-2">
+        <span
+          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+            ticket.support_type === "hardware"
+              ? "border-amber-200 bg-amber-50 text-amber-900"
+              : "border-indigo-200 bg-indigo-50 text-indigo-900"
+          }`}
+        >
+          {supportTypeLabel(ticket.support_type)}
+        </span>
         <StatusBadge status={ticket.status} />
         <PriorityBadge priority={ticket.priority} />
         {isOnCc && !isOwner ? (

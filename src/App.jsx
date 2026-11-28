@@ -155,6 +155,10 @@ import {
   SalaryProcessReportPage,
   PayrollMisRoutePage,
   ProbationReviewsPage,
+  PettyCashLayoutPage,
+  PettyCashDashboardPage,
+  OverheadExpenseMasterPage,
+  DailyExpenseEntryPage,
   ProbationReviewDetailPage,
   SalaryComponentsMasterPage,
   CtcCalculatorPage,
@@ -176,6 +180,7 @@ import {
   SoftwareSubscriptions,
   ApiHealthDashboard,
   ItSupportLayout,
+  ItSupportSupportTypeRoute,
   ItSupportDashboardPage,
   ItSupportRaiseTicketPage,
   ItSupportMyTicketsPage,
@@ -612,6 +617,13 @@ function App() {
               path="admin/rules-console"
               element={<RulesConsoleGuard><RulesConsolePage /></RulesConsoleGuard>}
             />
+            <Route path="admin/petty-cash" element={<PettyCashLayoutPage />}>
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<PettyCashDashboardPage />} />
+              <Route path="daily-entry" element={<DailyExpenseEntryPage />} />
+              <Route path="masters" element={<OverheadExpenseMasterPage />} />
+              <Route path="*" element={<Navigate to="dashboard" replace />} />
+            </Route>
             <Route path="admin/misc/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/alerts-notifications" element={<AdminOpsAlerts />} />
             <Route path="admin/reports-analytics" element={<AdminOpsReports />} />
@@ -806,13 +818,15 @@ function App() {
             <Route path="software-subscriptions-reminders" element={<SoftwareSubscriptions />} />
             <Route path="api-health" element={<ApiHealthDashboard />} />
             <Route path="it-support" element={<ItSupportLayout />}>
-              <Route index element={<ItSupportDashboardPage />} />
-              <Route path="raise" element={<ItSupportRaiseTicketPage />} />
               <Route path="my" element={<ItSupportMyTicketsPage />} />
-              <Route path="queue" element={<ItSupportTicketQueuePage />} />
               <Route path="tickets/:id" element={<ItSupportTicketDetailPage />} />
               <Route path="masters" element={<ItSupportMastersPage />} />
               <Route path="reports" element={<ItSupportReportsPage />} />
+              <Route path=":supportType" element={<ItSupportSupportTypeRoute />}>
+                <Route index element={<ItSupportDashboardPage />} />
+                <Route path="raise" element={<ItSupportRaiseTicketPage />} />
+                <Route path="queue" element={<ItSupportTicketQueuePage />} />
+              </Route>
             </Route>
             <Route path="qa" element={<QaLayout />}>
               <Route index element={<QaDashboardPage />} />

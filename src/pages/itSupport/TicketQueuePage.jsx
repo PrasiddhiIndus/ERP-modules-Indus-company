@@ -15,8 +15,8 @@ import {
 } from "../../components/erpUi";
 import { useAuth } from "../../contexts/AuthContext";
 import { toast } from "../../lib/toast";
-import { canAgent, canAdmin } from "./itSupportAccess";
-import { KANBAN_STATUSES, statusLabel } from "./itSupportConstants";
+import { resolveSupportTypeAccess } from "./itSupportAccess";
+import { IT_SUPPORT_BASE, KANBAN_STATUSES, statusLabel } from "./itSupportConstants";
 import {
   changeStatus,
   createItSupportRefreshScheduler,
@@ -26,6 +26,7 @@ import {
   subscribeItSupportRealtime,
 } from "./itSupportApi";
 import { formatErpModulePath, getItSupportModuleOptions } from "./itSupportModuleOptions";
+import { useSupportType } from "./SupportTypeContext";
 import PriorityBadge from "./components/PriorityBadge";
 import StatusBadge from "./components/StatusBadge";
 import SlaTimer from "./components/SlaTimer";
@@ -90,7 +91,9 @@ export default function TicketQueuePage() {
   const { user, userProfile } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const allowed = canAgent(userProfile) || canAdmin(userProfile);
+  const { supportType, supportTypeLabel } = useSupportType();
+  const typeAccess = resolveSupportTypeAccess(userProfile, supportType);
+  const allowed = typeAccess.canQueue;
 
   const [view, setView] = useState("table");
   const [rows, setRows] = useState([]);
@@ -119,7 +122,7 @@ export default function TicketQueuePage() {
   rowsRef.current = rows;
   const requestIdRef = useRef(0);
 
-  // Masters / agents once — not on every filter keystroke.
+  // Masters / agents once per support type — not on every filter keystroke.
   useEffect(() => {
     if (!allowed) return undefined;
     let cancelled = false;
@@ -127,14 +130,15 @@ export default function TicketQueuePage() {
       try {
         const [agentList, cats, seedTickets] = await Promise.all([
           listAgents(),
-          listCategories(),
-          // Seed Raised by options from the full live queue (not narrowed by filters).
-          listQueueTickets({}),
+          listCategories({ supportType }),
+          // Seed Raised by options from this support-type queue.
+          listQueueTickets({ supportType }),
         ]);
         if (cancelled) return;
         setAgents(agentList);
         setCategories((cats.categories || []).filter((c) => c.is_active !== false));
         setRaisers(mergeRaisers([], seedTickets));
+        setFilters((f) => ({ ...f, categoryId: "" }));
       } catch (err) {
         if (!cancelled) setError(err.message || "Could not load queue filters.");
       }
@@ -142,7 +146,7 @@ export default function TicketQueuePage() {
     return () => {
       cancelled = true;
     };
-  }, [allowed]);
+  }, [allowed, supportType]);
 
   const loadTickets = useCallback(
     async ({ silent = false } = {}) => {
@@ -152,7 +156,7 @@ export default function TicketQueuePage() {
       else setLoading(true);
       setError("");
       try {
-        const tickets = await listQueueTickets(filters);
+        const tickets = await listQueueTickets({ ...filters, supportType });
         if (reqId !== requestIdRef.current) return;
         setRows(tickets);
         setRaisers((prev) => mergeRaisers(prev, tickets));
@@ -165,7 +169,7 @@ export default function TicketQueuePage() {
         setRefreshing(false);
       }
     },
-    [allowed, filters]
+    [allowed, filters, supportType]
   );
 
   useEffect(() => {
@@ -183,7 +187,7 @@ export default function TicketQueuePage() {
       400
     );
     const unsub = subscribeItSupportRealtime(() => scheduler.schedule(), {
-      channelName: "it-support-queue-live",
+      channelName: `it-support-queue-${supportType}-live`,
       includeNotifications: false,
     });
     const onFocus = () => scheduler.schedule();
@@ -193,7 +197,7 @@ export default function TicketQueuePage() {
       unsub();
       window.removeEventListener("focus", onFocus);
     };
-  }, [allowed, loadTickets]);
+  }, [allowed, loadTickets, supportType]);
 
   const columns = useMemo(
     () => [
@@ -332,8 +336,12 @@ export default function TicketQueuePage() {
   return (
     <>
       <PageTaskHeader
-        title="Ticket queue"
-        subtitle="Work the open IT Support backlog."
+        title={`${supportTypeLabel} queue`}
+        subtitle={
+          supportType === "hardware"
+            ? "Hardware backlog — devices, printers, networking and repairs."
+            : "Software backlog — ERP, apps, login and data issues."
+        }
       >
         <div className="inline-flex rounded-md border border-border overflow-hidden">
           <button
@@ -386,7 +394,7 @@ export default function TicketQueuePage() {
               columns={columns}
               rows={rows}
               rowKey="id"
-              onRowClick={(r) => navigate(`/app/it-support/tickets/${r.id}`)}
+              onRowClick={(r) => navigate(`${IT_SUPPORT_BASE}/tickets/${r.id}`)}
             />
           )}
         </SectionCard>
@@ -422,7 +430,7 @@ export default function TicketQueuePage() {
                       e.dataTransfer.setData("text/ticket-id", t.id);
                       e.dataTransfer.effectAllowed = "move";
                     }}
-                    onClick={() => navigate(`/app/it-support/tickets/${t.id}`)}
+                    onClick={() => navigate(`${IT_SUPPORT_BASE}/tickets/${t.id}`)}
                     className="rounded-lg border border-border bg-surface p-2.5 shadow-sm cursor-grab active:cursor-grabbing hover:border-accent-border"
                   >
                     <p className="text-[11px] font-medium text-accent">{t.ticket_no}</p>

@@ -205,6 +205,18 @@ export function hasFireTenderR2Access(ctx) {
   );
 }
 
+/**
+ * Admin → Petty Cash receipt uploads (Cloudflare R2).
+ * Explicit-only: Super Admin, or any admin.petty-cash / admin.petty-cash.* grant.
+ * Full Admin module alone does not grant Petty Cash R2 (matches UI / RLS).
+ */
+export function hasPettyCashR2Access(ctx) {
+  if (isSuperAdminRole(ctx)) return true;
+  return subModulesLower(ctx).some(
+    (s) => s === 'admin.petty-cash' || s.startsWith('admin.petty-cash.')
+  );
+}
+
 function projectRefFromUrl(url) {
   const m = String(url || '').match(/https?:\/\/([^.]+)\.supabase\.co/i);
   return m ? m[1] : '';
@@ -571,5 +583,6 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     requireCommercialPoR2: middleware((ctx) => hasCommercialPoR2Access(ctx) || hasBillingAccess(ctx)),
     requireMarketingExpoR2: middleware((ctx) => hasMarketingExpoR2Access(ctx)),
     requireFireTenderR2: middleware((ctx) => hasFireTenderR2Access(ctx)),
+    requirePettyCashR2: middleware((ctx) => hasPettyCashR2Access(ctx)),
   };
 }

@@ -9,22 +9,25 @@ import {
   SectionCard,
 } from "../../components/erpUi";
 import { useAuth } from "../../contexts/AuthContext";
-import { canAgent, canAdmin } from "./itSupportAccess";
+import { resolveSupportTypeAccess } from "./itSupportAccess";
 import {
   createItSupportRefreshScheduler,
   dashboardCounts,
   IT_SUPPORT_OPEN_COUNT_EVENT,
   subscribeItSupportRealtime,
 } from "./itSupportApi";
+import { useSupportType } from "./SupportTypeContext";
 
 export default function DashboardPage() {
   const { user, userProfile } = useAuth();
   const navigate = useNavigate();
+  const { supportType, supportTypeLabel, pathFor } = useSupportType();
   const [counts, setCounts] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const allowed = canAgent(userProfile) || canAdmin(userProfile);
+  const typeAccess = resolveSupportTypeAccess(userProfile, supportType);
+  const allowed = typeAccess.canDashboard;
 
   const load = useCallback(
     async ({ silent = false } = {}) => {
@@ -32,7 +35,7 @@ export default function DashboardPage() {
       if (!silent) setLoading(true);
       setError("");
       try {
-        const data = await dashboardCounts({ userId: user?.id });
+        const data = await dashboardCounts({ userId: user?.id, supportType });
         setCounts(data);
       } catch (err) {
         setError(err.message || "Could not load dashboard.");
@@ -40,7 +43,7 @@ export default function DashboardPage() {
         if (!silent) setLoading(false);
       }
     },
-    [allowed, user?.id]
+    [allowed, user?.id, supportType]
   );
 
   useEffect(() => {
@@ -48,7 +51,7 @@ export default function DashboardPage() {
     const scheduler = createItSupportRefreshScheduler(() => load({ silent: true }), 350);
     const onChanged = () => scheduler.schedule();
     const unsub = subscribeItSupportRealtime(onChanged, {
-      channelName: "it-support-dashboard-live",
+      channelName: `it-support-dashboard-${supportType}-live`,
       includeNotifications: false,
     });
     window.addEventListener(IT_SUPPORT_OPEN_COUNT_EVENT, onChanged);
@@ -60,7 +63,7 @@ export default function DashboardPage() {
       window.removeEventListener(IT_SUPPORT_OPEN_COUNT_EVENT, onChanged);
       window.removeEventListener("focus", onFocus);
     };
-  }, [load]);
+  }, [load, supportType]);
 
   if (!allowed) {
     return <EmptyState title="No access" message="The IT dashboard is for agents and admins." />;
@@ -69,8 +72,12 @@ export default function DashboardPage() {
   return (
     <>
       <PageTaskHeader
-        title="IT Support dashboard"
-        subtitle="A quick view of open work and SLA pressure."
+        title={`${supportTypeLabel} dashboard`}
+        subtitle={
+          supportType === "hardware"
+            ? "Open hardware work and SLA pressure for devices, printers and network."
+            : "Open software work and SLA pressure for ERP, apps and related requests."
+        }
       />
       {error ? (
         <InlineAlert tone="error" onDismiss={() => setError("")}>
@@ -85,31 +92,31 @@ export default function DashboardPage() {
             <KpiTile
               label="New"
               value={counts.newCount}
-              onClick={() => navigate("/app/it-support/queue?status=new")}
+              onClick={() => navigate(`${pathFor("queue")}?status=new`)}
               tone="border-violet-200"
             />
             <KpiTile
               label="Assigned to me"
               value={counts.assignedToMe}
-              onClick={() => navigate("/app/it-support/queue?assignee=me")}
+              onClick={() => navigate(`${pathFor("queue")}?assignee=me`)}
               tone="border-sky-200"
             />
             <KpiTile
               label="On hold"
               value={counts.onHold}
-              onClick={() => navigate("/app/it-support/queue?status=on_hold")}
+              onClick={() => navigate(`${pathFor("queue")}?status=on_hold`)}
               tone="border-slate-300"
             />
             <KpiTile
               label="SLA breached"
               value={counts.slaBreached}
-              onClick={() => navigate("/app/it-support/queue?breached=1")}
+              onClick={() => navigate(`${pathFor("queue")}?breached=1`)}
               tone="border-red-200"
             />
             <KpiTile
               label="Resolved today"
               value={counts.resolvedToday}
-              onClick={() => navigate("/app/it-support/queue?status=resolved")}
+              onClick={() => navigate(`${pathFor("queue")}?status=resolved`)}
               tone="border-emerald-200"
             />
           </div>

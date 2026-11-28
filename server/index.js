@@ -412,6 +412,7 @@ const {
   requireCommercialPoR2,
   requireMarketingExpoR2,
   requireFireTenderR2,
+  requirePettyCashR2,
 } = createAuthMiddleware({
   getSupabaseUrl: getSupabaseUrlForServer,
   getServiceRoleKey: getSupabaseServiceRoleKeyForServer,
@@ -464,6 +465,7 @@ const R2_COMMERCIAL_PO_KEY_PREFIX = 'commercial-po/';
 const R2_MARKETING_EXPO_KEY_PREFIX = 'marketing-expo/';
 const R2_COMMERCIAL_PO_FOLDERS = new Set(['po-copy', 'scope-of-work', 'penalty-clause']);
 const R2_FIRE_TENDER_KEY_PREFIX = 'fire-tender/tenders/';
+const R2_PETTY_CASH_KEY_PREFIX = 'petty-cash/';
 const R2_PRESIGN_GET_EXPIRES_SEC = 600;
 const R2_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const R2_COMMERCIAL_PO_MAX_BYTES = 100 * 1024 * 1024;
@@ -3333,6 +3335,114 @@ app.post('/api/admin-joining/r2/delete', requireAdminPoliciesR2, async (req, res
     const objectKey = String(req.body?.objectKey || '').trim().replace(/^\/+/, '');
     if (
       !objectKey.startsWith(R2_ADMIN_JOINING_KEY_PREFIX) ||
+      objectKey.includes('..') ||
+      objectKey.includes('//')
+    ) {
+      return res.status(400).json({ message: 'Invalid object key.' });
+    }
+
+    const client = getR2S3Client();
+    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
+    res.json({ ok: true, objectKey });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ message: err?.message || 'Delete failed.' });
+  }
+});
+
+// Admin → Petty Cash voucher receipts / bills (R2 keys under petty-cash/).
+app.post(
+  '/api/petty-cash/r2/upload',
+  (req, res, next) => {
+    r2InvoiceUpload.single('file')(req, res, (err) => {
+      if (!err) {
+        next();
+        return;
+      }
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        res.status(400).json({ message: `File too large (max ${R2_MAX_ATTACHMENT_BYTES} bytes).` });
+        return;
+      }
+      res.status(400).json({ message: err.message || 'Upload failed.' });
+    });
+  },
+  requirePettyCashR2,
+  async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user?.id) {
+        return res.status(401).json({ message: 'Invalid or expired session.' });
+      }
+      const bucket = getR2BucketName();
+      const voucherId = sanitizeR2UploadFileName(String(req.body?.voucherId || 'draft').trim() || 'draft');
+      const rawName = String(req.body?.fileName || '').trim();
+      if (!rawName) {
+        return res.status(400).json({ message: 'fileName is required.' });
+      }
+      if (!req.file?.buffer) {
+        return res.status(400).json({ message: 'file is required (multipart field name: file).' });
+      }
+
+      const contentTypeHint = String(req.body?.contentType || req.file.mimetype || '').trim();
+      const resolvedType = resolveR2ContentType(rawName, contentTypeHint || null);
+      const safeName = sanitizeR2UploadFileName(rawName);
+      const objectKey = `${R2_PETTY_CASH_KEY_PREFIX}${user.id}/${voucherId}/${Date.now()}-${safeName}`;
+
+      const client = getR2S3Client();
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: objectKey,
+          Body: req.file.buffer,
+          ContentType: resolvedType,
+        })
+      );
+
+      res.json({ objectKey, bucket, contentType: resolvedType, fileName: safeName });
+    } catch (err) {
+      const status = Number(err?.status) || 500;
+      res.status(status).json({ message: err?.message || 'Upload failed.' });
+    }
+  }
+);
+
+app.post('/api/petty-cash/r2/presign-get', requirePettyCashR2, async (req, res) => {
+  try {
+    const bucket = getR2BucketName();
+    const objectKey = String(req.body?.objectKey || '').trim().replace(/^\/+/, '');
+    if (
+      !objectKey.startsWith(R2_PETTY_CASH_KEY_PREFIX) ||
+      objectKey.includes('..') ||
+      objectKey.includes('//')
+    ) {
+      return res.status(400).json({ message: 'Invalid object key.' });
+    }
+
+    const downloadName = sanitizeR2UploadFileName(
+      String(req.body?.fileName || objectKey.split('/').pop() || 'download').trim() || 'download'
+    );
+    const asDownload = Boolean(req.body?.download);
+
+    const client = getR2S3Client();
+    const getCmd = new GetObjectCommand({
+      Bucket: bucket,
+      Key: objectKey,
+      ...(asDownload ? { ResponseContentDisposition: `attachment; filename="${downloadName}"` } : {}),
+    });
+    const getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
+    res.json({ getUrl });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ message: err?.message || 'Presign GET failed.' });
+  }
+});
+
+app.post('/api/petty-cash/r2/delete', requirePettyCashR2, async (req, res) => {
+  try {
+    const bucket = getR2BucketName();
+    const objectKey = String(req.body?.objectKey || '').trim().replace(/^\/+/, '');
+    if (
+      !objectKey.startsWith(R2_PETTY_CASH_KEY_PREFIX) ||
       objectKey.includes('..') ||
       objectKey.includes('//')
     ) {

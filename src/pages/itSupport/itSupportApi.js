@@ -1,6 +1,6 @@
 import { supabase } from "../../lib/supabase";
 import { isSupabaseRealtimeEnabled } from "../../lib/supabaseConfig";
-import { ACCESS_KEYS } from "./itSupportConstants";
+import { ACCESS_KEYS, HARDWARE_ACCESS_KEYS, HARDWARE_SUPPORT_PARENT_KEY } from "./itSupportConstants";
 import { uploadItSupportFileToR2 } from "../../lib/itSupportR2";
 
 /** Max attachment size — must match server R2_IT_SUPPORT_MAX_BYTES (10 MB). */
@@ -27,16 +27,21 @@ const TICKET_SELECT = `
   requester_id, requester_employee_code, requester_department,
   requester_display_name, assignee_display_name,
   erp_module_key, erp_module_label, erp_submodule_key, erp_submodule_label,
-  impact, priority, status, assignee_id,
+  support_type, impact, priority, status, assignee_id,
   first_response_due_at, resolution_due_at, first_responded_at,
   sla_paused_at, sla_paused_total_mins, first_response_breached, resolution_breached,
   created_at, updated_at, resolved_at, closed_at, reopen_deadline_at, auto_close_at,
   deleted_at, last_status_remark,
-  category:it_ticket_categories!category_id(id, name),
+  category:it_ticket_categories!category_id(id, name, support_type),
   subcategory:it_ticket_subcategories!subcategory_id(id, name),
   assignee:profiles!assignee_id(id, username, email, employee_code),
   requester:profiles!requester_id(id, username, email, employee_code)
 `;
+
+function normalizeTypeFilter(supportType) {
+  if (supportType === "hardware" || supportType === "software") return supportType;
+  return null;
+}
 
 function throwIf(error, fallback = "Something went wrong.") {
   if (!error) return;
@@ -114,11 +119,14 @@ export async function listQueueTickets({
   requesterId = "",
   categoryId = "",
   erpModuleKey = "",
+  supportType = "",
   breachedOnly = false,
 } = {}) {
   let q = liveTickets(
     supabase.from("it_tickets").select(TICKET_SELECT).order("created_at", { ascending: false })
   );
+  const typeFilter = normalizeTypeFilter(supportType);
+  if (typeFilter) q = q.eq("support_type", typeFilter);
   if (status) q = q.eq("status", status);
   if (priority) q = q.eq("priority", priority);
   if (assigneeId === "unassigned") q = q.is("assignee_id", null);
@@ -241,12 +249,14 @@ export async function createTicket({
   erpModuleLabel,
   erpSubmoduleKey,
   erpSubmoduleLabel,
+  supportType = "software",
   ccUserIds = [],
   requesterId,
   requesterEmployeeCode,
   requesterDepartment,
   files = [],
 }) {
+  const resolvedType = normalizeTypeFilter(supportType) || "software";
   const payload = {
     title: String(title || "").trim(),
     description: description || "",
@@ -257,6 +267,7 @@ export async function createTicket({
     erp_module_label: erpModuleLabel || null,
     erp_submodule_key: erpSubmoduleKey || null,
     erp_submodule_label: erpSubmoduleLabel || null,
+    support_type: resolvedType,
     requester_id: requesterId,
     requester_employee_code: requesterEmployeeCode || null,
     requester_department: requesterDepartment || null,
@@ -277,10 +288,22 @@ export async function createTicket({
     p_erp_submodule_key: payload.erp_submodule_key,
     p_erp_submodule_label: payload.erp_submodule_label,
     p_cc_user_ids: ccIds.length ? ccIds : null,
+    p_support_type: resolvedType,
   });
 
   if (!rpc.error && rpc.data) {
     ticket = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
+    // Older RPC without p_support_type still succeeds — patch type if needed.
+    if (ticket?.id && ticket.support_type !== resolvedType) {
+      const patched = await supabase
+        .from("it_tickets")
+        .update({ support_type: resolvedType })
+        .eq("id", ticket.id)
+        .select(TICKET_SELECT)
+        .maybeSingle();
+      if (!patched.error && patched.data) ticket = patched.data;
+      else ticket = { ...ticket, support_type: resolvedType };
+    }
   } else {
     // Fallback: allocate number then insert
     const alloc = await supabase.rpc("it_allocate_ticket_no");
@@ -467,25 +490,36 @@ async function appendHistory({ ticketId, eventType, fromValue = null, toValue = 
  * @param {{ forRaise?: boolean }} [opts] — forRaise uses SECURITY DEFINER RPC so any
  *   active user gets active values without Masters-page access.
  */
-export async function listCategories({ forRaise = false } = {}) {
+export async function listCategories({ forRaise = false, supportType } = {}) {
+  const typeFilter = normalizeTypeFilter(supportType);
+
   if (forRaise) {
-    const rpc = await supabase.rpc("it_list_raise_masters");
+    const rpcArgs = typeFilter ? { p_support_type: typeFilter } : {};
+    const rpc = await supabase.rpc("it_list_raise_masters", rpcArgs);
     if (!rpc.error && rpc.data && typeof rpc.data === "object") {
       const payload = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
-      return {
-        categories: Array.isArray(payload?.categories) ? payload.categories : [],
-        subcategories: Array.isArray(payload?.subcategories) ? payload.subcategories : [],
-      };
+      let categories = Array.isArray(payload?.categories) ? payload.categories : [];
+      let subcategories = Array.isArray(payload?.subcategories) ? payload.subcategories : [];
+      if (typeFilter) {
+        categories = categories.filter((c) => !c.support_type || c.support_type === typeFilter);
+        const catIds = new Set(categories.map((c) => c.id));
+        subcategories = subcategories.filter((s) => catIds.has(s.category_id));
+      }
+      return { categories, subcategories };
     }
     // Fall through to table select if RPC not deployed yet.
   }
 
+  let catsQ = supabase
+    .from("it_ticket_categories")
+    .select("id, name, description, is_active, sort_order, support_type, created_at")
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+  if (typeFilter) catsQ = catsQ.eq("support_type", typeFilter);
+  if (forRaise) catsQ = catsQ.eq("is_active", true).is("deleted_at", null);
+
   const [{ data: cats, error: cErr }, { data: subs, error: sErr }] = await Promise.all([
-    supabase
-      .from("it_ticket_categories")
-      .select("id, name, description, is_active, sort_order, created_at")
-      .order("sort_order", { ascending: true })
-      .order("name", { ascending: true }),
+    catsQ,
     supabase
       .from("it_ticket_subcategories")
       .select("id, category_id, name, description, is_active, sort_order, created_at")
@@ -494,7 +528,13 @@ export async function listCategories({ forRaise = false } = {}) {
   ]);
   throwIf(cErr, "Could not load categories.");
   throwIf(sErr, "Could not load subcategories.");
-  return { categories: cats || [], subcategories: subs || [] };
+  let categories = cats || [];
+  let subcategories = subs || [];
+  if (typeFilter) {
+    const catIds = new Set(categories.map((c) => c.id));
+    subcategories = subcategories.filter((s) => catIds.has(s.category_id));
+  }
+  return { categories, subcategories };
 }
 
 export async function listSlaRules() {
@@ -516,6 +556,7 @@ export async function upsertCategory(row) {
     description: row.description || null,
     is_active: row.is_active !== false,
     sort_order: Number(row.sort_order) || 0,
+    support_type: normalizeTypeFilter(row.support_type) || "software",
   };
   const { data, error } = await supabase
     .from("it_ticket_categories")
@@ -652,11 +693,20 @@ export async function listAgents() {
     const mods = Array.isArray(p.allowed_modules) ? p.allowed_modules.map(String) : [];
     if (mods.includes("itIs")) return true;
     const subs = Array.isArray(p.allowed_sub_modules) ? p.allowed_sub_modules.map(String) : [];
-    return (
+    const softwareAgent =
       subs.includes(ACCESS_KEYS.agent) ||
       subs.includes(ACCESS_KEYS.admin) ||
-      subs.some((s) => s.includes("helpdesk-agent") || s.includes("helpdesk-admin"))
-    );
+      subs.some((s) => s.includes("helpdesk-agent") || s.includes("helpdesk-admin"));
+    const hardwareAgent =
+      subs.includes(HARDWARE_SUPPORT_PARENT_KEY) ||
+      subs.includes(HARDWARE_ACCESS_KEYS.dashboard) ||
+      subs.includes(HARDWARE_ACCESS_KEYS.queue) ||
+      subs.includes(HARDWARE_ACCESS_KEYS.tickets) ||
+      subs.includes(HARDWARE_ACCESS_KEYS.masters) ||
+      subs.includes(HARDWARE_ACCESS_KEYS.reports) ||
+      subs.some((s) => String(s).startsWith("itIs.hardware-support."));
+    // Assignee master is shared; include either software or hardware agents.
+    return softwareAgent || hardwareAgent;
   });
 }
 
@@ -739,28 +789,41 @@ export function createItSupportRefreshScheduler(fn, ms = 350) {
   };
 }
 
-export async function dashboardCounts({ userId } = {}) {
+export async function dashboardCounts({ userId, supportType } = {}) {
   const today = startOfTodayIso();
-  const base = () => liveTickets(supabase.from("it_tickets").select("id", { count: "exact", head: true }));
+  const typeFilter = normalizeTypeFilter(supportType);
+  const base = () => {
+    let q = liveTickets(supabase.from("it_tickets").select("id", { count: "exact", head: true }));
+    if (typeFilter) q = q.eq("support_type", typeFilter);
+    return q;
+  };
 
   const [newRes, mineRes, holdRes, breachedRes, resolvedRes] = await Promise.all([
     base().eq("status", "new"),
     userId ? base().eq("assignee_id", userId).not("status", "in", '("closed","resolved")') : Promise.resolve({ count: 0 }),
     base().eq("status", "on_hold"),
-    liveTickets(
-      supabase
-        .from("it_tickets")
-        .select("id", { count: "exact", head: true })
-        .or("first_response_breached.eq.true,resolution_breached.eq.true")
-        .not("status", "in", '("closed")')
-    ),
-    liveTickets(
-      supabase
-        .from("it_tickets")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "resolved")
-        .gte("resolved_at", today)
-    ),
+    (() => {
+      let q = liveTickets(
+        supabase
+          .from("it_tickets")
+          .select("id", { count: "exact", head: true })
+          .or("first_response_breached.eq.true,resolution_breached.eq.true")
+          .not("status", "in", '("closed")')
+      );
+      if (typeFilter) q = q.eq("support_type", typeFilter);
+      return q;
+    })(),
+    (() => {
+      let q = liveTickets(
+        supabase
+          .from("it_tickets")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "resolved")
+          .gte("resolved_at", today)
+      );
+      if (typeFilter) q = q.eq("support_type", typeFilter);
+      return q;
+    })(),
   ]);
 
   [newRes, mineRes, holdRes, breachedRes, resolvedRes].forEach((r) => {
@@ -776,14 +839,16 @@ export async function dashboardCounts({ userId } = {}) {
   };
 }
 
-export async function reportAggregates({ fromDate, toDate } = {}) {
+export async function reportAggregates({ fromDate, toDate, supportType } = {}) {
   let q = liveTickets(
     supabase
       .from("it_tickets")
       .select(
-        "id, ticket_no, status, priority, category_id, created_at, resolved_at, first_response_breached, resolution_breached, erp_module_key, erp_module_label, erp_submodule_key, erp_submodule_label, requester_display_name, category:it_ticket_categories!category_id(name), requester:profiles!requester_id(username, email)"
+        "id, ticket_no, status, priority, category_id, support_type, created_at, resolved_at, first_response_breached, resolution_breached, erp_module_key, erp_module_label, erp_submodule_key, erp_submodule_label, requester_display_name, category:it_ticket_categories!category_id(name), requester:profiles!requester_id(username, email)"
       )
   );
+  const typeFilter = normalizeTypeFilter(supportType);
+  if (typeFilter) q = q.eq("support_type", typeFilter);
   if (fromDate) q = q.gte("created_at", fromDate);
   if (toDate) q = q.lte("created_at", toDate);
   const { data, error } = await q;

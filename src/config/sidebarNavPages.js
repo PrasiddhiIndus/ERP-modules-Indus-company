@@ -7,7 +7,9 @@
  */
 import { MARKETING_NAV_ITEMS } from "../pages/marketing/marketingNav";
 import { canAccessRulesConsole } from "../pages/adminOperations/rulesConsole/rulesConsoleAccess";
+import { canViewPettyCash } from "../pages/adminOperations/pettyCash/pettyCashPermissions";
 import { EMPLOYEE_MASTER_SUBMODULE_KEY } from "../pages/adminOperations/salaryAdmin/salaryAccess";
+import { resolveItSupportAccess } from "../pages/itSupport/itSupportAccess";
 import {
   NAV_MODULE_TREE,
   ROLES,
@@ -16,6 +18,7 @@ import {
   HR_RECRUITMENT_FAMILY,
   PROBATION_REVIEWS_APP_PATH,
   RULES_CONSOLE_SUBMODULE_KEY,
+  PETTY_CASH_SUBMODULE_KEY,
   canSeeNavPath,
   canSeeSubModule,
   getNavVisibleModuleKeys,
@@ -120,10 +123,11 @@ function expandTreeSubmodule(modValue, sub) {
   if (!sub?.value || !sub?.label) return [];
   if (NAV_HIDDEN_SUBMODULE_KEYS.has(sub.value)) return [];
 
-  // IT/IS helpdesk role buckets → single sidebar "IT Support" link.
+  // IT/IS helpdesk / hardware role buckets → single sidebar "IT Support" link.
   if (sub.value === "itIs.helpdesk-agent" || sub.value === "itIs.helpdesk-admin") return [];
+  if (String(sub.value).startsWith("itIs.hardware-support")) return [];
   if (sub.value === "itIs.helpdesk") {
-    return [page({ value: "itIs.helpdesk", label: "IT Support", path: sub.pathPrefix, gate: "helpdesk" })];
+    return [page({ value: "itIs.helpdesk", label: "IT Support", path: "/app/it-support", gate: "helpdesk" })];
   }
 
   if (sub.value === "admin.employee") {
@@ -161,6 +165,7 @@ function expandTreeSubmodule(modValue, sub) {
   else if (sub.value === HR_RECRUITMENT_FAMILY.parentKey) gate = "hrRecruitment";
   else if (sub.value === ADMIN_RECRUITMENT_SUBMODULE_KEY) gate = "adminRecruitment";
   else if (sub.value === RULES_CONSOLE_SUBMODULE_KEY) gate = "rulesConsole";
+  else if (sub.value === PETTY_CASH_SUBMODULE_KEY) gate = "pettyCash";
   else if (sub.value === "fireTender.dashboard") gate = "path";
   else if (sub.value === "fireTender.manufacturing") gate = "path";
   else if (modValue === "amc") gate = "path";
@@ -229,7 +234,8 @@ export function canSeeSidebarPage(page, ctx) {
 
   switch (gate) {
     case "helpdesk":
-      return Boolean(ctx.profile) && ctx.profile.is_active !== false;
+      // Super Admin / full itIs / explicit Software or Hardware Support grants only.
+      return resolveItSupportAccess(ctx.profile).hasAny;
     case "enquiry":
       return getOpenableProjectsEnquiryTabs(ctx.profile, ctx.accessibleModules, ctx.subModulePaths).length > 0;
     case "contract":
@@ -264,6 +270,8 @@ export function canSeeSidebarPage(page, ctx) {
     }
     case "rulesConsole":
       return canAccessRulesConsole(ctx.profile, ctx.accessibleModules);
+    case "pettyCash":
+      return canViewPettyCash(ctx.profile, ctx.accessibleModules, meta);
     case "probation":
       return Boolean(ctx.flags?.probationReviews);
     case "path": {
