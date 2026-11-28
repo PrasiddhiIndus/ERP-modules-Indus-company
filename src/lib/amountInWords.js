@@ -57,9 +57,9 @@ export function amountInWords(amount) {
   return parts.join(" ");
 }
 
-/** e.g. "Rupees nine hundred ninety-four only" */
+/** e.g. "Rupees Seventeen Thousand Eight Hundred Fifty Eight Only" */
 export function rupeesInWords(amount) {
   const words = amountInWords(amount);
   if (!words) return "—";
-  return `Rupees ${words.charAt(0).toLowerCase()}${words.slice(1)} only`;
+  return `Rupees ${words} Only`;
 }
