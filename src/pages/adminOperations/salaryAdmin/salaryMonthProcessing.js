@@ -328,8 +328,9 @@ export function presentDaysExceedWorkingDays(presentDaysOrLine, workingDays) {
 
 /**
  * Salary P.Days from the daily register: present + paid leave on Mon–Sat only.
- * Sundays (week off) are never counted; 3rd-Saturday WO counts for non-excluded departments.
- * Days strictly before DOJ never count (including blank paid 3rd-Saturday cells).
+ * Sundays (week off) are never counted; 3rd-Saturday WO counts only when that day is a
+ * weekly off for the employee. Worked 3rd Saturday counts only with an actual Present mark.
+ * Days strictly before DOJ never count.
  * Result is capped at the month slab.
  */
 export function salaryPresentDaysFromDayMarks(dayMarks, year, month, department, dateOfJoining = null) {
