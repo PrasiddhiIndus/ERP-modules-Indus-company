@@ -17,6 +17,7 @@ import {
   isPoWithoutPoBilling,
 } from '../../constants/poBasis';
 import { buildCommercialClientProfiles } from '../../utils/commercialClientProfiles';
+import { newUuid } from '../../utils/newUuid';
 import {
   buildRenewalCyclesForNewSiteOcPo,
   collectSiteOcPoNumberHistory,
@@ -2218,7 +2219,7 @@ const POEntry = () => {
     const newId =
       editId ??
       pendingCreateIdRef.current ??
-      (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`);
+      newUuid();
     if (!editId) pendingCreateIdRef.current = newId;
     const nowIso = new Date().toISOString();
     const historyPrev = Array.isArray(prevPo?.updateHistory) ? [...prevPo.updateHistory] : [];

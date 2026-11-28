@@ -6,6 +6,7 @@ import { isValidDateInputValue, normalizeDateInputValue } from '../../utils/date
 import FormDateInput from "../../components/FormDateInput";
 import { PageTaskHeader, PageShell, PrimaryButton } from "../../components/erpUi";
 import { confirmDialog } from "../../lib/dialog";
+import { newUuid } from '../../utils/newUuid';
 
 /** OC middle segment (shown after IFSPL- … -OC-YY/YY). Legacy PO rows may still use MANP etc. */
 const OC_LINE_OPTIONS = ['Manpower', 'Training', 'R&M', 'M&M', 'AMC', 'IEV'];
@@ -371,7 +372,7 @@ const POEntry = () => {
     const rates = Array.from(ratesMap.values());
     const totalVal = Number(formData.totalContractValue) || 0;
     const prevPo = editId ? commercialPOs.find((p) => p.id === editId) : null;
-    const newId = editId ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`);
+    const newId = editId ?? newUuid();
     const nowIso = new Date().toISOString();
     const po = {
       id: newId,

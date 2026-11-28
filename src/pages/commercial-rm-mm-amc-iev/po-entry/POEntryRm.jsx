@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -35,6 +35,7 @@ import {
   isPoWithoutPoBilling,
 } from '../../../constants/poBasis';
 
+import { newUuid } from '../../../utils/newUuid';
 import { toast } from "../../../lib/toast";
 import { confirmDialog, promptDialog } from "../../../lib/dialog";
 
@@ -391,6 +392,8 @@ const POEntry = ({
   const [gstTypeError, setGstTypeError] = useState('');
   const [saveError, setSaveError] = useState('');
   const [savingPo, setSavingPo] = useState(false);
+  const saveLockRef = useRef(false);
+  const pendingCreateIdRef = useRef(null);
   const canApproveCommercialPOs = userCanApproveInModules(userProfile, accessibleModules, approverModuleKeys);
   const currentActorName = getCommercialPoActorDisplayName(userProfile, user);
   const highlightedPoId = useMemo(
@@ -623,6 +626,8 @@ const POEntry = ({
   }, [commercialPOs]);
 
   const handleOpenAdd = () => {
+    pendingCreateIdRef.current =
+      newUuid();
     setEditId(null);
     const vertForDummy = fixedVertical || departmentFilter || INITIAL_FORM_RM.vertical;
     const useWithout = listPoBasisFilter === 'without_po';
@@ -646,6 +651,7 @@ const POEntry = ({
   };
 
   const handleOpenEdit = (po) => {
+    pendingCreateIdRef.current = null;
     setEditId(po.id);
     const cycles = Array.isArray(po.renewalCycles) ? po.renewalCycles : [];
     const parsed = parseStructuredOc(po.ocNumber);
@@ -919,7 +925,9 @@ const POEntry = ({
   };
 
   const savePO = async () => {
-    if (savingPo) return;
+    if (saveLockRef.current || savingPo) return;
+    saveLockRef.current = true;
+    try {
     if (formData.gstin && !validateGSTIN(formData.gstin)) { setGstinError('Fix GSTIN before saving'); return; }
     if (formData.contactNumber && normalizeContactNumber(formData.contactNumber).length !== 10) {
       setContactError('Contact Number must be exactly 10 digits.');
@@ -1015,7 +1023,11 @@ const POEntry = ({
           : 0,
     }));
     const prevPo = editId ? commercialPOs.find((p) => p.id === editId) : null;
-    const newId = editId ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`);
+    const newId =
+      editId ??
+      pendingCreateIdRef.current ??
+      newUuid();
+    if (!editId) pendingCreateIdRef.current = newId;
     const nowIso = new Date().toISOString();
     const historyPrev = Array.isArray(prevPo?.updateHistory) ? [...prevPo.updateHistory] : [];
     if (editId && prevPo) {
@@ -1130,8 +1142,16 @@ const POEntry = ({
     setSavingPo(true);
     try {
       if (editId) await setCommercialPOs((prev) => prev.map((p) => (p.id === editId ? po : p)));
-      else await setCommercialPOs((prev) => [...prev, po]);
+      else {
+        await setCommercialPOs((prev) => {
+          const list = prev || [];
+          const idx = list.findIndex((p) => String(p.id) === String(po.id));
+          if (idx >= 0) return list.map((p, i) => (i === idx ? po : p));
+          return [...list, po];
+        });
+      }
       setSaveError('');
+      pendingCreateIdRef.current = null;
       setShowForm(false);
       setEditId(null);
       setFormData(freshEmptyForm());
@@ -1142,6 +1162,9 @@ const POEntry = ({
       toast.warning(msg);
     } finally {
       setSavingPo(false);
+    }
+    } finally {
+      saveLockRef.current = false;
     }
   };
 
@@ -1537,7 +1560,10 @@ const POEntry = ({
               </div>
               <button
                 type="button"
-                onClick={() => setShowForm(false)}
+                onClick={() => {
+                  pendingCreateIdRef.current = null;
+                  setShowForm(false);
+                }}
                 className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
                 aria-label="Close"
                 title="Close"
@@ -2271,7 +2297,7 @@ const POEntry = ({
             </div>
             <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-2 bg-white sticky bottom-0">
               {saveError && <p className="text-sm text-red-600 mr-auto self-center">{saveError}</p>}
-              <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+              <button type="button" onClick={() => { pendingCreateIdRef.current = null; setShowForm(false); }} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
               <button
                 type="button"
                 onClick={savePO}

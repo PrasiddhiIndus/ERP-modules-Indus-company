@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useBilling } from '../../contexts/BillingContext';
 import { BILLING_AUTOSAVE_KEYS } from '../../utils/billingFormAutosave';
-import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';;
+import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';
+import { newUuid } from '../../utils/newUuid';
 import FormDateInput from "../../components/FormDateInput";
 
 import {
@@ -976,10 +977,21 @@ const WOPOManagement = () => {
                     );
                     setEditId(null);
                   } else {
-                    setList((prev) => [
-                      ...prev,
-                      { id: Math.max(0, ...prev.map((r) => r.id)) + 1, ...payload },
-                    ]);
+                    const newId = newUuid();
+                    setList((prev) => {
+                      const list = prev || [];
+                      const same = list.find((row) => {
+                        const sameNo =
+                          String(row.wo_number || row.poWoNumber || row.po_wo_number || '').trim().toLowerCase()
+                          === String(payload.wo_number || '').trim().toLowerCase();
+                        const sameOc =
+                          String(row.oc_number || row.ocNumber || '').trim().toLowerCase()
+                          === String(payload.oc_number || '').trim().toLowerCase();
+                        return sameNo && sameOc && String(payload.wo_number || '').trim();
+                      });
+                      if (same) return list.map((row) => (row.id === same.id ? { ...row, ...payload, id: same.id } : row));
+                      return [...list, { id: newId, ...payload }];
+                    });
                     setShowAddForm(false);
                   }
                   setFormData(initialForm);
